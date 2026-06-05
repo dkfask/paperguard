@@ -61,3 +61,6 @@ fixtures/private/
 .env.local
 *.pem
 *.key
+
+# codegraph 索引
+.codegraph/

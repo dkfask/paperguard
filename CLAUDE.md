@@ -12,9 +12,10 @@
 
 | 路径 | 用途 | 何时读 |
 |------|------|--------|
+| **`docs/codebase-map.md`** | **代码图谱（codegraph 生成）**——37 文件 / 618 节点 / 1479 边的实际项目结构 | 任何"项目现在长啥样"的问题 |
+| **`docs/design-proposal.md`** | **架构圣经**——4 层架构、IR 模型、YAML 规则 DSL、3 阶段路线 | 任何实现细节的疑问 |
 | **`SKILL.md`** | AI agent 入口（Claude/Codex/Gemini 调用本项目的入口） | 用户问"AI 怎么调用"时 |
 | **`SKILL_USAGE.md`** | 人类用户 5 分钟快速上手 | 用户问"我怎么用"时 |
-| **`docs/design-proposal.md`** | **架构圣经**——4 层架构、IR 模型、YAML 规则 DSL、3 阶段路线 | 任何实现细节的疑问 |
 | **`docs/research-report.md`** | 5 份 GitHub 调研综合 | 任何"为什么这么选"的问题 |
 | **`docs/format-thesis-docx-review.md`** | 参考项目 945 行精读 | 想看"具体实现可参考什么"时 |
 | **`docs/skill-spec-check.md`** | SKILL.md ↔ design-proposal.md 一致性自检 | 怀疑 SKILL.md 描述与设计文档脱节时 |
@@ -36,15 +37,22 @@
 
 | 维度 | 状态 |
 |------|------|
-| 调研 | ✅ 5 份子报告 + 1 份参考精读 + 1 份一致性自检 |
+| 调研 | ✅ 5 份子报告 + 1 份参考精读 + 1 份一致性自检 + **1 份代码图谱**（codegraph） |
 | 设计 | ✅ 4 层架构 + IR + 规则包 + Sprint 计划（v1.1） |
-| 文档 | ✅ 7 份文档（SKILL.md / SKILL_USAGE.md / 4 份 docs / HANDOFF.md） |
-| 代码 | ❌ 0 行（未开工） |
-| Fixture | ❌ 无（项目里现成的 .codex_smoke.docx / .ptpl 暂未用作 fixture） |
-| 测试 | ❌ 无 |
+| 文档 | ✅ 9 份文档（SKILL.md / SKILL_USAGE.md / 6 份 docs / HANDOFF.md / CLAUDE.md） |
+| 已有代码 | ✅ **PyQt5 桌面应用骨架**（`app/` 5 controllers + 3 models + 9 services + 9 views，454 symbols） |
+| 已有测试 | ✅ **`tests/test_workflow.py` 64 symbols**（workflow 集成测试） |
+| 代码图谱 | ✅ `.codegraph/` 索引 37 文件 / 618 节点 / 1479 边（1.72 MB） |
+| Fixture | ❌ 无（项目里现成的 .ptpl 可作早期 fixture） |
+| 新核心代码 | ❌ 0 行（**`src/paperguard/` 未建**） |
 | CI | ❌ 无 |
 
-**下一步**：MVP Sprint 1——项目脚手架（uv init + pyproject.toml + 目录结构）+ IR 数据结构单元测试 + 第一个 docx_loader MVP。
+**架构现状**（基于 codegraph）：
+- 已有：L4 PyQt 视图 + L4 控制器 + L1 业务模型（PyQt MVC 完整）
+- 已有雏形：L2 services（`format_validator` 7 symbols / `docx_generator` 30 / `word_template_importer` 26）
+- 完全缺失：CLI 入口 / YAML 规则包 / 真正的规则引擎 / 报告层 / 修复（mutator）
+
+**下一步**：MVP Sprint 1——**新建并行 `src/paperguard/` 核心**，**不破坏** PyQt 现有代码。Sprint 1 第一步：`pytest tests/test_workflow.py` 让现有 64 symbols 测试通过，建立信心。
 
 ## 常见任务速查
 
