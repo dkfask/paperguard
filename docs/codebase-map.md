@@ -5,6 +5,14 @@
 > **索引规模**：37 文件 / 618 节点 / 1479 边 / 1.72 MB DB
 > **本目录是 `true` 的"项目代码长啥样"**——和 `docs/design-proposal.md` 的"未来架构"对照看。
 
+## 0. 2026-06-05 v1.2 更新
+
+**产品定位升级**：从"事后批改工具"升级为"**PyQt 实时约束 + CLI 事后批改**双模式"。
+
+**关键洞察**：PyQt 现有 `app/views/content_editor.py` 23 symbols 本身**就是学生写作工具**——PaperGuard 实时约束不需要新写编辑器，**只需在 ContentEditor 里加一个 LiveFormatChecker 即可**。
+
+详见 [`docs/design-proposal.md`](./design-proposal.md) v1.2 修订记录 + §4.1 新增模块设计。
+
 ---
 
 ## 1. 一句话总结
@@ -238,13 +246,16 @@ def validate_project(project) -> list[ValidationIssue]:
 | 🔴 P0 | `app/services/format_validator.py` | **核心规则引擎雏形**——Sprint 1 直接 fork 它做升级 |
 | 🔴 P0 | `app/services/word_template_importer.py` | **extract 功能的基础** |
 | 🔴 P0 | `tests/test_workflow.py` | **现有测试基础设施**——Sprint 1 复用 |
+| 🔴 P0 | `app/views/content_editor.py` | **🆕 v1.2 实时约束挂载点**——Sprint 1.5 集成 LiveFormatChecker |
 | 🟡 P1 | `app/services/docx_generator.py` | **writer**——Sprint 5 复用 |
 | 🟡 P1 | `app/services/template_parser.py` | **YAML 解析参考** |
 | 🟡 P1 | `app/models/template.py` | **模板数据模型**——需要泛化为 "Rule Pack" |
 | 🟢 P2 | `app/models/format_config.py` | **格式配置数据模型** |
 | 🟢 P2 | `app/services/content_blocks.py` | 内容块拼装（V1 复用） |
-| ⚪ P3 | `app/views/*` | UI 层——**Sprint 1-5 不动** |
-| ⚪ P3 | `app/controllers/*` | 控制器层——**Sprint 1-5 不动** |
+| 🆕 v1.2 | `app/services/live_format_checker.py` | **新建**——Sprint 1.5 实现，0.5s debounce 实时检查 |
+| 🆕 v1.2 | `app/core/reporters/pyqt_reporter.py` | **新建**——Sprint 1.5 实现，把 Finding[] 转为 QtIssue[] |
+| ⚪ P3 | `app/views/main_window.py` 等 | UI 层——Sprint 1-5 几乎不动 |
+| ⚪ P3 | `app/controllers/*` | 控制器层——Sprint 1-5 几乎不动 |
 
 ---
 

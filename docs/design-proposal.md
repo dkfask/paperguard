@@ -2,9 +2,10 @@
 
 > **基于**：`docs/research-report.md`（5 份 GitHub 调研综合）
 > **精读参考**：`docs/format-thesis-docx-review.md`（wksudud/format-thesis-docx 945 行源码逐行精读）
-> **目标**：让任何高校/期刊用一份 YAML 规范包，就能把学生的 .docx 论文自动批改到符合本校格式
+> **代码图谱**：`docs/codebase-map.md`（codegraph 生成的 37 文件 / 618 节点 / 1479 边索引）
+> **目标**：让任何高校/期刊用一份 YAML 规范包，在学生**写作时**就约束规范，提交时已合规；同时支持**事后批改**（CLI / CI / 批量审稿）
 > **代号**（暂定）：**PaperGuard**（取"论文守门员"之意）
-> **首期范围**：Word (`.docx`) 输入 → 规范校验 → 报告 + 修复
+> **首期范围**：PyQt 编辑器实时约束 + CLI 事后批改，共用同一套规则引擎
 
 ## 修订记录
 
@@ -12,17 +13,36 @@
 |------|------|--------|---------|
 | v1.0 | 2026-06-05 | 调研 agent | 初稿：4 层架构 + IR + 规则包 + 3 阶段路线 |
 | v1.1 | 2026-06-05 | 本次 | ① §3.1 IR 属性名改为**点分命名**（`font.eastAsia`）以对齐 OOXML 原始 key；② §7 MVP 路线新增 Sprint 2.5（模板自动抽取）和 Sprint 4.5（修复后验证）；③ §13 新增"与 format-thesis-docx 的核心差异" |
+| v1.2 | 2026-06-05 | **用户反馈 + 本次** | **产品定位升级**：从"事后批改"扩展为"**PyQt 实时约束 + CLI 事后批改**双模式"。① §1 定位表更新；② §4 模块结构增加 `LiveFormatChecker` 和 `pyqt_reporter`；③ §7 增加 Sprint 1.5（Live Checker 实时约束）；④ §6 核心工作流增加 PyQt 实时约束流程；⑤ §9 风险表增加"实时检查性能" |
 
 ---
 
 ## 1. 产品定位
 
-| 维度 | 定位 |
-|------|------|
-| **用户** | 高校学生（写论文）+ 教务 / 答辩秘书（批量审稿）+ 导师（终审） |
-| **场景** | 学生写完初稿 → 跑 PaperGuard → 看报告 → 一键修复 → 重新跑直到全绿 → 提交 |
-| **差异化** | GitHub 上**没有任何项目**同时满足：① 规则可配置（YAML）；② 自动批改 + 修复；③ 跨校通用；④ AI Agent 入口 |
-| **不做什么** | 不做 docx 在线编辑器（复杂度极高）；不做全流程管理（教学管理系统做）；不做内容生成（AI 写作助手做） |
+### 1.1 一句话
+> 在学生**写作时**就约束规范，**提交时已合规**，**教师零负担**。同时支持 CLI 事后批改（CI / 批量审稿）。
+
+### 1.2 双模式产品形态
+
+| 模式 | 用户 | 入口 | 时机 | 体验 |
+|------|------|------|------|------|
+| **🔴 实时约束**（主） | 学生 | PyQt 编辑器（`app/views/content_editor.py`） | 写作时 | Grammarly 式：边写边提示、边改 |
+| **🟡 事后批改**（辅） | 教务 / 答辩秘书 / AI Agent | CLI / Web | 提交后 | 跑命令 → 报告 → 修复 |
+
+**两者共用同一套规则引擎**（`app/core/engine/`），差异只在**报告层**：
+- PyQt：实时 signal → 侧边栏 + 高亮 + 一键修复按钮
+- CLI：JSON / HTML / SARIF 报告
+- Web：上传 → 报告页面
+
+### 1.3 核心约束（不做什么）
+
+| ❌ 不做 | 理由 |
+|---------|------|
+| docx 在线编辑器 | 复杂度极高；学生直接用 PyQt 编辑器 |
+| 全流程管理 | 教学管理系统做 |
+| 内容生成 / 改写 | AI 写作助手做；PaperGuard 只动格式 |
+| 改原文 | `fix` 永远输出新文件（硬约束） |
+| LaTeX | V2 才考虑 |
 
 ---
 
@@ -284,76 +304,201 @@ rules:
 paperguard/
 ├── pyproject.toml
 ├── README.md
-├── src/paperguard/
+├── app/                                ← PyQt 桌面应用（与 core 共享代码库）
+│   ├── core/                           ← 🆕 核心库（**严格无 PyQt 依赖**）
+│   │   ├── __init__.py
+│   │   ├── ir/                         # 中间表示（不可变 dataclass）
+│   │   │   ├── doc.py
+│   │   │   ├── paragraph.py
+│   │   │   ├── run.py
+│   │   │   ├── section.py
+│   │   │   └── finding.py              # Finding.fix_suggestion 给 PyQt 一键修复用
+│   │   ├── loaders/                    # L1：解析 docx
+│   │   │   ├── docx_loader.py          # python-docx + lxml 下钻
+│   │   │   ├── ooxml_helpers.py        # 双字体、字号等中文特化处理
+│   │   │   └── pandoc_loader.py        # V2：md → IR（可选）
+│   │   ├── engine/                     # L2：规则引擎
+│   │   │   ├── registry.py             # RuleRegistry：注册/发现规则
+│   │   │   ├── loader.py               # YAML pack 加载与合并
+│   │   │   ├── visitor.py              # 遍历 IR 树
+│   │   │   ├── evaluator.py            # JSONLogic + JMESPath 表达式
+│   │   │   ├── mutator.py              # 应用 Fix 到 IR
+│   │   │   └── scope.py                # scope 解析（"paragraphs[?...]"）
+│   │   ├── rules/                      # 内置规则
+│   │   │   ├── _builtins/
+│   │   │   │   ├── layout.py           # 页边距、纸张
+│   │   │   │   ├── font.py             # 字体、字号
+│   │   │   │   ├── paragraph.py        # 行距、缩进、段距
+│   │   │   │   ├── heading.py          # 标题层级
+│   │   │   │   ├── figure_table.py     # 图/表编号
+│   │   │   │   ├── reference.py        # 参考文献格式
+│   │   │   │   ├── toc.py              # 目录
+│   │   │   │   └── page_number.py      # 页眉页脚页码
+│   │   │   └── packs/                  # 预制规范包
+│   │   │       ├── GB-T-7713-1-2006.yaml
+│   │   │       ├── GB-T-7714-2015.yaml
+│   │   │       └── README.md
+│   │   ├── reporters/                  # L3：报告输出
+│   │   │   ├── terminal.py
+│   │   │   ├── json_reporter.py
+│   │   │   ├── sarif.py                # GitHub Code Scanning
+│   │   │   ├── html.py
+│   │   │   ├── redline_docx.py         # 修订模式 docx
+│   │   │   └── pyqt_reporter.py        # 🆕 给 PyQt 用的实时 signal 报告
+│   │   └── writers/                    # L1：写回 docx
+│   │       ├── docx_writer.py
+│   │       └── word_com_fixer.py       # 可选：Windows + Word COM 收尾
+│   ├── services/                       # 现有 PyQt services（**逐渐变 thin wrapper**）
+│   │   ├── format_validator.py         # → 调 app.core.engine.validate
+│   │   ├── docx_generator.py           # → 调 app.core.writers
+│   │   ├── word_template_importer.py   # → 调 app.core.engine.extract
+│   │   ├── template_parser.py          # → 调 app.core.engine.loader
+│   │   ├── content_blocks.py           # 现有
+│   │   ├── demo_seed_service.py        # 现有
+│   │   ├── navigation_state_service.py # 现有
+│   │   ├── recent_items_service.py     # 现有
+│   │   └── live_format_checker.py      # 🆕 实时检查器（0.5s debounce + Qt signal）
+│   ├── views/                          # 现有 PyQt 视图
+│   │   ├── content_editor.py           # ← 🆕 集成 LiveFormatChecker
+│   │   ├── main_window.py              # 现有
+│   │   ├── ...
+│   ├── controllers/                    # 现有 PyQt 控制器
+│   ├── models/                         # 现有数据模型
+│   └── ...
+├── cli/                                # 🆕 CLI 入口（`paperguard check/fix/...`）
 │   ├── __init__.py
-│   ├── __main__.py            # CLI 入口（python -m paperguard）
-│   ├── cli/
-│   │   ├── main.py            # argparse
-│   │   ├── check.py           # paperguard check
-│   │   ├── fix.py             # paperguard fix
-│   │   ├── init.py            # paperguard init（生成新 pack）
-│   │   └── validate.py        # paperguard validate-pack
-│   ├── ir/                    # 中间表示（不可变 dataclass）
-│   │   ├── doc.py
-│   │   ├── paragraph.py
-│   │   ├── run.py
-│   │   ├── section.py
-│   │   └── finding.py
-│   ├── loaders/               # L1：解析 docx
-│   │   ├── docx_loader.py     # python-docx + lxml 下钻
-│   │   ├── ooxml_helpers.py   # 双字体、字号等中文特化处理
-│   │   └── pandoc_loader.py   # V2：md → IR（可选）
-│   ├── engine/                # L2：规则引擎
-│   │   ├── registry.py        # RuleRegistry：注册/发现规则
-│   │   ├── loader.py          # YAML pack 加载与合并
-│   │   ├── visitor.py         # 遍历 IR 树
-│   │   ├── evaluator.py       # JSONLogic + JMESPath 表达式
-│   │   ├── mutator.py         # 应用 Fix 到 IR
-│   │   └── scope.py           # scope 解析（"paragraphs[?...]"）
-│   ├── rules/                 # 内置规则
-│   │   ├── _builtins/
-│   │   │   ├── layout.py      # 页边距、纸张
-│   │   │   ├── font.py        # 字体、字号
-│   │   │   ├── paragraph.py   # 行距、缩进、段距
-│   │   │   ├── heading.py     # 标题层级
-│   │   │   ├── figure_table.py# 图/表编号
-│   │   │   ├── reference.py   # 参考文献格式
-│   │   │   ├── toc.py         # 目录
-│   │   │   └── page_number.py # 页眉页脚页码
-│   │   └── packs/             # 预制规范包
-│   │       ├── GB-T-7713-1-2006.yaml
-│   │       ├── GB-T-7714-2015.yaml
-│   │       └── README.md
-│   ├── reporters/             # L3：报告输出
-│   │   ├── terminal.py
-│   │   ├── json_reporter.py
-│   │   ├── sarif.py           # GitHub Code Scanning
-│   │   ├── html.py
-│   │   └── redline_docx.py    # 修订模式 docx
-│   ├── writers/               # L1：写回 docx
-│   │   ├── docx_writer.py
-│   │   └── word_com_fixer.py  # 可选：Windows + Word COM 收尾
-│   └── plugins.py             # 第三方规则包发现（entry_points）
+│   ├── main.py                         # Click 入口
+│   ├── check.py                        # paperguard check
+│   ├── fix.py                          # paperguard fix
+│   ├── extract.py                      # paperguard extract
+│   ├── init.py                         # paperguard init（生成新 pack）
+│   └── validate.py                     # paperguard validate-pack
 ├── tests/
-│   ├── unit/
+│   ├── unit/                           # 🆕 core 单元测试（毫秒级）
 │   │   ├── test_ir.py
 │   │   ├── test_loader.py
 │   │   ├── test_engine.py
 │   │   ├── test_evaluator.py
+│   │   ├── test_reporter_pyqt.py       # 🆕 实时 signal 测试
 │   │   └── test_rules/
 │   ├── integration/
 │   │   ├── test_cli.py
+│   │   ├── test_live_checker.py        # 🆕 实时检查器集成测试
 │   │   ├── test_pack_gb_t_7713.py
 │   │   └── test_redline.py
 │   └── fixtures/
 │       ├── sample_thesis_good.docx
 │       ├── sample_thesis_bad.docx
 │       └── expected_findings.json
-└── docs/
-    ├── research-report.md
-    ├── design-proposal.md     # 本文件
-    ├── rule-author-guide.md   # V1 写
-    └── architecture.md        # V1 写
+├── SKILL.md                            # AI agent 调 CLI
+├── docs/
+│   ├── research-report.md
+│   ├── design-proposal.md              # 本文件
+│   ├── codebase-map.md
+│   ├── skill-spec-check.md
+│   ├── format-thesis-docx-review.md
+│   ├── rule-author-guide.md            # V1 写
+│   └── architecture.md                 # V1 写
+└── pyproject.toml
+```
+
+### 4.1 新增的"实时约束"模块（v1.2）
+
+#### 4.1.1 `app/services/live_format_checker.py`
+
+```python
+from PyQt5.QtCore import QObject, pyqtSignal, QTimer
+from app.core.engine import validate_docx
+from app.core.ir import project_to_ir
+
+class LiveFormatChecker(QObject):
+    """PyQt 实时检查器。
+    
+    学生编辑时调 request_check()，0.5s debounce 后跑规则引擎，
+    通过 pyqtSignal 把 Finding 列表发给 UI 层（侧边栏 + 高亮）。
+    """
+    issues_found = pyqtSignal(list)   # List[QtIssue]
+    no_issues = pyqtSignal()           # 0 个违规时发
+    
+    def __init__(self, project, debounce_ms: int = 500):
+        super().__init__()
+        self.project = project
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._run_check)
+        self._debounce_ms = debounce_ms
+        self._last_paragraph_count = 0
+    
+    def request_check(self):
+        """外部调用：编辑事件触发。"""
+        self._timer.start(self._debounce_ms)
+    
+    def _run_check(self):
+        # 增量检查：只查变化的段落（V1.3 才做，先全量）
+        ir = project_to_ir(self.project)
+        findings = validate_docx(ir, pack=self.project.template.pack_name)
+        qt_issues = [to_qt_issue(f) for f in findings]
+        if qt_issues:
+            self.issues_found.emit(qt_issues)
+        else:
+            self.no_issues.emit()
+```
+
+#### 4.1.2 `app/core/reporters/pyqt_reporter.py`
+
+```python
+from dataclasses import dataclass
+from PyQt5.QtCore import QObject, pyqtSignal
+from app.core.ir.finding import Finding
+
+@dataclass(frozen=True)
+class QtIssue:
+    """给 PyQt UI 用的精简 Finding。"""
+    rule_id: str
+    severity: str
+    message: str
+    location: str             # "第 3 章 第 5 段"
+    paragraph_index: int       # 用于高亮定位
+    fix_suggestion: str | None  # 一键修复的提示文字
+
+class PyQtReporter(QObject):
+    """把 Finding[] 转为 QtIssue[] 并发 signal。"""
+    issues_emitted = pyqtSignal(list)  # List[QtIssue]
+    
+    def report(self, findings: list[Finding]) -> list[QtIssue]:
+        qt_issues = [self._to_qt(f) for f in findings]
+        self.issues_emitted.emit(qt_issues)
+        return qt_issues
+    
+    def _to_qt(self, f: Finding) -> QtIssue:
+        return QtIssue(
+            rule_id=f.rule_id,
+            severity=f.severity,
+            message=f.message,
+            location=str(f.location),
+            paragraph_index=f.location.paragraph_index or -1,
+            fix_suggestion=self._fix_to_text(f.fix) if f.fix else None,
+        )
+```
+
+#### 4.1.3 `app/views/content_editor.py` 集成（**改动最小**）
+
+```python
+# 在 ContentEditor.__init__ 末尾增加：
+self.checker = LiveFormatChecker(self.project, debounce_ms=500)
+self.checker.issues_found.connect(self._on_issues)
+self.checker.no_issues.connect(self._on_clean)
+self.textChanged.connect(self.checker.request_check)  # Qt 信号
+
+# 新增两个 slot：
+def _on_issues(self, issues: list[QtIssue]):
+    self.sidebar.update(issues)         # 侧边栏更新
+    self.highlighter.mark(issues)       # 段落级高亮
+    self.status_bar.setText(f"⚠ {len(issues)} 个格式问题")
+
+def _on_clean(self):
+    self.sidebar.clear()
+    self.status_bar.setText("✓ 格式合规")
 ```
 
 ### 4.1 关键模块职责
@@ -429,6 +574,66 @@ Claude/Codex 调用 paperguard CLI：
 paperguard 返回结构化结果，agent 据此决定下一步
 ```
 
+### 5.5 `paperguard summary`（V1）
+
+```bash
+paperguard summary audits/*.json
+```
+
+输出统计报告：N 份论文、问题总数、按严重性分类、按规则 ID 分类 Top 10。
+
+### 5.6 PyQt 实时约束工作流（v1.2 新增，**主路径**）
+
+```
+[学生在 PyQt 编辑器打字]
+        │
+        ▼  Qt signal: textChanged
+   ContentEditor.checker.request_check()
+        │
+        ▼  QTimer.start(500ms) — debounce
+        │  （学生继续打字则重置 timer，避免每键击都跑）
+        ▼  500ms 后
+   LiveFormatChecker._run_check()
+        │
+        ▼  调 app.core（无 PyQt 依赖）
+   ir = project_to_ir(project)
+   findings = app.core.engine.validate_docx(ir, pack=...)
+        │
+        ▼  转 QtIssue
+   PyQtReporter.report(findings) → List[QtIssue]
+        │
+        ▼  Qt signal: issues_found
+   ┌────┴─────────────────────┐
+   │                          │
+   ▼                          ▼
+Sidebar.update(issues)   Highlighter.mark(issues)
+   │                          │
+   ▼                          ▼
+学生看到：             学生看到：
+"⚠ 8 个格式问题"      违规段落红色波浪线
+                          │
+                          ▼
+                    点击 → 一键修复按钮
+                          │
+                          ▼
+                    LiveMutator.apply_fix(issue)
+                          │
+                          ▼
+                    IR 修改 → writers.docx_writer
+                          │
+                          ▼
+                    PyQt 编辑器更新显示
+                          │
+                          ▼
+                    触发新一轮 request_check()
+```
+
+**关键设计**：
+- **Core 完全无 PyQt 依赖**——可以被实时检查器和 CLI 共享
+- **Debounce 0.5s**——平衡实时感与性能
+- **失败容忍**——实时检查抛错不能阻塞写作（try/except + log）
+- **增量检查（V1.3）**——只查变化的段落，不查全文
+
 ---
 
 ## 6. 技术选型
@@ -496,6 +701,18 @@ paperguard 返回结构化结果，agent 据此决定下一步
 - [ ] 修复前后对比指标：before_N / after_N / fixed / skipped / pass
 - [ ] 单元测试：模拟"修完仍不通过"的场景，确认能正确告知
 
+### 🆕 Sprint 1.5：Live Checker 实时约束（0.5 周，新增于 v1.2，**主路径**）
+> 用户核心诉求"写作时就约束规范"的实现。
+- [ ] `app/core/reporters/pyqt_reporter.py`：`PyQtReporter` + `QtIssue` dataclass
+- [ ] `app/services/live_format_checker.py`：`LiveFormatChecker`（QObject + QTimer debounce）
+- [ ] `app/views/content_editor.py` 集成：连接 Qt signal，调用 `request_check()`
+- [ ] 侧边栏组件：`IssueSidebar` 列出 `QtIssue[]`
+- [ ] 高亮组件：`FormatHighlighter` 在违规段落标红色波浪线
+- [ ] 一键修复按钮：调 `LiveMutator.apply_fix(issue)`
+- [ ] 单元测试：`test_live_checker.py` 模拟 0.5s debounce + signal 触发
+- [ ] 集成测试：模拟学生编辑 100 段论文，验证 debounce 工作 + 无 N+1 问题
+- [ ] 性能基线：100 段论文 < 200ms 跑完一次检查（V1.3 再做增量优化）
+
 ### Sprint 5：修复闭环（1 周）
 - [ ] `engine/mutator.py` 实现 set/insert/delete
 - [ ] `writers/docx_writer.py`：把修改后 IR 写回 docx
@@ -515,6 +732,7 @@ paperguard 返回结构化结果，agent 据此决定下一步
 ### MVP 验收标准
 - ✅ 一份 GB/T 7713 YAML 跑通
 - ✅ CLI `extract` / `check` / `fix` / `init` 四个命令
+- ✅ **PyQt 编辑器实时约束**：学生边写边提示 + 一键修复
 - ✅ HTML + JSON + SARIF 三种报告
 - ✅ 至少 30 条内置规则
 - ✅ **5+ fixture 模板自动抽取** 验证
@@ -522,7 +740,15 @@ paperguard 返回结构化结果，agent 据此决定下一步
 - ✅ 测试覆盖率 ≥ 80%
 - ✅ PyPI 可安装
 
-**MVP 总时长**：6 周 → **7.5 周**（多 1.5 周用于"模板自动抽取"和"修复后验证"——这两点是参考项目的最大优势和最大短板）
+**MVP 总时长**：6 周 → **7.5 周 → 8 周**（v1.2 加 0.5 周 Sprint 1.5 Live Checker）
+
+**Sprint 顺序**：
+```
+Sprint 1  →  1.5  →  2  →  2.5  →  3  →  4  →  4.5  →  5  →  6
+骨架        Live    引擎    抽取    规则包  报告   验证   修复   质量
+            Checker                                               
+            ★v1.2
+```
 
 ---
 
@@ -559,6 +785,7 @@ paperguard 返回结构化结果，agent 据此决定下一步
 | 学校规范年年变 | 🟡 中 | 维护负担 | pack 与代码解耦；学校可独立更新 pack 而不用等主版本 |
 | 性能（论文动辄 200 页） | 🟢 低 | 用户卡顿 | 增量遍历 + 流式输出 Finding；V2 用 Rust 重写热路径 |
 | 与"论文管理系统"重叠 | 🟢 低 | 内部竞争 | 明确定位："规范 + 批改"是工具；"流程管理"是系统——后者集成前者 |
+| 实时检查 UI 卡顿 | 🟡 高 | 学生写作体验差 | 0.5s debounce + 失败容忍（try/except + log） + V1.3 增量检查 |
 
 ---
 

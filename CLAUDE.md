@@ -4,9 +4,11 @@
 
 ## 这是什么项目
 
-**PaperGuard**（暂定代号）——通用论文规范软件。让任何高校用一份 YAML 规范包，把学生 .docx 论文自动批改到符合本校格式。
+**PaperGuard**（暂定代号）——**PyQt 实时约束 + CLI 事后批改**双模式论文规范软件。
+- **🔴 PyQt 实时约束**（主路径）：学生边写边查（Grammarly 模式），提交时已合规
+- **🟡 CLI 事后批改**（辅路径）：CI 集成、批量审稿、AI Agent 入口
 
-**当前阶段**：设计完成、零代码。MVP Sprint 0（脚手架）即将开始。
+**当前阶段**：设计完成（v1.2，含实时约束），PyQt 桌面应用骨架已有（537 symbols），新核心 0 行代码。MVP Sprint 1 即将开始。
 
 ## 关键文件清单（按重要性）
 
@@ -38,13 +40,13 @@
 | 维度 | 状态 |
 |------|------|
 | 调研 | ✅ 5 份子报告 + 1 份参考精读 + 1 份一致性自检 + **1 份代码图谱**（codegraph） |
-| 设计 | ✅ 4 层架构 + IR + 规则包 + Sprint 计划（v1.1） |
+| 设计 | ✅ 4 层架构 + IR + 规则包 + Sprint 计划（**v1.2 含实时约束**） |
 | 文档 | ✅ 9 份文档（SKILL.md / SKILL_USAGE.md / 6 份 docs / HANDOFF.md / CLAUDE.md） |
-| 已有代码 | ✅ **PyQt5 桌面应用骨架**（`app/` 5 controllers + 3 models + 9 services + 9 views，454 symbols） |
+| 已有代码 | ✅ **PyQt5 桌面应用骨架**（`app/` 5 controllers + 3 models + 9 services + 9 views，537 symbols） |
 | 已有测试 | ✅ **`tests/test_workflow.py` 64 symbols**（workflow 集成测试） |
 | 代码图谱 | ✅ `.codegraph/` 索引 37 文件 / 618 节点 / 1479 边（1.72 MB） |
 | Fixture | ❌ 无（项目里现成的 .ptpl 可作早期 fixture） |
-| 新核心代码 | ❌ 0 行（**`src/paperguard/` 未建**） |
+| 新核心代码 | ❌ 0 行（**`app/core/` 未建**——v1.2 决定放 app/core/，不是 src/paperguard/） |
 | CI | ❌ 无 |
 
 **架构现状**（基于 codegraph）：
@@ -52,7 +54,9 @@
 - 已有雏形：L2 services（`format_validator` 7 symbols / `docx_generator` 30 / `word_template_importer` 26）
 - 完全缺失：CLI 入口 / YAML 规则包 / 真正的规则引擎 / 报告层 / 修复（mutator）
 
-**下一步**：MVP Sprint 1——**新建并行 `src/paperguard/` 核心**，**不破坏** PyQt 现有代码。Sprint 1 第一步：`pytest tests/test_workflow.py` 让现有 64 symbols 测试通过，建立信心。
+**下一步**：MVP Sprint 1 → Sprint 1.5（Live Checker 实时约束）→ ... → Sprint 6。
+
+**Sprint 1 第一步**：`pytest tests/test_workflow.py` 让现有 64 symbols 测试通过，建立信心。
 
 ## 常见任务速查
 
@@ -86,6 +90,7 @@
 5. **修复后再 audit**（Sprint 4.5）—— 参考项目短板，本项目必补
 6. **FORMAT_WORDS 启发式**（Sprint 2.5）—— 参考项目最大优势，必抄
 7. **MVP 7.5 周**（不是 6 周）—— 多花的 1.5 周用于 Sprint 2.5 + 4.5
+8. **PyQt 实时约束是主路径**（v1.2，Sprint 1.5）—— 学生写作时实时检查 + 一键修复；CLI 是事后批改辅路
 
 ## 不应该做的事
 
@@ -95,6 +100,7 @@
 - ❌ 做 docx 在线编辑器（复杂度极高；只做"上传→批改"）
 - ❌ 走 Activiti/flowable（流程引擎过度工程）
 - ❌ 让 `fix` 默认覆盖原文件（硬约束）
+- ❌ **用 CLI 模拟"实时约束"**——CLI 调一次跑全文，不适合"边写边查"；实时约束只能在 PyQt 编辑器内做
 
 ## 工作流提示
 

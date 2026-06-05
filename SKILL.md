@@ -20,13 +20,16 @@ Use this skill when a user wants a `.docx` thesis, dissertation, course paper, o
 - 论文写完了，跑一遍格式检查
 - 我需要把 docx 套用学校模板
 - Word 论文排版不对，能批量改吗
+- 学生边写论文边看格式问题（用 PyQt 桌面 app，不是 CLI 场景）
+- 我要给学生论文做个"写作时实时约束"的工具
 
 **Do NOT use** for:
 
 - 论文内容生成 / 改写 / 润色（用 Claude 的写作能力）
 - LaTeX 论文（PaperGuard V2 才支持）
 - PDF / .doc / WPS 文件（先转 .docx）
-- 在 Word 里手动拖拽样式（用户应直接用 Word）
+- 在 Word 里手动拖拽样式（用户应直接用 Word，或用 PyQt 桌面 app 实时约束）
+- 实时约束场景（**用 PyQt 桌面 app，不调 CLI**——CLI 调一次就跑全文，不适合"边写边查"）
 
 ## Available Commands (4 + 1)
 

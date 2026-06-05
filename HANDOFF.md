@@ -8,7 +8,7 @@
 
 ## 一句话状态
 
-> 调研 + 设计 + 文档全部完成，**0 行代码**。下次回来直接进 MVP Sprint 1。
+> 调研 + 设计 + 文档全部完成（含 **v1.2 实时约束**），**0 行新核心代码**。PyQt 桌面应用骨架已有 537 symbols。下次回来直接进 MVP Sprint 1 → Sprint 1.5（Live Checker 实时约束）。
 
 ---
 
@@ -168,6 +168,16 @@ git push
 5. **硬约束**：`fix` 永远输出新文件，不破坏原文
 6. **修复后再 audit**：Sprint 4.5（参考项目短板）
 7. **FORMAT_WORDS 启发式**：Sprint 2.5（参考项目最大优势）
+8. **🆕 PyQt 实时约束是主路径**（v1.2）：学生在 PyQt 编辑器内边写边查（Grammarly 模式），CLI 是事后批改辅路
+
+## 产品形态（v1.2 双模式）
+
+| 模式 | 用户 | 入口 | 时机 |
+|------|------|------|------|
+| **🔴 实时约束（主）** | 学生 | PyQt 编辑器 | 写作时（0.5s debounce + 软约束） |
+| **🟡 事后批改（辅）** | 教务/AI | CLI / Web | 提交后 |
+
+**两者共用同一套规则引擎**（`app/core/engine/`）。
 
 ---
 
@@ -176,13 +186,19 @@ git push
 ### P0：MVP Sprint 1（项目脚手架 + IR）
 ```bash
 cd "E:/projects/论文书写模版格式规范软件"
-uv init --package paperguard
-# 复制 docs/design-proposal.md §4 的目录结构
-# 写 src/paperguard/ir/ + 单元测试
-# 写 src/paperguard/loaders/docx_loader.py MVP
-# 写 src/paperguard/reporters/terminal.py
+# v1.2 修订：核心库放 app/core/，不是 src/paperguard/
+mkdir -p app/core/{ir,loaders,engine,rules,reporters,writers}
+# 写 app/core/ir/ + 单元测试
+# 写 app/core/loaders/docx_loader.py MVP
 # 写第一个 commit
 ```
+
+### P0.5：MVP Sprint 1.5（**新增于 v1.2，Live Checker 实时约束**）
+- 写 `app/core/reporters/pyqt_reporter.py`（PyQtReporter + QtIssue）
+- 写 `app/services/live_format_checker.py`（QObject + 0.5s debounce）
+- `app/views/content_editor.py` 集成：连接 Qt signal
+- 侧边栏 + 高亮 + 一键修复
+- 单元 + 集成测试
 
 ### P1：MVP Sprint 2（规则引擎）
 - 写 `engine/loader.py` / `engine/evaluator.py` / `engine/visitor.py`
