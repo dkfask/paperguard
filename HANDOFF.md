@@ -18,6 +18,106 @@
 
 ---
 
+## 两台电脑同步（2026-06-05 起）
+
+项目已初始化为 git 仓库并推送到 GitHub 私有仓库。
+
+| 项 | 值 |
+|----|-----|
+| 仓库 | https://github.com/dkfask/paperguard（**private**） |
+| 默认分支 | `main` |
+| Submodule | `references/format-thesis-docx`（指向 wksudud/format-thesis-docx） |
+| 用户 | dkfask（gh auth 已认证） |
+
+### 第一台电脑（本机，已经做完）
+
+```bash
+# 已经完成的事：
+# 1. git init -b main
+# 2. .gitignore 写好
+# 3. git submodule add https://github.com/wksudud/format-thesis-docx.git references/format-thesis-docx
+# 4. git add . && git commit -m "..."
+# 5. git remote add origin https://github.com/dkfask/paperguard.git
+# 6. git push -u origin main
+```
+
+### 第二台电脑（首次同步）
+
+```bash
+# 1. 装 gh CLI（如未装）
+winget install --id GitHub.cli -e --source winget
+
+# 2. 认证 GitHub
+gh auth login --web
+# 浏览器开 https://github.com/login/device，输设备码，授权
+
+# 3. 克隆项目（含 submodule）
+gh repo clone dkfask/paperguard "E:/projects/论文书写模版格式规范软件"
+cd "E:/projects/论文书写模版格式规范软件"
+git submodule update --init --recursive
+
+# 4. （可选）配 git 身份
+git config --global user.name "你的名字"
+git config --global user.email "your-github-id@users.noreply.github.com"
+# 推荐用 GitHub noreply 邮箱：https://github.com/settings/emails
+
+# 5. 验证
+gh auth status
+git status
+ls references/format-thesis-docx/scripts/  # 应该有 3 个 .py
+```
+
+### 日常同步（两台电脑都用）
+
+```bash
+# 拉取最新
+cd "E:/projects/论文书写模版格式规范软件"
+git pull --recurse-submodules
+
+# 如果 submodule 报错
+git submodule sync
+git submodule update --init --recursive
+
+# 写完代码，提交
+git add .
+git commit -m "feat: xxx"   # feat/fix/docs/refactor/test/chore/perf/ci
+git push
+
+# 切到新分支做实验
+git checkout -b feature/sprint-1-skeleton
+# 写代码
+git add . && git commit -m "feat(sprint-1): 脚手架"
+git push -u origin feature/sprint-1-skeleton
+# 合并到 main（在 GitHub 上提 PR，或本地 merge）
+```
+
+### 冲突解决
+
+如果两台电脑改了同一文件：
+
+```bash
+git pull
+# 如果冲突：编辑冲突文件 → 删冲突标记 → 保存
+git add <冲突文件>
+git commit -m "merge: 解决冲突"
+git push
+```
+
+### 注意事项
+
+- ⚠️ **不要把真论文 / 学生作业 commit 进来**——.gitignore 已排除 `papers/` 和 `fixtures/private/`
+- ⚠️ **references/format-thesis-docx/ 是 submodule**——不要直接改里面的文件，要改就在原仓库改
+- ⚠️ **app/ 目录是 PyQt 桌面应用**（之前就有的代码）——如果要做"无 GUI CLI"，建议并行分支 `feature/cli-core`，不要直接覆盖
+- ⚠️ **第一次 clone 后必须跑 `git submodule update --init --recursive`**，否则 references/ 是空目录
+
+### 私有 vs 公开
+
+- 当前是 **private**——只有您自己能访问
+- 如果想公开：到 https://github.com/dkfask/paperguard/settings → Danger Zone → Change visibility → Public
+- 项目毕业 / 论文发布前可保持 private
+
+---
+
 ## 项目结构
 
 ```
