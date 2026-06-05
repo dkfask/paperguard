@@ -1,0 +1,259 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "name": "毕业设计（论文）毕业论文（报告）-物联网工程-软硬件结合项目内容参考模板 - 1101",
+    "author": "",
+    "description": "导入自 Word 模板：毕业设计（论文）毕业论文（报告）-物联网工程-软硬件结合项目内容参考模板 - 1101.docx"
+  },
+  "format_config": {
+    "page_setup": {
+      "paper_size": "A4",
+      "width_cm": 21.0,
+      "height_cm": 29.7,
+      "margin_top_cm": 2.5,
+      "margin_bottom_cm": 2.5,
+      "margin_left_cm": 2.5,
+      "margin_right_cm": 2.5,
+      "header_margin_cm": 1.5,
+      "footer_margin_cm": 1.75,
+      "orientation": "portrait"
+    },
+    "styles": {
+      "heading_1": {
+        "style_id": "heading_1",
+        "font": {
+          "name_cn": "黑体",
+          "name_en": "Times New Roman",
+          "size_pt": 22,
+          "bold": true,
+          "italic": false,
+          "color_hex": "000000"
+        },
+        "paragraph": {
+          "alignment": "center",
+          "line_spacing": 2.41,
+          "space_before_pt": 17.0,
+          "space_after_pt": 16.5,
+          "first_line_indent_cm": 0.0,
+          "left_indent_cm": 0,
+          "right_indent_cm": 0
+        }
+      },
+      "heading_2": {
+        "style_id": "heading_2",
+        "font": {
+          "name_cn": "黑体",
+          "name_en": "黑体",
+          "size_pt": 15.0,
+          "bold": true,
+          "italic": false,
+          "color_hex": "000000"
+        },
+        "paragraph": {
+          "alignment": "left",
+          "line_spacing": 1.5,
+          "space_before_pt": 12.0,
+          "space_after_pt": 12.0,
+          "first_line_indent_cm": 0,
+          "left_indent_cm": 0,
+          "right_indent_cm": 0
+        }
+      },
+      "heading_3": {
+        "style_id": "heading_3",
+        "font": {
+          "name_cn": "黑体",
+          "name_en": "Times New Roman",
+          "size_pt": 14.0,
+          "bold": true,
+          "italic": false,
+          "color_hex": "000000"
+        },
+        "paragraph": {
+          "alignment": "left",
+          "line_spacing": 1.5,
+          "space_before_pt": 12.0,
+          "space_after_pt": 12.0,
+          "first_line_indent_cm": 0,
+          "left_indent_cm": 0,
+          "right_indent_cm": 0
+        }
+      },
+      "body_text": {
+        "style_id": "body_text",
+        "font": {
+          "name_cn": "宋体",
+          "name_en": "Times New Roman",
+          "size_pt": 10.5,
+          "bold": false,
+          "italic": false,
+          "color_hex": "000000"
+        },
+        "paragraph": {
+          "alignment": "justify",
+          "line_spacing": 1.0,
+          "space_before_pt": 0,
+          "space_after_pt": 6.0,
+          "first_line_indent_cm": 0.74,
+          "left_indent_cm": 0,
+          "right_indent_cm": 0
+        }
+      },
+      "cover_title": {
+        "style_id": "cover_title",
+        "font": {
+          "name_cn": "黑体",
+          "name_en": "Times New Roman",
+          "size_pt": 22.0,
+          "bold": true,
+          "italic": false,
+          "color_hex": "000000"
+        },
+        "paragraph": {
+          "alignment": "center",
+          "line_spacing": 2.0,
+          "space_before_pt": 0,
+          "space_after_pt": 0,
+          "first_line_indent_cm": 0,
+          "left_indent_cm": 0,
+          "right_indent_cm": 0
+        }
+      }
+    },
+    "header_text": "",
+    "footer_text": "",
+    "page_number_start": 1,
+    "cover_page_number": false,
+    "toc_include": true
+  },
+  "structure": [
+    {
+      "id": "cover",
+      "label": "封面",
+      "type": "cover",
+      "required": true,
+      "auto_generate": false,
+      "style_id": "body_text",
+      "description": "自动生成，包含论文标题、作者、学号、专业和导师信息。"
+    },
+    {
+      "id": "abstract_cn",
+      "label": "中文摘要",
+      "type": "abstract",
+      "required": true,
+      "auto_generate": false,
+      "style_id": "body_text",
+      "description": "概述研究背景、方法、结果和结论，建议 300 到 500 字。"
+    },
+    {
+      "id": "abstract_en",
+      "label": "英文摘要",
+      "type": "abstract",
+      "required": false,
+      "auto_generate": false,
+      "style_id": "body_text",
+      "description": "中文摘要的英文对应版本，建议与关键词保持一致。"
+    },
+    {
+      "id": "toc",
+      "label": "目录",
+      "type": "toc",
+      "required": true,
+      "auto_generate": true,
+      "style_id": "body_text",
+      "description": "导出后在 Word 中更新目录域即可生成目录。"
+    },
+    {
+      "id": "chapter_1",
+      "label": "第1章 绪论",
+      "type": "chapter",
+      "required": true,
+      "auto_generate": false,
+      "style_id": "heading_1",
+      "description": "介绍研究背景、研究意义和国内外研究现状。",
+      "subsections": [
+        {
+          "id": "ch1_sec1",
+          "label": "1.1 研究背景",
+          "type": "section",
+          "required": false,
+          "auto_generate": false,
+          "style_id": "heading_2",
+          "description": ""
+        },
+        {
+          "id": "ch1_sec2",
+          "label": "1.2 研究意义",
+          "type": "section",
+          "required": false,
+          "auto_generate": false,
+          "style_id": "heading_2",
+          "description": ""
+        },
+        {
+          "id": "ch1_sec3",
+          "label": "1.3 国内外研究现状",
+          "type": "section",
+          "required": false,
+          "auto_generate": false,
+          "style_id": "heading_2",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "id": "chapter_2",
+      "label": "第2章 相关技术介绍",
+      "type": "chapter",
+      "required": true,
+      "auto_generate": false,
+      "style_id": "heading_1",
+      "description": "介绍论文涉及的核心理论、技术和方法。"
+    },
+    {
+      "id": "chapter_3",
+      "label": "第3章 系统设计与实现",
+      "type": "chapter",
+      "required": true,
+      "auto_generate": false,
+      "style_id": "heading_1",
+      "description": "详细说明系统设计思路、模块划分与实现过程。"
+    },
+    {
+      "id": "chapter_4",
+      "label": "第4章 实验结果与分析",
+      "type": "chapter",
+      "required": true,
+      "auto_generate": false,
+      "style_id": "heading_1",
+      "description": "展示实验结果，并对结果进行分析与讨论。"
+    },
+    {
+      "id": "chapter_5",
+      "label": "第5章 总结与展望",
+      "type": "chapter",
+      "required": true,
+      "auto_generate": false,
+      "style_id": "heading_1",
+      "description": "总结全文工作，说明不足并提出后续方向。"
+    },
+    {
+      "id": "references",
+      "label": "参考文献",
+      "type": "references",
+      "required": true,
+      "auto_generate": false,
+      "style_id": "body_text",
+      "description": "列出论文引用的文献资料，按学校规范编排。"
+    },
+    {
+      "id": "acknowledgements",
+      "label": "致谢",
+      "type": "acknowledgements",
+      "required": true,
+      "auto_generate": false,
+      "style_id": "heading_1",
+      "description": "感谢导师、同学和家人的帮助与支持。"
+    }
+  ]
+}

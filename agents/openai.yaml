@@ -1,0 +1,16 @@
+# OpenAI Codex / Gemini CLI 兼容的 skill 描述
+# 字段含义：
+#   display_name: AI agent UI 中显示的名字
+#   short_description: AI agent 简介（< 100 字符）
+#   default_prompt: 用户调用本 skill 时注入到 AI 的系统提示
+# 详细使用说明见 ../SKILL.md
+interface:
+  display_name: "论文格式守门员 (PaperGuard)"
+  short_description: "审计 .docx 论文是否符合国标/校规，一键修复生成 paper.fixed.docx"
+  default_prompt: |
+    Use the $paperguard skill to check, audit, or fix the user's .docx thesis/paper
+    against GB/T 7713-2006, GB/T 7714-2015, GB/T 9704-2012, or any school-specific
+    rule pack. Always follow the three-stage workflow: extract → check → fix.
+    Never modify the original file. PaperGuard only adjusts formatting (fonts,
+    spacing, margins, page setup); it never changes content, citations, or
+    figure numbering. For full command reference see ../SKILL.md.

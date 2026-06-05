@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# 打包 / 分发
+build/
+dist/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Office 临时文件
+~$*.docx
+~$*.doc
+~$*.xlsx
+~$*.pptx
+*.tmp
+
+# 本地测试产物
+.work/
+work/
+audit/
+audits/
+fixed/
+*.fixed.docx
+*.fixed.redline.docx
+
+# agent 临时文件（从其他工具来的）
+.codex_*
+.cookies*
+
+# 真实论文 / 模板（隐私 + 体积）
+# 真要做 fixture 时用 LFS 或者单独仓库
+papers/
+fixtures/private/
+
+# 本地 secrets
+.env
+.env.local
+*.pem
+*.key

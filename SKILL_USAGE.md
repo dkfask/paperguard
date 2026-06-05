@@ -1,0 +1,217 @@
+# PaperGuard 快速上手（5 分钟）
+
+> 写给人类用户的快速指南。
+> AI agent 入口请看 [`SKILL.md`](./SKILL.md)。
+
+## 这是什么
+
+PaperGuard 是一个 **命令行工具**，能检查你的 Word 论文（.docx）是否符合学校或国标的格式规范，并自动生成修正后的副本。
+
+它**不**：
+- 改你的论文文字、引用、图编号
+- 修改你的原稿（永远输出新文件）
+- 需要联网（除了 `pip install`）
+
+## 5 分钟上手
+
+### 第 1 步：安装（1 分钟）
+
+```bash
+# 方式 A：pipx（推荐，隔离环境）
+pipx install paperguard
+
+# 方式 B：pip
+pip install --user paperguard
+```
+
+验证安装：
+
+```bash
+paperguard --version
+# 期望输出：paperguard 0.1.0
+```
+
+### 第 2 步：找一份论文
+
+把你的论文 docx 放到你能找到的地方，比如 `~/Desktop/my_thesis.docx`。
+
+### 第 3 步：跑一遍检查（30 秒）
+
+```bash
+paperguard check \
+  --paper ~/Desktop/my_thesis.docx \
+  --pack GB-T-7713-1-2006 \
+  --format terminal
+```
+
+**预期输出**（节选）：
+
+```
+✗ BODY-LINE-SPACING      正文行距必须为 1.5 倍              (×42)
+✗ BODY-FIRST-LINE-INDENT 正文首行应缩进 2 字符              (×38)
+✗ HEADING1-FONT          一级标题应为黑体二号                (×5)
+⚠ PAGE-MARGIN-TOP        页边距上应为 2.54 cm               (×1)
+✓ BODY-EASTASIA-FONT     正文字体为宋体                      (PASS)
+
+Total: 5 errors, 1 warning. Use `paperguard fix` to auto-repair.
+```
+
+**退出码**：
+- `0` = 全绿（恭喜）
+- `1` = 有错（继续看）
+- `2` = 内部错误（看错误消息）
+
+### 第 4 步：看 HTML 报告（30 秒，可选）
+
+终端报告太挤？出 HTML：
+
+```bash
+paperguard check \
+  --paper ~/Desktop/my_thesis.docx \
+  --pack GB-T-7713-1-2006 \
+  --format html \
+  --out ~/Desktop/audit
+```
+
+打开 `~/Desktop/audit/findings.html` 看彩色报告。
+
+### 第 5 步：自动修复（30 秒）
+
+```bash
+paperguard fix \
+  --paper ~/Desktop/my_thesis.docx \
+  --pack GB-T-7713-1-2006 \
+  --output ~/Desktop/my_thesis.fixed.docx \
+  --redline
+```
+
+**预期输出**：
+
+```
+✓ Wrote corrected copy: ~/Desktop/my_thesis.fixed.docx
+✓ Wrote redline copy:    ~/Desktop/my_thesis.fixed.redline.docx
+✓ Wrote change report:   ~/Desktop/fixed/changes.csv
+✓ Post-fix audit:        5 errors → 1 error remaining (manual)
+
+Changes:
+  [changed]      BODY-LINE-SPACING: 42 paragraphs
+  [changed]      BODY-FIRST-LINE-INDENT: 38 paragraphs
+  [changed]      HEADING1-FONT: 5 paragraphs
+  [skipped]      PAGE-MARGIN-TOP: 0 sections (template unclear)
+  [already-set]  BODY-EASTASIA-FONT: pass
+```
+
+**重要**：
+- 原文件 `my_thesis.docx` **没动**
+- 新文件 `my_thesis.fixed.docx` 已生成
+- `redline.docx` 是带"修订模式"的版本（Word 里可见红绿标注）
+- `changes.csv` 列出每一条修改的"修改前 / 修改后"
+
+### 第 6 步：用 Word 打开（30 秒）
+
+打开 `my_thesis.fixed.docx`：
+- 按 `Ctrl+A` 全选
+- 按 `F9` 更新所有域（**重要！**这会刷新目录、页码、交叉引用）
+- 保存
+
+如果用 `redline.docx`：Word 会问你"接受/拒绝每条修订"——这是审计模式，确保你看到 AI 改了哪里。
+
+---
+
+## 常见问题
+
+### Q1：报告里出现"skipped"怎么办？
+
+`skipped` 表示 PaperGuard **故意不自动修**。常见原因：
+- 修改可能损坏内容（比如改标题层级可能改错章节编号）
+- 模板信息不明确（比如没指定页边距具体值）
+- 需要人工判断（比如"图题应放在图下方"这种语义判断）
+
+**操作**：打开 `changes.md` 末尾的 "Unresolved Manual Items" 清单，自己处理。
+
+### Q2：学校没有预制 pack 怎么办？
+
+两种办法：
+
+**A. 用国标跑一遍**（覆盖率 60-80%）：
+
+```bash
+paperguard check --pack GB-T-7713-1-2006 ...
+```
+
+**B. 从学校模板抽取规则**（覆盖率 80-95%）：
+
+```bash
+# 1. 用学校的 .dotx 模板抽规则
+paperguard extract --template ~/Downloads/school-template.docx --out ./work/req
+
+# 2. 审阅并补充：打开 ./work/req/requirements.md
+#    模板里没写、但学校说"必须用 X"的，手动加到 requirements.json
+
+# 3. 用抽出的规则审计
+paperguard check --paper ... --pack ./work/req/requirements.json
+```
+
+### Q3：能不能修改原文，不输出新文件？
+
+**不能**。这是硬约束。理由：
+- 你的原稿是宝贵的，自动修改有风险
+- 万一改错了，没法回滚
+- 输出新文件 + redline 是审计友好的做法
+
+如果你真的只想在原文件上改，先用 `--output` 写到原路径：
+
+```bash
+paperguard fix --paper thesis.docx --output thesis.docx
+```
+
+（不推荐，但允许。）
+
+### Q4：批量审稿怎么搞？
+
+```bash
+mkdir -p audits
+for f in papers/*.docx; do
+  name=$(basename "$f" .docx)
+  paperguard check \
+    --paper "$f" \
+    --pack GB-T-7713-1-2006 \
+    --format sarif \
+    --out "audits/$name"
+done
+```
+
+SARIF 格式可以直接喂给 GitHub Code Scanning 或 Azure DevOps。
+
+教务场景建议流程：
+1. 收论文 → 批量 `check`
+2. 把 `findings.html` 发给学生："这是你论文的格式问题清单"
+3. 学生自己跑 `fix` 修
+4. 学生重交，再 `check` 一次（如果还有问题，发回学生重做）
+
+### Q5：和 Word 里手动排版有什么不同？
+
+| | Word 手动 | PaperGuard |
+|---|----------|-----------|
+| 100 页论文排版耗时 | 4-8 小时 | 1 分钟 |
+| 排版一致性 | 看你自己 | 100% 一致 |
+| 可审计 | 难 | 完整 `changes.csv` |
+| 可复用 | 每个学校重来 | 换 pack 即可 |
+| 适合谁 | 写一份的学生 | 教务 / 答辩秘书 / 模板维护者 |
+
+---
+
+## 下一步
+
+- 想看可用规则清单？跑 `paperguard init --school "我的大学" --out my-pack.yaml` 然后打开生成的 YAML
+- 想自己写规则？读 [`docs/design-proposal.md` §3.3](./docs/design-proposal.md) 的 YAML 格式说明（V1 完成）
+- 想批量审稿？读 [`SKILL.md`](./SKILL.md) 的 "CI / batch use" 章节
+- 想让 AI 帮你跑？读 [`SKILL.md`](./SKILL.md) 的"示例对话"
+
+---
+
+## 反馈与帮助
+
+- 命令行加 `--help` 看完整 flag
+- `paperguard --version` 看版本
+- 项目仍在 MVP 阶段，遇到问题欢迎提 Issue

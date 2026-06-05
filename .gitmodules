@@ -1,0 +1,3 @@
+[submodule "references/format-thesis-docx"]
+	path = references/format-thesis-docx
+	url = https://github.com/wksudud/format-thesis-docx.git
