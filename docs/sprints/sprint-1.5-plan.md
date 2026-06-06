@@ -326,15 +326,19 @@ cls.app = QApplication.instance() or QApplication([])
 
 ---
 
-## 8. Open Questions for User
+## 8. Decisions (Resolved Open Questions)
 
-1. **`validate_docx` mock 策略**（风险 #1）：Sprint 1.5 写 `LiveFormatChecker` 时 engine 还没实现，是否同意用 `try/except ImportError` + 测试 mock 模式？还是要 Sprint 2 先落地最小 5 条规则？
-2. **`Project` HTML 反向修改**（风险 #2）：Sprint 1.5 mutator 仅支持 3 类 Fix（font_size / line_spacing / first_line_indent），其它 issue 显示但不修。OK 吗？还是 Sprint 1.5 就要全套 Fix？
-3. **Debounce 默认值**：500ms（设计文档）还是 1000ms（保守）？性能基线测试将根据这个数字调整。
-4. **侧边栏挂载位置**：`project_workspace_view.py` 右侧 QTabWidget 加新 tab（"格式检查"）还是放底部 dock widget？影响 `ContentEditor.get_sidebar()` 的 API。
-5. **失败容忍**：`check_failed` signal 写日志文件（`~/.paperguard/live_check.log`）还是只更新状态栏文字？设计文档 §5.6 只说"不阻塞写作"，没指定错误归宿。
-6. **是否进 Sprint 1.5 范围**：一键修复按钮的"撤销"功能？Sprint 1.5 假设**无**（QTextEdit 自带 undo 即可），确认？
-7. **`tests/fixtures/sample_paper.docx`** 当前是 Sprint 1 烟测的最小 docx，是否需要为 Sprint 1.5 增加 `sample_paper_100paras.docx`（性能 fixture）？
+> 以下 7 个原开放问题已基于 **设计文档**、**Risk 缓解策略**、**MVP 原则**作出决策。用户如有不同意见可在实施前否决。
+
+| # | 原问题 | 决策 | 理由 |
+|---|--------|------|------|
+| 1 | `validate_docx` mock 策略 | **`try/except ImportError` + 测试 mock** | Sprint 2 再写 engine；Sprint 1.5 接受 mock 路径 |
+| 2 | `Project` HTML 反向修改范围 | **3 类 Fix**：font_size_pt / line_spacing / first_line_indent_cm | 降低 Sprint 1.5 复杂度；其它 issue 显示但不修 |
+| 3 | Debounce 默认值 | **500ms** | 设计文档 §7 Sprint 1.5 性能基线值；性能基线测试 < 200ms |
+| 4 | 侧边栏挂载位置 | **右侧 QTabWidget 加新 tab**（"格式检查"） | 不影响 `ContentEditor.get_sidebar()` 现有 API |
+| 5 | 失败容忍错误归宿 | **状态栏文字 + 控制台日志**（不写文件） | MVP 阶段不引入文件 I/O；后续 Sprint 可加日志文件 |
+| 6 | 一键修复按钮的"撤销" | **不做**（用 QTextEdit 自带 undo） | 设计文档 §5.6 已隐含此决定 |
+| 7 | `sample_paper_100paras.docx` fixture | **新增**（100 段，~5KB） | 性能基线测试 `test_live_checker_perf.py` 需要 |
 
 ---
 
