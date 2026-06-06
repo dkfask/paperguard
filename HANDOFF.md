@@ -8,13 +8,32 @@
 
 ## 一句话状态
 
-> 调研 + 设计 + 文档全部完成（含 **v1.2 实时约束**），**0 行新核心代码**。PyQt 桌面应用骨架已有 537 symbols。下次回来直接进 MVP Sprint 1 → Sprint 1.5（Live Checker 实时约束）。
+> ✅ **Sprint 1 已完成**（2026-06-05，commit `6097817`）：`app/core/` 核心库骨架就位 — 5 个不可变 IR dataclass + docx_loader + TerminalReporter，**16 个新文件 / ~720 行 / 56 tests 全绿 / 零 PyQt 依赖**。调研 + 设计 + 文档全部完成（含 **v1.2 实时约束**）。PyQt 桌面应用骨架已有 537 symbols。下一步：**Sprint 1.5（Live Checker 实时约束）**。
 
 ---
 
 ## 项目代号
 
 **PaperGuard**（论文守门员）——除非你想换名字。
+
+---
+
+## Sprint 1 交付清单（2026-06-05，commit `6097817`）
+
+| 模块 | 文件 | 行数（约） | 说明 |
+|------|------|-----------|------|
+| IR 数据类 | `app/core/ir/{run,section,paragraph,doc,finding}.py` | ~150 | 5 个不可变 dataclass（`@dataclass(frozen=True)`） |
+| Docx 加载 | `app/core/loaders/docx_loader.py` | ~120 | `load_docx(path) → Document` IR |
+| 终端报告 | `app/core/reporters/terminal.py` | ~80 | `TerminalReporter().report(doc) → str` |
+| 单元测试 | `tests/unit/{test_ir,test_docx_loader,test_terminal_reporter}.py` | ~360 | 36 个新测试（IR 18 + loader 10 + reporter 8） |
+| 冒烟脚本 | `scripts/sprint1_smoke.py` | ~50 | 端到端验证 |
+
+**关键约束达成**：
+- ✅ `app/core/` 零 PyQt 依赖（grep 验证：仅 docstring 注释提及，无 import）
+- ✅ PyQt 现有代码未动（`git diff --stat` 仅 `requirements.txt` +2 行）
+- ✅ 不可变 IR（全部 `@dataclass(frozen=True)`）
+- ✅ TDD 严格（每个 .py 都有对应 unittest，先 RED 再 GREEN）
+- ✅ 56 tests 全绿（17 workflow + 36 IR/loader/reporter + 3 烟测）
 
 ---
 
@@ -183,22 +202,21 @@ git push
 
 ## 下次回来的 5 件事（按优先级）
 
-### P0：MVP Sprint 1（项目脚手架 + IR）
+### ✅ P0：MVP Sprint 1（项目脚手架 + IR）— **已完成 2026-06-05**
+
+> 交付：`app/core/ir/`（5 个不可变 dataclass：Run/Section/Paragraph/Document/DocumentMetadata/Finding/Location/Fix/Severity）+ `app/core/loaders/docx_loader.py`（load_docx → Document IR）+ `app/core/reporters/terminal.py`（TerminalReporter）。36 个新单元测试 + 17 个原有 workflow 测试 = **56 tests 全绿**。PyQt 现有代码未动。Commit `6097817`。
+
+### 🚧 P0（下一个）：MVP Sprint 1.5（**Live Checker 实时约束** — v1.2 主路径）
 ```bash
-cd "E:/projects/论文书写模版格式规范软件"
-# v1.2 修订：核心库放 app/core/，不是 src/paperguard/
-mkdir -p app/core/{ir,loaders,engine,rules,reporters,writers}
-# 写 app/core/ir/ + 单元测试
-# 写 app/core/loaders/docx_loader.py MVP
-# 写第一个 commit
+cd D:/projects/paperguard   # 当前路径
+# 写 app/core/reporters/pyqt_reporter.py（PyQtReporter + QtIssue）
+# 写 app/services/live_format_checker.py（QObject + 0.5s debounce）
+# app/views/content_editor.py 集成：连接 Qt signal
+# 侧边栏 + 高亮 + 一键修复
+# 单元 + 集成测试
 ```
 
-### P0.5：MVP Sprint 1.5（**新增于 v1.2，Live Checker 实时约束**）
-- 写 `app/core/reporters/pyqt_reporter.py`（PyQtReporter + QtIssue）
-- 写 `app/services/live_format_checker.py`（QObject + 0.5s debounce）
-- `app/views/content_editor.py` 集成：连接 Qt signal
-- 侧边栏 + 高亮 + 一键修复
-- 单元 + 集成测试
+**注意**：Sprint 1.5 的所有 `app/core/` 新代码**不能 import PyQt** —— PyQt 隔离是 Sprint 1 的硬约束。PyQt 部分放 `app/services/` 和 `app/views/`。
 
 ### P1：MVP Sprint 2（规则引擎）
 - 写 `engine/loader.py` / `engine/evaluator.py` / `engine/visitor.py`
@@ -266,8 +284,10 @@ mkdir -p app/core/{ir,loaders,engine,rules,reporters,writers}
 | 2026-06-05 | GitHub CLI 安装 + 5 份子报告 + 设计文档 v1.0 |
 | 2026-06-05 | 参考项目 945 行精读 + 设计文档升级到 v1.1 |
 | 2026-06-05 | SKILL.md 体系 + 一致性自检 |
-| 2026-06-05 | **当前：归档，等待下次回来** |
-| _待定_ | MVP Sprint 1 开工 |
+| 2026-06-05 | 初始化 git 仓库 + 推送到 GitHub private |
+| 2026-06-05 | **Sprint 1 完成**（commit `6097817`）：app/core/ 核心库骨架（IR + docx_loader + terminal reporter），16 文件 / ~720 行 / 56 tests 全绿 / 零 PyQt 依赖 |
+| 2026-06-05 | HANDOFF.md 刷新到 v1.1（标记 Sprint 1 完成 + 提级 Sprint 1.5） |
+| _待定_ | MVP Sprint 1.5 开工（Live Checker 实时约束） |
 | _待定_ | MVP 全部完成（7.5 周后） |
 
 ---
@@ -278,6 +298,7 @@ mkdir -p app/core/{ir,loaders,engine,rules,reporters,writers}
 
 ---
 
-**版本**：v1.0
+**版本**：v1.1（标记 Sprint 1 完成）
 **最后更新**：2026-06-05
 **配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/`
+**最新 commit**：`6097817 feat(Sprint 1): 搭建 app/core/ 核心库骨架`
