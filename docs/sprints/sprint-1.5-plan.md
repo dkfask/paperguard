@@ -102,10 +102,29 @@ Sprint 1.5 在不破坏 `app/core/` 零 PyQt 依赖的硬约束下，把规则�
 - **Test**：`tests/unit/test_project_to_ir.py`，~6 tests（空 section / 单段 / 多段 / 标题层级 / 字体提取 / 不存在的 section_id 抛 ValueError）
 - **Dependencies**：`app.core.ir`、`app.models.project`
 
+### `app/core/engine/`（新文件 — Q1 决策）
+
+#### `app/core/engine/stub_engine.py`（**新增** — Q1 用户决策）
+- **Purpose**：Sprint 1.5 写 5 条规则的内存 stub engine，让性能基线可被真测试。Sprint 2 在此基础上加 YAML pack loader + 25+ 规则。
+- **5 条规则**（Q2 决策的 6 类 Fix 对应的 5 条检测）：
+  1. `R001_line_spacing` — 检查 `paragraph.line == 1.5`（行距必须 1.5）
+  2. `R002_font_size` — 检查 `run.font.size == 12.0pt`（正文小四）
+  3. `R003_first_line_indent` — 检查 `paragraph.first_line_indent == 0.74cm`（2 字符）
+  4. `R004_font_family` — 检查 `run.font.eastAsia == "宋体"`
+  5. `R005_paragraph_spacing` — 检查 `paragraph.space_before/after == 0pt`
+  - 6. （可选）`R006_page_margin` — 在 Sprint 2 YAML pack 里再实现；Sprint 1.5 stub 不必含
+- **Public API**：
+  ```python
+  def validate_docx(ir: Document, pack: str = "stub-GB-T-7713-1-2006") -> list[Finding]: ...
+  ```
+- **Approx LOC**：~120（每条规则 ~20 LOC）
+- **Test**：`tests/unit/test_stub_engine.py`，~10 tests（每条规则 1-2 个 positive + 1-2 个 negative 测试）
+- **Dependencies**：`app.core.ir`
+
 ### `app/services/`（新文件）
 
-#### `app/services/live_format_checker.py`
-- **Purpose**：实时检查器（`QObject`），0.5s debounce + Qt signal。
+#### `app/services/live_format_checker.py`（**Q3 决策：自适应 debounce**）
+- **Purpose**：实时检查器（`QObject`），**自适应** debounce + Qt signal。
 - **Public API**：
   ```python
   class LiveFormatChecker(QObject):
@@ -113,30 +132,41 @@ Sprint 1.5 在不破坏 `app/core/` 零 PyQt 依赖的硬约束下，把规则�
       no_issues = pyqtSignal()
       check_failed = pyqtSignal(str)   # 失败容忍：异常信息
 
-      def __init__(self, project, pack_name: str = "GB-T-7713-1-2006",
-                   debounce_ms: int = 500, parent=None): ...
+      def __init__(self, project, pack_name: str = "stub-GB-T-7713-1-2006",
+                   parent=None): ...  # Q3: 不再接受 debounce_ms，改为自适应
       def request_check(self) -> None: ...
+      def _compute_debounce_ms(self, paragraph_count: int) -> int:
+          # Q3: < 30 → 300ms; 30-100 → 500ms; > 100 → 1000ms
+          ...
       def get_fix(self, issue: QtIssue) -> Fix | None: ...  # 给 LiveMutator 用
   ```
-- **Approx LOC**：~120
-- **Test**：`tests/unit/test_live_format_checker.py`，~12 tests（debounce 触发 / 异常吞掉不崩 / 连续 request_check 重置 timer / 空 findings 走 no_issues / get_fix 缓存命中）
-- **Dependencies**：`app.core.ir`、`app.core.reporters.pyqt_reporter`、`app.models.project`、PyQt5.QtCore（**注意：services 可以 import PyQt，core 不行**）
+- **Approx LOC**：~140（**Q3 调整**：120→140，+20 用于自适应 debounce 计算）
+- **Test**：`tests/unit/test_live_format_checker.py`，~15 tests（**Q3 调整**：12→15，+3 自适应边界测试）（debounce 触发 / 异常吞掉不崩 / 连续 request_check 重置 timer / 空 findings 走 no_issues / get_fix 缓存命中 / **自适应 debounce: 29 段=300ms / 30 段=500ms / 100 段=500ms / 101 段=1000ms**）
+- **Dependencies**：`app.core.ir`、`app.core.engine.stub_engine`（Q1 决策）、`app.core.reporters.pyqt_reporter`、`app.models.project`、PyQt5.QtCore
 
-#### `app/services/live_mutator.py`（**Must-fix #1 + #3**）
+#### `app/services/live_mutator.py`（**Must-fix #1 + #3 + Q2 决策**）
 - **Purpose**：把 `QtIssue` 对应的 `Fix` 应用到 `Project` 模型。**关键点（Must-fix #3）**：`SectionContent` 存的是 `blocks: list[ContentBlock]`（不是单一 HTML 字符串，`content_html` 是 computed property via `blocks_to_editor_html`）。mutator 必须定位到 `blocks[i]`，就地修改，再让 `QTextEdit.setHtml(section.content_html)` 重新载入（用 `editor.blockSignals(True/False)` 包裹以避免触发新一轮 check — Must-fix #1.3 提到的"修一次触发两次 check"问题）。
+- **Q2 决策：6 类 Fix 全部支持**：
+  1. `font_size_pt` — 修改 `ParagraphBlock.run.font.size`
+  2. `line_spacing` — 修改 `ParagraphBlock.line_spacing`（或 `QTextCharFormat.setLineHeight`）
+  3. `first_line_indent_cm` — 修改 `ParagraphBlock.first_line_indent`（或 `QTextBlockFormat.setIndent`）
+  4. `font_family` — 修改 `ParagraphBlock.run.font.eastAsia`（或 `QTextCharFormat.setFontFamily`）
+  5. `paragraph_spacing` — 修改 `ParagraphBlock.space_before/after`（或 `QTextBlockFormat.setTopMargin/setBottomMargin`）
+  6. `page_margin` — 修改 `Section.margins`（Sprint 1.5 stub engine 不出此 rule，**Sprint 2 才实现**；LiveMutator 提前支持以便 Sprint 2 即插即用）
 - **Public API**：
   ```python
   class LiveMutator:
       def __init__(self, project): ...
       def apply_fix(self, issue: QtIssue) -> bool: ...  # True=成功（MUST-FIX #1: 单参数，Fix 从 checker 缓存取）
       def can_apply(self, issue: QtIssue) -> bool: ...
+      # Q6 决策：不需要 undo() 方法（QTextEdit 自带 Ctrl+Z）
   ```
-- **Approx LOC**：~220（**Must-fix #3 调整**：100→220，因为要处理 blocks 而非 HTML 字符串）
-- **Test**：`tests/unit/test_live_mutator.py`，~12 tests（**Must-fix #3 调整**：8→12）（line_spacing set / font_size set / first_line_indent set / 不能 fix 时返回 False / 改完 blocks 而不是 HTML / 改完触发 re-check 由调用方负责 / QTextEdit.setHtml 用 blockSignals 包裹 / 不存在的 paragraph_index 返 False）
+- **Approx LOC**：~350（**Q2 调整**：220→350，每类 Fix ~50 LOC + ~20 LOC 共享框架）
+- **Test**：`tests/unit/test_live_mutator.py`，~18 tests（**Q2 调整**：12→18，每类 Fix 2 tests + 共享 6 tests）（line_spacing set / font_size set / first_line_indent set / **font_family set / paragraph_spacing set / page_margin set** / 不能 fix 时返回 False / 改完 blocks 而不是 HTML / 改完触发 re-check 由调用方负责 / QTextEdit.setHtml 用 blockSignals 包裹 / 不存在的 paragraph_index 返 False / 修复后属性值正确）
 - **Dependencies**：`app.core.ir.finding.Fix`、`app.models.project`
 
-#### `app/services/issue_sidebar.py`
-- **Purpose**：`QWidget` 侧边栏，展示 `QtIssue[]` 列表。
+#### `app/services/issue_sidebar.py`（**Q4 决策** — 内嵌到可分离浮窗）
+- **Purpose**：`QWidget` 侧边栏内容，展示 `QtIssue[]` 列表。被 `floating_panel.py` 包裹。
 - **Public API**：
   ```python
   class IssueSidebar(QWidget):
@@ -148,6 +178,18 @@ Sprint 1.5 在不破坏 `app/core/` 零 PyQt 依赖的硬约束下，把规则�
 - **Approx LOC**：~150
 - **Test**：`tests/unit/test_issue_sidebar.py`，~6 tests（Qt offscreen 渲染 / 列表更新 / 点击发出 signal）
 - **Dependencies**：`app.core.reporters.pyqt_reporter.QtIssue`、PyQt5
+
+#### `app/services/floating_panel.py`（**新增** — Q4 用户决策）
+- **Purpose**：把 `IssueSidebar` 包成 `QDockWidget`，可拖出主窗口右侧。多显示器友好。
+- **Public API**：
+  ```python
+  class FloatingPanel(QDockWidget):
+      def __init__(self, parent=None): ...
+      def get_sidebar(self) -> IssueSidebar: ...
+  ```
+- **Approx LOC**：~50
+- **Test**：`tests/unit/test_floating_panel.py`，~3 tests（widget 包含 IssueSidebar / 可拖动 / 默认停靠右侧）
+- **Dependencies**：`app.services.issue_sidebar`、PyQt5
 
 #### `app/services/format_highlighter.py`
 - **Purpose**：在 `QTextEdit` 段落上画红色波浪线。
@@ -164,23 +206,27 @@ Sprint 1.5 在不破坏 `app/core/` 零 PyQt 依赖的硬约束下，把规则�
 
 ### `app/views/`（修改现有文件）
 
+#### `app/views/main_window.py`（**新增改动** — Q4 决策）
+- **改动**：在 `MainWindow.__init__` 加 1 行：`self.addDockWidget(Qt.RightDockWidgetArea, FloatingPanel(self))`。让浮窗默认停靠右侧，可拖动分离。
+- **Approx LOC delta**：+5
+- **Test**：间接覆盖（手动启动验证）
+- **Dependencies**：`app.services.floating_panel.FloatingPanel`
+
+#### `app/views/project_workspace_view.py`（**Q4 决策调整**）
+- **改动**：原来在右侧加 QTabWidget 改为**不再改这个文件**（sidebar 改在主窗口级，主窗口持有）。
+- **Approx LOC delta**：0（不改动）
+
 #### `app/views/content_editor.py`（修改）
 - **改动**：在 `__init__` 末尾追加 ~30 行：
-  1. 创建 `self.checker = LiveFormatChecker(project=self._resolve_project(), debounce_ms=500)`
+  1. 创建 `self.checker = LiveFormatChecker(project=self._resolve_project())`（Q3 决策：自适应 debounce）
   2. 创建 `self.mutator = LiveMutator(project=self._resolve_project())`
   3. 创建 `self.highlighter = FormatHighlighter(self.editor)`
   4. 信号连接：`editor.textChanged → checker.request_check`、`checker.issues_found → self._on_issues`、`checker.no_issues → self._on_clean`、`checker.check_failed → self._on_check_failed`
-  5. 暴露 `set_project(project)` / `get_sidebar()` 给上层（`project_workspace_view.py`）用于挂到 QSplitter
+  5. 暴露 `set_project(project)` / `get_status_bar_text()` 给上层
 - **新增 3 个 slot**：`_on_issues(issues)` / `_on_clean()` / `_on_check_failed(msg)`
 - **Approx LOC delta**：+50 / -0
 - **Test**：`tests/integration/test_content_editor_live.py`（新文件）
-- **Dependencies**：上面 4 个新 services
-
-#### `app/views/project_workspace_view.py`（小改）
-- **改动**：在 splitter 右侧加一个 `QTabWidget` tab（"格式检查"），`ContentEditor.get_sidebar()` 挂进去。
-- **Approx LOC delta**：+15
-- **Test**：依赖 `test_content_editor_live.py` 间接覆盖
-- **Dependencies**：`app.views.content_editor.ContentEditor`
+- **Dependencies**：上面 5 个新 services
 
 ### `app/controllers/`（按需小改）
 
@@ -228,40 +274,49 @@ Sprint 1.5 在不破坏 `app/core/` 零 PyQt 依赖的硬约束下，把规则�
 
 ### 4.1 TDD 顺序（RED → GREEN → REFACTOR）
 
-0. **project_to_ir（Must-fix #2）** — 6 tests RED first：
-   - `test_empty_section_returns_empty_document`
-   - `test_single_paragraph_basic`
-   - `test_multi_paragraph_with_heading_levels`
-   - `test_font_extraction_from_runs`
-   - `test_unknown_section_id_raises_valueerror`
-   - `test_ir_dataclass_frozen_after_conversion`
-1. **pyqt_reporter** — 4 tests RED → GREEN：
-   - `test_to_qt_issue_minimal_field_mapping`（无 PyQt import 也能跑：测试纯 dataclass 投影）
-   - `test_to_qt_issue_fallback_paragraph_index`（`None → -1`）
-3. `tests/unit/test_pyqt_reporter.py::test_severity_enum_to_string`（`Severity.ERROR.value == "error"`）
-4. `tests/unit/test_pyqt_reporter.py::test_fix_to_human_text`（`Fix(set, "line_spacing", 1.5) → "设置行距为 1.5"`，需要简单映射表）
-5. `tests/unit/test_live_format_checker.py::test_request_check_starts_timer`（mock QTimer）
-6. `tests/unit/test_live_format_checker.py::test_continuous_request_resets_timer`（关键：debounce 行为）
-7. `tests/unit/test_live_format_checker.py::test_run_check_emits_issues_found`（mock engine.validate 返回 1 个 Finding → 1 个 QtIssue）
-8. `tests/unit/test_live_format_checker.py::test_run_check_empty_emits_no_issues`
-9. `tests/unit/test_live_format_checker.py::test_engine_exception_emits_check_failed`（**失败容忍**，设计文档 §5.6 关键要求）
-10. `tests/unit/test_live_mutator.py::test_apply_fix_changes_project_html`
-11. `tests/unit/test_live_mutator.py::test_can_apply_unknown_rule_returns_false`
-12. `tests/unit/test_issue_sidebar.py::test_update_issues_renders_rows`（Qt offscreen）
-13. `tests/unit/test_issue_sidebar.py::test_click_emits_issue_activated`
-14. `tests/unit/test_format_highlighter.py::test_mark_adds_underline_for_paragraph_index`
-15. `tests/integration/test_live_checker_pyqt.py::test_full_pipeline_100_paragraphs`
-16. `tests/integration/test_live_checker_pyqt.py::test_one_click_fix_updates_html`
-17. `tests/integration/test_live_checker_perf.py::test_100_paragraphs_under_200ms`
+0. **project_to_ir（Must-fix #2）** — 6 tests RED first
+1. **pyqt_reporter** — 4 tests RED → GREEN
+2. **stub_engine（🆕 Q1 决策）** — 10 tests RED first（每条规则 2 个）：
+   - `test_R001_line_spacing_1.5_passes`、`test_R001_line_spacing_1.0_fails`
+   - `test_R002_font_size_12pt_passes`、`test_R002_font_size_14pt_fails`
+   - `test_R003_first_line_indent_0.74cm_passes`、`test_R003_first_line_indent_0_fails`
+   - `test_R004_font_family_songti_passes`、`test_R004_font_family_arial_fails`
+   - `test_R005_paragraph_spacing_0pt_passes`、`test_R005_paragraph_spacing_6pt_fails`
+3. **live_format_checker（Q3 决策 +3 tests）** — 8 tests：
+   - `test_request_check_starts_timer`
+   - `test_continuous_request_resets_timer`
+   - `test_run_check_emits_issues_found`（**Q1 改用真 stub engine，不用 mock**）
+   - `test_run_check_empty_emits_no_issues`
+   - `test_engine_exception_emits_check_failed`
+   - **🆕 Q3 决策**：`test_adaptive_debounce_29_paragraphs_uses_300ms`
+   - **🆕 Q3 决策**：`test_adaptive_debounce_30_paragraphs_uses_500ms`
+   - **🆕 Q3 决策**：`test_adaptive_debounce_101_paragraphs_uses_1000ms`
+4. **live_mutator（🆕 Q2 决策 +6 tests）** — 12 tests（每类 Fix 2）：
+   - `test_apply_fix_line_spacing_sets_block`
+   - `test_apply_fix_font_size_sets_block`
+   - `test_apply_fix_first_line_indent_sets_block`
+   - `🆕 test_apply_fix_font_family_sets_block`（Q2 +1）
+   - `🆕 test_apply_fix_paragraph_spacing_sets_block`（Q2 +1）
+   - `🆕 test_apply_fix_page_margin_sets_section`（Q2 +1，Sprint 2 才用）
+   - `test_apply_fix_single_arg`（Must-fix #1）
+   - `test_apply_fix_calls_blocksignals_around_sethhtml`（Must-fix #1.3）
+   - `test_can_apply_unknown_rule_returns_false`
+   - `test_apply_fix_modifies_blocks_not_html`（Must-fix #3）
+   - `test_paragraph_index_out_of_range_returns_false`
+   - `test_apply_fix_returns_true_on_success`
+5. **issue_sidebar + format_highlighter + floating_panel（🆕 Q4 +3 tests）** — 14 tests（6 sidebar + 5 highlighter + 3 floating_panel）
+6. **integration** — 6 tests（3 e2e + 2 perf + 1 qt_offscreen smoke）
 
 ### 4.2 覆盖率目标
 
 - `app/core/reporters/pyqt_reporter.py` ≥ 95%（纯函数 + 投影）
-- `app/services/live_format_checker.py` ≥ 85%（含 QTimer mock 覆盖所有分支）
-- `app/services/live_mutator.py` ≥ 85%
-- `app/services/issue_sidebar.py` / `format_highlighter.py` ≥ 75%（Qt widget 部分手工覆盖）
+- `app/core/engine/stub_engine.py` ≥ 95%（**🆕 Q1**，纯函数规则）
+- `app/core/loaders/project_to_ir.py` ≥ 85%
+- `app/services/live_format_checker.py` ≥ 85%（**Q3 自适应边界全覆盖**）
+- `app/services/live_mutator.py` ≥ 85%（**Q2 6 类 Fix 全覆盖**）
+- `app/services/issue_sidebar.py` / `format_highlighter.py` / `floating_panel.py` ≥ 75%（Qt widget 部分手工覆盖）
 - 整体 Sprint 1.5 增量覆盖率 ≥ 80%（`docs/design-proposal.md` §6 CLAUDE.md 硬指标）
-- **总测试数预期**：56（现有） + 41（unit） + 6（integration） = **~103 tests**
+- **总测试数预期**：56（现有） + 56（unit：6 project_to_ir + 4 pyqt_reporter + 10 stub_engine + 8 live_checker + 12 live_mutator + 6 sidebar + 5 highlighter + 3 floating_panel + 2 fix_suggestion mapping）+ 6（integration） = **~118 tests**
 
 ### 4.3 手动冒烟测试
 
@@ -283,22 +338,26 @@ cls.app = QApplication.instance() or QApplication([])
 
 ---
 
-## 5. Commit Strategy
+## 5. Commit Strategy（**Q1-Q4 决策后 12 commits**）
 
 | # | Commit | Scope | 说明 |
 |---|--------|-------|------|
-| 1 | `test(sprint-1.5): RED — pyqt_reporter 投影测试` | test | 4 个 RED 测试（不写实现） |
-| 2 | `feat(sprint-1.5): pyqt_reporter + QtIssue dataclass` | feat | `app/core/reporters/pyqt_reporter.py` |
-| 3 | `test(sprint-1.5): RED — live_format_checker debounce 测试` | test | 5 个 RED |
-| 4 | `feat(sprint-1.5): LiveFormatChecker (QObject + QTimer debounce)` | feat | `app/services/live_format_checker.py` |
-| 5 | `feat(sprint-1.5): LiveMutator + IssueSidebar + FormatHighlighter` | feat | 3 个 services 一起（强内聚） |
-| 6 | `feat(sprint-1.5): ContentEditor 集成 + project_workspace_view 挂载` | feat | view 改动 |
-| 7 | `test(sprint-1.5): integration tests + perf baseline` | test | 3 个 integration |
-| 8 | `chore(sprint-1.5): scripts/sprint1_5_smoke.py` | chore | 冒烟脚本 |
-| 9 | `docs(sprint-1.5): HANDOFF.md 标记 Sprint 1.5 完成` | docs | 配合 Phase E |
-| 10 | `chore(sprint-1.5): verify grep app/core/ 无 PyQt import` | chore | DoD grep 检查 |
+| 1 | `test(sprint-1.5): RED — project_to_ir 转换测试` | test | 6 个 RED（Must-fix #2） |
+| 2 | `feat(sprint-1.5): project_to_ir converter` | feat | `app/core/loaders/project_to_ir.py` |
+| 3 | `test(sprint-1.5): RED — pyqt_reporter 投影测试` | test | 4 个 RED |
+| 4 | `feat(sprint-1.5): pyqt_reporter + QtIssue dataclass` | feat | `app/core/reporters/pyqt_reporter.py` |
+| 5 | `test(sprint-1.5): RED — stub_engine 5 规则测试` | test | **🆕 Q1 决策**，10 个 RED（5 规则 × 2） |
+| 6 | `feat(sprint-1.5): stub_engine 5 规则（line_spacing/font_size/indent/font_family/paragraph_spacing）` | feat | **🆕 Q1 决策**，`app/core/engine/stub_engine.py` |
+| 7 | `test(sprint-1.5): RED — live_format_checker 自适应 debounce 测试` | test | 8 个 RED（**🆕 Q3 决策** +3 边界） |
+| 8 | `feat(sprint-1.5): LiveFormatChecker (QObject + 自适应 debounce)` | feat | `app/services/live_format_checker.py` |
+| 9 | `feat(sprint-1.5): LiveMutator (Q2 6 类 Fix) + IssueSidebar + FormatHighlighter + FloatingPanel` | feat | 4 个 services 一起（**🆕 Q2 +3 Fix 类型 / Q4 浮窗**） |
+| 10 | `feat(sprint-1.5): ContentEditor 集成 + main_window 浮窗挂载` | feat | view 改动（**🆕 Q4 改 main_window.py**） |
+| 11 | `test(sprint-1.5): integration tests + perf baseline` | test | 6 个 integration（含 `sample_paper_100paras.docx` fixture） |
+| 12 | `chore(sprint-1.5): scripts/sprint1_5_smoke.py` | chore | 冒烟脚本 |
+| 13 | `docs(sprint-1.5): HANDOFF.md 标记 Sprint 1.5 完成` | docs | 配合 Phase E |
+| 14 | `chore(sprint-1.5): verify grep app/core/ 无 PyQt import` | chore | DoD grep 检查 |
 
-**总计**：~10 atomic commits（vs 上限 6，扩展到 10 是因为 QtIssue + 3 services + 集成 + 冒烟都是独立可测试单元）。
+**总计**：**14 atomic commits**（Q1-Q4 决策后从 10 → 14；新增 stub_engine 4 commits + Q4 浮窗 1 commit + Q2 修复扩展 1 commit）。
 
 ---
 
@@ -306,39 +365,53 @@ cls.app = QApplication.instance() or QApplication([])
 
 | # | 风险 | 影响 | 缓解 |
 |---|------|------|------|
-| **1** | `engine.validate()`（Sprint 2 才有）尚未实现，Sprint 1.5 怎么测？ | RED 测试无 callable | Sprint 1.5 在 `live_format_checker.py` 顶部加 `try: from app.core.engine import validate_docx  # noqa except ImportError: validate_docx = None`，测试用 `unittest.mock.patch("app.services.live_format_checker.validate_docx")` 注入。Sprint 2 写真实现时删 try/except。**Owner**：Sprint 1.5 → Sprint 2 衔接 review。 |
-| **2** | `Project` 模型当前用 HTML 存内容（`SectionContent.content_html`），`Fix.target`（如 `"paragraph.line_spacing"`）如何映射到 HTML 修改？ | mutator 实现复杂 | Sprint 1.5 限制 Fix 范围：仅支持 `font_size_pt` / `line_spacing` / `first_line_indent_cm` 三类，HTML 层走 `QTextEdit` 的 cursor + charFormat 操作。其它 Fix 暂返回 `can_apply=False`。Sprint 5 写 `docx_writer` 后再扩展。 |
-| **3** | 100 段论文检查 > 200ms 触发 UI 卡顿 | 用户体验差 | 短期：debounce 调到 1000ms；中期（V1.3）：增量检查（仅查 last_paragraph_index 变化段）；性能基线测试 `test_live_checker_perf.py` 必须包含此断言，CI 报警。 |
+| **1** | ~~`engine.validate()`（Sprint 2 才有）尚未实现~~ | ~~RED 测试无 callable~~ | **🆕 Q1 决策消除**：Sprint 1.5 自带 5 规则 stub engine（`app/core/engine/stub_engine.py`），性能基线可被真测试。Sprint 2 在 stub 基础上加 YAML pack loader + 25+ 规则 |
+| **2** | `Project` 模型用 `blocks: list[ContentBlock]` 存内容（`content_html` 是 computed property），`Fix.target` 如何映射到 blocks 修改？ | mutator 实现复杂 | **🆕 Q2 决策扩展**：支持 6 类 Fix（font_size_pt / line_spacing / first_line_indent_cm / font_family / paragraph_spacing / page_margin）。mutator 走 `blocks[i]` 就地修改 + `QTextEdit.setHtml(section.content_html)` 重新载入（用 `editor.blockSignals` 包裹避免双触发 check）。Sprint 5 写 `docx_writer` 后再用 docx 路径保存 |
+| **3** | 100 段论文检查 > 200ms 触发 UI 卡顿 | 用户体验差 | **🆕 Q3 决策缓解**：自适应 debounce — < 30 段 300ms / 30-100 段 500ms / > 100 段 1000ms。性能基线测试 `test_live_checker_perf.py` 仍必须 < 200ms。V1.3 增量检查（仅查变化段）作为后续优化 |
 
 ---
 
 ## 7. Definition of Done
 
-- [ ] `pytest tests/` 全绿（**~103 tests**，含 56 现有 + ~47 新增）
+- [ ] `pytest tests/` 全绿（**~118 tests**，含 56 现有 + ~62 新增）
 - [ ] `python scripts/sprint1_5_smoke.py` 端到端通过
 - [ ] `grep -r "PyQt" app/core/` 仅匹配 docstring 注释（零 import，**Sprint 1 硬约束保持**）
 - [ ] 现有 56 tests 仍全绿（无 regression）
-- [ ] PyQt 桌面应用启动后，在 ContentEditor 输入文本，0.5-1s 内侧边栏出现 issue，状态栏显示 "⚠ N 个格式问题"
-- [ ] 点击侧边栏 issue 旁的"修复"按钮，对应段落 HTML 改变，状态栏变 "✓ 格式合规"
-- [ ] 100 段论文性能 < 200ms（`test_live_checker_perf.py` 通过）
+- [ ] PyQt 桌面应用启动后，在 ContentEditor 输入文本，**自适应 debounce** 后侧边栏出现 issue，状态栏显示 "⚠ N 个格式问题"
+- [ ] 点击侧边栏 issue 旁的"修复"按钮，对应段落 blocks 修改，**Ctrl+Z 可撤回**（Q6 决策），状态栏变 "✓ 格式合规"
+- [ ] **Q4 决策**：浮窗可从主窗口右侧拖出到副屏；停靠位置记忆
+- [ ] **Q1 决策**：5 条 stub 规则全部工作；性能基线 < 200ms（用真 engine，不再 mock）
+- [ ] **Q2 决策**：6 类 Fix 全部可应用（page_margin 仅 Sprint 2 用）
+- [ ] **Q3 决策**：不同论文长度触发对应 debounce（断言测试通过）
 - [ ] `HANDOFF.md` 标记 Sprint 1.5 完成
 - [ ] Push 到 GitHub `main` 分支（commit hash 更新到 `HANDOFF.md`）
 
 ---
 
-## 8. Decisions (Resolved Open Questions)
+## 8. Decisions (Resolved Open Questions — 2026-06-07 修订)
 
-> 以下 7 个原开放问题已基于 **设计文档**、**Risk 缓解策略**、**MVP 原则**作出决策。用户如有不同意见可在实施前否决。
+> 以下 7 个原开放问题已基于 **用户决策** + **设计文档** + **Risk 缓解策略**作出。**6 个原默认决策被用户推翻**（Q1-Q6），仅 Q7 保持。
 
-| # | 原问题 | 决策 | 理由 |
+| # | 原问题 | **最终决策**（用户选） | 理由 / 影响 |
 |---|--------|------|------|
-| 1 | `validate_docx` mock 策略 | **`try/except ImportError` + 测试 mock** | Sprint 2 再写 engine；Sprint 1.5 接受 mock 路径 |
-| 2 | `Project` HTML 反向修改范围 | **3 类 Fix**：font_size_pt / line_spacing / first_line_indent_cm | 降低 Sprint 1.5 复杂度；其它 issue 显示但不修 |
-| 3 | Debounce 默认值 | **500ms** | 设计文档 §7 Sprint 1.5 性能基线值；性能基线测试 < 200ms |
-| 4 | 侧边栏挂载位置 | **右侧 QTabWidget 加新 tab**（"格式检查"） | 不影响 `ContentEditor.get_sidebar()` 现有 API |
-| 5 | 失败容忍错误归宿 | **状态栏文字 + 控制台日志**（不写文件） | MVP 阶段不引入文件 I/O；后续 Sprint 可加日志文件 |
-| 6 | 一键修复按钮的"撤销" | **不做**（用 QTextEdit 自带 undo） | 设计文档 §5.6 已隐含此决定 |
-| 7 | `sample_paper_100paras.docx` fixture | **新增**（100 段，~5KB） | 性能基线测试 `test_live_checker_perf.py` 需要 |
+| 1 | `validate_docx` mock 策略 | **🆕 Sprint 1.5 写 5 条规则 stub engine**（line_spacing / font_size / first_line_indent / font_family / paragraph_spacing） | Sprint 1.5 不再 mock；性能基线可被真测试。Sprint 2 在 stub 基础上加 YAML pack loader + 25+ 规则 |
+| 2 | `Project` Fix 类型范围 | **🆕 6 类**：font_size_pt / line_spacing / first_line_indent_cm / **font_family** / **paragraph_spacing** / **page_margin** | 全部 user-applicable；LiveMutator 220→350 LOC，tests 12→18 |
+| 3 | Debounce 默认值 | **🆕 自适应**：< 30 段 300ms / 30-100 段 500ms / > 100 段 1000ms | 大论文不卡；小论文响应快；`_compute_debounce_ms(paragraph_count)` 函数 |
+| 4 | 侧边栏挂载位置 | **🆕 右侧浮窗（可分离）**：`QDockWidget` 顶部对齐右侧，可拖出主窗口 | 多显示器友好；学生在副屏盯 sidebar，主屏写论文。`main_window.py` 需加 addDockWidget |
+| 5 | 失败容忍错误归宿 | **状态栏 + 控制台日志**（保持默认） | Python `logging` 模块；状态栏显 "⚠ 检查失败" |
+| 6 | 一键修复按钮的"撤销" | **QTextEdit 自带 undo**（保持默认） | 不实现自定义 undo；学生用 Ctrl+Z |
+| 7 | `sample_paper_100paras.docx` fixture | **新增**（保持默认） | 性能基线测试 `test_live_checker_perf.py` 需要 |
+
+### 8.1 决策对 Sprint 1.5 规模的影响
+
+| 维度 | 原默认 | 用户调整后 | 增量 |
+|------|--------|------------|------|
+| 新增文件 | 9 | 11（+2：stub_engine.py, floating_panel.py） | +2 |
+| 新增 LOC | ~640 | **~920** | +280 |
+| 新增测试 | 47 | **62** | +15 |
+| Commit 数 | 10 | **12**（+2：stub engine） | +2 |
+| 估算工作量 | ~1 周 | **~1.5 周** | +0.5 周 |
+| PyQt 主窗口改动 | 无 | **+30 LOC**（main_window.py addDockWidget） | +30 |
 
 ---
 
