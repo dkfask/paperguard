@@ -124,14 +124,11 @@ class LiveCheckerPyQtIntegrationTests(unittest.TestCase):
     # 2. 一键修复：apply_fix 改 block
     # ------------------------------------------------------------------
     def test_one_click_fix_updates_paragraph(self):
-        """触发真实 check → 验证 R001 (line_spacing) fix 在 checker cache →
-        用真实 Fix 构造 mutator-friendly QtIssue → LiveMutator.apply_fix → block.html 改了。
-
-        注：engine 产出 ``rule_id="R001"`` + ``fix.target="paragraph.line_spacing"``；
-        mutator 的 SUPPORTED_RULE_IDS 接收简写 ``"line_spacing"``。本测试用"桥接
-        fake checker"模拟上层把 (R001 → "line_spacing") 映射好后调 mutator 的场景，
-        验证 line_spacing 修复端到端能改 block.html（实际项目里 ContentEditor 会做
-        同样的映射再调 mutator.apply_fix）。
+        """触发真实 check → 找一条 R001 (line_spacing) issue → 直接传给
+        ``LiveMutator.apply_fix``。mutator 通过 checker.get_fix(issue) 拿到真实
+        Fix（``target="paragraph.line_spacing"``），自动从 target 解析出可
+        应用的 leaf（``"line_spacing"``）。验证 line_spacing 修复端到端能
+        改 block.html。
 
         blocks 用 HTML（不是 OOXML），让 mutator 的 <p> 正则能命中（mutator 是
         改 HTML style 属性，不是改 OOXML XML）。
@@ -151,48 +148,26 @@ class LiveCheckerPyQtIntegrationTests(unittest.TestCase):
         self.assertTrue(line_issues, "issues 里必须有 R001 (line_spacing) 类型")
         target_issue = line_issues[0]
 
-        # 从真实 checker cache 拿原始 Fix
+        # 验证 checker 缓存里 fix.target 是点分形式（真实 engine 行为）
         original_fix = checker.get_fix(target_issue)
         self.assertIsNotNone(original_fix, "checker 缓存里必须有 R001 的 fix")
         self.assertEqual(original_fix.target, "paragraph.line_spacing")
         self.assertEqual(original_fix.value, 1.5)
 
-        # 构造一个 mutator-friendly QtIssue（rule_id="line_spacing"）+ 桥接 fake checker
-        synthetic_issue = QtIssue(
-            rule_id="line_spacing",
-            severity=target_issue.severity,
-            message=target_issue.message,
-            location_text=target_issue.location_text,
-            paragraph_index=target_issue.paragraph_index,
-            fix_suggestion=target_issue.fix_suggestion,
-        )
+        # 直接用真实 checker 作 LiveMutator 的 fix provider（无需桥接）
+        mutator = LiveMutator(project, checker=checker)
 
-        class _BridgingChecker:
-            """把 mutator 简写 rule_id 映射到真实 engine Fix，并把 fix.target
-            从点分（paragraph.line_spacing）改写成 mutator 期望的简写（line_spacing）。"""
-
-            def get_fix(self, issue: QtIssue):
-                if issue.rule_id == "line_spacing":
-                    # 模拟上层 ContentEditor 的桥接：去掉 paragraph. 前缀
-                    from app.core.ir.finding import Fix as _Fix
-                    return _Fix(
-                        action=original_fix.action,
-                        target=original_fix.target.split(".")[-1],  # "line_spacing"
-                        value=original_fix.value,
-                    )
-                return None
-
-        bridging_checker = _BridgingChecker()
-        mutator = LiveMutator(project, checker=bridging_checker)
+        # can_apply 必须用 fix.target 的 leaf 段（mutator 内部实现）来识别
+        self.assertTrue(mutator.can_apply(target_issue),
+                        "R001 + fix.target=paragraph.line_spacing 必须 can_apply=True")
 
         # 取原 block.html 留作对比
-        target_block = project.sections["body"].blocks[synthetic_issue.paragraph_index]
-        original_html = target_block.html
-        self.assertNotIn("line-height: 1.5", original_html,
+        target_block = project.sections["body"].blocks[target_issue.paragraph_index]
+        self.assertNotIn("line-height: 1.5", target_block.html,
                          "原 HTML 不应已含修复后的 line-height")
 
-        # 调 apply_fix
-        ok = mutator.apply_fix(synthetic_issue)
+        # 直接用原始 target_issue 调 apply_fix（mutator 内部桥接）
+        ok = mutator.apply_fix(target_issue)
         self.assertTrue(ok, "apply_fix 必须成功")
         # 断言 line-height 写进了 block.html
         self.assertIn("line-height: 1.5", target_block.html,

@@ -134,8 +134,12 @@ def _update_first_run_font_size(html: str, value_pt: float) -> str:
 # ---------------------------------------------------------------------------
 
 def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
-    """按 ``fix.target`` 把值写进 ``ParagraphBlock``。非目标 target 不动。"""
-    target = fix.target
+    """按 ``fix.target`` 的 leaf 段把值写进 ``ParagraphBlock``。非目标 target 不动。
+
+    兼容点分（``"paragraph.line_spacing"``）和简写（``"line_spacing"``）两种
+    target 形式 — 统一取最后一段。
+    """
+    target = _target_leaf(fix.target)
     if target == "line_spacing":
         block.html = _update_paragraph_style(block.html, "line-height", f"{fix.value}")
     elif target == "first_line_indent_cm":
@@ -183,23 +187,30 @@ class LiveMutator:
         self.checker = checker
 
     def can_apply(self, issue: QtIssue) -> bool:
-        """``issue.rule_id`` 命中 3 类支持集合即可（不看 paragraph_index）。
+        """``issue`` 对应的 ``Fix.target`` 命中 3 类支持集合即可（不看 paragraph_index）。
+
+        通过 checker.get_fix(issue) 拿到 Fix，从 ``target`` 字段（如
+        ``"paragraph.line_spacing"``）取最后一段（``"line_spacing"``）
+        判断 mutator 是否能改写。rule_id 本身（``R001`` 等）不参与匹配。
 
         paragraph_index 的合法性由 ``apply_fix`` 检查；``can_apply`` 用于
         UI 灰显"修复"按钮，所以只看"是否本 mutator 知道怎么改"。
         """
-        return issue.rule_id in SUPPORTED_RULE_IDS
+        if self.checker is None:
+            return False
+        fix = self.checker.get_fix(issue)
+        if fix is None:
+            return False
+        return _target_leaf(fix.target) in SUPPORTED_RULE_IDS
 
     def apply_fix(self, issue: QtIssue) -> bool:
         """把 ``issue`` 对应的 ``Fix`` 写到 ``Project`` 的对应 block。
 
         Returns:
             True: 成功改写 ``SectionContent.blocks[i]``。
-            False: 不支持的 rule / 无 checker / checker 无 fix /
+            False: 不支持的 target / 无 checker / checker 无 fix /
                    paragraph_index 越界 / 目标 block 非 ParagraphBlock。
         """
-        if issue.rule_id not in SUPPORTED_RULE_IDS:
-            return False
         if issue.paragraph_index < 0:
             return False
         if self.checker is None:
@@ -207,6 +218,8 @@ class LiveMutator:
 
         fix = self.checker.get_fix(issue)
         if fix is None:
+            return False
+        if _target_leaf(fix.target) not in SUPPORTED_RULE_IDS:
             return False
 
         section = _find_target_section(self.project, issue.paragraph_index)
@@ -219,6 +232,11 @@ class LiveMutator:
 
         _apply_fix_to_block(block, fix)
         return True
+
+
+def _target_leaf(target: str) -> str:
+    """从 ``"paragraph.line_spacing"`` 取最后一段 ``"line_spacing"``。"""
+    return target.rsplit(".", 1)[-1]
 
 
 __all__ = ["LiveMutator", "SUPPORTED_RULE_IDS"]

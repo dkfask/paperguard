@@ -56,17 +56,27 @@ def _make_issue(
 
 
 class _FakeChecker:
-    """测试用 fake checker：把 rule_id 映射到 Fix。
+    """测试用 fake checker：仿造 ``LiveFormatChecker.get_fix`` 的行为。
 
-    设计：rule_id 直接当 Fix.target（保持和 Sprint 1.5 stub engine 风格
-    兼容；本测试不验证 engine 链路）。
+    支持两种 key 风格（向后兼容老测试）：
+    - key == ``issue.rule_id``：直接命中
+    - key 是任意字符串，``fix.target`` 的 leaf 段 == ``issue.rule_id``：也命中
+
+    这样既可以测老风格（``{"line_spacing": Fix(target="line_spacing", ...)}`` + issue.rule_id="line_spacing"），
+    也可以测新风格（``{"R001": Fix(target="paragraph.line_spacing", ...)}`` + issue.rule_id="R001"）。
     """
 
     def __init__(self, fixes: dict[str, Fix] | None = None) -> None:
         self.fixes: dict[str, Fix] = fixes or {}
 
     def get_fix(self, issue: QtIssue) -> Fix | None:
-        return self.fixes.get(issue.rule_id)
+        if issue.rule_id in self.fixes:
+            return self.fixes[issue.rule_id]
+        # Fallback: scan by target leaf
+        for fix in self.fixes.values():
+            if fix.target.rsplit(".", 1)[-1] == issue.rule_id:
+                return fix
+        return None
 
 
 def _make_project(blocks_html: list[str], section_id: str = "ch1") -> Project:
@@ -198,19 +208,26 @@ class TestApplyFixModifiesBlocksNotHtml(unittest.TestCase):
 
 
 class TestCanApply(unittest.TestCase):
-    """can_apply 只看 rule_id 是不是在支持的 3 类里。"""
+    """can_apply 通过 checker.get_fix(issue) 取 Fix，再看 target leaf 是不是支持。"""
 
     def test_can_apply_unknown_rule_returns_false(self):
         project = _make_project(["<p>x</p>"])
-        mutator = LiveMutator(project, checker=None)
-        issue = _make_issue("page_margin", paragraph_index=0)
+        checker = _FakeChecker({
+            "page_margin": Fix(action="set", target="page_margin", value=2.0),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R009_page_margin", paragraph_index=0)
 
         self.assertFalse(mutator.can_apply(issue))
 
     def test_can_apply_known_rule_returns_true(self):
         project = _make_project(["<p>x</p>"])
-        mutator = LiveMutator(project, checker=None)
-        issue = _make_issue("line_spacing", paragraph_index=0)
+        checker = _FakeChecker({
+            "R001": Fix(action="set", target="paragraph.line_spacing", value=1.5),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        # rule_id 是 R001，mutator 通过 fix.target 的 leaf 段判断可应用性
+        issue = _make_issue("R001", paragraph_index=0)
 
         self.assertTrue(mutator.can_apply(issue))
 
