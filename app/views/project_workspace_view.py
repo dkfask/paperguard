@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QFormLayout,
     QGroupBox,
@@ -71,16 +71,31 @@ class ProjectWorkspaceView(QWidget):
         self.tree_panel.section_selected.connect(self.section_selected.emit)
         splitter.addWidget(self.tree_panel)
 
+        # Sprint 1.5: 实时约束 — 中间层用一个内嵌 QSplitter 把
+        # ContentEditor 与「格式检查」QTabWidget 并排；旧的章节说明/项目信息
+        # QTabWidget 保留在 splitter 右侧（与 plan §3 "Q4 reverted" 一致：
+        # 用 QTabWidget 而非 QDockWidget）。
+        editor_splitter = QSplitter()
+
         self.content_editor = ContentEditor()
         self.content_editor.content_changed.connect(self.content_changed.emit)
-        splitter.addWidget(self.content_editor)
+        editor_splitter.addWidget(self.content_editor)
+
+        # 实时检查 Tab — 把 ContentEditor 的 IssueSidebar 挂进来
+        self.check_tab = QTabWidget()
+        self.check_tab.addTab(self.content_editor.get_sidebar(), "格式检查")
+        editor_splitter.addWidget(self.check_tab)
+
+        editor_splitter.setSizes([520, 280])
+        editor_splitter.setOrientation(Qt.Horizontal)
+        splitter.addWidget(editor_splitter)
 
         self.right_tabs = QTabWidget()
         self.right_tabs.addTab(self._build_description_tab(), "章节说明")
         self.right_tabs.addTab(self._build_metadata_tab(), "项目信息")
         splitter.addWidget(self.right_tabs)
 
-        splitter.setSizes([250, 620, 300])
+        splitter.setSizes([220, 740, 280])
         layout.addWidget(splitter, 1)
 
     def _build_description_tab(self) -> QWidget:
