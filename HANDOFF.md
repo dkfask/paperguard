@@ -8,7 +8,7 @@
 
 ## 一句话状态
 
-> ✅ **Sprint 1 已完成**（2026-06-05，commit `6097817`）：`app/core/` 核心库骨架就位 — 5 个不可变 IR dataclass + docx_loader + TerminalReporter，**16 个新文件 / ~720 行 / 56 tests 全绿 / 零 PyQt 依赖**。调研 + 设计 + 文档全部完成（含 **v1.2 实时约束**）。PyQt 桌面应用骨架已有 537 symbols。下一步：**Sprint 1.5（Live Checker 实时约束）**。
+> ✅ **Sprint 1.5 已完成**（2026-06-07，14 个新 commit）：Live Checker 实时约束全链路跑通 — `app/core/` 加 3 文件（project_to_ir / pyqt_reporter / stub_engine 5 规则）+ `app/services/` 加 4 文件（LiveFormatChecker 500ms debounce / LiveMutator 3 fix 类型 / IssueSidebar 严重度配色 / FormatHighlighter 红色波浪线）+ 改 `app/views/content_editor.py` 集成 4 services。**124 tests 全绿**（56 Sprint 1 + 68 Sprint 1.5），性能基线 < 200ms（实测 < 100ms），`app/core/` 零 PyQt 依赖保持。Sprint 1 → 1.5 共 **+~1400 LOC / 10 原子 commit**。下一步：**Sprint 2（规则引擎 YAML pack + 25+ 规则）**。
 
 ---
 
@@ -206,22 +206,23 @@ git push
 
 > 交付：`app/core/ir/`（5 个不可变 dataclass：Run/Section/Paragraph/Document/DocumentMetadata/Finding/Location/Fix/Severity）+ `app/core/loaders/docx_loader.py`（load_docx → Document IR）+ `app/core/reporters/terminal.py`（TerminalReporter）。36 个新单元测试 + 17 个原有 workflow 测试 = **56 tests 全绿**。PyQt 现有代码未动。Commit `6097817`。
 
-### 🚧 P0（下一个）：MVP Sprint 1.5（**Live Checker 实时约束** — v1.2 主路径）
+### ✅ P0：MVP Sprint 1.5（**Live Checker 实时约束** — v1.2 主路径）— **已完成 2026-06-07**
+
+> 交付：3 个 core（project_to_ir / pyqt_reporter / stub_engine 5 规则）+ 4 个 services（LiveFormatChecker 500ms debounce / LiveMutator 3 fix 类型 / IssueSidebar 严重度配色 / FormatHighlighter 红色波浪线）+ 改 `app/views/content_editor.py` 集成。**68 个新测试 + 56 旧 = 124 全绿**。性能基线 < 200ms 实测 < 100ms。`app/core/` 零 PyQt 依赖保持。共 10 atomic commits。**最新 commit `0480d22`（fix: LiveMutator 接受点分 fix.target）**。
+
+### 🚧 P0（下一个）：MVP Sprint 2（**规则引擎 YAML pack + 25+ 规则**）
+
 ```bash
 cd D:/projects/paperguard   # 当前路径
-# 写 app/core/reporters/pyqt_reporter.py（PyQtReporter + QtIssue）
-# 写 app/services/live_format_checker.py（QObject + 0.5s debounce）
-# app/views/content_editor.py 集成：连接 Qt signal
-# 侧边栏 + 高亮 + 一键修复
-# 单元 + 集成测试
+# 写 app/core/engine/loader.py（YAML pack → Rule 对象）
+# 写 app/core/engine/evaluator.py（Rule + IR → Finding）
+# 写 app/core/engine/visitor.py（IR 遍历 + 属性提取）
+# 把 Sprint 1.5 的 stub_engine 重写为 YAML-driven
+# 新增 rules/packs/GB-T-7713-1-2006.yaml（25+ 规则）
+# LiveFormatChecker 切到真 YAML engine（去 stub）
 ```
 
-**注意**：Sprint 1.5 的所有 `app/core/` 新代码**不能 import PyQt** —— PyQt 隔离是 Sprint 1 的硬约束。PyQt 部分放 `app/services/` 和 `app/views/`。
-
-### P1：MVP Sprint 2（规则引擎）
-- 写 `engine/loader.py` / `engine/evaluator.py` / `engine/visitor.py`
-- 5 条规则 demo
-
+**Sprint 2 关键变化**：Sprint 1.5 的 `app/core/engine/stub_engine.py` 5 规则是占位，Sprint 2 把它替换成 YAML 驱动：`loader.py` 解析 YAML pack → `evaluator.py` 跑规则（用 json-logic 或 jmespath 表达式）→ 输出 `Finding[]`。LiveFormatChecker 改成调用 `engine.validate_docx(ir, pack="GB-T-7713-1-2006")`，性能必须保持 < 200ms（25 规则 vs 5 规则）。
 ### P2：MVP Sprint 2.5（**新增于 v1.1**，**必做**）
 - 抄 `references/format-thesis-docx/scripts/extract_requirements.py` 的 FORMAT_WORDS 启发式
 - 新增 `paperguard extract` 子命令
@@ -287,18 +288,20 @@ cd D:/projects/paperguard   # 当前路径
 | 2026-06-05 | 初始化 git 仓库 + 推送到 GitHub private |
 | 2026-06-05 | **Sprint 1 完成**（commit `6097817`）：app/core/ 核心库骨架（IR + docx_loader + terminal reporter），16 文件 / ~720 行 / 56 tests 全绿 / 零 PyQt 依赖 |
 | 2026-06-05 | HANDOFF.md 刷新到 v1.1（标记 Sprint 1 完成 + 提级 Sprint 1.5） |
-| _待定_ | MVP Sprint 1.5 开工（Live Checker 实时约束） |
+| 2026-06-07 | **Sprint 1.5 完成**（commits `48cbd24` ~ `0480d22`，10 atomic）：app/core/ 加 project_to_ir / pyqt_reporter / stub_engine（5 规则）；app/services/ 加 LiveFormatChecker / LiveMutator / IssueSidebar / FormatHighlighter；app/views/content_editor.py 集成。**+~1400 LOC / +68 tests / 124 全绿**。性能 < 100ms（基线 200ms） |
+| 2026-06-07 | HANDOFF.md 刷新到 v1.2（标记 Sprint 1.5 完成 + 提级 Sprint 2） |
+| _待定_ | MVP Sprint 2 开工（YAML 规则引擎 + 25+ 规则） |
 | _待定_ | MVP 全部完成（7.5 周后） |
 
 ---
 
 ## 一句话建议
 
-> 下次回来，直接说"开始 Sprint 1"——我会读 CLAUDE.md / HANDOFF.md / design-proposal.md，然后给你 `pyproject.toml` + 第一个 commit。
+> 下次回来，直接说"开始 Sprint 2"——我会读 CLAUDE.md / HANDOFF.md / design-proposal.md §4.2 + §7 Sprint 2 计划，然后把 `stub_engine.py` 重构成 YAML 驱动的 `engine/loader.py + evaluator.py`。
 
 ---
 
-**版本**：v1.1（标记 Sprint 1 完成）
-**最后更新**：2026-06-05
-**配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/`
-**最新 commit**：`6097817 feat(Sprint 1): 搭建 app/core/ 核心库骨架`
+**版本**：v1.2（标记 Sprint 1.5 完成）
+**最后更新**：2026-06-07
+**配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/sprint-1.5-plan.md`
+**最新 commit**：`0480d22 fix(sprint-1.5): LiveMutator 接受 fix.target 点分形式`
