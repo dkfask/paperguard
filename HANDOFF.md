@@ -8,7 +8,7 @@
 
 ## 一句话状态
 
-> ✅ **Sprint 1.5 已完成**（2026-06-07，14 个新 commit）：Live Checker 实时约束全链路跑通 — `app/core/` 加 3 文件（project_to_ir / pyqt_reporter / stub_engine 5 规则）+ `app/services/` 加 4 文件（LiveFormatChecker 500ms debounce / LiveMutator 3 fix 类型 / IssueSidebar 严重度配色 / FormatHighlighter 红色波浪线）+ 改 `app/views/content_editor.py` 集成 4 services。**124 tests 全绿**（56 Sprint 1 + 68 Sprint 1.5），性能基线 < 200ms（实测 < 100ms），`app/core/` 零 PyQt 依赖保持。Sprint 1 → 1.5 共 **+~1400 LOC / 10 原子 commit**。下一步：**Sprint 2（规则引擎 YAML pack + 25+ 规则）**。
+> ✅ **Sprint 2 已完成**（2026-06-08，14 个 atomic commit）：YAML 规则引擎全栈跑通 — `app/core/engine/` 加 3 新模块（loader.py / evaluator.py / visitor.py）+ IR 4 个 dataclass 加 `to_dict()` + 新 pack `GB-T-7713-1-2006.yaml`（25 条 PG-XXX 规则）+ 删除 stub_engine.py + LiveFormatChecker 默认 pack 切换。**新增依赖**：json-logic-qubit / jmespath / pydantic v2。**204 tests 全绿**（含 9 integration），**性能基线 100 段 × 25 规则 = 270 findings 仅 ~48ms**（远低于 200ms 预算）。`app/core/` 零 PyQt 依赖保持。下一步：**Sprint 2.5（模板自动抽取 FORMAT_WORDS）** 或 **Sprint 3（规则扩展到 GB/T 7714 + 多 pack）**。
 
 ---
 
@@ -208,28 +208,28 @@ git push
 
 ### ✅ P0：MVP Sprint 1.5（**Live Checker 实时约束** — v1.2 主路径）— **已完成 2026-06-07**
 
-> 交付：3 个 core（project_to_ir / pyqt_reporter / stub_engine 5 规则）+ 4 个 services（LiveFormatChecker 500ms debounce / LiveMutator 3 fix 类型 / IssueSidebar 严重度配色 / FormatHighlighter 红色波浪线）+ 改 `app/views/content_editor.py` 集成。**68 个新测试 + 56 旧 = 124 全绿**。性能基线 < 200ms 实测 < 100ms。`app/core/` 零 PyQt 依赖保持。共 10 atomic commits。**最新 commit `0480d22`（fix: LiveMutator 接受点分 fix.target）**。
+> 交付：3 个 core（project_to_ir / pyqt_reporter / stub_engine 5 规则）+ 4 个 services（LiveFormatChecker 500ms debounce / LiveMutator 3 fix 类型 / IssueSidebar 严重度配色 / FormatHighlighter 红色波浪线）+ 改 `app/views/content_editor.py` 集成。**68 个新测试 + 56 旧 = 124 全绿**。性能基线 < 200ms 实测 < 100ms。`app/core/` 零 PyQt 依赖保持。共 10 atomic commits。**commit `0480d22`（fix: LiveMutator 接受点分 fix.target）**。
 
-### 🚧 P0（下一个）：MVP Sprint 2（**规则引擎 YAML pack + 25+ 规则**）
+### ✅ P0：MVP Sprint 2（**YAML 规则引擎 + 25 规则**）— **已完成 2026-06-08**
+
+> 交付：`app/core/engine/loader.py`（pydantic schema）+ `evaluator.py`（jmespath + json-logic）+ `visitor.py`（IR 遍历）+ `__init__.py`（入口替换）+ `app/core/rules/packs/GB-T-7713-1-2006.yaml`（25 条 PG-XXX 规则）+ IR 4 dataclass 加 `to_dict()` + 删 `stub_engine.py` + LiveFormatChecker 默认 pack 切换。**80 新测试 + 124 旧（删 10 stub）= 204 全绿**（含 9 integration）。**性能**：100 段 × 25 规则 → 270 findings → ~48ms（200ms 预算的 24%）。**新依赖**：json-logic-qubit + jmespath + pydantic v2。共 14 atomic commits。**commit `91309ba`（test: integration perf + e2e）**。
+
+### 🚧 P0（下一个）：MVP Sprint 2.5（**模板自动抽取 FORMAT_WORDS**）
 
 ```bash
-cd D:/projects/paperguard   # 当前路径
-# 写 app/core/engine/loader.py（YAML pack → Rule 对象）
-# 写 app/core/engine/evaluator.py（Rule + IR → Finding）
-# 写 app/core/engine/visitor.py（IR 遍历 + 属性提取）
-# 把 Sprint 1.5 的 stub_engine 重写为 YAML-driven
-# 新增 rules/packs/GB-T-7713-1-2006.yaml（25+ 规则）
-# LiveFormatChecker 切到真 YAML engine（去 stub）
+# 借鉴 references/format-thesis-docx/scripts/extract_requirements.py
+# 新增 app/core/extract/ 子包
+# 新增 paperguard extract CLI（V1 才有 CLI，先在 app/core/ 实现函数）
+# FORMAT_WORDS 正则识别"显式说明文字"（中英文 25+ 关键词）
+# 抽出 7 类别 Requirement（style / section / paragraph-example / table / numbering / explicit-instruction / document）
+# 单元测试：5+ fixture 模板（清华 / 浙大 / 武大 / 国标 / 自制）
 ```
 
-**Sprint 2 关键变化**：Sprint 1.5 的 `app/core/engine/stub_engine.py` 5 规则是占位，Sprint 2 把它替换成 YAML 驱动：`loader.py` 解析 YAML pack → `evaluator.py` 跑规则（用 json-logic 或 jmespath 表达式）→ 输出 `Finding[]`。LiveFormatChecker 改成调用 `engine.validate_docx(ir, pack="GB-T-7713-1-2006")`，性能必须保持 < 200ms（25 规则 vs 5 规则）。
-### P2：MVP Sprint 2.5（**新增于 v1.1**，**必做**）
-- 抄 `references/format-thesis-docx/scripts/extract_requirements.py` 的 FORMAT_WORDS 启发式
-- 新增 `paperguard extract` 子命令
-
-### P3：MVP Sprint 3（GB/T 7713 规范包）
-- 30 条内置规则
-- `rules/packs/GB-T-7713-1-2006.yaml`
+**Sprint 2.5 关键意义**：把"用户上传模板 → 自动得 YAML pack 骨架"做出来，避免手写每条规则。设计文档 §13.2 借鉴点 4。
+### P2：MVP Sprint 3（其他规范包 + 多 pack 共存）
+- 实现 GB/T 7714—2015（参考文献）
+- 至少 1 所学校 pack（清华 / 浙大）
+- `paperguard validate-pack` CLI 命令
 
 ### P4：MVP Sprint 4 / 4.5（报告 + CLI + 修复后验证）
 - JSON / HTML / SARIF reporter
@@ -290,18 +290,20 @@ cd D:/projects/paperguard   # 当前路径
 | 2026-06-05 | HANDOFF.md 刷新到 v1.1（标记 Sprint 1 完成 + 提级 Sprint 1.5） |
 | 2026-06-07 | **Sprint 1.5 完成**（commits `48cbd24` ~ `0480d22`，10 atomic）：app/core/ 加 project_to_ir / pyqt_reporter / stub_engine（5 规则）；app/services/ 加 LiveFormatChecker / LiveMutator / IssueSidebar / FormatHighlighter；app/views/content_editor.py 集成。**+~1400 LOC / +68 tests / 124 全绿**。性能 < 100ms（基线 200ms） |
 | 2026-06-07 | HANDOFF.md 刷新到 v1.2（标记 Sprint 1.5 完成 + 提级 Sprint 2） |
-| _待定_ | MVP Sprint 2 开工（YAML 规则引擎 + 25+ 规则） |
-| _待定_ | MVP 全部完成（7.5 周后） |
+| 2026-06-08 | **Sprint 2 完成**（commits `99e3c17` ~ `91309ba`，14 atomic）：app/core/engine/ 加 loader.py + evaluator.py + visitor.py + __init__.py（YAML pipeline）；IR 4 dataclass 加 to_dict()；app/core/rules/packs/GB-T-7713-1-2006.yaml（25 PG- 规则）；删 stub_engine.py + test_stub_engine.py；LiveFormatChecker 切默认 pack。**+~1100 LOC / +80 tests / 204 全绿**（含 9 integration）。性能：100 段 × 25 规则 → 270 findings → ~48ms（预算 200ms） |
+| 2026-06-08 | HANDOFF.md 刷新到 v1.3（标记 Sprint 2 完成 + 提级 Sprint 2.5） |
+| _待定_ | MVP Sprint 2.5 开工（模板自动抽取 FORMAT_WORDS） |
+| _待定_ | MVP 全部完成（5.5 周后） |
 
 ---
 
 ## 一句话建议
 
-> 下次回来，直接说"开始 Sprint 2"——我会读 CLAUDE.md / HANDOFF.md / design-proposal.md §4.2 + §7 Sprint 2 计划，然后把 `stub_engine.py` 重构成 YAML 驱动的 `engine/loader.py + evaluator.py`。
+> 下次回来，直接说"开始 Sprint 2.5"——我会读 CLAUDE.md / HANDOFF.md / design-proposal.md §7 Sprint 2.5 计划 + format-thesis-docx-review.md 的 `extract_requirements.py` 精读，然后在 `app/core/extract/` 实现 FORMAT_WORDS 启发式 + 7 类别 Requirement 抽取。
 
 ---
 
-**版本**：v1.2（标记 Sprint 1.5 完成）
-**最后更新**：2026-06-07
-**配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/sprint-1.5-plan.md`
-**最新 commit**：`0480d22 fix(sprint-1.5): LiveMutator 接受 fix.target 点分形式`
+**版本**：v1.3（标记 Sprint 2 完成）
+**最后更新**：2026-06-08
+**配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/sprint-1.5-plan.md` / `docs/sprints/sprint-2-plan.md`
+**最新 commit**：`91309ba test(sprint-2): integration — perf baseline + e2e + pack self-check`
