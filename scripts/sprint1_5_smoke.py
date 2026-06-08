@@ -1,7 +1,10 @@
-"""Sprint 1.5 端到端冒烟脚本。
+"""Sprint 1.5 + 2 端到端冒烟脚本。
 
-跑通"内存 Project → project_to_ir → validate_docx → to_qt_issues"完整 pipeline，
-打印 issue 摘要（数量、错误/警告分布、stub engine 规则数），验证 Sprint 1.5 全栈连通。
+跑通"内存 Project → project_to_ir → YAML engine validate_docx → to_qt_issues"完整 pipeline，
+打印 issue 摘要（数量、错误/警告分布、YAML pack 规则数），验证 Sprint 1.5 + Sprint 2 全栈连通。
+
+Sprint 2 commit #13 后：默认走 GB-T-7713-1-2006 YAML pack（25 条规则），
+不再用硬编码的 stub_engine（已删）。
 
 用法：
     cd D:/projects/paperguard
@@ -21,10 +24,13 @@ from PyQt5.QtWidgets import QApplication
 # offscreen 模式（CI / 无显示器环境）；先 import 后 sys.argv
 _app = QApplication.instance() or QApplication(sys.argv)  # noqa: F841
 
-from app.core.engine.stub_engine import RULES, validate_docx
+from app.core.engine import validate_docx
+from app.core.engine.loader import load_pack
 from app.core.loaders.project_to_ir import project_to_ir
 from app.core.reporters.pyqt_reporter import to_qt_issues
 from app.models.project import ParagraphBlock, Project, SectionContent
+
+PACK_ID = "GB-T-7713-1-2006"
 
 
 def _build_mixed_project(n: int = 30) -> Project:
@@ -32,7 +38,7 @@ def _build_mixed_project(n: int = 30) -> Project:
 
     偶数段：line-height: 1.0（错，期望 1.5）
     奇数段：line-height: 1.5（合规）+ text-indent: 0.74cm（合规）
-    → 期望 ~15 段触发 R001 (line_spacing)。
+    → 期望 ~15 段触发 PG-BODY-LINE-SPACING。
     """
     blocks: list[ParagraphBlock] = []
     for i in range(n):
@@ -44,14 +50,14 @@ def _build_mixed_project(n: int = 30) -> Project:
                 f'第 {i + 1} 段正文：本文研究的内容。</p>'
             )
         blocks.append(ParagraphBlock(html=html))
-    project = Project(title="Sprint 1.5 冒烟论文", author="Test")
+    project = Project(title="Sprint 1.5 + 2 冒烟论文", author="Test")
     project.sections["body"] = SectionContent(section_id="body", blocks=blocks)
     return project
 
 
 def main() -> int:
     print("=" * 60)
-    print("Sprint 1.5 端到端冒烟测试")
+    print("Sprint 1.5 + 2 端到端冒烟测试（YAML engine）")
     print("=" * 60)
     print()
 
@@ -72,11 +78,12 @@ def main() -> int:
     print(f"  OK IR paragraphs: {len(ir.paragraphs)}")
     print(f"  OK IR metadata.title: {ir.metadata.title!r}")
 
-    # 3. Stub engine 校验
+    # 3. YAML pack engine 校验
     print()
-    print("[3/4] stub_engine.validate_docx (5 条规则)...")
-    print(f"  OK Stub engine: {len(RULES)} rules loaded")
-    findings = validate_docx(ir)
+    print(f"[3/4] validate_docx (YAML pack {PACK_ID})...")
+    pack = load_pack(PACK_ID)
+    print(f"  OK YAML pack: {pack.id} v{pack.version}, {len(pack.rules)} rules loaded")
+    findings = validate_docx(ir, PACK_ID)
     print(f"  OK Findings: {len(findings)} 条")
 
     # 4. 投影 QtIssue
@@ -94,11 +101,13 @@ def main() -> int:
 
     error_count = severities.get("error", 0)
     warning_count = severities.get("warning", 0)
+    info_count = severities.get("info", 0)
 
     print()
     print("-" * 60)
-    print(f"Issues found: {len(issues)} ({error_count} errors, {warning_count} warnings)")
-    print(f"Stub engine: {len(RULES)} rules loaded")
+    print(f"Issues found: {len(issues)} ({error_count} errors, "
+          f"{warning_count} warnings, {info_count} info)")
+    print(f"YAML pack: {pack.id}, {len(pack.rules)} rules loaded")
     if rule_ids:
         print(f"By rule_id: {rule_ids}")
     print("-" * 60)
@@ -107,13 +116,13 @@ def main() -> int:
     if len(issues) <= 0:
         print("FAIL: 期望至少 1 个 issue，实际 0")
         return 1
-    if len(RULES) != 5:
-        print(f"FAIL: 期望 5 条规则，实际 {len(RULES)}")
+    if len(pack.rules) != 25:
+        print(f"FAIL: 期望 25 条规则，实际 {len(pack.rules)}")
         return 1
 
     print()
     print("=" * 60)
-    print("OK Sprint 1.5 端到端跑通")
+    print("OK Sprint 1.5 + 2 端到端跑通")
     print("=" * 60)
     return 0
 

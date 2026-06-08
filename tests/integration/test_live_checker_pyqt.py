@@ -11,7 +11,7 @@
   3. ``test_100_paragraphs_performance`` — 加载 100 段 fixture，跑 validate_docx，断言 < 200ms。
   4. ``test_no_issues_signal_on_clean_doc`` — 全合规 Project → 触发 check → 断言 no_issues signal 触发。
 
-注意：项目约束 — R001 等 rule_id 是引擎产出的标识，mutator 的 SUPPORTED_RULE_IDS
+注意：项目约束 — PG-BODY-LINE-SPACING 等 rule_id 是引擎产出的标识，mutator 的 SUPPORTED_RULE_IDS
 按 fix.target 命名（"line_spacing" / "font_size_pt" / "first_line_indent_cm"）。
 本集成测试覆盖端到端 pipeline 行为而非 mutator 单元行为。
 """
@@ -28,7 +28,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
-from app.core.engine.stub_engine import validate_docx
+from app.core.engine import validate_docx
 from app.core.loaders.docx_loader import load_docx
 from app.core.reporters.pyqt_reporter import QtIssue
 from app.models.project import ParagraphBlock, Project, SectionContent
@@ -46,7 +46,7 @@ def _build_project_with_n_paragraphs(
 ) -> Project:
     """构造一个含 n 段"已知格式"的内存 Project。
 
-    故意把 line_spacing 设成 1.0（240 twips），首行不缩进，让 R001 / R003 触发。
+    故意把 line_spacing 设成 1.0（240 twips），首行不缩进，让 PG-BODY-LINE-SPACING / PG-BODY-FIRST-LINE-INDENT 触发。
     blocks 用真实 OOXML p._p.xml，project_to_ir 会解析。
     """
     from docx import Document as DocxDocument
@@ -77,7 +77,7 @@ def _build_project_with_html_paragraphs(n: int) -> Project:
     """构造 n 段 HTML block 的 Project（让 mutator 的 <p> regex 能命中）。"""
     blocks: list[ParagraphBlock] = []
     for i in range(n):
-        # 用 inline style 表达 line-height: 1.0（错的），让 R001 触发
+        # 用 inline style 表达 line-height: 1.0（错的），让 PG-BODY-LINE-SPACING 触发
         html = f'<p style="line-height: 1.0;">第 {i + 1} 段正文：本文研究的主要内容是实时约束。</p>'
         blocks.append(ParagraphBlock(html=html))
     project = Project(title="集成测试论文", author="Test")
@@ -115,16 +115,16 @@ class LiveCheckerPyQtIntegrationTests(unittest.TestCase):
         self.assertEqual(len(received), 1, "issues_found 应触发 1 次")
         issues = received[0]
         self.assertGreater(len(issues), 0, "issues_found 应带 N>0 issues")
-        # 至少 R001 (line_spacing) + R003 (first_line_indent) 应被检出
+        # 至少 PG-BODY-LINE-SPACING (line_spacing) + PG-BODY-FIRST-LINE-INDENT (first_line_indent) 应被检出
         rule_ids = {iss.rule_id for iss in issues}
-        self.assertIn("R001", rule_ids, "R001 line_spacing 应被检出")
-        self.assertIn("R003", rule_ids, "R003 first_line_indent 应被检出")
+        self.assertIn("PG-BODY-LINE-SPACING", rule_ids, "PG-BODY-LINE-SPACING line_spacing 应被检出")
+        self.assertIn("PG-BODY-FIRST-LINE-INDENT", rule_ids, "PG-BODY-FIRST-LINE-INDENT first_line_indent 应被检出")
 
     # ------------------------------------------------------------------
     # 2. 一键修复：apply_fix 改 block
     # ------------------------------------------------------------------
     def test_one_click_fix_updates_paragraph(self):
-        """触发真实 check → 找一条 R001 (line_spacing) issue → 直接传给
+        """触发真实 check → 找一条 PG-BODY-LINE-SPACING (line_spacing) issue → 直接传给
         ``LiveMutator.apply_fix``。mutator 通过 checker.get_fix(issue) 拿到真实
         Fix（``target="paragraph.line_spacing"``），自动从 target 解析出可
         应用的 leaf（``"line_spacing"``）。验证 line_spacing 修复端到端能
@@ -143,14 +143,14 @@ class LiveCheckerPyQtIntegrationTests(unittest.TestCase):
 
         self.assertTrue(captured, "check 后必须收到 issues")
         issues = captured[0]
-        # 找一条 R001 (line_spacing) issue
-        line_issues = [i for i in issues if i.rule_id == "R001"]
-        self.assertTrue(line_issues, "issues 里必须有 R001 (line_spacing) 类型")
+        # 找一条 PG-BODY-LINE-SPACING (line_spacing) issue
+        line_issues = [i for i in issues if i.rule_id == "PG-BODY-LINE-SPACING"]
+        self.assertTrue(line_issues, "issues 里必须有 PG-BODY-LINE-SPACING (line_spacing) 类型")
         target_issue = line_issues[0]
 
         # 验证 checker 缓存里 fix.target 是点分形式（真实 engine 行为）
         original_fix = checker.get_fix(target_issue)
-        self.assertIsNotNone(original_fix, "checker 缓存里必须有 R001 的 fix")
+        self.assertIsNotNone(original_fix, "checker 缓存里必须有 PG-BODY-LINE-SPACING 的 fix")
         self.assertEqual(original_fix.target, "paragraph.line_spacing")
         self.assertEqual(original_fix.value, 1.5)
 
@@ -159,7 +159,7 @@ class LiveCheckerPyQtIntegrationTests(unittest.TestCase):
 
         # can_apply 必须用 fix.target 的 leaf 段（mutator 内部实现）来识别
         self.assertTrue(mutator.can_apply(target_issue),
-                        "R001 + fix.target=paragraph.line_spacing 必须 can_apply=True")
+                        "PG-BODY-LINE-SPACING + fix.target=paragraph.line_spacing 必须 can_apply=True")
 
         # 取原 block.html 留作对比
         target_block = project.sections["body"].blocks[target_issue.paragraph_index]

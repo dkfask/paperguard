@@ -1,9 +1,10 @@
 """Live format checker — QObject + QTimer debounce + Qt signal。
 
-Sprint 1.5 实时约束核心：把 ``Project`` 模型的某个 section 转成 IR → 真 engine
-（``stub_engine.validate_docx``）→ 投影成 ``QtIssue[]`` → Qt signal 推到 UI。
+Sprint 1.5 + 2 实时约束核心：把 ``Project`` 模型的某个 section 转成 IR → YAML pack
+engine（``app.core.engine.validate_docx``，Sprint 2 commit #13 后走 GB-T-7713-1-2006 25 规则）
+→ 投影成 ``QtIssue[]`` → Qt signal 推到 UI。
 
-设计要点（参考 docs/sprints/sprint-1.5-plan.md §3 + §4 ADR-2/5）：
+设计要点（参考 docs/sprints/sprint-1.5-plan.md §3 + §4 ADR-2/5 + sprint-2-plan.md C8）：
 - 500ms 固定 debounce（Q3 决策"自适应"被用户推翻，回退为固定 500ms）。
 - QTimer.setSingleShot(True) + start(debounce_ms) 实现 debounce：
   学生每按一键 reset timer，0.5s 内未继续输入则触发 ``_run_check``。
@@ -27,7 +28,7 @@ from typing import Any
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
-from app.core.engine.stub_engine import validate_docx
+from app.core.engine import validate_docx
 from app.core.ir.finding import Fix
 from app.core.loaders.project_to_ir import project_to_ir
 from app.core.reporters.pyqt_reporter import QtIssue, to_qt_issues
@@ -51,7 +52,7 @@ class LiveFormatChecker(QObject):
     def __init__(
         self,
         project: Any,
-        pack_name: str = "stub-GB-T-7713-1-2006",
+        pack_name: str = "GB-T-7713-1-2006",
         debounce_ms: int = 500,
         parent: QObject | None = None,
     ) -> None:

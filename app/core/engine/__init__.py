@@ -1,11 +1,11 @@
-"""PaperGuard 规则引擎入口（Sprint 2 commit #10）.
+"""PaperGuard 规则引擎入口（Sprint 2 commit #10 + #13 落地）.
 
-Sprint 2 替换 Sprint 1.5 的 stub_engine — ``validate_docx`` 走 YAML pack pipeline：
+Sprint 2 完成后：``validate_docx`` 走 YAML pack pipeline：
 ``load_pack(pack) → visit_document(ir, rule_pack) → list[Finding]``。
 
-LiveFormatChecker 仍 ``from app.core.engine.stub_engine import validate_docx``
-（Sprint 1.5 接入点）；C8 commit #13 才会切换为 ``from app.core.engine import validate_docx``
-并把默认 pack 从 ``stub-GB-T-7713-1-2006`` 改为 ``GB-T-7713-1-2006``。
+Sprint 1.5 的硬编码 ``stub_engine.py`` 已在 commit #13 删除；
+LiveFormatChecker 当前 ``from app.core.engine import validate_docx``
+并默认 pack ``"GB-T-7713-1-2006"``（25 条 YAML 规则）。
 
 所有引擎代码**严禁** import PyQt — app/core/ 是无 GUI 依赖的核心层。
 """
