@@ -1,0 +1,385 @@
+# GB/T 7713.1—2006 学位论文编写规则 — PaperGuard YAML pack
+#
+# 25 条规则，全部基于 paragraphs scope（LiveMutator 可消费 Fix）。
+# 覆盖：正文 10 条 + 一级标题 4 条 + 二级标题 4 条 + 三级标题 4 条 + 章前分页 1 条 + 正文格式 2 条
+#
+# rule_id 命名约定（ADR-7 A）：PG-{TARGET}-{ATTRIBUTE}
+#   PG- 前缀；TARGET = BODY / H1 / H2 / H3；ATTRIBUTE = 检查的字段
+#
+# Fix.target 命名约定（ADR-4 decided）：
+#   paragraph.* — 段落属性（被 LiveMutator 应用到 ParagraphBlock）
+#   run.*       — 第一个 run 的属性（LiveMutator 改 runs[0]）
+
+id: GB-T-7713-1-2006
+name: "GB/T 7713.1—2006 学位论文编写规则"
+version: 1.0.0
+
+rules:
+  # ===========================================================================
+  # 正文段（10 条 — Body Text / Normal style）
+  # ===========================================================================
+
+  - id: PG-BODY-LINE-SPACING
+    severity: warning
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      "!=":
+        - var: "line_spacing"
+        - 1.5
+    message: "正文行距应为 1.5 倍"
+    fix:
+      action: set
+      target: "paragraph.line_spacing"
+      value: 1.5
+
+  - id: PG-BODY-FONT-SIZE
+    severity: warning
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      "!=":
+        - var: "runs.0.font_size_pt"
+        - 12.0
+    message: "正文字号应为 12pt（小四）"
+    fix:
+      action: set
+      target: "run.font_size_pt"
+      value: 12.0
+
+  - id: PG-BODY-FIRST-LINE-INDENT
+    severity: warning
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      "!=":
+        - var: "first_line_indent_cm"
+        - 0.74
+    message: "正文首行应缩进 2 字符（0.74cm）"
+    fix:
+      action: set
+      target: "paragraph.first_line_indent_cm"
+      value: 0.74
+
+  - id: PG-BODY-FONT-EASTASIA
+    severity: warning
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      "!=":
+        - var: "runs.0.font_eastasia"
+        - "宋体"
+    message: '正文中文字体应为"宋体"'
+    fix:
+      action: set
+      target: "run.font_eastasia"
+      value: "宋体"
+
+  - id: PG-BODY-PARAGRAPH-SPACING
+    severity: warning
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      or:
+        - "!=":
+            - var: "space_before_pt"
+            - 0.0
+        - "!=":
+            - var: "space_after_pt"
+            - 0.0
+    message: "正文段前段后应为 0pt"
+    fix:
+      action: set
+      target: "paragraph.space_before_pt"
+      value: 0.0
+
+  - id: PG-BODY-FONT-ASCII
+    severity: info
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      and:
+        - "!=":
+            - var: "runs.0.font_ascii"
+            - "Times New Roman"
+        - "!=":
+            - var: "runs.0.font_ascii"
+            - null
+    message: '正文西文字体应为 "Times New Roman"'
+    fix:
+      action: set
+      target: "run.font_ascii"
+      value: "Times New Roman"
+
+  - id: PG-BODY-FONT-HANSI
+    severity: info
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      and:
+        - "!=":
+            - var: "runs.0.font_hansi"
+            - "Times New Roman"
+        - "!=":
+            - var: "runs.0.font_hansi"
+            - null
+    message: '正文半欧亚字体应为 "Times New Roman"'
+    fix:
+      action: set
+      target: "run.font_hansi"
+      value: "Times New Roman"
+
+  - id: PG-BODY-COLOR-BLACK
+    severity: info
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      and:
+        - "!=":
+            - var: "runs.0.color_hex"
+            - "000000"
+        - "!=":
+            - var: "runs.0.color_hex"
+            - null
+    message: "正文字体颜色应为黑色"
+    fix:
+      action: set
+      target: "run.color_hex"
+      value: "000000"
+
+  - id: PG-BODY-NO-UNDERLINE
+    severity: warning
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      and:
+        - "!=":
+            - var: "runs.0.underline"
+            - null
+        - "!=":
+            - var: "runs.0.underline"
+            - "none"
+    message: "正文不应使用下划线"
+    fix:
+      action: set
+      target: "run.underline"
+      value: null
+
+  - id: PG-BODY-NO-BOLD
+    severity: info
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      "==":
+        - var: "runs.0.bold"
+        - true
+    message: "正文不应整段加粗（重点应仅在标题或局部强调）"
+    fix:
+      action: set
+      target: "run.bold"
+      value: false
+
+  # ===========================================================================
+  # 一级标题（4 条 — Heading 1）
+  # ===========================================================================
+
+  - id: PG-H1-LINE-SPACING
+    severity: warning
+    scope: "paragraphs[?style_id == 'Heading 1']"
+    when:
+      "!=":
+        - var: "line_spacing"
+        - 1.5
+    message: "一级标题行距应为 1.5 倍"
+    fix:
+      action: set
+      target: "paragraph.line_spacing"
+      value: 1.5
+
+  - id: PG-H1-FONT-EASTASIA
+    severity: warning
+    scope: "paragraphs[?style_id == 'Heading 1']"
+    when:
+      "!=":
+        - var: "runs.0.font_eastasia"
+        - "黑体"
+    message: '一级标题中文字体应为"黑体"'
+    fix:
+      action: set
+      target: "run.font_eastasia"
+      value: "黑体"
+
+  - id: PG-H1-FONT-SIZE
+    severity: warning
+    scope: "paragraphs[?style_id == 'Heading 1']"
+    when:
+      "!=":
+        - var: "runs.0.font_size_pt"
+        - 18.0
+    message: "一级标题字号应为 18pt（二号）"
+    fix:
+      action: set
+      target: "run.font_size_pt"
+      value: 18.0
+
+  - id: PG-H1-LEVEL
+    severity: error
+    scope: "paragraphs[?style_id == 'Heading 1']"
+    when:
+      "!=":
+        - var: "level"
+        - 1
+    message: "一级标题段的 level 应为 1"
+    fix:
+      action: set
+      target: "paragraph.level"
+      value: 1
+
+  # ===========================================================================
+  # 二级标题（4 条 — Heading 2）
+  # ===========================================================================
+
+  - id: PG-H2-LINE-SPACING
+    severity: warning
+    scope: "paragraphs[?style_id == 'Heading 2']"
+    when:
+      "!=":
+        - var: "line_spacing"
+        - 1.5
+    message: "二级标题行距应为 1.5 倍"
+    fix:
+      action: set
+      target: "paragraph.line_spacing"
+      value: 1.5
+
+  - id: PG-H2-FONT-EASTASIA
+    severity: warning
+    scope: "paragraphs[?style_id == 'Heading 2']"
+    when:
+      "!=":
+        - var: "runs.0.font_eastasia"
+        - "黑体"
+    message: '二级标题中文字体应为"黑体"'
+    fix:
+      action: set
+      target: "run.font_eastasia"
+      value: "黑体"
+
+  - id: PG-H2-FONT-SIZE
+    severity: warning
+    scope: "paragraphs[?style_id == 'Heading 2']"
+    when:
+      "!=":
+        - var: "runs.0.font_size_pt"
+        - 15.0
+    message: "二级标题字号应为 15pt（三号）"
+    fix:
+      action: set
+      target: "run.font_size_pt"
+      value: 15.0
+
+  - id: PG-H2-LEVEL
+    severity: error
+    scope: "paragraphs[?style_id == 'Heading 2']"
+    when:
+      "!=":
+        - var: "level"
+        - 2
+    message: "二级标题段的 level 应为 2"
+    fix:
+      action: set
+      target: "paragraph.level"
+      value: 2
+
+  # ===========================================================================
+  # 三级标题（4 条 — Heading 3）
+  # ===========================================================================
+
+  - id: PG-H3-LINE-SPACING
+    severity: warning
+    scope: "paragraphs[?style_id == 'Heading 3']"
+    when:
+      "!=":
+        - var: "line_spacing"
+        - 1.5
+    message: "三级标题行距应为 1.5 倍"
+    fix:
+      action: set
+      target: "paragraph.line_spacing"
+      value: 1.5
+
+  - id: PG-H3-FONT-EASTASIA
+    severity: warning
+    scope: "paragraphs[?style_id == 'Heading 3']"
+    when:
+      "!=":
+        - var: "runs.0.font_eastasia"
+        - "黑体"
+    message: '三级标题中文字体应为"黑体"'
+    fix:
+      action: set
+      target: "run.font_eastasia"
+      value: "黑体"
+
+  - id: PG-H3-FONT-SIZE
+    severity: warning
+    scope: "paragraphs[?style_id == 'Heading 3']"
+    when:
+      "!=":
+        - var: "runs.0.font_size_pt"
+        - 14.0
+    message: "三级标题字号应为 14pt（四号）"
+    fix:
+      action: set
+      target: "run.font_size_pt"
+      value: 14.0
+
+  - id: PG-H3-LEVEL
+    severity: error
+    scope: "paragraphs[?style_id == 'Heading 3']"
+    when:
+      "!=":
+        - var: "level"
+        - 3
+    message: "三级标题段的 level 应为 3"
+    fix:
+      action: set
+      target: "paragraph.level"
+      value: 3
+
+  # ===========================================================================
+  # 章节级（3 条 — 章前分页 + 正文格式）
+  # ===========================================================================
+
+  - id: PG-H1-PAGE-BREAK
+    severity: info
+    scope: "paragraphs[?style_id == 'Heading 1']"
+    when:
+      "==":
+        - var: "is_page_break_before"
+        - false
+    message: "一级标题段（章）应分页前开始"
+    fix:
+      action: set
+      target: "paragraph.is_page_break_before"
+      value: true
+
+  - id: PG-BODY-NO-ITALIC
+    severity: info
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      "==":
+        - var: "runs.0.italic"
+        - true
+    message: "正文不应整段斜体"
+    fix:
+      action: set
+      target: "run.italic"
+      value: false
+
+  - id: PG-BODY-NO-HIGHLIGHT
+    severity: warning
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      and:
+        - "!=":
+            - var: "runs.0.highlight"
+            - null
+        - "!=":
+            - var: "runs.0.highlight"
+            - "none"
+    message: "正文不应使用高亮（应将重点改为格式或加粗局部 run）"
+    fix:
+      action: set
+      target: "run.highlight"
+      value: null
