@@ -20,6 +20,16 @@ class DocumentMetadata:
     modified: str = ""
     language: str = "zh-CN"     # BCP 47
 
+    def to_dict(self) -> dict:
+        """Sprint 2 evaluator 用 — jmespath 消费。"""
+        return {
+            "title": self.title,
+            "author": self.author,
+            "created": self.created,
+            "modified": self.modified,
+            "language": self.language,
+        }
+
 
 @dataclass(frozen=True)
 class Document:
@@ -27,3 +37,12 @@ class Document:
     sections: tuple[Section, ...]
     paragraphs: tuple[Paragraph, ...]
     metadata: DocumentMetadata
+
+    def to_dict(self) -> dict:
+        """Sprint 2 evaluator 用 — 嵌套 sections / paragraphs / metadata 全部展开。"""
+        return {
+            "sections": [s.to_dict() for s in self.sections],
+            "paragraphs": [p.to_dict() for p in self.paragraphs],
+            "metadata": self.metadata.to_dict(),
+        }
+

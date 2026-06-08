@@ -20,3 +20,18 @@ class Section:
     header_distance_cm: float = 0.0
     footer_distance_cm: float = 0.0
     orientation: str = "portrait"   # "portrait" / "landscape"
+
+    def to_dict(self) -> dict:
+        """Sprint 2 evaluator 用 — jmespath 消费。"""
+        return {
+            "page_width_cm": self.page_width_cm,
+            "page_height_cm": self.page_height_cm,
+            "margin_top_cm": self.margin_top_cm,
+            "margin_bottom_cm": self.margin_bottom_cm,
+            "margin_left_cm": self.margin_left_cm,
+            "margin_right_cm": self.margin_right_cm,
+            "header_distance_cm": self.header_distance_cm,
+            "footer_distance_cm": self.footer_distance_cm,
+            "orientation": self.orientation,
+        }
+

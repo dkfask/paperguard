@@ -22,3 +22,18 @@ class Paragraph:
     space_after_pt: float
     first_line_indent_cm: float
     is_page_break_before: bool = False
+
+    def to_dict(self) -> dict:
+        """Sprint 2 evaluator 用 — 嵌套 runs 展开为 list[dict] 供 jmespath 消费。"""
+        return {
+            "style_id": self.style_id,
+            "text": self.text,
+            "level": self.level,
+            "runs": [r.to_dict() for r in self.runs],
+            "line_spacing": self.line_spacing,
+            "space_before_pt": self.space_before_pt,
+            "space_after_pt": self.space_after_pt,
+            "first_line_indent_cm": self.first_line_indent_cm,
+            "is_page_break_before": self.is_page_break_before,
+        }
+

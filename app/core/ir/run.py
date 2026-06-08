@@ -28,3 +28,21 @@ class Run:
     color_hex: str | None = None       # 6 位 hex 不带 '#'，如 "000000"
     highlight: str | None = None
     vert_align: str | None = None      # 'superscript' / 'subscript'
+
+    def to_dict(self) -> dict:
+        """Sprint 2 evaluator 用 — jmespath 只吃 dict，需把 frozen dataclass 展开。"""
+        return {
+            "text": self.text,
+            "font_eastasia": self.font_eastasia,
+            "font_ascii": self.font_ascii,
+            "font_hansi": self.font_hansi,
+            "font_cs": self.font_cs,
+            "font_size_pt": self.font_size_pt,
+            "bold": self.bold,
+            "italic": self.italic,
+            "underline": self.underline,
+            "color_hex": self.color_hex,
+            "highlight": self.highlight,
+            "vert_align": self.vert_align,
+        }
+
