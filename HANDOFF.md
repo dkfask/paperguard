@@ -8,7 +8,7 @@
 
 ## 一句话状态
 
-> ✅ **Sprint 2 已完成**（2026-06-08，14 个 atomic commit）：YAML 规则引擎全栈跑通 — `app/core/engine/` 加 3 新模块（loader.py / evaluator.py / visitor.py）+ IR 4 个 dataclass 加 `to_dict()` + 新 pack `GB-T-7713-1-2006.yaml`（25 条 PG-XXX 规则）+ 删除 stub_engine.py + LiveFormatChecker 默认 pack 切换。**新增依赖**：json-logic-qubit / jmespath / pydantic v2。**204 tests 全绿**（含 9 integration），**性能基线 100 段 × 25 规则 = 270 findings 仅 ~48ms**（远低于 200ms 预算）。`app/core/` 零 PyQt 依赖保持。下一步：**Sprint 2.5（模板自动抽取 FORMAT_WORDS）** 或 **Sprint 3（规则扩展到 GB/T 7714 + 多 pack）**。
+> ✅ **Sprint 2.5 已完成**（2026-06-09，14 个 atomic commit）：模板自动抽取全栈跑通 — `app/core/extract/` 新子包 7 模块（requirement.py / format_words.py / xml_utils.py / run_props.py / para_props.py / section_props.py / extractor.py / to_pack.py），mix python-docx + lxml 抽取（含中文字体 eastAsia 必走 lxml 关键陷阱）。**5 个 fixture docx**（自制 minimal / 国标 gb7713 / 自制 3 个学校风格）+ 13 个 extract 模块共 95 新测试。**Sprint 2 follow-up B1 规避** — `requirements_to_pack` 拆 space_before/after 为独立 rule，避免 Sprint 2 已知 bug 复现。**295 tests 全绿**（含 8 integration + 3 e2e），**smoke 端到端跑通**：367 reqs → 359 rules → 52 findings。`app/core/` 零 PyQt 依赖保持。下一步：**Sprint 3（GB/T 7714 + 学校 pack）**。
 
 ---
 
@@ -214,19 +214,18 @@ git push
 
 > 交付：`app/core/engine/loader.py`（pydantic schema）+ `evaluator.py`（jmespath + json-logic）+ `visitor.py`（IR 遍历）+ `__init__.py`（入口替换）+ `app/core/rules/packs/GB-T-7713-1-2006.yaml`（25 条 PG-XXX 规则）+ IR 4 dataclass 加 `to_dict()` + 删 `stub_engine.py` + LiveFormatChecker 默认 pack 切换。**80 新测试 + 124 旧（删 10 stub）= 204 全绿**（含 9 integration）。**性能**：100 段 × 25 规则 → 270 findings → ~48ms（200ms 预算的 24%）。**新依赖**：json-logic-qubit + jmespath + pydantic v2。共 14 atomic commits。**commit `91309ba`（test: integration perf + e2e）**。
 
-### 🚧 P0（下一个）：MVP Sprint 2.5（**模板自动抽取 FORMAT_WORDS**）
+### 🚧 P0（下一个）：MVP Sprint 3（**多规范包 + paperguard CLI**）
 
 ```bash
-# 借鉴 references/format-thesis-docx/scripts/extract_requirements.py
-# 新增 app/core/extract/ 子包
-# 新增 paperguard extract CLI（V1 才有 CLI，先在 app/core/ 实现函数）
-# FORMAT_WORDS 正则识别"显式说明文字"（中英文 25+ 关键词）
-# 抽出 7 类别 Requirement（style / section / paragraph-example / table / numbering / explicit-instruction / document）
-# 单元测试：5+ fixture 模板（清华 / 浙大 / 武大 / 国标 / 自制）
+# 实现 GB/T 7714—2015（参考文献）规范包
+# 至少 1 所学校 pack（清华/浙大）
+# 引入 Click + cli/ 子包
+# paperguard check / fix / extract / init / validate-pack CLI 5 个子命令
+# Sprint 4.5: fix 后自动 audit
 ```
 
-**Sprint 2.5 关键意义**：把"用户上传模板 → 自动得 YAML pack 骨架"做出来，避免手写每条规则。设计文档 §13.2 借鉴点 4。
-### P2：MVP Sprint 3（其他规范包 + 多 pack 共存）
+**Sprint 3 关键意义**：把"1 个 pack → 多 pack"生态铺开，CLI 化给教务老师用。Sprint 2.5 已能自动生成 pack 骨架，Sprint 3 在骨架上精修 + 多 pack 共存。
+### P2：MVP Sprint 4（报告 + CLI + 修复后验证）
 - 实现 GB/T 7714—2015（参考文献）
 - 至少 1 所学校 pack（清华 / 浙大）
 - `paperguard validate-pack` CLI 命令
@@ -292,8 +291,10 @@ git push
 | 2026-06-07 | HANDOFF.md 刷新到 v1.2（标记 Sprint 1.5 完成 + 提级 Sprint 2） |
 | 2026-06-08 | **Sprint 2 完成**（commits `99e3c17` ~ `91309ba`，14 atomic）：app/core/engine/ 加 loader.py + evaluator.py + visitor.py + __init__.py（YAML pipeline）；IR 4 dataclass 加 to_dict()；app/core/rules/packs/GB-T-7713-1-2006.yaml（25 PG- 规则）；删 stub_engine.py + test_stub_engine.py；LiveFormatChecker 切默认 pack。**+~1100 LOC / +80 tests / 204 全绿**（含 9 integration）。性能：100 段 × 25 规则 → 270 findings → ~48ms（预算 200ms） |
 | 2026-06-08 | HANDOFF.md 刷新到 v1.3（标记 Sprint 2 完成 + 提级 Sprint 2.5） |
-| _待定_ | MVP Sprint 2.5 开工（模板自动抽取 FORMAT_WORDS） |
-| _待定_ | MVP 全部完成（5.5 周后） |
+| 2026-06-09 | **Sprint 2.5 完成**（commits `ae9fac0` ~ `7e224bf`，14 atomic）：app/core/extract/ 新子包 7 模块（requirement / format_words / xml_utils / run_props / para_props / section_props / extractor / to_pack）；5 fixture docx 自制（minimal/gb7713/tsinghua/zhejiang/wuhan）；95 新测试 / 295 全绿；Sprint 2 follow-up B1 规避 e2e 验证；smoke 端到端跑通（367 reqs→359 rules→52 findings） |
+| 2026-06-09 | HANDOFF.md 刷新到 v1.4（标记 Sprint 2.5 完成 + 提级 Sprint 3） |
+| _待定_ | MVP Sprint 3 开工（GB/T 7714 + 学校 pack + CLI 化） |
+| _待定_ | MVP 全部完成（4 周后） |
 
 ---
 
