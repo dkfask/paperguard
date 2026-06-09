@@ -5,3 +5,4 @@ pyyaml>=6.0
 json-logic-qubit>=0.9.1
 jmespath>=1.0.1
 pydantic>=2.5.0
+click>=8.0

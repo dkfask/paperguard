@@ -109,5 +109,62 @@ class TerminalReporter:
 
         return "\n".join(lines)
 
+    def report_findings(self, findings) -> str:
+        """Sprint 3 新增 — Finding[] → 人类可读纯文本报告.
+
+        与 JSONReporter 接口对齐（不同参数类型/输出格式，但同名方法）。
+        输出格式：
+            === PaperGuard Findings (5) ===
+            [error] 2 | [warning] 3 | [info] 0
+
+            ❌ [PG-BODY-LINE-SPACING] (warning) 段落 3
+                行距应为 1.5，当前为 1.0
+                Fix: set paragraph.line_spacing = 1.5
+        """
+        from collections import Counter
+
+        if not findings:
+            return "=== PaperGuard Findings (0) ===\nNo issues found. ✓"
+
+        severity_counts = Counter(f.severity.value for f in findings)
+        lines: list[str] = []
+        lines.append(f"=== PaperGuard Findings ({len(findings)}) ===")
+        lines.append(
+            f"[error] {severity_counts.get('error', 0)} | "
+            f"[warning] {severity_counts.get('warning', 0)} | "
+            f"[info] {severity_counts.get('info', 0)}"
+        )
+        lines.append("")
+
+        # 按 (paragraph_index, rule_id) 排序（与 Sprint 2 visitor 一致）
+        sorted_findings = sorted(
+            findings,
+            key=lambda f: (
+                f.location.paragraph_index if f.location.paragraph_index is not None else -1,
+                f.rule_id,
+            ),
+        )
+
+        for f in sorted_findings:
+            severity_icon = {
+                "error": "❌", "warning": "⚠", "info": "ℹ",
+            }.get(f.severity.value, "·")
+            para_idx = f.location.paragraph_index
+            para_str = f"段落 {para_idx}" if para_idx is not None else "全文"
+            lines.append(
+                f"{severity_icon} [{f.rule_id}] ({f.severity.value}) {para_str}"
+            )
+            lines.append(f"    {f.message}")
+            if f.fix:
+                lines.append(
+                    f"    Fix: {f.fix.action} {f.fix.target} = {f.fix.value!r}"
+                )
+            if f.location.text_snippet:
+                snippet = f.location.text_snippet[:60]
+                lines.append(f"    Text: {snippet!r}")
+            lines.append("")
+
+        return "\n".join(lines).rstrip()
+
 
 __all__ = ["TerminalReporter"]
