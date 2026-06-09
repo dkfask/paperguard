@@ -71,21 +71,33 @@ rules:
       target: "run.font_eastasia"
       value: "宋体"
 
-  - id: PG-BODY-PARAGRAPH-SPACING
+  # B1 follow-up fix: 拆为 2 条独立规则 — 当 only-after 不合规时，原始 single-rule
+  # fix 只设 before → 修复后规则仍触发。本版拆成 BEFORE/AFTER 各自一条，
+  # 各自 fix 单独设一个字段，规避 B1。
+  - id: PG-BODY-SPACE-BEFORE
     severity: warning
     scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
     when:
-      or:
-        - "!=":
-            - var: "space_before_pt"
-            - 0.0
-        - "!=":
-            - var: "space_after_pt"
-            - 0.0
-    message: "正文段前段后应为 0pt"
+      "!=":
+        - var: "space_before_pt"
+        - 0.0
+    message: "正文段前应为 0pt"
     fix:
       action: set
       target: "paragraph.space_before_pt"
+      value: 0.0
+
+  - id: PG-BODY-SPACE-AFTER
+    severity: warning
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      "!=":
+        - var: "space_after_pt"
+        - 0.0
+    message: "正文段后应为 0pt"
+    fix:
+      action: set
+      target: "paragraph.space_after_pt"
       value: 0.0
 
   - id: PG-BODY-FONT-ASCII

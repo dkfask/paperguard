@@ -151,9 +151,15 @@ class TestBodyRules(unittest.TestCase):
         doc = _doc([_body_para(runs=(_body_run(font_eastasia="Arial"),))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FONT-EASTASIA"))
 
-    def test_PG_BODY_PARAGRAPH_SPACING_violated_by_6pt_before(self):
+    def test_PG_BODY_SPACE_BEFORE_violated_by_6pt(self):
+        """B1 follow-up 修复后：PG-BODY-SPACE-BEFORE 独立规则，space_before=6 应触发"""
         doc = _doc([_body_para(space_before_pt=6.0)])
-        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-PARAGRAPH-SPACING"))
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-SPACE-BEFORE"))
+
+    def test_PG_BODY_SPACE_AFTER_violated_by_6pt(self):
+        """B1 follow-up 修复后：PG-BODY-SPACE-AFTER 独立规则，space_after=6 应触发"""
+        doc = _doc([_body_para(space_after_pt=6.0)])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-SPACE-AFTER"))
 
     def test_PG_BODY_FONT_ASCII_violated_by_arial(self):
         doc = _doc([_body_para(runs=(_body_run(font_ascii="Arial"),))])
