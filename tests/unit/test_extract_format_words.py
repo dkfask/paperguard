@@ -61,8 +61,8 @@ class TestNoMatch(unittest.TestCase):
         self.assertFalse(match_format_words("Hello world, this is a test."))
 
     def test_plain_chinese_no_match(self):
-        # 不含任何 FORMAT_WORDS 关键词的中文（注意"研究"不在词典里）
-        self.assertFalse(match_format_words("这是普通段落，无格式相关词汇。"))
+        # 不含任何 FORMAT_WORDS 关键词的中文（避免"格式"等词典词）
+        self.assertFalse(match_format_words("这是普通段落，没有规范相关词汇。"))
 
 
 class TestEdgeCases(unittest.TestCase):
