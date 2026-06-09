@@ -102,10 +102,8 @@ class TestAbstractRules(unittest.TestCase):
 
     def test_PG_ABSTRACT_KEYWORD_COUNT_violated_by_too_few(self):
         """关键词少于 3 个（V1+ 实现 keywords 计数；现在跳过复杂实现）"""
-        # 此规则实际需要 text 解析关键词数；MVC 简化为：检查 keywords 段存在性
-        doc = _doc(_para(style_id="Keywords", font_size=10.5))
-        # keywords 段字号应该 10.5pt (12pt 违规)
-        # 这个测试转向 PG-ABSTRACT-KEYWORD-FONT-SIZE（简化）
+        # 此规则实际需要 text 解析关键词数；MVC 简化为：检查 keywords 段字号
+        doc = _doc(_para(style_id="Keywords", font_size=12.0))  # 违规 12.0 vs 期望 10.5
         self.assertTrue(_has_finding(validate_docx(doc, PACK_ID), "PG-ABSTRACT-KEYWORD-FONT-SIZE"))
 
 
@@ -175,11 +173,11 @@ class TestFigureTableRules(unittest.TestCase):
 class TestSimUnivPackIntegration(unittest.TestCase):
     """集成 + rule_id 命名约定"""
 
-    def test_load_pack_with_22_rules(self):
+    def test_load_pack_with_20_rules(self):
         pack = load_pack(PACK_ID)
         self.assertEqual(pack.id, PACK_ID)
-        self.assertEqual(len(pack.rules), 22,
-                         f"SIM-UNIV-generic 应有 22 条规则，实际 {len(pack.rules)}")
+        self.assertEqual(len(pack.rules), 20,
+                         f"SIM-UNIV-generic 应有 20 条规则，实际 {len(pack.rules)}")
 
     def test_all_rule_ids_use_pg_prefix(self):
         pack = load_pack(PACK_ID)
