@@ -53,8 +53,8 @@ class EnginePerfBaseline(unittest.TestCase):
             f"best={best_ms:.1f}ms timings={[f'{t*1000:.1f}ms' for t in timings]}",
         )
         # 结果至少非空（fixture 已知含违规段；空说明 YAML pack 或 fixture 失效）
-        self.assertGreaterEqual(len(findings), 0,
-                                "fixture 跑出 findings 应 >= 0")
+        self.assertGreater(len(findings), 0,
+                           "100-para fixture 应触发至少 1 个 finding")
 
     def test_repeat_invocations_stay_under_budget(self):
         """重复调用（模拟 LiveFormatChecker debounce 反复 check）依然 < 200ms。
