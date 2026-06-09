@@ -8,7 +8,7 @@
 
 ## 一句话状态
 
-> ✅ **Sprint 2.5 已完成**（2026-06-09，14 个 atomic commit）：模板自动抽取全栈跑通 — `app/core/extract/` 新子包 7 模块（requirement.py / format_words.py / xml_utils.py / run_props.py / para_props.py / section_props.py / extractor.py / to_pack.py），mix python-docx + lxml 抽取（含中文字体 eastAsia 必走 lxml 关键陷阱）。**5 个 fixture docx**（自制 minimal / 国标 gb7713 / 自制 3 个学校风格）+ 13 个 extract 模块共 95 新测试。**Sprint 2 follow-up B1 规避** — `requirements_to_pack` 拆 space_before/after 为独立 rule，避免 Sprint 2 已知 bug 复现。**295 tests 全绿**（含 8 integration + 3 e2e），**smoke 端到端跑通**：367 reqs → 359 rules → 52 findings。`app/core/` 零 PyQt 依赖保持。下一步：**Sprint 3（GB/T 7714 + 学校 pack）**。
+> ✅ **Sprint 3 已完成**（2026-06-09，15 个 atomic commit）：多规范包 + Click CLI 5 子命令全栈跑通 — 新增 `GB-T-7714-1-2015.yaml`（10 参考文献规则）+ `SIM-UNIV-generic.yaml`（20 学校样式规则，**自制模拟零版权**）；修复 Sprint 2 follow-up B1（拆 `PG-BODY-PARAGRAPH-SPACING` 为 2 独立规则）+ T0（perf 断言失效）；Click 8.x CLI 5 子命令（check / fix / extract / init / validate-pack），退出码 0/1/2 + JSON reporter（SARIF-like）+ fix_applier/docx_writer（不可变修复 + docx 回写）+ `_fix_then_check` 闭环预铺。**359 tests 全绿**（含 19 CLI integration + 9 extract integration），**smoke 端到端跑通**：check 5 findings → fix 写 36811 bytes 新文件 → 3 packs validate-pack 全部通过 → init 生成 194 bytes 骨架。`app/core/` 零 PyQt 依赖保持。下一步：**Sprint 4（HTML reporter + SARIF + 多 pack CLI 增强）**。
 
 ---
 
@@ -214,18 +214,23 @@ git push
 
 > 交付：`app/core/engine/loader.py`（pydantic schema）+ `evaluator.py`（jmespath + json-logic）+ `visitor.py`（IR 遍历）+ `__init__.py`（入口替换）+ `app/core/rules/packs/GB-T-7713-1-2006.yaml`（25 条 PG-XXX 规则）+ IR 4 dataclass 加 `to_dict()` + 删 `stub_engine.py` + LiveFormatChecker 默认 pack 切换。**80 新测试 + 124 旧（删 10 stub）= 204 全绿**（含 9 integration）。**性能**：100 段 × 25 规则 → 270 findings → ~48ms（200ms 预算的 24%）。**新依赖**：json-logic-qubit + jmespath + pydantic v2。共 14 atomic commits。**commit `91309ba`（test: integration perf + e2e）**。
 
-### 🚧 P0（下一个）：MVP Sprint 3（**多规范包 + paperguard CLI**）
+### ✅ P0：MVP Sprint 3（**多规范包 + Click CLI**）— **已完成 2026-06-09**
+
+> 交付：`GB-T-7714-1-2015.yaml`（10 参考文献规则）+ `SIM-UNIV-generic.yaml`（20 学校样式规则，**自制零版权**）；修复 Sprint 2 follow-up B1（拆 `PG-BODY-PARAGRAPH-SPACING` 为 2 独立规则 PG-BODY-SPACE-BEFORE/AFTER）+ T0（perf 断言失效）；Click 8.x CLI 5 子命令（check / fix / extract / init / validate-pack）；`app/core/reporters/json_reporter.py`（SARIF-like 结构化 JSON）+ `app/core/writers/{fix_applier,docx_writer}.py`（不可变 IR 修复 + python-docx 回写）；`app/cli/_fix_then_check.py`（Sprint 4.5 闭环预铺）；`TerminalReporter.report_findings()` 与 JSONReporter 接口对齐。**64 新测试 / 359 全绿**（含 19 CLI integration + 9 extract integration）。**smoke 端到端跑通**：check 5 findings → fix 写 36811 bytes 新文件 → 3 packs validate-pack 全过 → init 194 bytes 骨架。`app/core/` 零 PyQt 依赖保持。共 15 atomic commits。**最新 commit `aa8b180`（feat: CLI 4 subcommands full impl）**。
+
+### 🚧 P0（下一个）：MVP Sprint 4（**HTML reporter + SARIF + CLI 增强**）
 
 ```bash
-# 实现 GB/T 7714—2015（参考文献）规范包
-# 至少 1 所学校 pack（清华/浙大）
-# 引入 Click + cli/ 子包
-# paperguard check / fix / extract / init / validate-pack CLI 5 个子命令
-# Sprint 4.5: fix 后自动 audit
+# app/core/reporters/html_reporter.py — HTML 报告（用 Jinja2 模板）
+# app/core/reporters/sarif_reporter.py — SARIF 2.1 标准
+# paperguard --version 增强 (auto-update check)
+# paperguard list-packs (列出已安装 packs)
+# paperguard doctor (诊断: 检查 Python 版本/依赖/packs 路径)
+# Sprint 4.5: 完整 fix → check 闭环
 ```
 
-**Sprint 3 关键意义**：把"1 个 pack → 多 pack"生态铺开，CLI 化给教务老师用。Sprint 2.5 已能自动生成 pack 骨架，Sprint 3 在骨架上精修 + 多 pack 共存。
-### P2：MVP Sprint 4（报告 + CLI + 修复后验证）
+**Sprint 4 关键意义**：补齐 reporter 层 (HTML + SARIF)；CLI 辅助命令 (list-packs / doctor) 提升易用性。Sprint 3 已落 check/fix 闭环基础，Sprint 4 把 Sprint 4.5 闭环做完整。
+### P2：MVP Sprint 5（修复闭环 + mutator 成熟）
 - 实现 GB/T 7714—2015（参考文献）
 - 至少 1 所学校 pack（清华 / 浙大）
 - `paperguard validate-pack` CLI 命令
@@ -293,8 +298,10 @@ git push
 | 2026-06-08 | HANDOFF.md 刷新到 v1.3（标记 Sprint 2 完成 + 提级 Sprint 2.5） |
 | 2026-06-09 | **Sprint 2.5 完成**（commits `ae9fac0` ~ `7e224bf`，14 atomic）：app/core/extract/ 新子包 7 模块（requirement / format_words / xml_utils / run_props / para_props / section_props / extractor / to_pack）；5 fixture docx 自制（minimal/gb7713/tsinghua/zhejiang/wuhan）；95 新测试 / 295 全绿；Sprint 2 follow-up B1 规避 e2e 验证；smoke 端到端跑通（367 reqs→359 rules→52 findings） |
 | 2026-06-09 | HANDOFF.md 刷新到 v1.4（标记 Sprint 2.5 完成 + 提级 Sprint 3） |
-| _待定_ | MVP Sprint 3 开工（GB/T 7714 + 学校 pack + CLI 化） |
-| _待定_ | MVP 全部完成（4 周后） |
+| 2026-06-09 | **Sprint 3 完成**（commits `08d9cd3` ~ `aa8b180`，15 atomic）：fix Sprint 2 follow-up B1+T0；GB-T-7714-1-2015.yaml (10 refs) + SIM-UNIV-generic.yaml (20 学校样式)；Click 8.x CLI 5 子命令 + json_reporter + fix_applier/docx_writer + _fix_then_check；64 新测试 / 359 全绿；smoke 端到端跑通（check 5 findings / fix 36811 bytes / 3 packs validate-pass / init 194 bytes 骨架） |
+| 2026-06-09 | HANDOFF.md 刷新到 v1.5（标记 Sprint 3 完成 + 提级 Sprint 4） |
+| _待定_ | MVP Sprint 4 开工（HTML reporter + SARIF + CLI 增强） |
+| _待定_ | MVP 全部完成（3 周后） |
 
 ---
 

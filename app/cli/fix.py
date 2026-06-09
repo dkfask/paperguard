@@ -37,7 +37,7 @@ def fix(paper: str, pack: str, output: str, no_verify: bool) -> None:
         write_ir_to_docx(fixed_ir, output)
         click.echo(f"Fixed and written to {output}")
         if not no_verify:
-            fix_then_check(output, pack, remaining)
+            fix_then_check(output, pack, len(findings))
         # 退出码: 0 = 全部修复; 1 = 仍有 remaining
         sys.exit(0 if not remaining else 1)
     except Exception as exc:
