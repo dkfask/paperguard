@@ -41,7 +41,8 @@ class Requirement:
         expected: 期望值（强制 str 存储，调用方按 property 类型解释，如 half-points 需 /2）
         source_part: OOXML part 路径，如 ``"word/styles.xml"`` / ``"word/document.xml"``
         evidence: 证据文本（前 300 字符），用于人工审查与报告
-        auto_applicable: 该规则是否能自动 fix。MVP 全部 True；V1+ 按 category 细化
+        auto_applicable: 该规则是否能自动 fix。MVP True；V1+ 按 category 细化
+        fix: 候选 Fix 动作（可选）。explicit-instruction 等不可自动 fix 的为 None
     """
 
     id: str
@@ -52,6 +53,7 @@ class Requirement:
     source_part: str
     evidence: str
     auto_applicable: bool = True
+    fix: "Fix | None" = None  # forward ref to avoid circular import
 
 
 __all__ = ["REQUIREMENT_CATEGORIES", "Requirement"]

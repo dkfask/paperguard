@@ -37,7 +37,7 @@ from app.core.extract.extractor import extract_template
 from app.core.extract.requirement import REQUIREMENT_CATEGORIES, Requirement
 
 
-FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "templates"
+FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "templates"
 
 
 class TestExtractTemplate(unittest.TestCase):
