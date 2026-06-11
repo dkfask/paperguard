@@ -18,7 +18,10 @@ from app.core.ir import Document
 def write_ir_to_docx(ir: Document, output_path: str) -> None:
     """把 IR Document 写为 output_path (不破坏原文件)。"""
     import docx
-    from docx.shared import Cm, Pt
+    from docx.enum.text import WD_UNDERLINE
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Cm, Pt, RGBColor
 
     doc = docx.Document()
 
@@ -31,17 +34,18 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
                 para.style = doc.styles[p.style_id]
         except (KeyError, AttributeError):
             pass
-        # 第一个 run
-        if p.runs:
-            run = p.runs[0]
+        for run in p.runs:
             r = para.add_run(run.text)
-            if run.font_size_pt is not None:
-                r.font.size = Pt(run.font_size_pt)
-            if run.font_eastasia:
-                r.font.name = run.font_eastasia
-        # line_spacing
+            _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_UNDERLINE)
+
+        # paragraph format
         if p.line_spacing:
             para.paragraph_format.line_spacing = p.line_spacing
+        para.paragraph_format.space_before = Pt(p.space_before_pt)
+        para.paragraph_format.space_after = Pt(p.space_after_pt)
+        if p.first_line_indent_cm:
+            para.paragraph_format.first_line_indent = Cm(p.first_line_indent_cm)
+        para.paragraph_format.page_break_before = p.is_page_break_before
 
     # sections（用第一个节或新建）
     if ir.sections:
@@ -64,6 +68,48 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
         doc.core_properties.title = ir.metadata.title
 
     doc.save(output_path)
+
+
+def _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_UNDERLINE) -> None:
+    """Apply Run IR formatting to a python-docx run."""
+    if run.font_size_pt is not None:
+        r.font.size = Pt(run.font_size_pt)
+
+    if run.font_ascii:
+        r.font.name = run.font_ascii
+    elif run.font_hansi:
+        r.font.name = run.font_hansi
+    elif run.font_eastasia:
+        r.font.name = run.font_eastasia
+
+    if run.font_eastasia or run.font_ascii or run.font_hansi or run.font_cs:
+        rpr = r._r.get_or_add_rPr()
+        rfonts = rpr.find(qn("w:rFonts"))
+        if rfonts is None:
+            rfonts = OxmlElement("w:rFonts")
+            rpr.append(rfonts)
+        if run.font_eastasia:
+            rfonts.set(qn("w:eastAsia"), run.font_eastasia)
+        if run.font_ascii:
+            rfonts.set(qn("w:ascii"), run.font_ascii)
+        if run.font_hansi:
+            rfonts.set(qn("w:hAnsi"), run.font_hansi)
+        if run.font_cs:
+            rfonts.set(qn("w:cs"), run.font_cs)
+
+    r.bold = run.bold
+    r.italic = run.italic
+    if run.underline == "single":
+        r.underline = True
+    elif run.underline == "double":
+        r.underline = WD_UNDERLINE.DOUBLE
+    elif run.underline is None:
+        r.underline = False
+    else:
+        r.underline = True
+
+    if run.color_hex:
+        r.font.color.rgb = RGBColor.from_string(run.color_hex.lstrip("#"))
 
 
 __all__ = ["write_ir_to_docx"]
