@@ -135,6 +135,8 @@ def _load_run(run) -> Run:
     font_ascii = None
     font_hansi = None
     font_size_pt = None
+    underline = None
+    color_hex = None
     if rpr is not None:
         rfonts = rpr.find(qn("w:rFonts"))
         if rfonts is not None:
@@ -145,6 +147,18 @@ def _load_run(run) -> Run:
         sz = rpr.find(qn("w:sz"))
         if sz is not None:
             font_size_pt = _half_points_to_pt(sz.get(qn("w:val")))
+        u = rpr.find(qn("w:u"))
+        if u is not None:
+            val = u.get(qn("w:val"))
+            if val in (None, "single"):
+                underline = "single"
+            elif val not in ("none", "0", "false"):
+                underline = val
+        color = rpr.find(qn("w:color"))
+        if color is not None:
+            val = color.get(qn("w:val"))
+            if val and val.lower() != "auto":
+                color_hex = val.upper()
 
     return Run(
         text=run.text or "",
@@ -154,6 +168,8 @@ def _load_run(run) -> Run:
         font_size_pt=font_size_pt,
         bold=bool(run.bold),
         italic=bool(run.italic),
+        underline=underline,
+        color_hex=color_hex,
     )
 
 
@@ -174,7 +190,9 @@ def _load_paragraph(paragraph) -> Paragraph:
     line_rule = None
     space_before = 0
     space_after = 0
+    is_page_break_before = False
     if ppr is not None:
+        is_page_break_before = ppr.find(qn("w:pageBreakBefore")) is not None
         spacing = ppr.find(qn("w:spacing"))
         if spacing is not None:
             line = spacing.get(qn("w:line"))
@@ -204,6 +222,7 @@ def _load_paragraph(paragraph) -> Paragraph:
         space_before_pt=float(space_before),
         space_after_pt=float(space_after),
         first_line_indent_cm=first_line_indent_cm,
+        is_page_break_before=is_page_break_before,
     )
 
 

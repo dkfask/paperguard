@@ -14,7 +14,7 @@ from docx import Document as DocxDocument
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Pt
+from docx.shared import Cm, Pt, RGBColor
 
 from app.core.ir import (
     Document,
@@ -53,6 +53,7 @@ def _make_minimal_docx() -> bytes:
     # 3. 正文段（手动设置 1.5 倍行距 + 首行缩进）
     p = doc.add_paragraph("本文研究的主要内容是...")
     p.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+    p.paragraph_format.page_break_before = True
 
     # 1.5 倍行距
     ppr = p._p.get_or_add_pPr()
@@ -76,6 +77,8 @@ def _make_minimal_docx() -> bytes:
     run = p.runs[0]
     run.font.name = "Times New Roman"
     run.font.size = Pt(12)
+    run.font.underline = True
+    run.font.color.rgb = RGBColor.from_string("FF0000")
     rpr = run._r.get_or_add_rPr()
     rfonts = rpr.find(qn("w:rFonts"))
     if rfonts is None:
@@ -153,6 +156,11 @@ class TestLoadDocx(unittest.TestCase):
         # 419 twips ≈ 0.74 cm（GB/T 7713 标准：2 字符 ≈ 0.74 cm @ 12pt 宋体）
         self.assertAlmostEqual(p1.first_line_indent_cm, 0.74, places=1)
 
+    def test_body_paragraph_page_break_before(self):
+        doc = load_docx(self.path)
+        p1 = doc.paragraphs[1]
+        self.assertTrue(p1.is_page_break_before)
+
     def test_body_paragraph_run_font(self):
         doc = load_docx(self.path)
         p1 = doc.paragraphs[1]
@@ -161,6 +169,12 @@ class TestLoadDocx(unittest.TestCase):
         self.assertEqual(run.font_eastasia, "宋体")
         self.assertEqual(run.font_ascii, "Times New Roman")
         self.assertEqual(run.font_size_pt, 12.0)
+
+    def test_body_paragraph_run_decoration(self):
+        doc = load_docx(self.path)
+        run = doc.paragraphs[1].runs[0]
+        self.assertEqual(run.underline, "single")
+        self.assertEqual(run.color_hex, "FF0000")
 
     def test_metadata_default(self):
         doc = load_docx(self.path)

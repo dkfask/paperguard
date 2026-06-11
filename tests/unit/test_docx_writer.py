@@ -10,6 +10,7 @@ import docx
 from docx.oxml.ns import qn
 
 from app.core.ir import Document, DocumentMetadata, Paragraph, Run, Section
+from app.core.loaders.docx_loader import load_docx
 from app.core.writers.docx_writer import write_ir_to_docx
 
 
@@ -93,6 +94,58 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertTrue(run.italic)
         self.assertTrue(run.underline)
         self.assertEqual(str(run.font.color.rgb), "FF0000")
+
+    def test_written_docx_roundtrips_supported_formatting_through_loader(self):
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="Body Text",
+                    text="正文",
+                    level=None,
+                    runs=(
+                        Run(
+                            text="正文",
+                            font_eastasia="宋体",
+                            font_ascii="Times New Roman",
+                            font_hansi="Times New Roman",
+                            font_size_pt=12.0,
+                            bold=True,
+                            italic=True,
+                            underline="single",
+                            color_hex="FF0000",
+                        ),
+                    ),
+                    line_spacing=1.5,
+                    space_before_pt=6.0,
+                    space_after_pt=12.0,
+                    first_line_indent_cm=0.74,
+                    is_page_break_before=True,
+                ),
+            ),
+            metadata=DocumentMetadata(title="t"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "roundtrip.docx"
+            write_ir_to_docx(ir, str(path))
+            loaded = load_docx(path)
+
+        para = loaded.paragraphs[0]
+        run = para.runs[0]
+        self.assertEqual(para.line_spacing, 1.5)
+        self.assertAlmostEqual(para.space_before_pt, 6.0, places=1)
+        self.assertAlmostEqual(para.space_after_pt, 12.0, places=1)
+        self.assertAlmostEqual(para.first_line_indent_cm, 0.74, places=2)
+        self.assertTrue(para.is_page_break_before)
+        self.assertEqual(run.font_eastasia, "宋体")
+        self.assertEqual(run.font_ascii, "Times New Roman")
+        self.assertEqual(run.font_hansi, "Times New Roman")
+        self.assertEqual(run.font_size_pt, 12.0)
+        self.assertTrue(run.bold)
+        self.assertTrue(run.italic)
+        self.assertEqual(run.underline, "single")
+        self.assertEqual(run.color_hex, "FF0000")
 
 
 if __name__ == "__main__":
