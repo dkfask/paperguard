@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import click
 
+from app import __version__
+
 
 # 定义 click group（顶级）
 @click.group()
-@click.version_option("0.1.0", prog_name="paperguard")
+@click.version_option(__version__, prog_name="paperguard")
 @click.option("-v", "--verbose", is_flag=True, default=False,
               help="显示详细进度")
 @click.pass_context
@@ -28,13 +30,19 @@ from app.cli.check import check  # noqa: E402
 from app.cli.fix import fix  # noqa: E402
 from app.cli.extract import extract  # noqa: E402
 from app.cli.init import init  # noqa: E402
+from app.cli.doctor import doctor  # noqa: E402
+from app.cli.list_packs import list_packs_command  # noqa: E402
 from app.cli.validate_pack import validate_pack  # noqa: E402
+from app.cli.version import version  # noqa: E402
 
 cli.add_command(check)
 cli.add_command(fix)
 cli.add_command(extract)
 cli.add_command(init)
 cli.add_command(validate_pack)
+cli.add_command(list_packs_command)
+cli.add_command(doctor)
+cli.add_command(version)
 
 
 __all__ = ["cli"]

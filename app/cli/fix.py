@@ -23,9 +23,10 @@ from app.cli._fix_then_check import fix_then_check
 @click.option("--output", "-o", required=True,
               type=click.Path(dir_okay=False, path_type=str),
               help="输出 .docx 路径（不覆盖原文件）")
-@click.option("--no-verify", is_flag=True, default=False,
+@click.option("--skip-verify", is_flag=True, default=False,
               help="修复后不自动 check")
-def fix(paper: str, pack: str, output: str, no_verify: bool) -> None:
+@click.option("--no-verify", is_flag=True, default=False, hidden=True)
+def fix(paper: str, pack: str, output: str, skip_verify: bool, no_verify: bool) -> None:
     """修复 PAPER 的格式问题, 输出到 OUTPUT (不破坏原文)."""
     try:
         ir = load_docx(paper)
@@ -36,10 +37,17 @@ def fix(paper: str, pack: str, output: str, no_verify: bool) -> None:
         fixed_ir, remaining = apply_all_fixes(ir, findings)
         write_ir_to_docx(fixed_ir, output)
         click.echo(f"Fixed and written to {output}")
-        if not no_verify:
-            fix_then_check(output, pack, len(findings))
+        verify_remaining = remaining
+        if not (skip_verify or no_verify):
+            verify_remaining = fix_then_check(
+                source_path=paper,
+                output_path=output,
+                pack=pack,
+                pre_findings=findings,
+                skipped_findings=remaining,
+            )
         # 退出码: 0 = 全部修复; 1 = 仍有 remaining
-        sys.exit(0 if not remaining else 1)
+        sys.exit(0 if not verify_remaining else 1)
     except Exception as exc:
         click.echo(f"Error: {type(exc).__name__}: {exc}", err=True)
         sys.exit(2)

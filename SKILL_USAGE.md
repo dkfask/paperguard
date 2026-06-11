@@ -55,9 +55,9 @@ paperguard --version
 
 ```bash
 paperguard check \
-  --paper ~/Desktop/my_thesis.docx \
+  ~/Desktop/my_thesis.docx \
   --pack GB-T-7713-1-2006 \
-  --format terminal
+  --format text
 ```
 
 **预期输出**（节选）：
@@ -83,45 +83,35 @@ Total: 5 errors, 1 warning. Use `paperguard fix` to auto-repair.
 
 ```bash
 paperguard check \
-  --paper ~/Desktop/my_thesis.docx \
+  ~/Desktop/my_thesis.docx \
   --pack GB-T-7713-1-2006 \
   --format html \
-  --out ~/Desktop/audit
+  --output ~/Desktop/findings.html
 ```
 
-打开 `~/Desktop/audit/findings.html` 看彩色报告。
+打开 `~/Desktop/findings.html` 看彩色报告。CI / GitHub Code Scanning 可改用 `--format sarif --output findings.sarif`。
 
 ### 第 5 步：自动修复（30 秒）
 
 ```bash
 paperguard fix \
-  --paper ~/Desktop/my_thesis.docx \
+  ~/Desktop/my_thesis.docx \
   --pack GB-T-7713-1-2006 \
-  --output ~/Desktop/my_thesis.fixed.docx \
-  --redline
+  --output ~/Desktop/my_thesis.fixed.docx
 ```
 
 **预期输出**：
 
 ```
-✓ Wrote corrected copy: ~/Desktop/my_thesis.fixed.docx
-✓ Wrote redline copy:    ~/Desktop/my_thesis.fixed.redline.docx
-✓ Wrote change report:   ~/Desktop/fixed/changes.csv
-✓ Post-fix audit:        5 errors → 1 error remaining (manual)
-
-Changes:
-  [changed]      BODY-LINE-SPACING: 42 paragraphs
-  [changed]      BODY-FIRST-LINE-INDENT: 38 paragraphs
-  [changed]      HEADING1-FONT: 5 paragraphs
-  [skipped]      PAGE-MARGIN-TOP: 0 sections (template unclear)
-  [already-set]  BODY-EASTASIA-FONT: pass
+Fixed and written to ~/Desktop/my_thesis.fixed.docx
+3 issues remain. See ~/Desktop/changes.md
 ```
 
 **重要**：
 - 原文件 `my_thesis.docx` **没动**
 - 新文件 `my_thesis.fixed.docx` 已生成
-- `redline.docx` 是带"修订模式"的版本（Word 里可见红绿标注）
-- `changes.csv` 列出每一条修改的"修改前 / 修改后"
+- `changes.md` 会列出修复前数量、已自动修复、仍剩余、跳过项
+- 如果只想写出修复文件、不做二次检查，可加 `--skip-verify`
 
 ### 第 6 步：用 Word 打开（30 秒）
 
@@ -152,7 +142,7 @@ Changes:
 **A. 用国标跑一遍**（覆盖率 60-80%）：
 
 ```bash
-paperguard check --pack GB-T-7713-1-2006 ...
+paperguard check thesis.docx --pack GB-T-7713-1-2006
 ```
 
 **B. 从学校模板抽取规则**（覆盖率 80-95%）：
@@ -165,7 +155,7 @@ paperguard extract --template ~/Downloads/school-template.docx --out ./work/req
 #    模板里没写、但学校说"必须用 X"的，手动加到 requirements.json
 
 # 3. 用抽出的规则审计
-paperguard check --paper ... --pack ./work/req/requirements.json
+paperguard check thesis.docx --pack ./work/req/requirements.json
 ```
 
 ### Q3：能不能修改原文，不输出新文件？
@@ -190,10 +180,10 @@ mkdir -p audits
 for f in papers/*.docx; do
   name=$(basename "$f" .docx)
   paperguard check \
-    --paper "$f" \
+    "$f" \
     --pack GB-T-7713-1-2006 \
     --format sarif \
-    --out "audits/$name"
+    --output "audits/$name.sarif"
 done
 ```
 
@@ -230,4 +220,6 @@ SARIF 格式可以直接喂给 GitHub Code Scanning 或 Azure DevOps。
 
 - 命令行加 `--help` 看完整 flag
 - `paperguard --version` 看版本
+- `paperguard list-packs` 看内置规则包
+- `paperguard doctor` 诊断本地环境
 - 项目仍在 MVP 阶段，遇到问题欢迎提 Issue
