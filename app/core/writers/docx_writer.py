@@ -28,12 +28,7 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
     # 段落
     for p in ir.paragraphs:
         para = doc.add_paragraph()
-        # style_id
-        try:
-            if p.style_id and p.style_id in doc.styles:
-                para.style = doc.styles[p.style_id]
-        except (KeyError, AttributeError):
-            pass
+        _apply_paragraph_style(para, p, doc)
         for run in p.runs:
             r = para.add_run(run.text)
             _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_UNDERLINE)
@@ -147,6 +142,23 @@ def _paragraph_alignment(value: str, WD_PARAGRAPH_ALIGNMENT):
         "distribute": WD_PARAGRAPH_ALIGNMENT.DISTRIBUTE,
     }
     return mapping.get(alignment, WD_PARAGRAPH_ALIGNMENT.LEFT)
+
+
+def _apply_paragraph_style(para, p, doc) -> None:
+    """Apply heading level first, then fall back to explicit style_id."""
+    candidates: list[str] = []
+    if p.level is not None:
+        candidates.append(f"Heading {p.level}")
+    if p.style_id:
+        candidates.append(p.style_id)
+
+    for style_name in candidates:
+        try:
+            if style_name in doc.styles:
+                para.style = doc.styles[style_name]
+                return
+        except (KeyError, AttributeError):
+            continue
 
 
 __all__ = ["write_ir_to_docx"]
