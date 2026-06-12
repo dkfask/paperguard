@@ -158,6 +158,22 @@ class TestEvaluateWhen(unittest.TestCase):
         result = evaluate_when({"==": [{"var": "line_spacing"}, 1.5]}, node)
         self.assertTrue(result)
 
+    def test_when_equals_allows_docx_roundtrip_float_drift(self):
+        node = {"first_line_indent_cm": 0.741}
+        result = evaluate_when(
+            {"==": [{"var": "first_line_indent_cm"}, 0.74]},
+            node,
+        )
+        self.assertTrue(result)
+
+    def test_when_not_equals_allows_docx_roundtrip_float_drift(self):
+        node = {"first_line_indent_cm": 0.741}
+        result = evaluate_when(
+            {"!=": [{"var": "first_line_indent_cm"}, 0.74]},
+            node,
+        )
+        self.assertFalse(result)
+
     def test_when_and_true(self):
         node = {"x": 5, "y": "hi"}
         expr = {"and": [

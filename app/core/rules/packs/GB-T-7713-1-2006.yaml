@@ -1,7 +1,7 @@
 # GB/T 7713.1—2006 学位论文编写规则 — PaperGuard YAML pack
 #
-# 25 条规则，全部基于 paragraphs scope（LiveMutator 可消费 Fix）。
-# 覆盖：正文 10 条 + 一级标题 4 条 + 二级标题 4 条 + 三级标题 4 条 + 章前分页 1 条 + 正文格式 2 条
+# 27 条规则，全部基于 paragraphs scope（LiveMutator 可消费 Fix）。
+# 覆盖：正文 11 条 + 一级标题 4 条 + 二级标题 4 条 + 三级标题 4 条 + 章前分页 1 条 + 正文格式 2 条
 #
 # rule_id 命名约定（ADR-7 A）：PG-{TARGET}-{ATTRIBUTE}
 #   PG- 前缀；TARGET = BODY / H1 / H2 / H3；ATTRIBUTE = 检查的字段
@@ -57,6 +57,19 @@ rules:
       action: set
       target: "paragraph.first_line_indent_cm"
       value: 0.74
+
+  - id: PG-BODY-ALIGNMENT
+    severity: warning
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      "!=":
+        - var: "alignment"
+        - "justify"
+    message: "正文段落应为两端对齐"
+    fix:
+      action: set
+      target: "paragraph.alignment"
+      value: "justify"
 
   - id: PG-BODY-FONT-EASTASIA
     severity: warning

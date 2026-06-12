@@ -88,11 +88,11 @@ class YamlEngineEndToEnd(unittest.TestCase):
 class YamlPackSelfCheck(unittest.TestCase):
     """单独验证 YAML pack 文件本身的健康度（不依赖 fixture docx）。"""
 
-    def test_gb_pack_loads_with_26_rules(self):
+    def test_gb_pack_loads_with_27_rules(self):
         pack = load_pack(PACK_ID)
         self.assertEqual(pack.id, PACK_ID)
-        self.assertEqual(len(pack.rules), 26,
-                         f"GB-T-7713-1-2006 应有 26 条规则（25 原始 + 1 B1 拆出），实际 {len(pack.rules)}")
+        self.assertEqual(len(pack.rules), 27,
+                         f"GB-T-7713-1-2006 应有 27 条规则（含正文对齐规则），实际 {len(pack.rules)}")
 
     def test_all_pack_rule_ids_use_pg_prefix(self):
         """ADR-7 A 决策：rule_id 全部 PG- 前缀。"""

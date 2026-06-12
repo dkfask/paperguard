@@ -1,6 +1,6 @@
 """Tests for GB-T-7713-1-2006.yaml pack — Sprint 2 commit #12.
 
-27 tests = 25 negative（每条规则各 1 个违规 case）+ 2 integration（多违规组合 + 全合规）。
+28 tests = 26 negative（每条规则各 1 个违规 case）+ 2 integration（多违规组合 + 全合规）。
 
 每个 negative test 构造一个会触发对应规则的 IR Document，
 跑 validate_docx(doc, pack="GB-T-7713-1-2006") → 断言结果含该 rule_id。
@@ -60,6 +60,7 @@ def _body_para(runs=None, **override) -> Paragraph:
         space_before_pt=0.0,
         space_after_pt=0.0,
         first_line_indent_cm=0.74,
+        alignment="justify",
         is_page_break_before=False,
     )
     defaults.update(override)
@@ -129,11 +130,11 @@ def _has_rule(findings, rule_id: str) -> bool:
 
 
 # ===========================================================================
-# Negative tests — 每条规则各 1 个违规 case（25 tests）
+# Negative tests — 每条规则各 1 个违规 case（26 tests）
 # ===========================================================================
 
 class TestBodyRules(unittest.TestCase):
-    """正文 10 条规则。"""
+    """正文 11 条规则。"""
 
     def test_PG_BODY_LINE_SPACING_violated_by_single_spacing(self):
         doc = _doc([_body_para(line_spacing=1.0)])
@@ -180,6 +181,10 @@ class TestBodyRules(unittest.TestCase):
     def test_PG_BODY_NO_BOLD_violated_by_bold(self):
         doc = _doc([_body_para(runs=(_body_run(bold=True),))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-BOLD"))
+
+    def test_PG_BODY_ALIGNMENT_violated_by_center(self):
+        doc = _doc([_body_para(alignment="center")])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-ALIGNMENT"))
 
 
 class TestHeading1Rules(unittest.TestCase):
