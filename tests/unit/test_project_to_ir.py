@@ -120,6 +120,32 @@ class TestFontExtraction(unittest.TestCase):
         run = doc.paragraphs[0].runs[0]
         self.assertEqual(run.underline, "single")
 
+    def test_highlight_extraction_from_runs(self):
+        html = '<p><span style="background-color: yellow;">marked</span></p>'
+        project = Project(title="highlight", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        run = doc.paragraphs[0].runs[0]
+        self.assertEqual(run.highlight, "yellow")
+
+    def test_vert_align_extraction_from_runs(self):
+        html = '<p><span style="vertical-align: super;">sup</span></p>'
+        project = Project(title="vert-align", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        run = doc.paragraphs[0].runs[0]
+        self.assertEqual(run.vert_align, "superscript")
+
 
 class TestParagraphFormattingExtraction(unittest.TestCase):
     def test_alignment_extraction_from_paragraph_style(self):

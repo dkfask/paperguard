@@ -33,6 +33,8 @@ class RichTextRun:
     font_size_pt: float | None = None
     font_name: str | None = None
     color_hex: str | None = None
+    highlight: str | None = None
+    vert_align: str | None = None
 
 
 @dataclass
@@ -276,6 +278,10 @@ def _merge_style(parent: dict, tag: str, attrs: dict[str, str]) -> dict:
         color_hex = normalize_color(css["color"])
         if color_hex:
             style["color_hex"] = color_hex
+    if "background-color" in css:
+        style["highlight"] = normalize_highlight(css["background-color"])
+    if "vertical-align" in css:
+        style["vert_align"] = normalize_vert_align(css["vertical-align"])
     if tag == "font":
         color_hex = normalize_color(attrs.get("color", ""))
         if color_hex:
@@ -352,6 +358,57 @@ def normalize_color(raw_color: str) -> str | None:
     return named.get(value.lower())
 
 
+def normalize_highlight(raw_color: str) -> str | None:
+    value = raw_color.strip().strip(";").lower()
+    if value in {"", "none", "transparent", "inherit", "initial", "unset"}:
+        return None
+
+    named = {
+        "black",
+        "blue",
+        "cyan",
+        "green",
+        "magenta",
+        "red",
+        "yellow",
+        "darkblue",
+        "darkcyan",
+        "darkgreen",
+        "darkmagenta",
+        "darkred",
+        "darkyellow",
+        "lightgray",
+        "darkgray",
+    }
+    if value in named:
+        return value
+    if value in {"grey", "gray"}:
+        return "lightgray"
+
+    color_hex = normalize_color(value)
+    return {
+        "000000": "black",
+        "0000FF": "blue",
+        "00FFFF": "cyan",
+        "00FF00": "green",
+        "FF00FF": "magenta",
+        "FF0000": "red",
+        "FFFF00": "yellow",
+        "808080": "lightgray",
+    }.get(color_hex or "")
+
+
+def normalize_vert_align(raw_value: str) -> str | None:
+    value = raw_value.strip().strip(";").lower()
+    if value in {"", "baseline", "none", "inherit", "initial", "unset"}:
+        return None
+    if value in {"super", "superscript"}:
+        return "superscript"
+    if value in {"sub", "subscript"}:
+        return "subscript"
+    return None
+
+
 class _ParagraphHtmlParser(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -404,6 +461,8 @@ class _ParagraphHtmlParser(HTMLParser):
             font_size_pt=current.get("font_size_pt"),
             font_name=current.get("font_name"),
             color_hex=current.get("color_hex"),
+            highlight=current.get("highlight"),
+            vert_align=current.get("vert_align"),
         )
         if self.runs and self._same_style(self.runs[-1], run):
             self.runs[-1].text += run.text
@@ -419,4 +478,6 @@ class _ParagraphHtmlParser(HTMLParser):
             and left.font_size_pt == right.font_size_pt
             and left.font_name == right.font_name
             and left.color_hex == right.color_hex
+            and left.highlight == right.highlight
+            and left.vert_align == right.vert_align
         )

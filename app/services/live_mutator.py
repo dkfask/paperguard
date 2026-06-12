@@ -66,6 +66,8 @@ SUPPORTED_RULE_IDS: frozenset[str] = frozenset({
     "bold",
     "italic",
     "underline",
+    "highlight",
+    "vert_align",
 })
 
 
@@ -162,6 +164,28 @@ def _is_runs_wildcard(target: str) -> bool:
     return target.startswith("runs.*.")
 
 
+def _highlight_css_value(value: Any) -> str:
+    if value is None:
+        return "transparent"
+    normalized = str(value).strip()
+    if not normalized or normalized.lower() in {"none", "null"}:
+        return "transparent"
+    return normalized
+
+
+def _vert_align_css_value(value: Any) -> str:
+    if value is None:
+        return "baseline"
+    normalized = str(value).strip().lower()
+    if normalized in {"", "none", "null", "baseline"}:
+        return "baseline"
+    if normalized == "superscript":
+        return "super"
+    if normalized == "subscript":
+        return "sub"
+    return normalized
+
+
 # ---------------------------------------------------------------------------
 # Fix application dispatch
 # ---------------------------------------------------------------------------
@@ -204,6 +228,18 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
             block.html,
             "text-decoration",
             "underline" if fix.value else "none",
+        )
+    elif target == "highlight" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "background-color",
+            _highlight_css_value(fix.value),
+        )
+    elif target == "vert_align" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "vertical-align",
+            _vert_align_css_value(fix.value),
         )
 
 

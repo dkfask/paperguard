@@ -68,6 +68,8 @@ def _convert_run(rich_run: RichTextRun) -> Run:
         italic=rich_run.italic,
         underline="single" if rich_run.underline else None,
         color_hex=rich_run.color_hex,
+        highlight=rich_run.highlight,
+        vert_align=rich_run.vert_align,
     )
 
 

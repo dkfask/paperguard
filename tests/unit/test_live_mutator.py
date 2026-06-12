@@ -170,6 +170,43 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         self.assertNotIn("#ff0000", block.html.lower())
         self.assertNotIn("color: blue", block.html.lower())
 
+    def test_apply_fix_runs_wildcard_highlight_clears_all_runs(self):
+        project = _make_project([
+            '<p><span style="background-color: yellow;">A</span>'
+            '<span style="background-color: yellow;">B</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R004": Fix(action="set", target="runs.*.highlight", value=None),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R004", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("background-color: transparent"), 2)
+        self.assertNotIn("background-color: yellow", block.html.lower())
+
+    def test_apply_fix_runs_wildcard_vert_align_clears_all_runs(self):
+        project = _make_project([
+            '<p><span style="vertical-align: super;">A</span>'
+            '<span style="vertical-align: sub;">B</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R005": Fix(action="set", target="runs.*.vert_align", value=None),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R005", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("vertical-align: baseline"), 2)
+        self.assertNotIn("vertical-align: super", block.html.lower())
+        self.assertNotIn("vertical-align: sub", block.html.lower())
+
     def test_apply_fix_first_line_indent_sets_block(self):
         # Given 1 段 <p>text</p>，first_line_indent_cm fix = 0.74
         project = _make_project(["<p>第一段</p>"])
