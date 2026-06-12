@@ -34,15 +34,15 @@ rules:
 
   - id: PG-BODY-FONT-SIZE
     severity: warning
-    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    scope: "paragraphs[?(style_id == 'Body Text' || style_id == 'Normal') && runs[?font_size_pt != `12.0`]]"
     when:
-      "!=":
-        - var: "runs.0.font_size_pt"
-        - 12.0
+      "==":
+        - true
+        - true
     message: "正文字号应为 12pt（小四）"
     fix:
       action: set
-      target: "run.font_size_pt"
+      target: "runs.*.font_size_pt"
       value: 12.0
 
   - id: PG-BODY-FIRST-LINE-INDENT
@@ -73,15 +73,15 @@ rules:
 
   - id: PG-BODY-FONT-EASTASIA
     severity: warning
-    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    scope: "paragraphs[?(style_id == 'Body Text' || style_id == 'Normal') && runs[?font_eastasia != '宋体']]"
     when:
-      "!=":
-        - var: "runs.0.font_eastasia"
-        - "宋体"
+      "==":
+        - true
+        - true
     message: '正文中文字体应为"宋体"'
     fix:
       action: set
-      target: "run.font_eastasia"
+      target: "runs.*.font_eastasia"
       value: "宋体"
 
   # B1 follow-up fix: 拆为 2 条独立规则 — 当 only-after 不合规时，原始 single-rule
@@ -115,53 +115,41 @@ rules:
 
   - id: PG-BODY-FONT-ASCII
     severity: info
-    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    scope: "paragraphs[?(style_id == 'Body Text' || style_id == 'Normal') && runs[?font_ascii != 'Times New Roman' && font_ascii != `null`]]"
     when:
-      and:
-        - "!=":
-            - var: "runs.0.font_ascii"
-            - "Times New Roman"
-        - "!=":
-            - var: "runs.0.font_ascii"
-            - null
+      "==":
+        - true
+        - true
     message: '正文西文字体应为 "Times New Roman"'
     fix:
       action: set
-      target: "run.font_ascii"
+      target: "runs.*.font_ascii"
       value: "Times New Roman"
 
   - id: PG-BODY-FONT-HANSI
     severity: info
-    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    scope: "paragraphs[?(style_id == 'Body Text' || style_id == 'Normal') && runs[?font_hansi != 'Times New Roman' && font_hansi != `null`]]"
     when:
-      and:
-        - "!=":
-            - var: "runs.0.font_hansi"
-            - "Times New Roman"
-        - "!=":
-            - var: "runs.0.font_hansi"
-            - null
+      "==":
+        - true
+        - true
     message: '正文半欧亚字体应为 "Times New Roman"'
     fix:
       action: set
-      target: "run.font_hansi"
+      target: "runs.*.font_hansi"
       value: "Times New Roman"
 
   - id: PG-BODY-COLOR-BLACK
     severity: info
-    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    scope: "paragraphs[?(style_id == 'Body Text' || style_id == 'Normal') && runs[?color_hex != '000000' && color_hex != `null`]]"
     when:
-      and:
-        - "!=":
-            - var: "runs.0.color_hex"
-            - "000000"
-        - "!=":
-            - var: "runs.0.color_hex"
-            - null
+      "==":
+        - true
+        - true
     message: "正文字体颜色应为黑色"
     fix:
       action: set
-      target: "run.color_hex"
+      target: "runs.*.color_hex"
       value: "000000"
 
   - id: PG-BODY-NO-UNDERLINE

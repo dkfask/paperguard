@@ -249,6 +249,75 @@ class TestFixWriteValidateLoop(unittest.TestCase):
         post_findings = validate_docx(loaded, PACK_ID)
         self.assertEqual(post_findings, [])
 
+    def test_body_font_fixes_clean_all_runs_through_docx_roundtrip(self):
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="Body Text",
+                    text="正常错字",
+                    level=None,
+                    runs=(
+                        Run(
+                            text="正常",
+                            font_eastasia="宋体",
+                            font_ascii="Times New Roman",
+                            font_hansi="Times New Roman",
+                            font_size_pt=12.0,
+                            bold=False,
+                            italic=False,
+                            underline=None,
+                            color_hex="000000",
+                            highlight=None,
+                        ),
+                        Run(
+                            text="错字",
+                            font_eastasia="黑体",
+                            font_ascii="Arial",
+                            font_hansi="Arial",
+                            font_size_pt=14.0,
+                            bold=False,
+                            italic=False,
+                            underline=None,
+                            color_hex="FF0000",
+                            highlight=None,
+                        ),
+                    ),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.74,
+                    alignment="justify",
+                    is_page_break_before=False,
+                ),
+            ),
+            metadata=DocumentMetadata(title="multi run font loop"),
+        )
+
+        pre_findings = validate_docx(ir, PACK_ID)
+        pre_rule_ids = {f.rule_id for f in pre_findings}
+        self.assertIn("PG-BODY-FONT-SIZE", pre_rule_ids)
+        self.assertIn("PG-BODY-FONT-EASTASIA", pre_rule_ids)
+        self.assertIn("PG-BODY-FONT-ASCII", pre_rule_ids)
+        self.assertIn("PG-BODY-FONT-HANSI", pre_rule_ids)
+        self.assertIn("PG-BODY-COLOR-BLACK", pre_rule_ids)
+
+        fixed, skipped = apply_all_fixes(ir, pre_findings)
+        self.assertEqual(skipped, [])
+        self.assertEqual([r.font_size_pt for r in fixed.paragraphs[0].runs], [12.0, 12.0])
+        self.assertEqual([r.font_eastasia for r in fixed.paragraphs[0].runs], ["宋体", "宋体"])
+        self.assertEqual([r.font_ascii for r in fixed.paragraphs[0].runs], ["Times New Roman", "Times New Roman"])
+        self.assertEqual([r.font_hansi for r in fixed.paragraphs[0].runs], ["Times New Roman", "Times New Roman"])
+        self.assertEqual([r.color_hex for r in fixed.paragraphs[0].runs], ["000000", "000000"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fixed.docx"
+            write_ir_to_docx(fixed, str(path))
+            loaded = load_docx(path)
+
+        post_findings = validate_docx(loaded, PACK_ID)
+        self.assertEqual(post_findings, [])
+
 
 if __name__ == "__main__":
     unittest.main()

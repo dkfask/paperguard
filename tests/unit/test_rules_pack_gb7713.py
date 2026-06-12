@@ -1,6 +1,6 @@
 """Tests for GB-T-7713-1-2006.yaml pack — Sprint 2 commit #12.
 
-35 tests = 33 negative（每条规则各 1 个或多个违规 case）+ 2 integration（多违规组合 + 全合规）。
+40 tests = 38 negative（每条规则各 1 个或多个违规 case）+ 2 integration（多违规组合 + 全合规）。
 
 每个 negative test 构造一个会触发对应规则的 IR Document，
 跑 validate_docx(doc, pack="GB-T-7713-1-2006") → 断言结果含该 rule_id。
@@ -130,7 +130,7 @@ def _has_rule(findings, rule_id: str) -> bool:
 
 
 # ===========================================================================
-# Negative tests — 每条规则各 1 个或多个违规 case（33 tests）
+# Negative tests — 每条规则各 1 个或多个违规 case（38 tests）
 # ===========================================================================
 
 class TestBodyRules(unittest.TestCase):
@@ -144,12 +144,26 @@ class TestBodyRules(unittest.TestCase):
         doc = _doc([_body_para(runs=(_body_run(font_size_pt=14.0),))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FONT-SIZE"))
 
+    def test_PG_BODY_FONT_SIZE_violated_by_second_run_14pt(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="正常", font_size_pt=12.0),
+            _body_run(text="大字", font_size_pt=14.0),
+        ))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FONT-SIZE"))
+
     def test_PG_BODY_FIRST_LINE_INDENT_violated_by_zero(self):
         doc = _doc([_body_para(first_line_indent_cm=0.0)])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FIRST-LINE-INDENT"))
 
     def test_PG_BODY_FONT_EASTASIA_violated_by_arial(self):
         doc = _doc([_body_para(runs=(_body_run(font_eastasia="Arial"),))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FONT-EASTASIA"))
+
+    def test_PG_BODY_FONT_EASTASIA_violated_by_second_run_arial(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="正常", font_eastasia="宋体"),
+            _body_run(text="错字", font_eastasia="Arial"),
+        ))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FONT-EASTASIA"))
 
     def test_PG_BODY_SPACE_BEFORE_violated_by_6pt(self):
@@ -166,12 +180,33 @@ class TestBodyRules(unittest.TestCase):
         doc = _doc([_body_para(runs=(_body_run(font_ascii="Arial"),))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FONT-ASCII"))
 
+    def test_PG_BODY_FONT_ASCII_violated_by_second_run_arial(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="normal", font_ascii="Times New Roman"),
+            _body_run(text="wrong", font_ascii="Arial"),
+        ))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FONT-ASCII"))
+
     def test_PG_BODY_FONT_HANSI_violated_by_arial(self):
         doc = _doc([_body_para(runs=(_body_run(font_hansi="Arial"),))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FONT-HANSI"))
 
+    def test_PG_BODY_FONT_HANSI_violated_by_second_run_arial(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="normal", font_hansi="Times New Roman"),
+            _body_run(text="wrong", font_hansi="Arial"),
+        ))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-FONT-HANSI"))
+
     def test_PG_BODY_COLOR_BLACK_violated_by_red(self):
         doc = _doc([_body_para(runs=(_body_run(color_hex="FF0000"),))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-COLOR-BLACK"))
+
+    def test_PG_BODY_COLOR_BLACK_violated_by_second_run_red(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="正常", color_hex="000000"),
+            _body_run(text="红字", color_hex="FF0000"),
+        ))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-COLOR-BLACK"))
 
     def test_PG_BODY_NO_UNDERLINE_violated_by_single_underline(self):
