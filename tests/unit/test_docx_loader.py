@@ -87,6 +87,11 @@ def _make_minimal_docx() -> bytes:
     rfonts.set(qn("w:eastAsia"), "宋体")
     rfonts.set(qn("w:ascii"), "Times New Roman")
     rfonts.set(qn("w:hAnsi"), "Times New Roman")
+    highlight = rpr.find(qn("w:highlight"))
+    if highlight is None:
+        highlight = OxmlElement("w:highlight")
+        rpr.append(highlight)
+    highlight.set(qn("w:val"), "yellow")
 
     # 4. 空段
     doc.add_paragraph("")
@@ -175,6 +180,7 @@ class TestLoadDocx(unittest.TestCase):
         run = doc.paragraphs[1].runs[0]
         self.assertEqual(run.underline, "single")
         self.assertEqual(run.color_hex, "FF0000")
+        self.assertEqual(run.highlight, "yellow")
 
     def test_metadata_default(self):
         doc = load_docx(self.path)

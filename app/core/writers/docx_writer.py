@@ -18,7 +18,7 @@ from app.core.ir import Document
 def write_ir_to_docx(ir: Document, output_path: str) -> None:
     """把 IR Document 写为 output_path (不破坏原文件)。"""
     import docx
-    from docx.enum.text import WD_UNDERLINE
+    from docx.enum.text import WD_COLOR_INDEX, WD_UNDERLINE
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Cm, Pt, RGBColor
@@ -36,7 +36,7 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
             pass
         for run in p.runs:
             r = para.add_run(run.text)
-            _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_UNDERLINE)
+            _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_UNDERLINE)
 
         # paragraph format
         if p.line_spacing:
@@ -70,7 +70,7 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
     doc.save(output_path)
 
 
-def _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_UNDERLINE) -> None:
+def _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_UNDERLINE) -> None:
     """Apply Run IR formatting to a python-docx run."""
     if run.font_size_pt is not None:
         r.font.size = Pt(run.font_size_pt)
@@ -110,6 +110,29 @@ def _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_UNDERLINE) -> No
 
     if run.color_hex:
         r.font.color.rgb = RGBColor.from_string(run.color_hex.lstrip("#"))
+
+    if run.highlight:
+        highlight = run.highlight.lower()
+        color_map = {
+            "yellow": WD_COLOR_INDEX.YELLOW,
+            "green": WD_COLOR_INDEX.BRIGHT_GREEN,
+            "cyan": WD_COLOR_INDEX.TURQUOISE,
+            "magenta": WD_COLOR_INDEX.PINK,
+            "blue": WD_COLOR_INDEX.BLUE,
+            "red": WD_COLOR_INDEX.RED,
+            "darkblue": WD_COLOR_INDEX.DARK_BLUE,
+            "darkcyan": WD_COLOR_INDEX.TEAL,
+            "darkgreen": WD_COLOR_INDEX.GREEN,
+            "darkmagenta": WD_COLOR_INDEX.VIOLET,
+            "darkred": WD_COLOR_INDEX.DARK_RED,
+            "darkyellow": WD_COLOR_INDEX.DARK_YELLOW,
+            "lightgray": WD_COLOR_INDEX.GRAY_25,
+            "darkgray": WD_COLOR_INDEX.GRAY_50,
+            "black": WD_COLOR_INDEX.BLACK,
+        }
+        r.font.highlight_color = color_map.get(highlight, WD_COLOR_INDEX.YELLOW)
+    else:
+        r.font.highlight_color = None
 
 
 __all__ = ["write_ir_to_docx"]

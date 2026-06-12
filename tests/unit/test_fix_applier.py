@@ -81,6 +81,13 @@ class TestApplyFix(unittest.TestCase):
         fixed = apply_fix(ir, _finding("run.font_size_pt", 12.0))
         self.assertEqual(fixed.paragraphs[0].runs[0].font_size_pt, 12.0)
 
+    def test_apply_fix_accepts_page_break_before_alias(self):
+        """set paragraph.page_break_before=True 兼容旧 pack target."""
+        para = _para(line_spacing=1.0)
+        ir = _doc((para,))
+        fixed = apply_fix(ir, _finding("paragraph.page_break_before", True))
+        self.assertTrue(fixed.paragraphs[0].is_page_break_before)
+
     def test_apply_fix_unknown_target_returns_original(self):
         """未知 target（不在 mapping 表里）→ 返原 IR（fail-safe）"""
         para = _para(line_spacing=1.0)
@@ -111,9 +118,11 @@ class TestApplyFix(unittest.TestCase):
         fixed, remaining = apply_all_fixes(ir, [
             _finding("paragraph.line_spacing", 1.5),
             _finding("run.font_size_pt", 12.0),
+            _finding("paragraph.page_break_before", True),
         ])
         self.assertEqual(fixed.paragraphs[0].line_spacing, 1.5)
         self.assertEqual(fixed.paragraphs[0].runs[0].font_size_pt, 12.0)
+        self.assertTrue(fixed.paragraphs[0].is_page_break_before)
         self.assertEqual(remaining, [])
 
     def test_apply_all_fixes_returns_remaining_no_fix(self):

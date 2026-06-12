@@ -70,6 +70,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
                             italic=True,
                             underline="single",
                             color_hex="FF0000",
+                            highlight="yellow",
                         ),
                     ),
                     line_spacing=1.5,
@@ -94,6 +95,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertTrue(run.italic)
         self.assertTrue(run.underline)
         self.assertEqual(str(run.font.color.rgb), "FF0000")
+        self.assertEqual(str(run.font.highlight_color).split(" ")[0], "YELLOW")
 
     def test_written_docx_roundtrips_supported_formatting_through_loader(self):
         ir = Document(
@@ -114,6 +116,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
                             italic=True,
                             underline="single",
                             color_hex="FF0000",
+                            highlight="yellow",
                         ),
                     ),
                     line_spacing=1.5,
@@ -146,6 +149,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertTrue(run.italic)
         self.assertEqual(run.underline, "single")
         self.assertEqual(run.color_hex, "FF0000")
+        self.assertEqual(run.highlight, "yellow")
 
 
 if __name__ == "__main__":

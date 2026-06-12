@@ -17,6 +17,15 @@ from dataclasses import replace
 from app.core.ir import Document, Finding, Paragraph, Run
 
 
+_TARGET_ALIASES = {
+    "paragraph.page_break_before": "paragraph.is_page_break_before",
+}
+
+
+def _normalize_target(target: str) -> str:
+    return _TARGET_ALIASES.get(target, target)
+
+
 def apply_fix(ir: Document, finding: Finding) -> Document:
     """对单个 Finding 应用 fix，返回新的 IR Document（不可变）。
 
@@ -25,7 +34,7 @@ def apply_fix(ir: Document, finding: Finding) -> Document:
     if finding.fix is None or finding.fix.action != "set":
         return ir
 
-    target = finding.fix.target
+    target = _normalize_target(finding.fix.target)
     value = finding.fix.value
     para_idx = finding.location.paragraph_index
     if para_idx is None or para_idx >= len(ir.paragraphs):
@@ -92,7 +101,8 @@ def apply_all_fixes(
             remaining.append(f)
             continue
         # 检查 target 是否可解析（避免多余 IR 重建）
-        parts = f.fix.target.split(".", 1)
+        target = _normalize_target(f.fix.target)
+        parts = target.split(".", 1)
         if len(parts) != 2:
             remaining.append(f)
             continue

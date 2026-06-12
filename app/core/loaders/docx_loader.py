@@ -159,6 +159,17 @@ def _load_run(run) -> Run:
             val = color.get(qn("w:val"))
             if val and val.lower() != "auto":
                 color_hex = val.upper()
+        highlight = rpr.find(qn("w:highlight"))
+        if highlight is not None:
+            val = highlight.get(qn("w:val"))
+            if val and val.lower() not in ("none", "0", "false"):
+                highlight_value = val.lower()
+            else:
+                highlight_value = None
+        else:
+            highlight_value = None
+    else:
+        highlight_value = None
 
     return Run(
         text=run.text or "",
@@ -170,6 +181,7 @@ def _load_run(run) -> Run:
         italic=bool(run.italic),
         underline=underline,
         color_hex=color_hex,
+        highlight=highlight_value,
     )
 
 
