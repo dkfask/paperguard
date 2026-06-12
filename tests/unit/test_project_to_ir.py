@@ -107,6 +107,33 @@ class TestFontExtraction(unittest.TestCase):
         self.assertEqual(first_run.font_eastasia, "宋体")
         self.assertEqual(first_run.text, "正文")
 
+    def test_underline_extraction_from_runs(self):
+        html = '<p><u>下划线</u></p>'
+        project = Project(title="下划线", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        run = doc.paragraphs[0].runs[0]
+        self.assertEqual(run.underline, "single")
+
+
+class TestParagraphFormattingExtraction(unittest.TestCase):
+    def test_alignment_extraction_from_paragraph_style(self):
+        html = '<p style="text-align: justify;">正文</p>'
+        project = Project(title="对齐", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].alignment, "justify")
+
 
 class TestUnknownSectionId(unittest.TestCase):
     def test_unknown_section_id_raises_valueerror(self):

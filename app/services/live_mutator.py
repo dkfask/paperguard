@@ -58,6 +58,7 @@ SUPPORTED_RULE_IDS: frozenset[str] = frozenset({
     "line_spacing",
     "font_size_pt",
     "first_line_indent_cm",
+    "alignment",
     "font_eastasia",
     "font_ascii",
     "font_hansi",
@@ -176,6 +177,8 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
         block.html = _update_paragraph_style(block.html, "line-height", f"{fix.value}")
     elif target == "first_line_indent_cm":
         block.html = _update_paragraph_style(block.html, "text-indent", f"{fix.value}cm")
+    elif target == "alignment":
+        block.html = _update_paragraph_style(block.html, "text-align", str(fix.value))
     elif target == "font_size_pt" and _is_runs_wildcard(fix.target):
         block.html = _update_all_runs_style(block.html, "font-size", f"{float(fix.value)}pt")
     elif target == "font_size_pt":

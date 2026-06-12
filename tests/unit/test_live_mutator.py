@@ -188,6 +188,21 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         # text-indent: 0.74cm 必须出现在 block.html 中
         self.assertIn("text-indent: 0.74cm", block.html)
 
+    def test_apply_fix_alignment_sets_paragraph_text_align(self):
+        project = _make_project(['<p style="text-align: center;">第一段</p>'])
+        checker = _FakeChecker({
+            "R003": Fix(action="set", target="paragraph.alignment", value="justify"),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R003", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertIn("text-align: justify", block.html)
+        self.assertNotIn("text-align: center", block.html)
+
 
 class TestApplyFixSignature(unittest.TestCase):
     """apply_fix 必须是单参数签名（Must-fix #1）。"""

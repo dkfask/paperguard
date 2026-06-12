@@ -66,6 +66,7 @@ def _convert_run(rich_run: RichTextRun) -> Run:
         font_size_pt=rich_run.font_size_pt,
         bold=rich_run.bold,
         italic=rich_run.italic,
+        underline="single" if rich_run.underline else None,
         color_hex=rich_run.color_hex,
     )
 
@@ -85,6 +86,7 @@ def _convert_paragraph_block(block: ParagraphBlock) -> Paragraph:
         space_before_pt=0.0,
         space_after_pt=0.0,
         first_line_indent_cm=0.0,
+        alignment=parsed.alignment,
     )
 
 
