@@ -68,6 +68,17 @@ def apply_fix(ir: Document, finding: Finding) -> Document:
             return ir
         new_runs = (new_first,) + orig_para.runs[1:]
         new_para = replace(orig_para, runs=new_runs)
+    elif section == "runs" and attr.startswith("*."):
+        run_attr = attr[2:]
+        if not orig_para.runs:
+            return ir
+        if any(not hasattr(run, run_attr) for run in orig_para.runs):
+            return ir
+        try:
+            new_runs = tuple(replace(run, **{run_attr: value}) for run in orig_para.runs)
+        except (TypeError, ValueError):
+            return ir
+        new_para = replace(orig_para, runs=new_runs)
     else:
         return ir
 
@@ -118,6 +129,14 @@ def apply_all_fixes(
         if section == "run" and (not orig_para.runs or not hasattr(orig_para.runs[0], attr)):
             remaining.append(f)
             continue
+        if section == "runs":
+            if not attr.startswith("*."):
+                remaining.append(f)
+                continue
+            run_attr = attr[2:]
+            if not orig_para.runs or any(not hasattr(run, run_attr) for run in orig_para.runs):
+                remaining.append(f)
+                continue
         new_ir = apply_fix(current_ir, f)
         if new_ir is current_ir:
             remaining.append(f)

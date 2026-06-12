@@ -63,10 +63,10 @@ class YamlEngineEndToEnd(unittest.TestCase):
                 f.fix.target,
                 f"Fix.target '{f.fix.target}' (rule {f.rule_id}) 不是点分形式",
             )
-            # 必须以 paragraph. 或 run. 开头（兼容 LiveMutator 硬编码）
+            # 必须以 paragraph. / run. / runs.*. 开头（兼容 LiveMutator 与 Sprint 5 wildcard）
             self.assertTrue(
-                f.fix.target.startswith(("paragraph.", "run.")),
-                f"Fix.target '{f.fix.target}' 应以 paragraph. 或 run. 开头",
+                f.fix.target.startswith(("paragraph.", "run.", "runs.*.")),
+                f"Fix.target '{f.fix.target}' 应以 paragraph. / run. / runs.*. 开头",
             )
 
     def test_unknown_pack_raises(self):

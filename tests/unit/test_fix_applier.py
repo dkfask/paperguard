@@ -39,12 +39,18 @@ def _doc(paragraphs: tuple[Paragraph, ...] = ()) -> Document:
     )
 
 
-def _para(line_spacing: float = 1.5, font_size: float = 12.0) -> Paragraph:
+def _para(
+    line_spacing: float = 1.5,
+    font_size: float = 12.0,
+    runs: tuple[Run, ...] | None = None,
+) -> Paragraph:
     return Paragraph(
         style_id="Body Text",
         text="测试段",
         level=None,
-        runs=(Run(text="测试段", font_eastasia="宋体", font_size_pt=font_size),),
+        runs=runs if runs is not None else (
+            Run(text="测试段", font_eastasia="宋体", font_size_pt=font_size),
+        ),
         line_spacing=line_spacing,
         space_before_pt=0.0,
         space_after_pt=0.0,
@@ -80,6 +86,18 @@ class TestApplyFix(unittest.TestCase):
         ir = _doc((para,))
         fixed = apply_fix(ir, _finding("run.font_size_pt", 12.0))
         self.assertEqual(fixed.paragraphs[0].runs[0].font_size_pt, 12.0)
+
+    def test_apply_fix_runs_wildcard_sets_all_runs(self):
+        """set runs.*.bold=False 清理同段所有 run 的加粗。"""
+        para = _para(runs=(
+            Run(text="甲", bold=True),
+            Run(text="乙", bold=True),
+        ))
+        ir = _doc((para,))
+        fixed = apply_fix(ir, _finding("runs.*.bold", False))
+
+        self.assertEqual([r.bold for r in fixed.paragraphs[0].runs], [False, False])
+        self.assertEqual([r.bold for r in ir.paragraphs[0].runs], [True, True])
 
     def test_apply_fix_accepts_page_break_before_alias(self):
         """set paragraph.page_break_before=True 兼容旧 pack target."""
@@ -125,11 +143,13 @@ class TestApplyFix(unittest.TestCase):
         fixed, remaining = apply_all_fixes(ir, [
             _finding("paragraph.line_spacing", 1.5),
             _finding("run.font_size_pt", 12.0),
+            _finding("runs.*.bold", False),
             _finding("paragraph.page_break_before", True),
             _finding("paragraph.alignment", "center"),
         ])
         self.assertEqual(fixed.paragraphs[0].line_spacing, 1.5)
         self.assertEqual(fixed.paragraphs[0].runs[0].font_size_pt, 12.0)
+        self.assertFalse(fixed.paragraphs[0].runs[0].bold)
         self.assertTrue(fixed.paragraphs[0].is_page_break_before)
         self.assertEqual(fixed.paragraphs[0].alignment, "center")
         self.assertEqual(remaining, [])

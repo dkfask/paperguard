@@ -183,15 +183,15 @@ rules:
 
   - id: PG-BODY-NO-BOLD
     severity: info
-    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    scope: "paragraphs[?(style_id == 'Body Text' || style_id == 'Normal') && runs[?bold == `true`]]"
     when:
       "==":
-        - var: "runs.0.bold"
+        - true
         - true
     message: "正文不应整段加粗（重点应仅在标题或局部强调）"
     fix:
       action: set
-      target: "run.bold"
+      target: "runs.*.bold"
       value: false
 
   - id: PG-BODY-NO-VERT-ALIGN

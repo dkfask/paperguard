@@ -1,6 +1,6 @@
 """Tests for GB-T-7713-1-2006.yaml pack — Sprint 2 commit #12.
 
-30 tests = 28 negative（每条规则各 1 个违规 case）+ 2 integration（多违规组合 + 全合规）。
+31 tests = 29 negative（每条规则各 1 个或多个违规 case）+ 2 integration（多违规组合 + 全合规）。
 
 每个 negative test 构造一个会触发对应规则的 IR Document，
 跑 validate_docx(doc, pack="GB-T-7713-1-2006") → 断言结果含该 rule_id。
@@ -130,7 +130,7 @@ def _has_rule(findings, rule_id: str) -> bool:
 
 
 # ===========================================================================
-# Negative tests — 每条规则各 1 个违规 case（28 tests）
+# Negative tests — 每条规则各 1 个或多个违规 case（29 tests）
 # ===========================================================================
 
 class TestBodyRules(unittest.TestCase):
@@ -180,6 +180,13 @@ class TestBodyRules(unittest.TestCase):
 
     def test_PG_BODY_NO_BOLD_violated_by_bold(self):
         doc = _doc([_body_para(runs=(_body_run(bold=True),))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-BOLD"))
+
+    def test_PG_BODY_NO_BOLD_violated_by_second_run_bold(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="正常", bold=False),
+            _body_run(text="加粗", bold=True),
+        ))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-BOLD"))
 
     def test_PG_BODY_NO_VERT_ALIGN_violated_by_superscript(self):
