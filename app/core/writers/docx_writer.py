@@ -18,7 +18,7 @@ from app.core.ir import Document
 def write_ir_to_docx(ir: Document, output_path: str) -> None:
     """把 IR Document 写为 output_path (不破坏原文件)。"""
     import docx
-    from docx.enum.text import WD_COLOR_INDEX, WD_UNDERLINE
+    from docx.enum.text import WD_COLOR_INDEX, WD_PARAGRAPH_ALIGNMENT, WD_UNDERLINE
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Cm, Pt, RGBColor
@@ -45,6 +45,8 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
         para.paragraph_format.space_after = Pt(p.space_after_pt)
         if p.first_line_indent_cm:
             para.paragraph_format.first_line_indent = Cm(p.first_line_indent_cm)
+        if p.alignment:
+            para.alignment = _paragraph_alignment(p.alignment, WD_PARAGRAPH_ALIGNMENT)
         para.paragraph_format.page_break_before = p.is_page_break_before
 
     # sections（用第一个节或新建）
@@ -133,6 +135,18 @@ def _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_
         r.font.highlight_color = color_map.get(highlight, WD_COLOR_INDEX.YELLOW)
     else:
         r.font.highlight_color = None
+
+
+def _paragraph_alignment(value: str, WD_PARAGRAPH_ALIGNMENT):
+    alignment = value.lower()
+    mapping = {
+        "left": WD_PARAGRAPH_ALIGNMENT.LEFT,
+        "center": WD_PARAGRAPH_ALIGNMENT.CENTER,
+        "right": WD_PARAGRAPH_ALIGNMENT.RIGHT,
+        "justify": WD_PARAGRAPH_ALIGNMENT.JUSTIFY,
+        "distribute": WD_PARAGRAPH_ALIGNMENT.DISTRIBUTE,
+    }
+    return mapping.get(alignment, WD_PARAGRAPH_ALIGNMENT.LEFT)
 
 
 __all__ = ["write_ir_to_docx"]

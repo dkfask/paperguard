@@ -21,6 +21,7 @@ class Paragraph:
     space_before_pt: float
     space_after_pt: float
     first_line_indent_cm: float
+    alignment: str | None = None       # left / center / right / justify
     is_page_break_before: bool = False
 
     def to_dict(self) -> dict:
@@ -34,6 +35,6 @@ class Paragraph:
             "space_before_pt": self.space_before_pt,
             "space_after_pt": self.space_after_pt,
             "first_line_indent_cm": self.first_line_indent_cm,
+            "alignment": self.alignment,
             "is_page_break_before": self.is_page_break_before,
         }
-

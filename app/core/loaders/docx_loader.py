@@ -16,6 +16,7 @@ from typing import Iterable
 
 from docx import Document as DocxDocument
 from docx.document import Document as DocxDocumentType
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
 
 from app.core.ir import (
@@ -82,6 +83,17 @@ def _line_spacing_to_float(line: str | int | None, line_rule: str | None) -> flo
     if rule == "atleast":
         return round(n / 20.0, 3)
     return 1.0
+
+
+def _alignment_to_str(alignment) -> str | None:
+    mapping = {
+        WD_PARAGRAPH_ALIGNMENT.LEFT: "left",
+        WD_PARAGRAPH_ALIGNMENT.CENTER: "center",
+        WD_PARAGRAPH_ALIGNMENT.RIGHT: "right",
+        WD_PARAGRAPH_ALIGNMENT.JUSTIFY: "justify",
+        WD_PARAGRAPH_ALIGNMENT.DISTRIBUTE: "distribute",
+    }
+    return mapping.get(alignment)
 
 
 def _first_line_indent_to_cm(paragraph) -> float:
@@ -224,6 +236,7 @@ def _load_paragraph(paragraph) -> Paragraph:
 
     line_spacing = _line_spacing_to_float(line, line_rule)
     first_line_indent_cm = _first_line_indent_to_cm(paragraph)
+    alignment = _alignment_to_str(paragraph.alignment)
 
     return Paragraph(
         style_id=style_id,
@@ -234,6 +247,7 @@ def _load_paragraph(paragraph) -> Paragraph:
         space_before_pt=float(space_before),
         space_after_pt=float(space_after),
         first_line_indent_cm=first_line_indent_cm,
+        alignment=alignment,
         is_page_break_before=is_page_break_before,
     )
 

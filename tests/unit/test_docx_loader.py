@@ -161,6 +161,11 @@ class TestLoadDocx(unittest.TestCase):
         # 419 twips ≈ 0.74 cm（GB/T 7713 标准：2 字符 ≈ 0.74 cm @ 12pt 宋体）
         self.assertAlmostEqual(p1.first_line_indent_cm, 0.74, places=1)
 
+    def test_body_paragraph_alignment(self):
+        doc = load_docx(self.path)
+        p1 = doc.paragraphs[1]
+        self.assertEqual(p1.alignment, "justify")
+
     def test_body_paragraph_page_break_before(self):
         doc = load_docx(self.path)
         p1 = doc.paragraphs[1]

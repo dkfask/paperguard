@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import docx
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
 
 from app.core.ir import Document, DocumentMetadata, Paragraph, Run, Section
@@ -35,6 +36,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
                     space_before_pt=6.0,
                     space_after_pt=12.0,
                     first_line_indent_cm=0.74,
+                    alignment="center",
                     is_page_break_before=True,
                 ),
             ),
@@ -49,6 +51,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertAlmostEqual(fmt.space_before.pt, 6.0, places=1)
         self.assertAlmostEqual(fmt.space_after.pt, 12.0, places=1)
         self.assertAlmostEqual(fmt.first_line_indent.cm, 0.74, places=2)
+        self.assertEqual(written.paragraphs[0].alignment, WD_PARAGRAPH_ALIGNMENT.CENTER)
         self.assertTrue(fmt.page_break_before)
 
     def test_writes_run_font_variants_and_styles(self):
@@ -123,6 +126,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
                     space_before_pt=6.0,
                     space_after_pt=12.0,
                     first_line_indent_cm=0.74,
+                    alignment="center",
                     is_page_break_before=True,
                 ),
             ),
@@ -140,6 +144,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertAlmostEqual(para.space_before_pt, 6.0, places=1)
         self.assertAlmostEqual(para.space_after_pt, 12.0, places=1)
         self.assertAlmostEqual(para.first_line_indent_cm, 0.74, places=2)
+        self.assertEqual(para.alignment, "center")
         self.assertTrue(para.is_page_break_before)
         self.assertEqual(run.font_eastasia, "宋体")
         self.assertEqual(run.font_ascii, "Times New Roman")
