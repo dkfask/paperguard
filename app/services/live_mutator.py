@@ -1,12 +1,12 @@
 """LiveMutator — Sprint 1.5 实时约束 "一键修复" 组件。
 
-Sprint 1.5 修订：只支持 3 类 Fix（与本 Sprint stub engine 范围对齐）：
+Sprint 1.5 起步只支持 3 类 Fix（与当时 stub engine 范围对齐）：
   - ``line_spacing``           → 段行距
   - ``font_size_pt``           → 段首个 run 的字号
   - ``first_line_indent_cm``   → 段首行缩进
 
-其他 6 类 Fix 中剩下的 ``page_margin`` / ``font_family`` / ``paragraph_spacing``
-Sprint 2 才落地（见 docs/sprints/sprint-1.5-plan.md §3 Q2 决策）。
+Sprint 5 扩展支持 ``runs.*.<attr>``：可把字号、字体、颜色、粗斜体、
+下划线等安全样式修复应用到段内所有 HTML run。
 
 设计要点（来自 plan §3 "app/services/live_mutator.py"）：
 
@@ -53,11 +53,18 @@ from app.models.project import (
 )
 
 
-# Sprint 1.5 支持的 Fix target 集合（白名单；plan §3 Q2 决策缩减版）。
+# 支持的 Fix target leaf 集合（白名单）。
 SUPPORTED_RULE_IDS: frozenset[str] = frozenset({
     "line_spacing",
     "font_size_pt",
     "first_line_indent_cm",
+    "font_eastasia",
+    "font_ascii",
+    "font_hansi",
+    "color_hex",
+    "bold",
+    "italic",
+    "underline",
 })
 
 
@@ -129,6 +136,31 @@ def _update_first_run_font_size(html: str, value_pt: float) -> str:
     return f"<p{p_attrs}>{new_inner}</p>"
 
 
+def _update_all_runs_style(html: str, prop_name: str, prop_value: str) -> str:
+    """Update every explicit HTML run; wrap plain paragraph text when needed."""
+    p_open_re = re.compile(r"<p\b([^>]*)>(.*)</p>", re.IGNORECASE | re.DOTALL)
+    p_match = p_open_re.search(html or "")
+    if p_match is None:
+        return f'<p><span style="{prop_name}: {prop_value};">{html or ""}</span></p>'
+
+    p_attrs = p_match.group(1)
+    inner = p_match.group(2)
+    if _RUN_TAG_RE.search(inner) is None:
+        return f'<p{p_attrs}><span style="{prop_name}: {prop_value};">{inner}</span></p>'
+
+    def replace_run(match: re.Match) -> str:
+        tag_name = match.group(1)
+        tag_attrs = match.group(2)
+        new_tag_attrs = _set_style_property(tag_attrs, prop_name, prop_value)
+        return f"<{tag_name}{new_tag_attrs}>"
+
+    return f"<p{p_attrs}>{_RUN_TAG_RE.sub(replace_run, inner)}</p>"
+
+
+def _is_runs_wildcard(target: str) -> bool:
+    return target.startswith("runs.*.")
+
+
 # ---------------------------------------------------------------------------
 # Fix application dispatch
 # ---------------------------------------------------------------------------
@@ -144,8 +176,32 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
         block.html = _update_paragraph_style(block.html, "line-height", f"{fix.value}")
     elif target == "first_line_indent_cm":
         block.html = _update_paragraph_style(block.html, "text-indent", f"{fix.value}cm")
+    elif target == "font_size_pt" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(block.html, "font-size", f"{float(fix.value)}pt")
     elif target == "font_size_pt":
         block.html = _update_first_run_font_size(block.html, float(fix.value))
+    elif target in {"font_eastasia", "font_ascii", "font_hansi"} and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(block.html, "font-family", str(fix.value))
+    elif target == "color_hex" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(block.html, "color", f"#{str(fix.value).lstrip('#')}")
+    elif target == "bold" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "font-weight",
+            "bold" if bool(fix.value) else "normal",
+        )
+    elif target == "italic" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "font-style",
+            "italic" if bool(fix.value) else "normal",
+        )
+    elif target == "underline" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "text-decoration",
+            "underline" if fix.value else "none",
+        )
 
 
 def _find_target_section(project: Project, paragraph_index: int) -> Optional[SectionContent]:

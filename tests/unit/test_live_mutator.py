@@ -2,13 +2,12 @@
 
 Sprint 1.5 TDD step 4（见 docs/sprints/sprint-1.5-plan.md §4.1）。
 
-本测试覆盖 3 类支持的 Fix：line_spacing / font_size_pt / first_line_indent_cm。
-仅支持 3 类（plan 修订后，page_margin / font_family / paragraph_spacing 在
-Sprint 2 才支持，本 Sprint 1.5 走 plan §3 "app/services/live_mutator.py"
-中的 Q2 决策 6 类缩减为 3 类以契合当前 Sprint 1.5 stub engine 范围）。
+本测试覆盖段落级 Fix、单 run Fix，以及 Sprint 5 新增的 ``runs.*.<attr>``
+wildcard run 修复。
 
-10 个测试（严格按 prompt 列表）：
+12 个测试：
 - 3 类 fix 各自 set block
+- wildcard runs.* 字号 / 颜色修复
 - 单参数签名（Must-fix #1）
 - 修改 blocks 不修改 content_html 直接路径（Must-fix #3）
 - can_apply 已知 / 未知
@@ -134,6 +133,42 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         block = project.sections["ch1"].blocks[0]
         # 首个 run 的 font-size 必须更新为 12pt
         self.assertIn("font-size: 12.0pt", block.html)
+
+    def test_apply_fix_runs_wildcard_font_size_sets_all_runs(self):
+        project = _make_project([
+            '<p><span style="font-size: 10pt;">甲</span><span style="font-size: 14pt;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R001": Fix(action="set", target="runs.*.font_size_pt", value=12.0),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R001", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("font-size: 12.0pt"), 2)
+        self.assertNotIn("font-size: 10pt", block.html)
+        self.assertNotIn("font-size: 14pt", block.html)
+
+    def test_apply_fix_runs_wildcard_color_sets_all_runs(self):
+        project = _make_project([
+            '<p><span style="color: #ff0000;">甲</span><span style="color: blue;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R002": Fix(action="set", target="runs.*.color_hex", value="000000"),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R002", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("color: #000000"), 2)
+        self.assertNotIn("#ff0000", block.html.lower())
+        self.assertNotIn("color: blue", block.html.lower())
 
     def test_apply_fix_first_line_indent_sets_block(self):
         # Given 1 段 <p>text</p>，first_line_indent_cm fix = 0.74
