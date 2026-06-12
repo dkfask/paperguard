@@ -134,6 +134,30 @@ class TestParagraphFormattingExtraction(unittest.TestCase):
 
         self.assertEqual(doc.paragraphs[0].alignment, "justify")
 
+    def test_line_spacing_extraction_from_paragraph_style(self):
+        html = '<p style="line-height: 1.5;">正文</p>'
+        project = Project(title="行距", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].line_spacing, 1.5)
+
+    def test_first_line_indent_extraction_from_paragraph_style(self):
+        html = '<p style="text-indent: 0.74cm;">正文</p>'
+        project = Project(title="缩进", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].first_line_indent_cm, 0.74)
+
 
 class TestUnknownSectionId(unittest.TestCase):
     def test_unknown_section_id_raises_valueerror(self):

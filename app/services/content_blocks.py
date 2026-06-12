@@ -40,6 +40,8 @@ class ParsedParagraph:
     alignment: str | None
     runs: list[RichTextRun]
     quote_level: int = 0
+    line_spacing: float | None = None
+    first_line_indent_cm: float | None = None
 
 
 def section_content_from_html(section_id: str, editor_html: str) -> SectionContent:
@@ -153,6 +155,8 @@ def parse_paragraph_html(paragraph_html: str) -> ParsedParagraph:
         alignment=parser.alignment,
         runs=parser.runs,
         quote_level=parser.max_quote_level,
+        line_spacing=parser.line_spacing,
+        first_line_indent_cm=parser.first_line_indent_cm,
     )
 
 
@@ -282,6 +286,38 @@ def _merge_style(parent: dict, tag: str, attrs: dict[str, str]) -> dict:
     return style
 
 
+def _parse_line_height(raw_value: str | None) -> float | None:
+    if not raw_value:
+        return None
+    value = raw_value.strip().strip(";")
+    percent_match = re.fullmatch(r"([0-9.]+)\s*%", value)
+    if percent_match:
+        try:
+            return round(float(percent_match.group(1)) / 100.0, 3)
+        except ValueError:
+            return None
+    number_match = re.fullmatch(r"([0-9.]+)", value)
+    if number_match:
+        try:
+            return float(number_match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_text_indent_cm(raw_value: str | None) -> float | None:
+    if not raw_value:
+        return None
+    value = raw_value.strip().strip(";")
+    cm_match = re.fullmatch(r"([0-9.]+)\s*cm", value, flags=re.IGNORECASE)
+    if cm_match:
+        try:
+            return float(cm_match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
 def normalize_color(raw_color: str) -> str | None:
     value = raw_color.strip().strip(";")
     if not value:
@@ -321,6 +357,8 @@ class _ParagraphHtmlParser(HTMLParser):
         super().__init__()
         self.runs: list[RichTextRun] = []
         self.alignment: str | None = None
+        self.line_spacing: float | None = None
+        self.first_line_indent_cm: float | None = None
         self.quote_level = 0
         self.max_quote_level = 0
         self._style_stack: list[dict] = [{}]
@@ -332,6 +370,8 @@ class _ParagraphHtmlParser(HTMLParser):
         if lower_tag in {"p", "div"}:
             css = _parse_css(attr_map.get("style", ""))
             self.alignment = attr_map.get("align") or css.get("text-align")
+            self.line_spacing = _parse_line_height(css.get("line-height"))
+            self.first_line_indent_cm = _parse_text_indent_cm(css.get("text-indent"))
         if lower_tag == "blockquote":
             self.quote_level += 1
             self.max_quote_level = max(self.max_quote_level, self.quote_level)

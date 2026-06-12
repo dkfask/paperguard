@@ -81,11 +81,14 @@ def _convert_paragraph_block(block: ParagraphBlock) -> Paragraph:
         text=text,
         level=level,
         runs=runs,
-        # 段落级属性从 HTML 不易精确读，MVP 用安全默认值（避免误报）
-        line_spacing=1.0,
+        line_spacing=parsed.line_spacing if parsed.line_spacing is not None else 1.0,
         space_before_pt=0.0,
         space_after_pt=0.0,
-        first_line_indent_cm=0.0,
+        first_line_indent_cm=(
+            parsed.first_line_indent_cm
+            if parsed.first_line_indent_cm is not None
+            else 0.0
+        ),
         alignment=parsed.alignment,
     )
 
