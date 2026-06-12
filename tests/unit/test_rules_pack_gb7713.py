@@ -1,6 +1,6 @@
 """Tests for GB-T-7713-1-2006.yaml pack — Sprint 2 commit #12.
 
-31 tests = 29 negative（每条规则各 1 个或多个违规 case）+ 2 integration（多违规组合 + 全合规）。
+35 tests = 33 negative（每条规则各 1 个或多个违规 case）+ 2 integration（多违规组合 + 全合规）。
 
 每个 negative test 构造一个会触发对应规则的 IR Document，
 跑 validate_docx(doc, pack="GB-T-7713-1-2006") → 断言结果含该 rule_id。
@@ -130,7 +130,7 @@ def _has_rule(findings, rule_id: str) -> bool:
 
 
 # ===========================================================================
-# Negative tests — 每条规则各 1 个或多个违规 case（29 tests）
+# Negative tests — 每条规则各 1 个或多个违规 case（33 tests）
 # ===========================================================================
 
 class TestBodyRules(unittest.TestCase):
@@ -178,6 +178,13 @@ class TestBodyRules(unittest.TestCase):
         doc = _doc([_body_para(runs=(_body_run(underline="single"),))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-UNDERLINE"))
 
+    def test_PG_BODY_NO_UNDERLINE_violated_by_second_run_underline(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="正常", underline=None),
+            _body_run(text="下划线", underline="single"),
+        ))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-UNDERLINE"))
+
     def test_PG_BODY_NO_BOLD_violated_by_bold(self):
         doc = _doc([_body_para(runs=(_body_run(bold=True),))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-BOLD"))
@@ -191,6 +198,13 @@ class TestBodyRules(unittest.TestCase):
 
     def test_PG_BODY_NO_VERT_ALIGN_violated_by_superscript(self):
         doc = _doc([_body_para(runs=(_body_run(vert_align="superscript"),))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-VERT-ALIGN"))
+
+    def test_PG_BODY_NO_VERT_ALIGN_violated_by_second_run_subscript(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="正常", vert_align=None),
+            _body_run(text="下标", vert_align="subscript"),
+        ))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-VERT-ALIGN"))
 
     def test_PG_BODY_ALIGNMENT_violated_by_center(self):
@@ -269,8 +283,22 @@ class TestChapterAndFormatRules(unittest.TestCase):
         doc = _doc([_body_para(runs=(_body_run(italic=True),))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-ITALIC"))
 
+    def test_PG_BODY_NO_ITALIC_violated_by_second_run_italic(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="正常", italic=False),
+            _body_run(text="斜体", italic=True),
+        ))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-ITALIC"))
+
     def test_PG_BODY_NO_HIGHLIGHT_violated_by_yellow(self):
         doc = _doc([_body_para(runs=(_body_run(highlight="yellow"),))])
+        self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-HIGHLIGHT"))
+
+    def test_PG_BODY_NO_HIGHLIGHT_violated_by_second_run_highlight(self):
+        doc = _doc([_body_para(runs=(
+            _body_run(text="正常", highlight=None),
+            _body_run(text="高亮", highlight="yellow"),
+        ))])
         self.assertTrue(_has_rule(validate_docx(doc, PACK_ID), "PG-BODY-NO-HIGHLIGHT"))
 
 
