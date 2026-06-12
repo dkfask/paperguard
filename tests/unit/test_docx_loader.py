@@ -92,6 +92,11 @@ def _make_minimal_docx() -> bytes:
         highlight = OxmlElement("w:highlight")
         rpr.append(highlight)
     highlight.set(qn("w:val"), "yellow")
+    vert_align = rpr.find(qn("w:vertAlign"))
+    if vert_align is None:
+        vert_align = OxmlElement("w:vertAlign")
+        rpr.append(vert_align)
+    vert_align.set(qn("w:val"), "superscript")
 
     # 4. 空段
     doc.add_paragraph("")
@@ -186,6 +191,7 @@ class TestLoadDocx(unittest.TestCase):
         self.assertEqual(run.underline, "single")
         self.assertEqual(run.color_hex, "FF0000")
         self.assertEqual(run.highlight, "yellow")
+        self.assertEqual(run.vert_align, "superscript")
 
     def test_metadata_default(self):
         doc = load_docx(self.path)

@@ -131,6 +131,14 @@ def _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_
     else:
         r.font.highlight_color = None
 
+    if run.vert_align == "superscript":
+        r.font.superscript = True
+    elif run.vert_align == "subscript":
+        r.font.subscript = True
+    elif run.vert_align is None:
+        r.font.superscript = False
+        r.font.subscript = False
+
 
 def _paragraph_alignment(value: str, WD_PARAGRAPH_ALIGNMENT):
     alignment = value.lower()

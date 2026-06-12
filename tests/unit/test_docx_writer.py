@@ -74,6 +74,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
                             underline="single",
                             color_hex="FF0000",
                             highlight="yellow",
+                            vert_align="superscript",
                         ),
                     ),
                     line_spacing=1.5,
@@ -99,6 +100,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertTrue(run.underline)
         self.assertEqual(str(run.font.color.rgb), "FF0000")
         self.assertEqual(str(run.font.highlight_color).split(" ")[0], "YELLOW")
+        self.assertTrue(run.font.superscript)
 
     def test_written_docx_roundtrips_supported_formatting_through_loader(self):
         ir = Document(
@@ -120,6 +122,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
                             underline="single",
                             color_hex="FF0000",
                             highlight="yellow",
+                            vert_align="subscript",
                         ),
                     ),
                     line_spacing=1.5,
@@ -155,6 +158,7 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertEqual(run.underline, "single")
         self.assertEqual(run.color_hex, "FF0000")
         self.assertEqual(run.highlight, "yellow")
+        self.assertEqual(run.vert_align, "subscript")
 
     def test_written_docx_roundtrips_heading_level_through_loader(self):
         ir = Document(

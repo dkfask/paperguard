@@ -1,7 +1,7 @@
 # GB/T 7713.1—2006 学位论文编写规则 — PaperGuard YAML pack
 #
-# 27 条规则，全部基于 paragraphs scope（LiveMutator 可消费 Fix）。
-# 覆盖：正文 11 条 + 一级标题 4 条 + 二级标题 4 条 + 三级标题 4 条 + 章前分页 1 条 + 正文格式 2 条
+# 28 条规则，全部基于 paragraphs scope（LiveMutator 可消费 Fix）。
+# 覆盖：正文 13 条 + 一级标题 4 条 + 二级标题 4 条 + 三级标题 4 条 + 章前分页 1 条 + 正文格式 2 条
 #
 # rule_id 命名约定（ADR-7 A）：PG-{TARGET}-{ATTRIBUTE}
 #   PG- 前缀；TARGET = BODY / H1 / H2 / H3；ATTRIBUTE = 检查的字段
@@ -193,6 +193,23 @@ rules:
       action: set
       target: "run.bold"
       value: false
+
+  - id: PG-BODY-NO-VERT-ALIGN
+    severity: info
+    scope: "paragraphs[?style_id == 'Body Text' || style_id == 'Normal']"
+    when:
+      and:
+        - "!=":
+            - var: "runs.0.vert_align"
+            - null
+        - "!=":
+            - var: "runs.0.vert_align"
+            - "baseline"
+    message: "正文不应整段使用上标或下标"
+    fix:
+      action: set
+      target: "run.vert_align"
+      value: null
 
   # ===========================================================================
   # 一级标题（4 条 — Heading 1）

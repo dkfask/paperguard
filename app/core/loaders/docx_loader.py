@@ -149,6 +149,7 @@ def _load_run(run) -> Run:
     font_size_pt = None
     underline = None
     color_hex = None
+    vert_align_value = None
     if rpr is not None:
         rfonts = rpr.find(qn("w:rFonts"))
         if rfonts is not None:
@@ -180,6 +181,11 @@ def _load_run(run) -> Run:
                 highlight_value = None
         else:
             highlight_value = None
+        vert_align = rpr.find(qn("w:vertAlign"))
+        if vert_align is not None:
+            val = vert_align.get(qn("w:val"))
+            if val in ("superscript", "subscript"):
+                vert_align_value = val
     else:
         highlight_value = None
 
@@ -194,6 +200,7 @@ def _load_run(run) -> Run:
         underline=underline,
         color_hex=color_hex,
         highlight=highlight_value,
+        vert_align=vert_align_value,
     )
 
 

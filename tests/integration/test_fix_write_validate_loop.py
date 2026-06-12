@@ -67,6 +67,57 @@ class TestFixWriteValidateLoop(unittest.TestCase):
         self.assertNotIn("PG-BODY-ALIGNMENT", post_rule_ids)
         self.assertEqual(post_findings, [])
 
+    def test_body_vert_align_fix_survives_docx_roundtrip(self):
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="Body Text",
+                    text="正文",
+                    level=None,
+                    runs=(
+                        Run(
+                            text="正文",
+                            font_eastasia="宋体",
+                            font_ascii="Times New Roman",
+                            font_hansi="Times New Roman",
+                            font_size_pt=12.0,
+                            bold=False,
+                            italic=False,
+                            underline=None,
+                            color_hex="000000",
+                            highlight=None,
+                            vert_align="superscript",
+                        ),
+                    ),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.74,
+                    alignment="justify",
+                    is_page_break_before=False,
+                ),
+            ),
+            metadata=DocumentMetadata(title="vert align loop"),
+        )
+
+        pre_findings = validate_docx(ir, PACK_ID)
+        self.assertIn("PG-BODY-NO-VERT-ALIGN", {f.rule_id for f in pre_findings})
+
+        fixed, skipped = apply_all_fixes(ir, pre_findings)
+        self.assertEqual(skipped, [])
+        self.assertIsNone(fixed.paragraphs[0].runs[0].vert_align)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fixed.docx"
+            write_ir_to_docx(fixed, str(path))
+            loaded = load_docx(path)
+
+        post_findings = validate_docx(loaded, PACK_ID)
+        post_rule_ids = {f.rule_id for f in post_findings}
+        self.assertNotIn("PG-BODY-NO-VERT-ALIGN", post_rule_ids)
+        self.assertEqual(post_findings, [])
+
 
 if __name__ == "__main__":
     unittest.main()
