@@ -44,6 +44,8 @@ class ParsedParagraph:
     quote_level: int = 0
     line_spacing: float | None = None
     first_line_indent_cm: float | None = None
+    space_before_pt: float | None = None
+    space_after_pt: float | None = None
 
 
 def section_content_from_html(section_id: str, editor_html: str) -> SectionContent:
@@ -159,6 +161,8 @@ def parse_paragraph_html(paragraph_html: str) -> ParsedParagraph:
         quote_level=parser.max_quote_level,
         line_spacing=parser.line_spacing,
         first_line_indent_cm=parser.first_line_indent_cm,
+        space_before_pt=parser.space_before_pt,
+        space_after_pt=parser.space_after_pt,
     )
 
 
@@ -324,6 +328,19 @@ def _parse_text_indent_cm(raw_value: str | None) -> float | None:
     return None
 
 
+def _parse_css_pt(raw_value: str | None) -> float | None:
+    if not raw_value:
+        return None
+    value = raw_value.strip().strip(";")
+    pt_match = re.fullmatch(r"([0-9.]+)\s*pt", value, flags=re.IGNORECASE)
+    if pt_match:
+        try:
+            return float(pt_match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
 def normalize_color(raw_color: str) -> str | None:
     value = raw_color.strip().strip(";")
     if not value:
@@ -416,6 +433,8 @@ class _ParagraphHtmlParser(HTMLParser):
         self.alignment: str | None = None
         self.line_spacing: float | None = None
         self.first_line_indent_cm: float | None = None
+        self.space_before_pt: float | None = None
+        self.space_after_pt: float | None = None
         self.quote_level = 0
         self.max_quote_level = 0
         self._style_stack: list[dict] = [{}]
@@ -429,6 +448,8 @@ class _ParagraphHtmlParser(HTMLParser):
             self.alignment = attr_map.get("align") or css.get("text-align")
             self.line_spacing = _parse_line_height(css.get("line-height"))
             self.first_line_indent_cm = _parse_text_indent_cm(css.get("text-indent"))
+            self.space_before_pt = _parse_css_pt(css.get("margin-top"))
+            self.space_after_pt = _parse_css_pt(css.get("margin-bottom"))
         if lower_tag == "blockquote":
             self.quote_level += 1
             self.max_quote_level = max(self.max_quote_level, self.quote_level)

@@ -184,6 +184,30 @@ class TestParagraphFormattingExtraction(unittest.TestCase):
 
         self.assertEqual(doc.paragraphs[0].first_line_indent_cm, 0.74)
 
+    def test_space_before_extraction_from_paragraph_style(self):
+        html = '<p style="margin-top: 6pt;">正文</p>'
+        project = Project(title="段前", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].space_before_pt, 6.0)
+
+    def test_space_after_extraction_from_paragraph_style(self):
+        html = '<p style="margin-bottom: 12pt;">正文</p>'
+        project = Project(title="段后", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].space_after_pt, 12.0)
+
 
 class TestUnknownSectionId(unittest.TestCase):
     def test_unknown_section_id_raises_valueerror(self):

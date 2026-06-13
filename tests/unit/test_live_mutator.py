@@ -240,6 +240,36 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         self.assertIn("text-align: justify", block.html)
         self.assertNotIn("text-align: center", block.html)
 
+    def test_apply_fix_space_before_sets_paragraph_margin_top(self):
+        project = _make_project(['<p style="margin-top: 6pt;">第一段</p>'])
+        checker = _FakeChecker({
+            "R006": Fix(action="set", target="paragraph.space_before_pt", value=0.0),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R006", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertIn("margin-top: 0.0pt", block.html)
+        self.assertNotIn("margin-top: 6pt", block.html)
+
+    def test_apply_fix_space_after_sets_paragraph_margin_bottom(self):
+        project = _make_project(['<p style="margin-bottom: 12pt;">第一段</p>'])
+        checker = _FakeChecker({
+            "R007": Fix(action="set", target="paragraph.space_after_pt", value=0.0),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R007", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertIn("margin-bottom: 0.0pt", block.html)
+        self.assertNotIn("margin-bottom: 12pt", block.html)
+
 
 class TestApplyFixSignature(unittest.TestCase):
     """apply_fix 必须是单参数签名（Must-fix #1）。"""

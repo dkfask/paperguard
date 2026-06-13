@@ -56,6 +56,8 @@ from app.models.project import (
 # 支持的 Fix target leaf 集合（白名单）。
 SUPPORTED_RULE_IDS: frozenset[str] = frozenset({
     "line_spacing",
+    "space_before_pt",
+    "space_after_pt",
     "font_size_pt",
     "first_line_indent_cm",
     "alignment",
@@ -199,6 +201,10 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
     target = _target_leaf(fix.target)
     if target == "line_spacing":
         block.html = _update_paragraph_style(block.html, "line-height", f"{fix.value}")
+    elif target == "space_before_pt":
+        block.html = _update_paragraph_style(block.html, "margin-top", f"{float(fix.value)}pt")
+    elif target == "space_after_pt":
+        block.html = _update_paragraph_style(block.html, "margin-bottom", f"{float(fix.value)}pt")
     elif target == "first_line_indent_cm":
         block.html = _update_paragraph_style(block.html, "text-indent", f"{fix.value}cm")
     elif target == "alignment":
