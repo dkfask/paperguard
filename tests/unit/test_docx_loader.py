@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from docx import Document as DocxDocument
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -202,6 +203,25 @@ class TestLoadDocxErrors(unittest.TestCase):
     def test_nonexistent_file(self):
         with self.assertRaises((FileNotFoundError, ValueError)):
             load_docx("nonexistent_zzz.docx")
+
+
+class TestLoadDocxParagraphStyleInheritance(unittest.TestCase):
+    def test_reads_alignment_from_paragraph_style_when_paragraph_has_no_direct_alignment(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_alignment.docx"
+            docx = DocxDocument()
+            style = docx.styles.add_style("PG Body Style", WD_STYLE_TYPE.PARAGRAPH)
+            style.paragraph_format.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+            paragraph = docx.add_paragraph("styled body")
+            paragraph.style = style
+            self.assertIsNone(paragraph.alignment)
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        self.assertEqual(loaded.paragraphs[0].alignment, "justify")
 
 
 if __name__ == "__main__":

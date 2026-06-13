@@ -96,6 +96,15 @@ def _alignment_to_str(alignment) -> str | None:
     return mapping.get(alignment)
 
 
+def _paragraph_alignment_to_str(paragraph) -> str | None:
+    direct = _alignment_to_str(paragraph.alignment)
+    if direct is not None:
+        return direct
+    if paragraph.style is None:
+        return None
+    return _alignment_to_str(paragraph.style.paragraph_format.alignment)
+
+
 def _first_line_indent_to_cm(paragraph) -> float:
     """读首行缩进（twips → cm）。
 
@@ -243,7 +252,7 @@ def _load_paragraph(paragraph) -> Paragraph:
 
     line_spacing = _line_spacing_to_float(line, line_rule)
     first_line_indent_cm = _first_line_indent_to_cm(paragraph)
-    alignment = _alignment_to_str(paragraph.alignment)
+    alignment = _paragraph_alignment_to_str(paragraph)
 
     return Paragraph(
         style_id=style_id,

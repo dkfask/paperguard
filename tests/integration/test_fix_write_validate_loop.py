@@ -6,6 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from docx import Document as DocxDocument
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+
 from app.core.engine import validate_docx
 from app.core.ir import Document, DocumentMetadata, Paragraph, Run, Section
 from app.core.loaders.docx_loader import load_docx
@@ -17,6 +20,21 @@ PACK_ID = "GB-T-7713-1-2006"
 
 
 class TestFixWriteValidateLoop(unittest.TestCase):
+    def test_style_inherited_body_alignment_does_not_trigger_alignment_finding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_alignment.docx"
+            docx = DocxDocument()
+            docx.styles["Normal"].paragraph_format.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+            paragraph = docx.add_paragraph("styled body")
+            paragraph.style = docx.styles["Normal"]
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        findings = validate_docx(loaded, PACK_ID)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertNotIn("PG-BODY-ALIGNMENT", rule_ids)
+
     def test_body_alignment_fix_survives_docx_roundtrip(self):
         ir = Document(
             sections=(Section(),),
