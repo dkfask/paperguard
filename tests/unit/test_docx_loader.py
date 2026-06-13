@@ -223,6 +223,49 @@ class TestLoadDocxParagraphStyleInheritance(unittest.TestCase):
 
         self.assertEqual(loaded.paragraphs[0].alignment, "justify")
 
+    def test_reads_spacing_from_paragraph_style_when_paragraph_has_no_direct_spacing(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_spacing.docx"
+            docx = DocxDocument()
+            style = docx.styles.add_style("PG Spacing Style", WD_STYLE_TYPE.PARAGRAPH)
+            style.paragraph_format.line_spacing = 1.5
+            style.paragraph_format.space_before = Pt(6)
+            style.paragraph_format.space_after = Pt(12)
+            paragraph = docx.add_paragraph("styled spacing")
+            paragraph.style = style
+            self.assertIsNone(paragraph.paragraph_format.line_spacing)
+            self.assertIsNone(paragraph.paragraph_format.space_before)
+            self.assertIsNone(paragraph.paragraph_format.space_after)
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        self.assertAlmostEqual(loaded.paragraphs[0].line_spacing, 1.5, places=2)
+        self.assertEqual(loaded.paragraphs[0].space_before_pt, 6.0)
+        self.assertEqual(loaded.paragraphs[0].space_after_pt, 12.0)
+
+    def test_reads_indent_and_page_break_from_paragraph_style_when_no_direct_format(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_indent_page_break.docx"
+            docx = DocxDocument()
+            style = docx.styles.add_style("PG Indent Style", WD_STYLE_TYPE.PARAGRAPH)
+            style.paragraph_format.first_line_indent = Cm(0.74)
+            style.paragraph_format.page_break_before = True
+            paragraph = docx.add_paragraph("styled indent")
+            paragraph.style = style
+            self.assertIsNone(paragraph.paragraph_format.first_line_indent)
+            self.assertIsNone(paragraph.paragraph_format.page_break_before)
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        self.assertAlmostEqual(loaded.paragraphs[0].first_line_indent_cm, 0.74, places=2)
+        self.assertTrue(loaded.paragraphs[0].is_page_break_before)
+
 
 if __name__ == "__main__":
     unittest.main()

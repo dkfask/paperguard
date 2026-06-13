@@ -105,6 +105,62 @@ def _paragraph_alignment_to_str(paragraph) -> str | None:
     return _alignment_to_str(paragraph.style.paragraph_format.alignment)
 
 
+def _style_paragraph_format(paragraph):
+    if paragraph.style is None:
+        return None
+    return paragraph.style.paragraph_format
+
+
+def _length_to_pt(length) -> float:
+    if length is None:
+        return 0.0
+    return round(float(length.pt), 3)
+
+
+def _length_to_cm(length) -> float:
+    if length is None:
+        return 0.0
+    return round(float(length.cm), 3)
+
+
+def _style_line_spacing(paragraph) -> float:
+    paragraph_format = _style_paragraph_format(paragraph)
+    if paragraph_format is None or paragraph_format.line_spacing is None:
+        return 1.0
+    value = paragraph_format.line_spacing
+    if isinstance(value, (int, float)):
+        return float(value)
+    return _length_to_pt(value)
+
+
+def _style_space_before_pt(paragraph) -> float:
+    paragraph_format = _style_paragraph_format(paragraph)
+    if paragraph_format is None:
+        return 0.0
+    return _length_to_pt(paragraph_format.space_before)
+
+
+def _style_space_after_pt(paragraph) -> float:
+    paragraph_format = _style_paragraph_format(paragraph)
+    if paragraph_format is None:
+        return 0.0
+    return _length_to_pt(paragraph_format.space_after)
+
+
+def _style_first_line_indent_cm(paragraph) -> float:
+    paragraph_format = _style_paragraph_format(paragraph)
+    if paragraph_format is None:
+        return 0.0
+    return _length_to_cm(paragraph_format.first_line_indent)
+
+
+def _style_page_break_before(paragraph) -> bool:
+    paragraph_format = _style_paragraph_format(paragraph)
+    if paragraph_format is None:
+        return False
+    return bool(paragraph_format.page_break_before)
+
+
 def _first_line_indent_to_cm(paragraph) -> float:
     """读首行缩进（twips → cm）。
 
@@ -112,10 +168,10 @@ def _first_line_indent_to_cm(paragraph) -> float:
     """
     ppr = paragraph._p.find(qn("w:pPr"))
     if ppr is None:
-        return 0.0
+        return _style_first_line_indent_cm(paragraph)
     ind = ppr.find(qn("w:ind"))
     if ind is None:
-        return 0.0
+        return _style_first_line_indent_cm(paragraph)
     # firstLineChars 优先
     chars = ind.get(qn("w:firstLineChars"))
     if chars:
@@ -129,7 +185,7 @@ def _first_line_indent_to_cm(paragraph) -> float:
     fl = ind.get(qn("w:firstLine"))
     if fl:
         return _twips_to_cm(fl)
-    return 0.0
+    return _style_first_line_indent_cm(paragraph)
 
 
 def _load_section(section) -> Section:
@@ -228,31 +284,40 @@ def _load_paragraph(paragraph) -> Paragraph:
     ppr = paragraph._p.find(qn("w:pPr"))
     line = None
     line_rule = None
-    space_before = 0
-    space_after = 0
-    is_page_break_before = False
+    space_before = None
+    space_after = None
+    is_page_break_before = None
     if ppr is not None:
-        is_page_break_before = ppr.find(qn("w:pageBreakBefore")) is not None
+        page_break_before = ppr.find(qn("w:pageBreakBefore"))
+        if page_break_before is not None:
+            val = page_break_before.get(qn("w:val"))
+            is_page_break_before = not (val and val.lower() in ("0", "false", "off"))
         spacing = ppr.find(qn("w:spacing"))
         if spacing is not None:
             line = spacing.get(qn("w:line"))
             line_rule = spacing.get(qn("w:lineRule"))
             sb = spacing.get(qn("w:before"))
             sa = spacing.get(qn("w:after"))
-            if sb:
+            if sb is not None:
                 try:
-                    space_before = int(sb) // 20  # twips/20 = pt
+                    space_before = int(sb) / 20  # twips/20 = pt
                 except (TypeError, ValueError):
                     space_before = 0
-            if sa:
+            if sa is not None:
                 try:
-                    space_after = int(sa) // 20
+                    space_after = int(sa) / 20
                 except (TypeError, ValueError):
                     space_after = 0
 
-    line_spacing = _line_spacing_to_float(line, line_rule)
+    line_spacing = _line_spacing_to_float(line, line_rule) if line is not None else _style_line_spacing(paragraph)
     first_line_indent_cm = _first_line_indent_to_cm(paragraph)
     alignment = _paragraph_alignment_to_str(paragraph)
+    if space_before is None:
+        space_before = _style_space_before_pt(paragraph)
+    if space_after is None:
+        space_after = _style_space_after_pt(paragraph)
+    if is_page_break_before is None:
+        is_page_break_before = _style_page_break_before(paragraph)
 
     return Paragraph(
         style_id=style_id,
