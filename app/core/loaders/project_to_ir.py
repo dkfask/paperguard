@@ -63,6 +63,7 @@ def _convert_run(rich_run: RichTextRun) -> Run:
         text=rich_run.text,
         font_eastasia=rich_run.font_name,
         font_ascii=rich_run.font_name,
+        font_hansi=rich_run.font_name,
         font_size_pt=rich_run.font_size_pt,
         bold=rich_run.bold,
         italic=rich_run.italic,

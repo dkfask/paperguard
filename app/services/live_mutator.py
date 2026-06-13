@@ -144,6 +144,28 @@ def _update_first_run_font_size(html: str, value_pt: float) -> str:
     return f"<p{p_attrs}>{new_inner}</p>"
 
 
+def _update_first_run_style(html: str, prop_name: str, prop_value: str) -> str:
+    """Update the first explicit HTML run; wrap plain paragraph text when needed."""
+    p_open_re = re.compile(r"<(p|div|h[1-6])\b([^>]*)>(.*)</\1>", re.IGNORECASE | re.DOTALL)
+    p_match = p_open_re.search(html or "")
+    if p_match is None:
+        return f'<p><span style="{prop_name}: {prop_value};">{html or ""}</span></p>'
+
+    tag_name = p_match.group(1)
+    p_attrs = p_match.group(2)
+    inner = p_match.group(3)
+    run_match = _RUN_TAG_RE.search(inner)
+    if run_match is None:
+        new_inner = f'<span style="{prop_name}: {prop_value};">{inner}</span>'
+    else:
+        run_tag_name = run_match.group(1)
+        tag_attrs = run_match.group(2)
+        new_tag_attrs = _set_style_property(tag_attrs, prop_name, prop_value)
+        new_tag = f"<{run_tag_name}{new_tag_attrs}>"
+        new_inner = inner[:run_match.start()] + new_tag + inner[run_match.end():]
+    return f"<{tag_name}{p_attrs}>{new_inner}</{tag_name}>"
+
+
 def _update_all_runs_style(html: str, prop_name: str, prop_value: str) -> str:
     """Update every explicit HTML run; wrap plain paragraph text when needed."""
     p_open_re = re.compile(r"<p\b([^>]*)>(.*)</p>", re.IGNORECASE | re.DOTALL)
@@ -228,6 +250,8 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
         block.html = _update_first_run_font_size(block.html, float(fix.value))
     elif target in {"font_eastasia", "font_ascii", "font_hansi"} and _is_runs_wildcard(fix.target):
         block.html = _update_all_runs_style(block.html, "font-family", str(fix.value))
+    elif target in {"font_eastasia", "font_ascii", "font_hansi"}:
+        block.html = _update_first_run_style(block.html, "font-family", str(fix.value))
     elif target == "color_hex" and _is_runs_wildcard(fix.target):
         block.html = _update_all_runs_style(block.html, "color", f"#{str(fix.value).lstrip('#')}")
     elif target == "bold" and _is_runs_wildcard(fix.target):

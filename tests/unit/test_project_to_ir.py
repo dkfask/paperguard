@@ -105,6 +105,7 @@ class TestFontExtraction(unittest.TestCase):
         first_run = para.runs[0]
         self.assertIsInstance(first_run, Run)
         self.assertEqual(first_run.font_eastasia, "宋体")
+        self.assertEqual(first_run.font_hansi, "宋体")
         self.assertEqual(first_run.text, "正文")
 
     def test_underline_extraction_from_runs(self):

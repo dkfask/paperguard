@@ -152,6 +152,38 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         self.assertNotIn("font-size: 10pt", block.html)
         self.assertNotIn("font-size: 14pt", block.html)
 
+    def test_apply_fix_run_font_eastasia_sets_first_run_only(self):
+        project = _make_project([
+            '<p><span style="font-family: Arial;">甲</span>'
+            '<span style="font-family: 黑体;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R010": Fix(action="set", target="run.font_eastasia", value="宋体"),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R010", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("font-family: 宋体"), 1)
+        self.assertIn('<span style="font-family: 黑体;">乙</span>', block.html)
+
+    def test_apply_fix_run_font_ascii_sets_first_plain_run(self):
+        project = _make_project(["<p>Plain text</p>"])
+        checker = _FakeChecker({
+            "R011": Fix(action="set", target="run.font_ascii", value="Times New Roman"),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R011", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertIn('<span style="font-family: Times New Roman;">Plain text</span>', block.html)
+
     def test_apply_fix_runs_wildcard_color_sets_all_runs(self):
         project = _make_project([
             '<p><span style="color: #ff0000;">甲</span><span style="color: blue;">乙</span></p>'
