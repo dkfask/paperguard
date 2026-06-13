@@ -204,23 +204,52 @@ def _load_section(section) -> Section:
     )
 
 
-def _load_run(run) -> Run:
+def _style_rpr(paragraph):
+    if paragraph is None or paragraph.style is None:
+        return None
+    return paragraph.style.element.find(qn("w:rPr"))
+
+
+def _rfonts_from_rpr(rpr) -> tuple[str | None, str | None, str | None, str | None]:
+    if rpr is None:
+        return None, None, None, None
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        return None, None, None, None
+    return (
+        rfonts.get(qn("w:eastAsia")),
+        rfonts.get(qn("w:ascii")),
+        rfonts.get(qn("w:hAnsi")),
+        rfonts.get(qn("w:cs")),
+    )
+
+
+def _font_size_from_rpr(rpr) -> float | None:
+    if rpr is None:
+        return None
+    sz = rpr.find(qn("w:sz"))
+    if sz is None:
+        return None
+    return _half_points_to_pt(sz.get(qn("w:val")))
+
+
+def _load_run(run, paragraph=None) -> Run:
     """docx Run → IR Run。"""
     # 字体：eastAsia / ascii / hAnsi
     rpr = run._r.find(qn("w:rPr"))
-    font_eastasia = None
-    font_ascii = None
-    font_hansi = None
-    font_size_pt = None
+    style_rpr = _style_rpr(paragraph)
+    font_eastasia, font_ascii, font_hansi, font_cs = _rfonts_from_rpr(style_rpr)
+    font_size_pt = _font_size_from_rpr(style_rpr)
     underline = None
     color_hex = None
     vert_align_value = None
     if rpr is not None:
         rfonts = rpr.find(qn("w:rFonts"))
         if rfonts is not None:
-            font_eastasia = rfonts.get(qn("w:eastAsia"))
-            font_ascii = rfonts.get(qn("w:ascii"))
-            font_hansi = rfonts.get(qn("w:hAnsi"))
+            font_eastasia = rfonts.get(qn("w:eastAsia")) or font_eastasia
+            font_ascii = rfonts.get(qn("w:ascii")) or font_ascii
+            font_hansi = rfonts.get(qn("w:hAnsi")) or font_hansi
+            font_cs = rfonts.get(qn("w:cs")) or font_cs
         # 字号：OOXML 存半磅
         sz = rpr.find(qn("w:sz"))
         if sz is not None:
@@ -259,6 +288,7 @@ def _load_run(run) -> Run:
         font_eastasia=font_eastasia,
         font_ascii=font_ascii,
         font_hansi=font_hansi,
+        font_cs=font_cs,
         font_size_pt=font_size_pt,
         bold=bool(run.bold),
         italic=bool(run.italic),
@@ -278,7 +308,7 @@ def _load_paragraph(paragraph) -> Paragraph:
     level = _HEADING_STYLE_TO_LEVEL.get(style_id)
 
     # runs
-    runs = tuple(_load_run(r) for r in paragraph.runs)
+    runs = tuple(_load_run(r, paragraph) for r in paragraph.runs)
 
     # 行距
     ppr = paragraph._p.find(qn("w:pPr"))

@@ -8,6 +8,9 @@ from pathlib import Path
 
 from docx import Document as DocxDocument
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Cm, Pt
 
 from app.core.engine import validate_docx
 from app.core.ir import Document, DocumentMetadata, Paragraph, Run, Section
@@ -20,6 +23,39 @@ PACK_ID = "GB-T-7713-1-2006"
 
 
 class TestFixWriteValidateLoop(unittest.TestCase):
+    def test_style_inherited_body_run_font_does_not_trigger_font_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_body_font.docx"
+            docx = DocxDocument()
+            normal = docx.styles["Normal"]
+            normal.paragraph_format.line_spacing = 1.5
+            normal.paragraph_format.space_before = Pt(0)
+            normal.paragraph_format.space_after = Pt(0)
+            normal.paragraph_format.first_line_indent = Cm(0.74)
+            normal.paragraph_format.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+            normal.font.name = "Times New Roman"
+            normal.font.size = Pt(12)
+            rpr = normal.element.get_or_add_rPr()
+            rfonts = rpr.find(qn("w:rFonts"))
+            if rfonts is None:
+                rfonts = OxmlElement("w:rFonts")
+                rpr.append(rfonts)
+            rfonts.set(qn("w:eastAsia"), "宋体")
+            rfonts.set(qn("w:ascii"), "Times New Roman")
+            rfonts.set(qn("w:hAnsi"), "Times New Roman")
+            paragraph = docx.add_paragraph("styled body")
+            paragraph.style = normal
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        findings = validate_docx(loaded, PACK_ID)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertNotIn("PG-BODY-FONT-SIZE", rule_ids)
+        self.assertNotIn("PG-BODY-FONT-EASTASIA", rule_ids)
+        self.assertNotIn("PG-BODY-FONT-ASCII", rule_ids)
+        self.assertNotIn("PG-BODY-FONT-HANSI", rule_ids)
+
     def test_style_inherited_body_alignment_does_not_trigger_alignment_finding(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "style_alignment.docx"

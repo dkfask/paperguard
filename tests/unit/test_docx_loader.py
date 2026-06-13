@@ -266,6 +266,68 @@ class TestLoadDocxParagraphStyleInheritance(unittest.TestCase):
         self.assertAlmostEqual(loaded.paragraphs[0].first_line_indent_cm, 0.74, places=2)
         self.assertTrue(loaded.paragraphs[0].is_page_break_before)
 
+    def test_reads_run_font_from_paragraph_style_when_run_has_no_direct_format(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_run_font.docx"
+            docx = DocxDocument()
+            style = docx.styles.add_style("PG Run Style", WD_STYLE_TYPE.PARAGRAPH)
+            style.font.name = "Times New Roman"
+            style.font.size = Pt(12)
+            rpr = style.element.get_or_add_rPr()
+            rfonts = rpr.find(qn("w:rFonts"))
+            if rfonts is None:
+                rfonts = OxmlElement("w:rFonts")
+                rpr.append(rfonts)
+            rfonts.set(qn("w:eastAsia"), "宋体")
+            rfonts.set(qn("w:ascii"), "Times New Roman")
+            rfonts.set(qn("w:hAnsi"), "Times New Roman")
+            paragraph = docx.add_paragraph("styled run font")
+            paragraph.style = style
+            self.assertIsNone(paragraph.runs[0].font.size)
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        run = loaded.paragraphs[0].runs[0]
+        self.assertEqual(run.font_eastasia, "宋体")
+        self.assertEqual(run.font_ascii, "Times New Roman")
+        self.assertEqual(run.font_hansi, "Times New Roman")
+        self.assertEqual(run.font_size_pt, 12.0)
+
+    def test_direct_run_font_overrides_only_present_style_inherited_font_parts(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "partial_direct_run_font.docx"
+            docx = DocxDocument()
+            style = docx.styles.add_style("PG Partial Run Style", WD_STYLE_TYPE.PARAGRAPH)
+            style.font.size = Pt(12)
+            style_rpr = style.element.get_or_add_rPr()
+            style_rfonts = style_rpr.find(qn("w:rFonts"))
+            if style_rfonts is None:
+                style_rfonts = OxmlElement("w:rFonts")
+                style_rpr.append(style_rfonts)
+            style_rfonts.set(qn("w:eastAsia"), "宋体")
+            style_rfonts.set(qn("w:hAnsi"), "Times New Roman")
+            paragraph = docx.add_paragraph()
+            paragraph.style = style
+            run = paragraph.add_run("partial direct font")
+            run_rpr = run._r.get_or_add_rPr()
+            run_rfonts = OxmlElement("w:rFonts")
+            run_rpr.append(run_rfonts)
+            run_rfonts.set(qn("w:ascii"), "Arial")
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        loaded_run = loaded.paragraphs[0].runs[0]
+        self.assertEqual(loaded_run.font_eastasia, "宋体")
+        self.assertEqual(loaded_run.font_ascii, "Arial")
+        self.assertEqual(loaded_run.font_hansi, "Times New Roman")
+        self.assertEqual(loaded_run.font_size_pt, 12.0)
+
 
 if __name__ == "__main__":
     unittest.main()
