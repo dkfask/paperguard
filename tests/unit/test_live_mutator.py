@@ -270,6 +270,37 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         self.assertIn("margin-bottom: 0.0pt", block.html)
         self.assertNotIn("margin-bottom: 12pt", block.html)
 
+    def test_apply_fix_page_break_before_preserves_heading_tag(self):
+        project = _make_project(['<h1>1 引言</h1>'])
+        checker = _FakeChecker({
+            "R008": Fix(action="set", target="paragraph.is_page_break_before", value=True),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R008", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertTrue(block.html.startswith("<h1"))
+        self.assertIn("page-break-before: always", block.html)
+
+    def test_apply_fix_page_break_before_alias_sets_heading_style(self):
+        project = _make_project(['<h1 style="page-break-before: auto;">1 引言</h1>'])
+        checker = _FakeChecker({
+            "R009": Fix(action="set", target="paragraph.page_break_before", value=True),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R009", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertTrue(block.html.startswith("<h1"))
+        self.assertIn("page-break-before: always", block.html)
+        self.assertNotIn("page-break-before: auto", block.html)
+
 
 class TestApplyFixSignature(unittest.TestCase):
     """apply_fix 必须是单参数签名（Must-fix #1）。"""

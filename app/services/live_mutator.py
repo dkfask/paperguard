@@ -61,6 +61,8 @@ SUPPORTED_RULE_IDS: frozenset[str] = frozenset({
     "font_size_pt",
     "first_line_indent_cm",
     "alignment",
+    "is_page_break_before",
+    "page_break_before",
     "font_eastasia",
     "font_ascii",
     "font_hansi",
@@ -77,7 +79,7 @@ SUPPORTED_RULE_IDS: frozenset[str] = frozenset({
 # HTML 内部小工具 — 改 <p> 的 style 属性 / 改首个 run 的 font-size
 # ---------------------------------------------------------------------------
 
-_P_TAG_RE = re.compile(r"<p\b([^>]*)>", re.IGNORECASE)
+_BLOCK_TAG_RE = re.compile(r"<(p|div|h[1-6])\b([^>]*)>", re.IGNORECASE)
 _STYLE_ATTR_RE = re.compile(r"""style\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
 _RUN_TAG_RE = re.compile(r"<(span|font)\b([^>]*)>", re.IGNORECASE)
 
@@ -105,12 +107,13 @@ def _set_style_property(attrs: str, prop_name: str, prop_value: str) -> str:
 
 def _update_paragraph_style(html: str, prop_name: str, prop_value: str) -> str:
     """更新首个 ``<p>`` 标签的 inline style 属性；无 ``<p>`` 时包一层。"""
-    p_match = _P_TAG_RE.search(html or "")
+    p_match = _BLOCK_TAG_RE.search(html or "")
     if p_match is None:
         wrapped = f'<p style="{prop_name}: {prop_value};">{html or ""}</p>'
         return wrapped
-    new_attrs = _set_style_property(p_match.group(1), prop_name, prop_value)
-    new_tag = f"<p{new_attrs}>"
+    tag_name = p_match.group(1)
+    new_attrs = _set_style_property(p_match.group(2), prop_name, prop_value)
+    new_tag = f"<{tag_name}{new_attrs}>"
     return html[:p_match.start()] + new_tag + html[p_match.end():]
 
 
@@ -188,6 +191,10 @@ def _vert_align_css_value(value: Any) -> str:
     return normalized
 
 
+def _page_break_css_value(value: Any) -> str:
+    return "always" if bool(value) else "auto"
+
+
 # ---------------------------------------------------------------------------
 # Fix application dispatch
 # ---------------------------------------------------------------------------
@@ -209,6 +216,12 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
         block.html = _update_paragraph_style(block.html, "text-indent", f"{fix.value}cm")
     elif target == "alignment":
         block.html = _update_paragraph_style(block.html, "text-align", str(fix.value))
+    elif target in {"is_page_break_before", "page_break_before"}:
+        block.html = _update_paragraph_style(
+            block.html,
+            "page-break-before",
+            _page_break_css_value(fix.value),
+        )
     elif target == "font_size_pt" and _is_runs_wildcard(fix.target):
         block.html = _update_all_runs_style(block.html, "font-size", f"{float(fix.value)}pt")
     elif target == "font_size_pt":

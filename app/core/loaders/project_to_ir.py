@@ -100,6 +100,7 @@ def _convert_paragraph_block(block: ParagraphBlock) -> Paragraph:
             else 0.0
         ),
         alignment=parsed.alignment,
+        is_page_break_before=parsed.is_page_break_before,
     )
 
 

@@ -46,6 +46,7 @@ class ParsedParagraph:
     first_line_indent_cm: float | None = None
     space_before_pt: float | None = None
     space_after_pt: float | None = None
+    is_page_break_before: bool = False
 
 
 def section_content_from_html(section_id: str, editor_html: str) -> SectionContent:
@@ -163,6 +164,7 @@ def parse_paragraph_html(paragraph_html: str) -> ParsedParagraph:
         first_line_indent_cm=parser.first_line_indent_cm,
         space_before_pt=parser.space_before_pt,
         space_after_pt=parser.space_after_pt,
+        is_page_break_before=parser.is_page_break_before,
     )
 
 
@@ -341,6 +343,11 @@ def _parse_css_pt(raw_value: str | None) -> float | None:
     return None
 
 
+def _parse_page_break_before(css: dict[str, str]) -> bool:
+    value = (css.get("page-break-before") or css.get("break-before") or "").strip().lower()
+    return value in {"always", "page", "left", "right", "recto", "verso"}
+
+
 def normalize_color(raw_color: str) -> str | None:
     value = raw_color.strip().strip(";")
     if not value:
@@ -435,6 +442,7 @@ class _ParagraphHtmlParser(HTMLParser):
         self.first_line_indent_cm: float | None = None
         self.space_before_pt: float | None = None
         self.space_after_pt: float | None = None
+        self.is_page_break_before = False
         self.quote_level = 0
         self.max_quote_level = 0
         self._style_stack: list[dict] = [{}]
@@ -443,13 +451,14 @@ class _ParagraphHtmlParser(HTMLParser):
         attr_map = {key.lower(): value or "" for key, value in attrs}
         lower_tag = tag.lower()
 
-        if lower_tag in {"p", "div"}:
+        if lower_tag in {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6"}:
             css = _parse_css(attr_map.get("style", ""))
             self.alignment = attr_map.get("align") or css.get("text-align")
             self.line_spacing = _parse_line_height(css.get("line-height"))
             self.first_line_indent_cm = _parse_text_indent_cm(css.get("text-indent"))
             self.space_before_pt = _parse_css_pt(css.get("margin-top"))
             self.space_after_pt = _parse_css_pt(css.get("margin-bottom"))
+            self.is_page_break_before = _parse_page_break_before(css)
         if lower_tag == "blockquote":
             self.quote_level += 1
             self.max_quote_level = max(self.max_quote_level, self.quote_level)

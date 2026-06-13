@@ -208,6 +208,19 @@ class TestParagraphFormattingExtraction(unittest.TestCase):
 
         self.assertEqual(doc.paragraphs[0].space_after_pt, 12.0)
 
+    def test_page_break_before_extraction_from_heading_style(self):
+        html = '<h1 style="page-break-before: always;">1 引言</h1>'
+        project = Project(title="分页", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].level, 1)
+        self.assertTrue(doc.paragraphs[0].is_page_break_before)
+
 
 class TestUnknownSectionId(unittest.TestCase):
     def test_unknown_section_id_raises_valueerror(self):
