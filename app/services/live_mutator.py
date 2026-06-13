@@ -118,30 +118,8 @@ def _update_paragraph_style(html: str, prop_name: str, prop_value: str) -> str:
 
 
 def _update_first_run_font_size(html: str, value_pt: float) -> str:
-    """把 block HTML 里的首个 run（``<span>`` / ``<font>``）字号设为 ``value_pt``。
-
-    步骤：
-      1) 找 ``<p ...>...</p>``；无则包一层 ``<p>`` 即可。
-      2) 在内部内容里找第一个 ``<span>`` / ``<font>``，更新其 font-size。
-      3) 没有任何 run 时，把整个 inner 包在 ``<span style="font-size: ...pt">``。
-    """
-    p_open_re = re.compile(r"<p\b([^>]*)>(.*)</p>", re.IGNORECASE | re.DOTALL)
-    p_match = p_open_re.search(html or "")
-    if p_match is None:
-        return f'<p><span style="font-size: {value_pt}pt;">{html or ""}</span></p>'
-
-    p_attrs = p_match.group(1)
-    inner = p_match.group(2)
-    run_match = _RUN_TAG_RE.search(inner)
-    if run_match is None:
-        new_inner = f'<span style="font-size: {value_pt}pt;">{inner}</span>'
-    else:
-        tag_name = run_match.group(1)
-        tag_attrs = run_match.group(2)
-        new_tag_attrs = _set_style_property(tag_attrs, "font-size", f"{value_pt}pt")
-        new_tag = f"<{tag_name}{new_tag_attrs}>"
-        new_inner = inner[:run_match.start()] + new_tag + inner[run_match.end():]
-    return f"<p{p_attrs}>{new_inner}</p>"
+    """把 block HTML 里的首个 run 字号设为 ``value_pt``，并保留段落/标题标签。"""
+    return _update_first_run_style(html, "font-size", f"{value_pt}pt")
 
 
 def _update_first_run_style(html: str, prop_name: str, prop_value: str) -> str:
@@ -254,8 +232,16 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
         block.html = _update_first_run_style(block.html, "font-family", str(fix.value))
     elif target == "color_hex" and _is_runs_wildcard(fix.target):
         block.html = _update_all_runs_style(block.html, "color", f"#{str(fix.value).lstrip('#')}")
+    elif target == "color_hex":
+        block.html = _update_first_run_style(block.html, "color", f"#{str(fix.value).lstrip('#')}")
     elif target == "bold" and _is_runs_wildcard(fix.target):
         block.html = _update_all_runs_style(
+            block.html,
+            "font-weight",
+            "bold" if bool(fix.value) else "normal",
+        )
+    elif target == "bold":
+        block.html = _update_first_run_style(
             block.html,
             "font-weight",
             "bold" if bool(fix.value) else "normal",
@@ -266,8 +252,20 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
             "font-style",
             "italic" if bool(fix.value) else "normal",
         )
+    elif target == "italic":
+        block.html = _update_first_run_style(
+            block.html,
+            "font-style",
+            "italic" if bool(fix.value) else "normal",
+        )
     elif target == "underline" and _is_runs_wildcard(fix.target):
         block.html = _update_all_runs_style(
+            block.html,
+            "text-decoration",
+            "underline" if fix.value else "none",
+        )
+    elif target == "underline":
+        block.html = _update_first_run_style(
             block.html,
             "text-decoration",
             "underline" if fix.value else "none",
@@ -278,8 +276,20 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
             "background-color",
             _highlight_css_value(fix.value),
         )
+    elif target == "highlight":
+        block.html = _update_first_run_style(
+            block.html,
+            "background-color",
+            _highlight_css_value(fix.value),
+        )
     elif target == "vert_align" and _is_runs_wildcard(fix.target):
         block.html = _update_all_runs_style(
+            block.html,
+            "vertical-align",
+            _vert_align_css_value(fix.value),
+        )
+    elif target == "vert_align":
+        block.html = _update_first_run_style(
             block.html,
             "vertical-align",
             _vert_align_css_value(fix.value),

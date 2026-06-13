@@ -134,6 +134,21 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         # 首个 run 的 font-size 必须更新为 12pt
         self.assertIn("font-size: 12.0pt", block.html)
 
+    def test_apply_fix_run_font_size_preserves_heading_tag(self):
+        project = _make_project(["<h1>1 引言</h1>"])
+        checker = _FakeChecker({
+            "R012": Fix(action="set", target="run.font_size_pt", value=22.0),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R012", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertTrue(block.html.startswith("<h1"))
+        self.assertIn('<span style="font-size: 22.0pt;">1 引言</span>', block.html)
+
     def test_apply_fix_runs_wildcard_font_size_sets_all_runs(self):
         project = _make_project([
             '<p><span style="font-size: 10pt;">甲</span><span style="font-size: 14pt;">乙</span></p>'
@@ -201,6 +216,42 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         self.assertEqual(block.html.count("color: #000000"), 2)
         self.assertNotIn("#ff0000", block.html.lower())
         self.assertNotIn("color: blue", block.html.lower())
+
+    def test_apply_fix_run_bold_sets_first_run_only(self):
+        project = _make_project([
+            '<p><span style="font-weight: normal;">甲</span>'
+            '<span style="font-weight: normal;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R013": Fix(action="set", target="run.bold", value=True),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R013", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("font-weight: bold"), 1)
+        self.assertIn('<span style="font-weight: normal;">乙</span>', block.html)
+
+    def test_apply_fix_run_underline_clears_first_run_only(self):
+        project = _make_project([
+            '<p><span style="text-decoration: underline;">甲</span>'
+            '<span style="text-decoration: underline;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R014": Fix(action="set", target="run.underline", value=None),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R014", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("text-decoration: none"), 1)
+        self.assertEqual(block.html.count("text-decoration: underline"), 1)
 
     def test_apply_fix_runs_wildcard_highlight_clears_all_runs(self):
         project = _make_project([
