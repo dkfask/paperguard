@@ -384,6 +384,36 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         self.assertIn("page-break-before: always", block.html)
         self.assertNotIn("page-break-before: auto", block.html)
 
+    def test_apply_fix_level_changes_heading_tag_and_preserves_attrs(self):
+        project = _make_project(['<h2 style="text-align: left;">1.1 背景</h2>'])
+        checker = _FakeChecker({
+            "R015": Fix(action="set", target="paragraph.level", value=1),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R015", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertTrue(block.html.startswith('<h1 style="text-align: left;">'))
+        self.assertTrue(block.html.endswith("</h1>"))
+        self.assertNotIn("<h2", block.html)
+
+    def test_apply_fix_level_converts_plain_paragraph_to_heading(self):
+        project = _make_project(["<p>1 引言</p>"])
+        checker = _FakeChecker({
+            "R016": Fix(action="set", target="paragraph.level", value=3),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R016", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html, "<h3>1 引言</h3>")
+
 
 class TestApplyFixSignature(unittest.TestCase):
     """apply_fix 必须是单参数签名（Must-fix #1）。"""

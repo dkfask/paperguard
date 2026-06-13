@@ -61,6 +61,7 @@ SUPPORTED_RULE_IDS: frozenset[str] = frozenset({
     "font_size_pt",
     "first_line_indent_cm",
     "alignment",
+    "level",
     "is_page_break_before",
     "page_break_before",
     "font_eastasia",
@@ -115,6 +116,26 @@ def _update_paragraph_style(html: str, prop_name: str, prop_value: str) -> str:
     new_attrs = _set_style_property(p_match.group(2), prop_name, prop_value)
     new_tag = f"<{tag_name}{new_attrs}>"
     return html[:p_match.start()] + new_tag + html[p_match.end():]
+
+
+def _update_block_level(html: str, level: Any) -> str:
+    try:
+        n = int(level)
+    except (TypeError, ValueError):
+        return html
+    if n < 1 or n > 6:
+        return html
+
+    heading_tag = f"h{n}"
+    p_open_re = re.compile(r"<(p|div|h[1-6])\b([^>]*)>(.*)</\1>", re.IGNORECASE | re.DOTALL)
+    p_match = p_open_re.search(html or "")
+    if p_match is None:
+        return f"<{heading_tag}>{html or ''}</{heading_tag}>"
+
+    attrs = p_match.group(2)
+    inner = p_match.group(3)
+    replacement = f"<{heading_tag}{attrs}>{inner}</{heading_tag}>"
+    return html[:p_match.start()] + replacement + html[p_match.end():]
 
 
 def _update_first_run_font_size(html: str, value_pt: float) -> str:
@@ -216,6 +237,8 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
         block.html = _update_paragraph_style(block.html, "text-indent", f"{fix.value}cm")
     elif target == "alignment":
         block.html = _update_paragraph_style(block.html, "text-align", str(fix.value))
+    elif target == "level":
+        block.html = _update_block_level(block.html, fix.value)
     elif target in {"is_page_break_before", "page_break_before"}:
         block.html = _update_paragraph_style(
             block.html,
