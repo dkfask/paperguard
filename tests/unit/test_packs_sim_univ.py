@@ -31,7 +31,8 @@ def _para(style_id: str = "BodyText", level: int | None = None,
          space_before_pt: float = 0.0, space_after_pt: float = 0.0,
          font_size: float = 12.0, font_eastasia: str = "宋体",
          font_ascii: str = "Times New Roman",
-         is_page_break_before: bool = False) -> Paragraph:
+         is_page_break_before: bool = False,
+         alignment: str | None = None) -> Paragraph:
     return Paragraph(
         style_id=style_id, text="测试段", level=level,
         runs=(Run(text="测试段", font_eastasia=font_eastasia,
@@ -39,6 +40,7 @@ def _para(style_id: str = "BodyText", level: int | None = None,
         line_spacing=line_spacing, space_before_pt=space_before_pt,
         space_after_pt=space_after_pt, first_line_indent_cm=first_line_indent_cm,
         is_page_break_before=is_page_break_before,
+        alignment=alignment,
     )
 
 
@@ -67,6 +69,10 @@ class TestCoverRules(unittest.TestCase):
         # align != center → 触发
         doc = _doc(para)
         self.assertTrue(_has_finding(validate_docx(doc, PACK_ID), "PG-COVER-TITLE-CENTER"))
+
+    def test_PG_COVER_TITLE_CENTER_not_violated_when_centered(self):
+        doc = _doc(_para(style_id="CoverTitle", font_size=22.0, alignment="center"))
+        self.assertFalse(_has_finding(validate_docx(doc, PACK_ID), "PG-COVER-TITLE-CENTER"))
 
     def test_PG_COVER_TITLE_FONT_SIZE_violated_by_18pt(self):
         doc = _doc(_para(style_id="CoverTitle", font_size=18.0))
@@ -165,9 +171,17 @@ class TestFigureTableRules(unittest.TestCase):
         # 默认 align=None (left 兼容)，rule 检查 != center → left 也会触发
         self.assertTrue(_has_finding(validate_docx(doc, PACK_ID), "PG-FIGURE-CAPTION-ALIGN"))
 
+    def test_PG_FIGURE_CAPTION_ALIGN_not_violated_when_centered(self):
+        doc = _doc(_para(style_id="FigureCaption", alignment="center"))
+        self.assertFalse(_has_finding(validate_docx(doc, PACK_ID), "PG-FIGURE-CAPTION-ALIGN"))
+
     def test_PG_TABLE_CAPTION_ALIGN_violated_by_right(self):
         doc = _doc(_para(style_id="TableCaption"))
         self.assertTrue(_has_finding(validate_docx(doc, PACK_ID), "PG-TABLE-CAPTION-ALIGN"))
+
+    def test_PG_TABLE_CAPTION_ALIGN_not_violated_when_centered(self):
+        doc = _doc(_para(style_id="TableCaption", alignment="center"))
+        self.assertFalse(_has_finding(validate_docx(doc, PACK_ID), "PG-TABLE-CAPTION-ALIGN"))
 
 
 class TestSimUnivPackIntegration(unittest.TestCase):

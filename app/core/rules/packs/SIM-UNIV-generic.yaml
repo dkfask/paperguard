@@ -9,7 +9,7 @@ rules:
     scope: "paragraphs[?style_id == 'CoverTitle' || style_id == 'Cover' || style_id == '论文标题']"
     when:
       "!=":
-        - var: "align"
+        - var: "alignment"
         - "center"
     message: "论文封面标题应居中"
     fix:
@@ -255,7 +255,7 @@ rules:
     scope: "paragraphs[?style_id == 'FigureCaption' || style_id == '图注']"
     when:
       "!=":
-        - var: "align"
+        - var: "alignment"
         - "center"
     message: "图注应居中"
     fix:
@@ -268,7 +268,7 @@ rules:
     scope: "paragraphs[?style_id == 'TableCaption' || style_id == '表注']"
     when:
       "!=":
-        - var: "align"
+        - var: "alignment"
         - "center"
     message: "表注应居中"
     fix:
