@@ -129,6 +129,63 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertAlmostEqual(section.header_distance_cm, 1.4, places=1)
         self.assertAlmostEqual(section.footer_distance_cm, 1.6, places=1)
 
+    def test_written_docx_roundtrips_multiple_sections(self):
+        ir = Document(
+            sections=(
+                Section(
+                    page_width_cm=21.0,
+                    page_height_cm=29.7,
+                    margin_top_cm=2.0,
+                    margin_bottom_cm=2.0,
+                    margin_left_cm=2.5,
+                    margin_right_cm=2.5,
+                    header_distance_cm=1.2,
+                    footer_distance_cm=1.3,
+                    orientation="portrait",
+                ),
+                Section(
+                    page_width_cm=29.7,
+                    page_height_cm=21.0,
+                    margin_top_cm=1.5,
+                    margin_bottom_cm=1.6,
+                    margin_left_cm=1.7,
+                    margin_right_cm=1.8,
+                    header_distance_cm=1.4,
+                    footer_distance_cm=1.5,
+                    orientation="landscape",
+                ),
+            ),
+            paragraphs=(
+                Paragraph(
+                    style_id="Body Text",
+                    text="body",
+                    level=None,
+                    runs=(Run(text="body"),),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                ),
+            ),
+            metadata=DocumentMetadata(title="t"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sections.docx"
+            write_ir_to_docx(ir, str(path))
+            loaded = load_docx(path)
+
+        self.assertEqual(len(loaded.sections), 2)
+        first, second = loaded.sections
+        self.assertEqual(first.orientation, "portrait")
+        self.assertAlmostEqual(first.header_distance_cm, 1.2, places=1)
+        self.assertAlmostEqual(first.footer_distance_cm, 1.3, places=1)
+        self.assertEqual(second.orientation, "landscape")
+        self.assertAlmostEqual(second.margin_left_cm, 1.7, places=1)
+        self.assertAlmostEqual(second.margin_right_cm, 1.8, places=1)
+        self.assertAlmostEqual(second.header_distance_cm, 1.4, places=1)
+        self.assertAlmostEqual(second.footer_distance_cm, 1.5, places=1)
+
     def test_writes_run_font_variants_and_styles(self):
         ir = Document(
             sections=(Section(),),

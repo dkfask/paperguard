@@ -18,7 +18,7 @@ from app.core.ir import Document
 def write_ir_to_docx(ir: Document, output_path: str) -> None:
     """把 IR Document 写为 output_path (不破坏原文件)。"""
     import docx
-    from docx.enum.section import WD_ORIENT
+    from docx.enum.section import WD_ORIENT, WD_SECTION
     from docx.enum.text import WD_COLOR_INDEX, WD_PARAGRAPH_ALIGNMENT, WD_UNDERLINE
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
@@ -36,27 +36,10 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
 
     # sections（用第一个节或新建）
     if ir.sections:
-        s = ir.sections[0]
-        if s.page_width_cm:
-            doc.sections[0].page_width = Cm(s.page_width_cm)
-        if s.page_height_cm:
-            doc.sections[0].page_height = Cm(s.page_height_cm)
-        if s.margin_top_cm:
-            doc.sections[0].top_margin = Cm(s.margin_top_cm)
-        if s.margin_bottom_cm:
-            doc.sections[0].bottom_margin = Cm(s.margin_bottom_cm)
-        if s.margin_left_cm:
-            doc.sections[0].left_margin = Cm(s.margin_left_cm)
-        if s.margin_right_cm:
-            doc.sections[0].right_margin = Cm(s.margin_right_cm)
-        if s.header_distance_cm:
-            doc.sections[0].header_distance = Cm(s.header_distance_cm)
-        if s.footer_distance_cm:
-            doc.sections[0].footer_distance = Cm(s.footer_distance_cm)
-        if s.orientation == "landscape":
-            doc.sections[0].orientation = WD_ORIENT.LANDSCAPE
-        elif s.orientation == "portrait":
-            doc.sections[0].orientation = WD_ORIENT.PORTRAIT
+        _apply_section_layout(doc.sections[0], ir.sections[0], Cm, WD_ORIENT)
+        for s in ir.sections[1:]:
+            section = doc.add_section(WD_SECTION.NEW_PAGE)
+            _apply_section_layout(section, s, Cm, WD_ORIENT)
 
     # metadata: title
     if ir.metadata.title:
@@ -76,6 +59,29 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
         )
 
     doc.save(output_path)
+
+
+def _apply_section_layout(section, s, Cm, WD_ORIENT) -> None:
+    if s.page_width_cm:
+        section.page_width = Cm(s.page_width_cm)
+    if s.page_height_cm:
+        section.page_height = Cm(s.page_height_cm)
+    if s.margin_top_cm:
+        section.top_margin = Cm(s.margin_top_cm)
+    if s.margin_bottom_cm:
+        section.bottom_margin = Cm(s.margin_bottom_cm)
+    if s.margin_left_cm:
+        section.left_margin = Cm(s.margin_left_cm)
+    if s.margin_right_cm:
+        section.right_margin = Cm(s.margin_right_cm)
+    if s.header_distance_cm:
+        section.header_distance = Cm(s.header_distance_cm)
+    if s.footer_distance_cm:
+        section.footer_distance = Cm(s.footer_distance_cm)
+    if s.orientation == "landscape":
+        section.orientation = WD_ORIENT.LANDSCAPE
+    elif s.orientation == "portrait":
+        section.orientation = WD_ORIENT.PORTRAIT
 
 
 def _write_container_paragraphs(
