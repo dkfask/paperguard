@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import docx
+from docx.enum.section import WD_ORIENT
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
 
@@ -53,6 +54,80 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertAlmostEqual(fmt.first_line_indent.cm, 0.74, places=2)
         self.assertEqual(written.paragraphs[0].alignment, WD_PARAGRAPH_ALIGNMENT.CENTER)
         self.assertTrue(fmt.page_break_before)
+
+    def test_writes_section_orientation_and_header_footer_distances(self):
+        ir = Document(
+            sections=(
+                Section(
+                    page_width_cm=29.7,
+                    page_height_cm=21.0,
+                    margin_top_cm=2.0,
+                    margin_bottom_cm=2.2,
+                    margin_left_cm=2.4,
+                    margin_right_cm=2.6,
+                    header_distance_cm=1.4,
+                    footer_distance_cm=1.6,
+                    orientation="landscape",
+                ),
+            ),
+            paragraphs=(
+                Paragraph(
+                    style_id="Body Text",
+                    text="body",
+                    level=None,
+                    runs=(Run(text="body"),),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                ),
+            ),
+            metadata=DocumentMetadata(title="t"),
+        )
+
+        tmpdir, written = _write_and_open(ir)
+        self.addCleanup(tmpdir.cleanup)
+        section = written.sections[0]
+
+        self.assertEqual(section.orientation, WD_ORIENT.LANDSCAPE)
+        self.assertAlmostEqual(section.header_distance.cm, 1.4, places=1)
+        self.assertAlmostEqual(section.footer_distance.cm, 1.6, places=1)
+
+    def test_written_docx_roundtrips_section_orientation_and_header_footer_distances(self):
+        ir = Document(
+            sections=(
+                Section(
+                    page_width_cm=29.7,
+                    page_height_cm=21.0,
+                    header_distance_cm=1.4,
+                    footer_distance_cm=1.6,
+                    orientation="landscape",
+                ),
+            ),
+            paragraphs=(
+                Paragraph(
+                    style_id="Body Text",
+                    text="body",
+                    level=None,
+                    runs=(Run(text="body"),),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                ),
+            ),
+            metadata=DocumentMetadata(title="t"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "section.docx"
+            write_ir_to_docx(ir, str(path))
+            loaded = load_docx(path)
+
+        section = loaded.sections[0]
+        self.assertEqual(section.orientation, "landscape")
+        self.assertAlmostEqual(section.header_distance_cm, 1.4, places=1)
+        self.assertAlmostEqual(section.footer_distance_cm, 1.6, places=1)
 
     def test_writes_run_font_variants_and_styles(self):
         ir = Document(

@@ -18,6 +18,7 @@ from app.core.ir import Document
 def write_ir_to_docx(ir: Document, output_path: str) -> None:
     """把 IR Document 写为 output_path (不破坏原文件)。"""
     import docx
+    from docx.enum.section import WD_ORIENT
     from docx.enum.text import WD_COLOR_INDEX, WD_PARAGRAPH_ALIGNMENT, WD_UNDERLINE
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
@@ -48,6 +49,14 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
             doc.sections[0].left_margin = Cm(s.margin_left_cm)
         if s.margin_right_cm:
             doc.sections[0].right_margin = Cm(s.margin_right_cm)
+        if s.header_distance_cm:
+            doc.sections[0].header_distance = Cm(s.header_distance_cm)
+        if s.footer_distance_cm:
+            doc.sections[0].footer_distance = Cm(s.footer_distance_cm)
+        if s.orientation == "landscape":
+            doc.sections[0].orientation = WD_ORIENT.LANDSCAPE
+        elif s.orientation == "portrait":
+            doc.sections[0].orientation = WD_ORIENT.PORTRAIT
 
     # metadata: title
     if ir.metadata.title:
