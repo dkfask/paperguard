@@ -91,6 +91,10 @@ def _alignment_to_str(alignment) -> str | None:
         WD_PARAGRAPH_ALIGNMENT.CENTER: "center",
         WD_PARAGRAPH_ALIGNMENT.RIGHT: "right",
         WD_PARAGRAPH_ALIGNMENT.JUSTIFY: "justify",
+        WD_PARAGRAPH_ALIGNMENT.JUSTIFY_MED: "justify",
+        WD_PARAGRAPH_ALIGNMENT.JUSTIFY_HI: "justify",
+        WD_PARAGRAPH_ALIGNMENT.JUSTIFY_LOW: "justify",
+        WD_PARAGRAPH_ALIGNMENT.THAI_JUSTIFY: "justify",
         WD_PARAGRAPH_ALIGNMENT.DISTRIBUTE: "distribute",
     }
     return mapping.get(alignment)

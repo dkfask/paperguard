@@ -149,6 +149,36 @@ class TestFixWriteValidateLoop(unittest.TestCase):
         rule_ids = {f.rule_id for f in findings}
         self.assertNotIn("PG-BODY-ALIGNMENT", rule_ids)
 
+    def test_body_justification_variant_does_not_trigger_alignment_finding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "justify_variant.docx"
+            docx = DocxDocument()
+            normal = docx.styles["Normal"]
+            normal.paragraph_format.line_spacing = 1.5
+            normal.paragraph_format.space_before = Pt(0)
+            normal.paragraph_format.space_after = Pt(0)
+            normal.paragraph_format.first_line_indent = Cm(0.74)
+            normal.font.name = "Times New Roman"
+            normal.font.size = Pt(12)
+            rpr = normal.element.get_or_add_rPr()
+            rfonts = rpr.find(qn("w:rFonts"))
+            if rfonts is None:
+                rfonts = OxmlElement("w:rFonts")
+                rpr.append(rfonts)
+            rfonts.set(qn("w:eastAsia"), "瀹嬩綋")
+            rfonts.set(qn("w:ascii"), "Times New Roman")
+            rfonts.set(qn("w:hAnsi"), "Times New Roman")
+            paragraph = docx.add_paragraph("variant justified body")
+            paragraph.style = normal
+            paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY_MED
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        findings = validate_docx(loaded, PACK_ID)
+        self.assertEqual(loaded.paragraphs[0].alignment, "justify")
+        self.assertNotIn("PG-BODY-ALIGNMENT", {f.rule_id for f in findings})
+
     def test_body_alignment_fix_survives_docx_roundtrip(self):
         ir = Document(
             sections=(Section(),),

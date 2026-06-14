@@ -223,6 +223,20 @@ class TestLoadDocxParagraphStyleInheritance(unittest.TestCase):
 
         self.assertEqual(loaded.paragraphs[0].alignment, "justify")
 
+    def test_reads_word_justification_variants_as_justify(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "justify_variant.docx"
+            docx = DocxDocument()
+            paragraph = docx.add_paragraph("variant justify")
+            paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY_MED
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        self.assertEqual(loaded.paragraphs[0].alignment, "justify")
+
     def test_reads_spacing_from_paragraph_style_when_paragraph_has_no_direct_spacing(self):
         import tempfile
 
