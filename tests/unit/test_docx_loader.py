@@ -427,6 +427,21 @@ class TestLoadDocxTableParagraphs(unittest.TestCase):
             ["before table", "left cell", "right cell", "after table"],
         )
 
+    def test_reads_merged_table_cell_paragraph_once(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "merged_table_cell.docx"
+            docx = DocxDocument()
+            table = docx.add_table(rows=1, cols=2)
+            merged = table.cell(0, 0).merge(table.cell(0, 1))
+            merged.paragraphs[0].text = "merged cell"
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        self.assertEqual([paragraph.text for paragraph in loaded.paragraphs], ["merged cell"])
+
 
 if __name__ == "__main__":
     unittest.main()

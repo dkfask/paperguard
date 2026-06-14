@@ -528,8 +528,13 @@ def _iter_block_paragraphs(parent):
             yield DocxParagraph(child, parent)
         elif isinstance(child, CT_Tbl):
             table = DocxTable(child, parent)
+            seen_cells = set()
             for row in table.rows:
                 for cell in row.cells:
+                    marker = id(cell._tc)
+                    if marker in seen_cells:
+                        continue
+                    seen_cells.add(marker)
                     yield from _iter_block_paragraphs(cell)
 
 
