@@ -226,6 +226,8 @@ def _paragraph_alignment(value: str, WD_PARAGRAPH_ALIGNMENT):
 
 def _apply_paragraph_style(para, p, doc) -> None:
     """Apply heading level first, then fall back to explicit style_id."""
+    from docx.enum.style import WD_STYLE_TYPE
+
     candidates: list[str] = []
     if p.level is not None:
         candidates.append(f"Heading {p.level}")
@@ -239,6 +241,12 @@ def _apply_paragraph_style(para, p, doc) -> None:
                 return
         except (KeyError, AttributeError):
             continue
+
+    if p.style_id:
+        try:
+            para.style = doc.styles.add_style(p.style_id, WD_STYLE_TYPE.PARAGRAPH)
+        except (KeyError, ValueError, AttributeError):
+            return
 
 
 __all__ = ["write_ir_to_docx"]

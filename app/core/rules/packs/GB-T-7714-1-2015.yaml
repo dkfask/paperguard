@@ -74,7 +74,7 @@ rules:
     scope: "paragraphs[?style_id == 'Bibliography' || style_id == 'References' || style_id == '参考文献']"
     when:
       "!=":
-        - var: "align"
+        - var: "alignment"
         - "left"
     message: "参考文献应对齐（左对齐）"
     fix:
