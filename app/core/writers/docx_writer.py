@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from app.core.ir import Document
+from app.core.ir import Document, Run
 
 
 def write_ir_to_docx(ir: Document, output_path: str) -> None:
@@ -123,7 +123,8 @@ def _write_paragraph(
     WD_PARAGRAPH_ALIGNMENT,
 ) -> None:
     _apply_paragraph_style(para, p, doc)
-    for run in p.runs:
+    runs = p.runs or ((Run(text=p.text),) if p.text else ())
+    for run in runs:
         r = para.add_run(run.text)
         _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_UNDERLINE)
 

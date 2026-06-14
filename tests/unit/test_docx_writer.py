@@ -292,6 +292,32 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertEqual(run.highlight, "yellow")
         self.assertEqual(run.vert_align, "subscript")
 
+    def test_written_docx_preserves_paragraph_text_when_runs_are_empty(self):
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="Body Text",
+                    text="plain paragraph",
+                    level=None,
+                    runs=(),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                ),
+            ),
+            metadata=DocumentMetadata(title="t"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "plain.docx"
+            write_ir_to_docx(ir, str(path))
+            loaded = load_docx(path)
+
+        self.assertEqual(loaded.paragraphs[0].text, "plain paragraph")
+        self.assertEqual(loaded.paragraphs[0].runs[0].text, "plain paragraph")
+
     def test_written_docx_roundtrips_heading_level_through_loader(self):
         ir = Document(
             sections=(Section(),),
@@ -365,6 +391,43 @@ class TestDocxWriterFormatting(unittest.TestCase):
 
         self.assertEqual([p.text for p in loaded.header_paragraphs], ["论文题名"])
         self.assertEqual([p.text for p in loaded.footer_paragraphs], ["第 1 页"])
+
+    def test_written_docx_preserves_header_footer_text_when_runs_are_empty(self):
+        header = Paragraph(
+            style_id="Header",
+            text="plain header",
+            level=None,
+            runs=(),
+            line_spacing=1.0,
+            space_before_pt=0.0,
+            space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        footer = Paragraph(
+            style_id="Footer",
+            text="plain footer",
+            level=None,
+            runs=(),
+            line_spacing=1.0,
+            space_before_pt=0.0,
+            space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(),
+            metadata=DocumentMetadata(title="t"),
+            header_paragraphs=(header,),
+            footer_paragraphs=(footer,),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "header_footer_plain.docx"
+            write_ir_to_docx(ir, str(path))
+            loaded = load_docx(path)
+
+        self.assertEqual(loaded.header_paragraphs[0].text, "plain header")
+        self.assertEqual(loaded.footer_paragraphs[0].text, "plain footer")
 
 
 if __name__ == "__main__":
