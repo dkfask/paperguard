@@ -23,6 +23,52 @@ PACK_ID = "GB-T-7713-1-2006"
 
 
 class TestFixWriteValidateLoop(unittest.TestCase):
+    def test_style_inherited_body_run_decoration_triggers_decoration_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_body_decoration.docx"
+            docx = DocxDocument()
+            normal = docx.styles["Normal"]
+            normal.paragraph_format.line_spacing = 1.5
+            normal.paragraph_format.space_before = Pt(0)
+            normal.paragraph_format.space_after = Pt(0)
+            normal.paragraph_format.first_line_indent = Cm(0.74)
+            normal.paragraph_format.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+            normal.font.name = "Times New Roman"
+            normal.font.size = Pt(12)
+            rpr = normal.element.get_or_add_rPr()
+            rfonts = rpr.find(qn("w:rFonts"))
+            if rfonts is None:
+                rfonts = OxmlElement("w:rFonts")
+                rpr.append(rfonts)
+            rfonts.set(qn("w:eastAsia"), "宋体")
+            rfonts.set(qn("w:ascii"), "Times New Roman")
+            rfonts.set(qn("w:hAnsi"), "Times New Roman")
+            for tag in ("w:b", "w:i"):
+                if rpr.find(qn(tag)) is None:
+                    rpr.append(OxmlElement(tag))
+            underline = OxmlElement("w:u")
+            underline.set(qn("w:val"), "single")
+            rpr.append(underline)
+            highlight = OxmlElement("w:highlight")
+            highlight.set(qn("w:val"), "yellow")
+            rpr.append(highlight)
+            vert_align = OxmlElement("w:vertAlign")
+            vert_align.set(qn("w:val"), "superscript")
+            rpr.append(vert_align)
+            paragraph = docx.add_paragraph("styled decoration")
+            paragraph.style = normal
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        findings = validate_docx(loaded, PACK_ID)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertIn("PG-BODY-NO-BOLD", rule_ids)
+        self.assertIn("PG-BODY-NO-ITALIC", rule_ids)
+        self.assertIn("PG-BODY-NO-UNDERLINE", rule_ids)
+        self.assertIn("PG-BODY-NO-HIGHLIGHT", rule_ids)
+        self.assertIn("PG-BODY-NO-VERT-ALIGN", rule_ids)
+
     def test_style_inherited_body_run_font_does_not_trigger_font_findings(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "style_body_font.docx"

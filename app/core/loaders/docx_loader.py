@@ -233,6 +233,79 @@ def _font_size_from_rpr(rpr) -> float | None:
     return _half_points_to_pt(sz.get(qn("w:val")))
 
 
+_MISSING = object()
+
+
+def _bool_property_from_rpr(rpr, tag: str):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn(tag))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if val is not None and val.lower() in ("0", "false", "off"):
+        return False
+    return True
+
+
+def _underline_from_rpr(rpr):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn("w:u"))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if val in (None, "single"):
+        return "single"
+    if val in ("none", "0", "false"):
+        return None
+    return val
+
+
+def _color_from_rpr(rpr):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn("w:color"))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if not val or val.lower() == "auto":
+        return None
+    return val.upper()
+
+
+def _highlight_from_rpr(rpr):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn("w:highlight"))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if val and val.lower() not in ("none", "0", "false"):
+        return val.lower()
+    return None
+
+
+def _vert_align_from_rpr(rpr):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn("w:vertAlign"))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if val in ("superscript", "subscript"):
+        return val
+    return None
+
+
+def _with_style_fallback(direct, inherited, default=None):
+    if direct is not _MISSING:
+        return direct
+    if inherited is not _MISSING:
+        return inherited
+    return default
+
+
 def _load_run(run, paragraph=None) -> Run:
     """docx Run → IR Run。"""
     # 字体：eastAsia / ascii / hAnsi
@@ -283,6 +356,13 @@ def _load_run(run, paragraph=None) -> Run:
     else:
         highlight_value = None
 
+    bold = _with_style_fallback(_bool_property_from_rpr(rpr, "w:b"), _bool_property_from_rpr(style_rpr, "w:b"), False)
+    italic = _with_style_fallback(_bool_property_from_rpr(rpr, "w:i"), _bool_property_from_rpr(style_rpr, "w:i"), False)
+    underline = _with_style_fallback(_underline_from_rpr(rpr), _underline_from_rpr(style_rpr))
+    color_hex = _with_style_fallback(_color_from_rpr(rpr), _color_from_rpr(style_rpr))
+    highlight_value = _with_style_fallback(_highlight_from_rpr(rpr), _highlight_from_rpr(style_rpr))
+    vert_align_value = _with_style_fallback(_vert_align_from_rpr(rpr), _vert_align_from_rpr(style_rpr))
+
     return Run(
         text=run.text or "",
         font_eastasia=font_eastasia,
@@ -290,8 +370,8 @@ def _load_run(run, paragraph=None) -> Run:
         font_hansi=font_hansi,
         font_cs=font_cs,
         font_size_pt=font_size_pt,
-        bold=bool(run.bold),
-        italic=bool(run.italic),
+        bold=bold,
+        italic=italic,
         underline=underline,
         color_hex=color_hex,
         highlight=highlight_value,

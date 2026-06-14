@@ -328,6 +328,43 @@ class TestLoadDocxParagraphStyleInheritance(unittest.TestCase):
         self.assertEqual(loaded_run.font_hansi, "Times New Roman")
         self.assertEqual(loaded_run.font_size_pt, 12.0)
 
+    def test_reads_run_decoration_from_paragraph_style_when_run_has_no_direct_format(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "style_run_decoration.docx"
+            docx = DocxDocument()
+            style = docx.styles.add_style("PG Decoration Style", WD_STYLE_TYPE.PARAGRAPH)
+            rpr = style.element.get_or_add_rPr()
+            for tag in ("w:b", "w:i"):
+                if rpr.find(qn(tag)) is None:
+                    rpr.append(OxmlElement(tag))
+            underline = OxmlElement("w:u")
+            underline.set(qn("w:val"), "single")
+            rpr.append(underline)
+            color = OxmlElement("w:color")
+            color.set(qn("w:val"), "FF0000")
+            rpr.append(color)
+            highlight = OxmlElement("w:highlight")
+            highlight.set(qn("w:val"), "yellow")
+            rpr.append(highlight)
+            vert_align = OxmlElement("w:vertAlign")
+            vert_align.set(qn("w:val"), "superscript")
+            rpr.append(vert_align)
+            paragraph = docx.add_paragraph("styled decoration")
+            paragraph.style = style
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        loaded_run = loaded.paragraphs[0].runs[0]
+        self.assertTrue(loaded_run.bold)
+        self.assertTrue(loaded_run.italic)
+        self.assertEqual(loaded_run.underline, "single")
+        self.assertEqual(loaded_run.color_hex, "FF0000")
+        self.assertEqual(loaded_run.highlight, "yellow")
+        self.assertEqual(loaded_run.vert_align, "superscript")
+
 
 if __name__ == "__main__":
     unittest.main()
