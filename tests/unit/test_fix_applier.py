@@ -211,6 +211,48 @@ class TestApplyFix(unittest.TestCase):
         self.assertEqual(fixed.header_paragraphs, (header,))
         self.assertEqual(fixed.footer_paragraphs, (footer,))
 
+    def test_apply_fix_header_paragraph_alignment(self):
+        header = _para_text("header")
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(),
+            metadata=DocumentMetadata(title="t"),
+            header_paragraphs=(header,),
+        )
+        finding = Finding(
+            rule_id="R-HEADER-ALIGN",
+            severity=Severity.WARNING,
+            message="header alignment",
+            location=Location(section="header_paragraphs", paragraph_index=0, text_snippet="header"),
+            fix=Fix(action="set", target="paragraph.alignment", value="center"),
+        )
+
+        fixed = apply_fix(ir, finding)
+
+        self.assertEqual(fixed.header_paragraphs[0].alignment, "center")
+        self.assertEqual(ir.header_paragraphs[0].alignment, None)
+
+    def test_apply_fix_footer_paragraph_alignment(self):
+        footer = _para_text("footer")
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(),
+            metadata=DocumentMetadata(title="t"),
+            footer_paragraphs=(footer,),
+        )
+        finding = Finding(
+            rule_id="R-FOOTER-ALIGN",
+            severity=Severity.WARNING,
+            message="footer alignment",
+            location=Location(section="footer_paragraphs", paragraph_index=0, text_snippet="footer"),
+            fix=Fix(action="set", target="paragraph.alignment", value="right"),
+        )
+
+        fixed = apply_fix(ir, finding)
+
+        self.assertEqual(fixed.footer_paragraphs[0].alignment, "right")
+        self.assertEqual(ir.footer_paragraphs[0].alignment, None)
+
     def test_apply_all_fixes_applies_each_set(self):
         """apply_all_fixes 顺序应用多条 set fix"""
         para = _para(line_spacing=1.0, font_size=10.0)

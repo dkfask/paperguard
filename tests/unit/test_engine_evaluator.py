@@ -138,7 +138,7 @@ class TestEvaluateScope(unittest.TestCase):
         # 该测试只确认 __index__ 在 node 里能查到 idx
         self.assertEqual(node.get("__index__"), 0)
 
-    def test_scope_can_select_header_paragraphs_without_body_index(self):
+    def test_scope_can_select_header_paragraphs_with_container_index(self):
         header = _make_para(style_id="Header", text="paper title")
         doc = Document(
             sections=(),
@@ -151,7 +151,8 @@ class TestEvaluateScope(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
         idx, node = result[0]
-        self.assertIsNone(idx)
+        self.assertEqual(idx, 0)
+        self.assertEqual(node["__section__"], "header_paragraphs")
         self.assertEqual(node["text"], "paper title")
 
 

@@ -19,6 +19,7 @@ from app.core.ir import Document, Finding, Paragraph, Run
 _TARGET_ALIASES = {
     "paragraph.page_break_before": "paragraph.is_page_break_before",
 }
+_PARAGRAPH_SECTIONS = {"paragraphs", "header_paragraphs", "footer_paragraphs"}
 
 
 def _normalize_target(target: str) -> str:
@@ -33,25 +34,38 @@ def apply_fix(ir: Document, finding: Finding) -> Document:
     action = finding.fix.action
     target = _normalize_target(finding.fix.target)
     value = finding.fix.value
+    section_name = _paragraph_section(finding.location.section)
+    if section_name is None:
+        return ir
+    paragraphs = getattr(ir, section_name)
     para_idx = finding.location.paragraph_index
-    if para_idx is None or para_idx >= len(ir.paragraphs):
+    if para_idx is None or para_idx < 0 or para_idx >= len(paragraphs):
         return ir
 
     if action == "delete":
-        return _apply_delete(ir, target, para_idx)
+        return _apply_delete(ir, target, section_name, para_idx)
     if action == "insert":
-        return _apply_insert(ir, target, para_idx, value)
+        return _apply_insert(ir, target, section_name, para_idx, value)
     if action == "set":
-        return _apply_set(ir, target, para_idx, value)
+        return _apply_set(ir, target, section_name, para_idx, value)
     return ir
 
 
-def _apply_set(ir: Document, target: str, para_idx: int, value) -> Document:
+def _paragraph_section(section: str | None) -> str | None:
+    if section is None:
+        return "paragraphs"
+    if section in _PARAGRAPH_SECTIONS:
+        return section
+    return None
+
+
+def _apply_set(ir: Document, target: str, section_name: str, para_idx: int, value) -> Document:
     parts = target.split(".", 1)
     if len(parts) != 2:
         return ir
     section, attr = parts[0], parts[1]
-    orig_para = ir.paragraphs[para_idx]
+    paragraphs = getattr(ir, section_name)
+    orig_para = paragraphs[para_idx]
 
     if section == "paragraph":
         if not hasattr(orig_para, attr):
@@ -85,38 +99,45 @@ def _apply_set(ir: Document, target: str, para_idx: int, value) -> Document:
     else:
         return ir
 
-    new_paragraphs = list(ir.paragraphs)
+    new_paragraphs = list(paragraphs)
     new_paragraphs[para_idx] = new_para
-    return _replace_paragraphs(ir, tuple(new_paragraphs))
+    return _replace_paragraph_section(ir, section_name, tuple(new_paragraphs))
 
 
-def _apply_delete(ir: Document, target: str, para_idx: int) -> Document:
+def _apply_delete(ir: Document, target: str, section_name: str, para_idx: int) -> Document:
     if target != "paragraph":
         return ir
-    new_paragraphs = list(ir.paragraphs)
+    new_paragraphs = list(getattr(ir, section_name))
     del new_paragraphs[para_idx]
-    return _replace_paragraphs(ir, tuple(new_paragraphs))
+    return _replace_paragraph_section(ir, section_name, tuple(new_paragraphs))
 
 
-def _apply_insert(ir: Document, target: str, para_idx: int, value) -> Document:
+def _apply_insert(ir: Document, target: str, section_name: str, para_idx: int, value) -> Document:
     if target not in ("paragraph.before", "paragraph.after"):
         return ir
     new_para = _paragraph_from_value(value)
     if new_para is None:
         return ir
     insert_at = para_idx if target == "paragraph.before" else para_idx + 1
-    new_paragraphs = list(ir.paragraphs)
+    new_paragraphs = list(getattr(ir, section_name))
     new_paragraphs.insert(insert_at, new_para)
-    return _replace_paragraphs(ir, tuple(new_paragraphs))
+    return _replace_paragraph_section(ir, section_name, tuple(new_paragraphs))
 
 
-def _replace_paragraphs(ir: Document, paragraphs: tuple[Paragraph, ...]) -> Document:
+def _replace_paragraph_section(
+    ir: Document,
+    section_name: str,
+    paragraphs: tuple[Paragraph, ...],
+) -> Document:
+    body_paragraphs = paragraphs if section_name == "paragraphs" else ir.paragraphs
+    header_paragraphs = paragraphs if section_name == "header_paragraphs" else ir.header_paragraphs
+    footer_paragraphs = paragraphs if section_name == "footer_paragraphs" else ir.footer_paragraphs
     return Document(
         sections=ir.sections,
-        paragraphs=paragraphs,
+        paragraphs=body_paragraphs,
         metadata=ir.metadata,
-        header_paragraphs=ir.header_paragraphs,
-        footer_paragraphs=ir.footer_paragraphs,
+        header_paragraphs=header_paragraphs,
+        footer_paragraphs=footer_paragraphs,
     )
 
 

@@ -81,11 +81,14 @@ def _build_finding(
         raw_text = node.get("text")
         if isinstance(raw_text, str):
             text_snippet = raw_text
+    raw_section = node.get("__section__") if isinstance(node, dict) else None
+    section = raw_section if raw_section in ("header_paragraphs", "footer_paragraphs") else None
     return Finding(
         rule_id=rule.id,
         severity=rule.severity,
         message=rule.message,
         location=Location(
+            section=section,
             paragraph_index=paragraph_index,
             text_snippet=text_snippet,
         ),

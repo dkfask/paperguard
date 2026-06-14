@@ -79,9 +79,11 @@ def evaluate_scope(
     """
     doc_dict = document.to_dict()
 
-    # 注入 __index__ 到每个 paragraph
-    for i, p in enumerate(doc_dict.get("paragraphs", [])):
-        p["__index__"] = i
+    # Inject paragraph container metadata for reverse lookup by visitor/fixer.
+    for container_name in ("paragraphs", "header_paragraphs", "footer_paragraphs"):
+        for i, p in enumerate(doc_dict.get(container_name, [])):
+            p["__index__"] = i
+            p["__section__"] = container_name
 
     raw = _compile(scope).search(doc_dict)
 

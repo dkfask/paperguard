@@ -14,7 +14,10 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
 from app.core.engine import validate_docx
+from app.core.engine.loader import Rule, RulePack
+from app.core.engine.visitor import visit_document
 from app.core.ir import Document, DocumentMetadata, Paragraph, Run, Section
+from app.core.ir import Fix, Severity
 from app.core.loaders.docx_loader import load_docx
 from app.core.writers.docx_writer import write_ir_to_docx
 from app.core.writers.fix_applier import apply_all_fixes
@@ -227,6 +230,58 @@ class TestFixWriteValidateLoop(unittest.TestCase):
         post_findings = validate_docx(loaded, PACK_ID)
         post_rule_ids = {f.rule_id for f in post_findings}
         self.assertNotIn("PG-BODY-ALIGNMENT", post_rule_ids)
+        self.assertEqual(post_findings, [])
+
+    def test_header_alignment_fix_survives_docx_roundtrip(self):
+        header = Paragraph(
+            style_id="Header",
+            text="paper title",
+            level=None,
+            runs=(Run(text="paper title"),),
+            line_spacing=1.0,
+            space_before_pt=0.0,
+            space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+            alignment="left",
+        )
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(),
+            metadata=DocumentMetadata(title="header alignment loop"),
+            header_paragraphs=(header,),
+        )
+        pack = RulePack(
+            id="TEST-HEADER",
+            name="test header",
+            version="0.1.0",
+            rules=(
+                Rule(
+                    id="PG-HEADER-ALIGNMENT",
+                    severity=Severity.WARNING,
+                    scope="header_paragraphs[?alignment != 'center']",
+                    when={"!=": [{"var": "alignment"}, "center"]},
+                    message="header must be centered",
+                    fix=Fix(action="set", target="paragraph.alignment", value="center"),
+                ),
+            ),
+        )
+
+        pre_findings = visit_document(ir, pack)
+        self.assertEqual(len(pre_findings), 1)
+        self.assertEqual(pre_findings[0].location.section, "header_paragraphs")
+        self.assertEqual(pre_findings[0].location.paragraph_index, 0)
+
+        fixed, skipped = apply_all_fixes(ir, pre_findings)
+        self.assertEqual(skipped, [])
+        self.assertEqual(fixed.header_paragraphs[0].alignment, "center")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fixed_header.docx"
+            write_ir_to_docx(fixed, str(path))
+            loaded = load_docx(path)
+
+        post_findings = visit_document(loaded, pack)
+        self.assertEqual(loaded.header_paragraphs[0].alignment, "center")
         self.assertEqual(post_findings, [])
 
     def test_body_vert_align_fix_survives_docx_roundtrip(self):
