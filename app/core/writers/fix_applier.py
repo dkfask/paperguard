@@ -1,13 +1,12 @@
-"""FixApplier — 把 Finding.fix 应用到 IR Document，输出新 Document.
+"""Apply Finding.fix operations to immutable IR Documents.
 
-设计契约（plan §3.5）：
-- 不可变操作：frozen dataclass，每次修改返回新 Document
-- 只支持 action='set'（insert/delete/wrap 留 Sprint 5）
-- target 点分解析: 'paragraph.X' / 'run.X'
-- 未知 target / 非 set action → fail-safe 返原 IR
-- apply_all_fixes 返 (fixed_ir, remaining_findings)；remaining 含 fix=None 和未知 target 的 finding
+Supported actions are intentionally conservative:
+- set: paragraph.<attr>, run.<attr>, or runs.*.<attr>
+- insert: paragraph.before or paragraph.after
+- delete: paragraph
 
-借鉴 references/format-thesis-docx/scripts/apply_format.py:40-67 (set_run_property mapping)
+Unknown actions, targets, indexes, or malformed values return the original
+Document so callers can record the finding as remaining.
 """
 
 from __future__ import annotations
@@ -27,28 +26,34 @@ def _normalize_target(target: str) -> str:
 
 
 def apply_fix(ir: Document, finding: Finding) -> Document:
-    """对单个 Finding 应用 fix，返回新的 IR Document（不可变）。
-
-    失败安全：未知 target / 非 set action → 返原 ir。
-    """
-    if finding.fix is None or finding.fix.action != "set":
+    """Apply one finding fix and return a new Document when it succeeds."""
+    if finding.fix is None:
         return ir
 
+    action = finding.fix.action
     target = _normalize_target(finding.fix.target)
     value = finding.fix.value
     para_idx = finding.location.paragraph_index
     if para_idx is None or para_idx >= len(ir.paragraphs):
         return ir
 
+    if action == "delete":
+        return _apply_delete(ir, target, para_idx)
+    if action == "insert":
+        return _apply_insert(ir, target, para_idx, value)
+    if action == "set":
+        return _apply_set(ir, target, para_idx, value)
+    return ir
+
+
+def _apply_set(ir: Document, target: str, para_idx: int, value) -> Document:
     parts = target.split(".", 1)
     if len(parts) != 2:
         return ir
     section, attr = parts[0], parts[1]
-
     orig_para = ir.paragraphs[para_idx]
 
     if section == "paragraph":
-        # 设置段落级属性
         if not hasattr(orig_para, attr):
             return ir
         try:
@@ -56,7 +61,6 @@ def apply_fix(ir: Document, finding: Finding) -> Document:
         except (TypeError, ValueError):
             return ir
     elif section == "run":
-        # 设置第一个 run 的属性
         if not orig_para.runs:
             return ir
         first_run = orig_para.runs[0]
@@ -66,8 +70,7 @@ def apply_fix(ir: Document, finding: Finding) -> Document:
             new_first = replace(first_run, **{attr: value})
         except (TypeError, ValueError):
             return ir
-        new_runs = (new_first,) + orig_para.runs[1:]
-        new_para = replace(orig_para, runs=new_runs)
+        new_para = replace(orig_para, runs=(new_first,) + orig_para.runs[1:])
     elif section == "runs" and attr.startswith("*."):
         run_attr = attr[2:]
         if not orig_para.runs:
@@ -82,66 +85,115 @@ def apply_fix(ir: Document, finding: Finding) -> Document:
     else:
         return ir
 
-    # 构造新 Document
     new_paragraphs = list(ir.paragraphs)
     new_paragraphs[para_idx] = new_para
+    return _replace_paragraphs(ir, tuple(new_paragraphs))
+
+
+def _apply_delete(ir: Document, target: str, para_idx: int) -> Document:
+    if target != "paragraph":
+        return ir
+    new_paragraphs = list(ir.paragraphs)
+    del new_paragraphs[para_idx]
+    return _replace_paragraphs(ir, tuple(new_paragraphs))
+
+
+def _apply_insert(ir: Document, target: str, para_idx: int, value) -> Document:
+    if target not in ("paragraph.before", "paragraph.after"):
+        return ir
+    new_para = _paragraph_from_value(value)
+    if new_para is None:
+        return ir
+    insert_at = para_idx if target == "paragraph.before" else para_idx + 1
+    new_paragraphs = list(ir.paragraphs)
+    new_paragraphs.insert(insert_at, new_para)
+    return _replace_paragraphs(ir, tuple(new_paragraphs))
+
+
+def _replace_paragraphs(ir: Document, paragraphs: tuple[Paragraph, ...]) -> Document:
     return Document(
         sections=ir.sections,
-        paragraphs=tuple(new_paragraphs),
+        paragraphs=paragraphs,
         metadata=ir.metadata,
         header_paragraphs=ir.header_paragraphs,
         footer_paragraphs=ir.footer_paragraphs,
     )
 
 
+def _paragraph_from_value(value) -> Paragraph | None:
+    if isinstance(value, Paragraph):
+        return value
+    if not isinstance(value, dict):
+        return None
+    text = str(value.get("text", ""))
+    try:
+        return Paragraph(
+            style_id=str(value.get("style_id", "")),
+            text=text,
+            level=value.get("level"),
+            runs=_runs_from_value(value.get("runs"), text),
+            line_spacing=float(value.get("line_spacing", 1.0)),
+            space_before_pt=float(value.get("space_before_pt", 0.0)),
+            space_after_pt=float(value.get("space_after_pt", 0.0)),
+            first_line_indent_cm=float(value.get("first_line_indent_cm", 0.0)),
+            alignment=value.get("alignment"),
+            is_page_break_before=bool(value.get("is_page_break_before", False)),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _runs_from_value(value, fallback_text: str) -> tuple[Run, ...]:
+    if value is None:
+        return (Run(text=fallback_text),) if fallback_text else ()
+    if not isinstance(value, (list, tuple)):
+        return ()
+    runs: list[Run] = []
+    for item in value:
+        run = _run_from_value(item)
+        if run is None:
+            return ()
+        runs.append(run)
+    return tuple(runs)
+
+
+def _run_from_value(value) -> Run | None:
+    if isinstance(value, Run):
+        return value
+    if not isinstance(value, dict):
+        return None
+    try:
+        return Run(
+            text=str(value.get("text", "")),
+            font_eastasia=value.get("font_eastasia"),
+            font_ascii=value.get("font_ascii"),
+            font_hansi=value.get("font_hansi"),
+            font_cs=value.get("font_cs"),
+            font_size_pt=value.get("font_size_pt"),
+            bold=bool(value.get("bold", False)),
+            italic=bool(value.get("italic", False)),
+            underline=value.get("underline"),
+            color_hex=value.get("color_hex"),
+            highlight=value.get("highlight"),
+            vert_align=value.get("vert_align"),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 def apply_all_fixes(
     ir: Document, findings: list[Finding]
 ) -> tuple[Document, list[Finding]]:
-    """顺序应用全部 fix，返回 (fixed_ir, remaining_findings).
-
-    remaining 含：
-    - fix=None 的 finding（无法自动 fix）
-    - 未知 target 的 finding（fail-safe 跳过）
-    - 非 set action 的 finding（MVP 不支持）
-    """
+    """Apply fixes in order and return (fixed_ir, remaining_findings)."""
     current_ir = ir
     remaining: list[Finding] = []
-    for f in findings:
-        if f.fix is None:
-            remaining.append(f)
+    for finding in findings:
+        if finding.fix is None:
+            remaining.append(finding)
             continue
-        if f.fix.action != "set":
-            remaining.append(f)
-            continue
-        # 检查 target 是否可解析（避免多余 IR 重建）
-        target = _normalize_target(f.fix.target)
-        parts = target.split(".", 1)
-        if len(parts) != 2:
-            remaining.append(f)
-            continue
-        section, attr = parts[0], parts[1]
-        para_idx = f.location.paragraph_index
-        if para_idx is None or para_idx >= len(current_ir.paragraphs):
-            remaining.append(f)
-            continue
-        orig_para = current_ir.paragraphs[para_idx]
-        if section == "paragraph" and not hasattr(orig_para, attr):
-            remaining.append(f)
-            continue
-        if section == "run" and (not orig_para.runs or not hasattr(orig_para.runs[0], attr)):
-            remaining.append(f)
-            continue
-        if section == "runs":
-            if not attr.startswith("*."):
-                remaining.append(f)
-                continue
-            run_attr = attr[2:]
-            if not orig_para.runs or any(not hasattr(run, run_attr) for run in orig_para.runs):
-                remaining.append(f)
-                continue
-        new_ir = apply_fix(current_ir, f)
+        new_ir = apply_fix(current_ir, finding)
         if new_ir is current_ir:
-            remaining.append(f)
+            remaining.append(finding)
         else:
             current_ir = new_ir
     return current_ir, remaining

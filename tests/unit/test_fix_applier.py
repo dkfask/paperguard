@@ -71,6 +71,19 @@ def _finding(target: str, value, paragraph_index: int = 0,
     )
 
 
+def _para_text(text: str) -> Paragraph:
+    return Paragraph(
+        style_id="Body Text",
+        text=text,
+        level=None,
+        runs=(Run(text=text, font_eastasia="Songti", font_size_pt=12.0),),
+        line_spacing=1.5,
+        space_before_pt=0.0,
+        space_after_pt=0.0,
+        first_line_indent_cm=0.74,
+    )
+
+
 class TestApplyFix(unittest.TestCase):
 
     def test_apply_fix_paragraph_line_spacing(self):
@@ -127,6 +140,43 @@ class TestApplyFix(unittest.TestCase):
         ir = _doc((para,))
         fixed = apply_fix(ir, _finding("paragraph.line_spacing", 1.5, action="insert"))
         self.assertEqual(fixed.paragraphs[0].line_spacing, 1.0)
+
+    def test_apply_fix_delete_paragraph(self):
+        first = _para_text("first")
+        second = _para_text("second")
+        ir = _doc((first, second))
+
+        fixed = apply_fix(ir, _finding("paragraph", None, paragraph_index=0, action="delete"))
+
+        self.assertEqual([p.text for p in fixed.paragraphs], ["second"])
+        self.assertEqual([p.text for p in ir.paragraphs], ["first", "second"])
+
+    def test_apply_fix_insert_paragraph_after_from_dict(self):
+        first = _para_text("first")
+        ir = _doc((first,))
+        new_para = {
+            "style_id": "Body Text",
+            "text": "inserted",
+            "runs": [{"text": "inserted", "font_size_pt": 12.0}],
+            "line_spacing": 1.5,
+            "space_before_pt": 0.0,
+            "space_after_pt": 0.0,
+            "first_line_indent_cm": 0.74,
+        }
+
+        fixed = apply_fix(ir, _finding("paragraph.after", new_para, action="insert"))
+
+        self.assertEqual([p.text for p in fixed.paragraphs], ["first", "inserted"])
+        self.assertEqual(fixed.paragraphs[1].runs[0].text, "inserted")
+
+    def test_apply_fix_insert_paragraph_before_from_ir(self):
+        first = _para_text("first")
+        inserted = _para_text("inserted")
+        ir = _doc((first,))
+
+        fixed = apply_fix(ir, _finding("paragraph.before", inserted, action="insert"))
+
+        self.assertEqual([p.text for p in fixed.paragraphs], ["inserted", "first"])
 
     def test_apply_fix_preserves_immutability(self):
         """原 IR 不可变：apply_fix 后原 IR 段属性不变"""
@@ -209,6 +259,21 @@ class TestApplyFix(unittest.TestCase):
         self.assertEqual(fixed.paragraphs[0].line_spacing, 1.0)
         # remaining 含原 finding（无法 fix 但记录在 remaining）
         self.assertEqual(len(remaining), 1)
+
+
+    def test_apply_all_fixes_applies_insert_and_delete_actions(self):
+        first = _para_text("first")
+        second = _para_text("second")
+        ir = _doc((first, second))
+        inserted = _para_text("inserted")
+
+        fixed, remaining = apply_all_fixes(ir, [
+            _finding("paragraph.after", inserted, paragraph_index=0, action="insert"),
+            _finding("paragraph", None, paragraph_index=2, action="delete"),
+        ])
+
+        self.assertEqual(remaining, [])
+        self.assertEqual([p.text for p in fixed.paragraphs], ["first", "inserted"])
 
 
 if __name__ == "__main__":
