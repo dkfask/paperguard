@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from docx import Document as DocxDocument
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -23,6 +24,37 @@ PACK_ID = "GB-T-7713-1-2006"
 
 
 class TestFixWriteValidateLoop(unittest.TestCase):
+    def test_body_text_inherits_valid_formatting_from_normal_base_style(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "body_text_base_style.docx"
+            docx = DocxDocument()
+            base = docx.styles.add_style("PG Valid Base", WD_STYLE_TYPE.PARAGRAPH)
+            base.paragraph_format.line_spacing = 1.5
+            base.paragraph_format.space_before = Pt(0)
+            base.paragraph_format.space_after = Pt(0)
+            base.paragraph_format.first_line_indent = Cm(0.74)
+            base.paragraph_format.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+            base.font.name = "Times New Roman"
+            base.font.size = Pt(12)
+            base_rpr = base.element.get_or_add_rPr()
+            base_rfonts = base_rpr.find(qn("w:rFonts"))
+            if base_rfonts is None:
+                base_rfonts = OxmlElement("w:rFonts")
+                base_rpr.append(base_rfonts)
+            base_rfonts.set(qn("w:eastAsia"), "宋体")
+            base_rfonts.set(qn("w:ascii"), "Times New Roman")
+            base_rfonts.set(qn("w:hAnsi"), "Times New Roman")
+            normal = docx.styles["Normal"]
+            normal.base_style = base
+            paragraph = docx.add_paragraph("normal inherits valid base")
+            paragraph.style = normal
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        findings = validate_docx(loaded, PACK_ID)
+        self.assertEqual(findings, [])
+
     def test_style_inherited_body_run_decoration_triggers_decoration_findings(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "style_body_decoration.docx"

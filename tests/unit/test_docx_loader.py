@@ -365,6 +365,46 @@ class TestLoadDocxParagraphStyleInheritance(unittest.TestCase):
         self.assertEqual(loaded_run.highlight, "yellow")
         self.assertEqual(loaded_run.vert_align, "superscript")
 
+    def test_reads_paragraph_and_run_formatting_from_base_style_chain(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "base_style_chain.docx"
+            docx = DocxDocument()
+            base = docx.styles.add_style("PG Base Style", WD_STYLE_TYPE.PARAGRAPH)
+            base.paragraph_format.line_spacing = 1.5
+            base.paragraph_format.space_before = Pt(3)
+            base.paragraph_format.space_after = Pt(6)
+            base.paragraph_format.first_line_indent = Cm(0.74)
+            base.paragraph_format.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+            base.font.size = Pt(12)
+            base_rpr = base.element.get_or_add_rPr()
+            base_rfonts = base_rpr.find(qn("w:rFonts"))
+            if base_rfonts is None:
+                base_rfonts = OxmlElement("w:rFonts")
+                base_rpr.append(base_rfonts)
+            base_rfonts.set(qn("w:eastAsia"), "宋体")
+            base_rfonts.set(qn("w:ascii"), "Times New Roman")
+            base_rfonts.set(qn("w:hAnsi"), "Times New Roman")
+            child = docx.styles.add_style("PG Child Style", WD_STYLE_TYPE.PARAGRAPH)
+            child.base_style = base
+            paragraph = docx.add_paragraph("base inherited text")
+            paragraph.style = child
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        paragraph = loaded.paragraphs[0]
+        self.assertEqual(paragraph.alignment, "justify")
+        self.assertAlmostEqual(paragraph.line_spacing, 1.5, places=2)
+        self.assertEqual(paragraph.space_before_pt, 3.0)
+        self.assertEqual(paragraph.space_after_pt, 6.0)
+        self.assertAlmostEqual(paragraph.first_line_indent_cm, 0.74, places=2)
+        self.assertEqual(paragraph.runs[0].font_eastasia, "宋体")
+        self.assertEqual(paragraph.runs[0].font_ascii, "Times New Roman")
+        self.assertEqual(paragraph.runs[0].font_hansi, "Times New Roman")
+        self.assertEqual(paragraph.runs[0].font_size_pt, 12.0)
+
 
 if __name__ == "__main__":
     unittest.main()

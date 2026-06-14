@@ -96,19 +96,39 @@ def _alignment_to_str(alignment) -> str | None:
     return mapping.get(alignment)
 
 
+def _style_chain(style):
+    seen = set()
+    while style is not None:
+        marker = id(style)
+        if marker in seen:
+            break
+        seen.add(marker)
+        yield style
+        style = style.base_style
+
+
+def _paragraph_styles(paragraph):
+    if paragraph.style is None:
+        return ()
+    return tuple(_style_chain(paragraph.style))
+
+
 def _paragraph_alignment_to_str(paragraph) -> str | None:
     direct = _alignment_to_str(paragraph.alignment)
     if direct is not None:
         return direct
-    if paragraph.style is None:
-        return None
-    return _alignment_to_str(paragraph.style.paragraph_format.alignment)
+    for style in _paragraph_styles(paragraph):
+        alignment = _alignment_to_str(style.paragraph_format.alignment)
+        if alignment is not None:
+            return alignment
+    return None
 
 
 def _style_paragraph_format(paragraph):
-    if paragraph.style is None:
+    styles = _paragraph_styles(paragraph)
+    if not styles:
         return None
-    return paragraph.style.paragraph_format
+    return styles[0].paragraph_format
 
 
 def _length_to_pt(length) -> float:
@@ -124,41 +144,46 @@ def _length_to_cm(length) -> float:
 
 
 def _style_line_spacing(paragraph) -> float:
-    paragraph_format = _style_paragraph_format(paragraph)
-    if paragraph_format is None or paragraph_format.line_spacing is None:
-        return 1.0
-    value = paragraph_format.line_spacing
-    if isinstance(value, (int, float)):
-        return float(value)
-    return _length_to_pt(value)
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.line_spacing
+        if value is None:
+            continue
+        if isinstance(value, (int, float)):
+            return float(value)
+        return _length_to_pt(value)
+    return 1.0
 
 
 def _style_space_before_pt(paragraph) -> float:
-    paragraph_format = _style_paragraph_format(paragraph)
-    if paragraph_format is None:
-        return 0.0
-    return _length_to_pt(paragraph_format.space_before)
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.space_before
+        if value is not None:
+            return _length_to_pt(value)
+    return 0.0
 
 
 def _style_space_after_pt(paragraph) -> float:
-    paragraph_format = _style_paragraph_format(paragraph)
-    if paragraph_format is None:
-        return 0.0
-    return _length_to_pt(paragraph_format.space_after)
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.space_after
+        if value is not None:
+            return _length_to_pt(value)
+    return 0.0
 
 
 def _style_first_line_indent_cm(paragraph) -> float:
-    paragraph_format = _style_paragraph_format(paragraph)
-    if paragraph_format is None:
-        return 0.0
-    return _length_to_cm(paragraph_format.first_line_indent)
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.first_line_indent
+        if value is not None:
+            return _length_to_cm(value)
+    return 0.0
 
 
 def _style_page_break_before(paragraph) -> bool:
-    paragraph_format = _style_paragraph_format(paragraph)
-    if paragraph_format is None:
-        return False
-    return bool(paragraph_format.page_break_before)
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.page_break_before
+        if value is not None:
+            return bool(value)
+    return False
 
 
 def _first_line_indent_to_cm(paragraph) -> float:
@@ -210,6 +235,10 @@ def _style_rpr(paragraph):
     return paragraph.style.element.find(qn("w:rPr"))
 
 
+def _style_rprs(paragraph):
+    return tuple(style.element.find(qn("w:rPr")) for style in _paragraph_styles(paragraph))
+
+
 def _rfonts_from_rpr(rpr) -> tuple[str | None, str | None, str | None, str | None]:
     if rpr is None:
         return None, None, None, None
@@ -224,6 +253,20 @@ def _rfonts_from_rpr(rpr) -> tuple[str | None, str | None, str | None, str | Non
     )
 
 
+def _style_rfonts(paragraph) -> tuple[str | None, str | None, str | None, str | None]:
+    font_eastasia = None
+    font_ascii = None
+    font_hansi = None
+    font_cs = None
+    for rpr in _style_rprs(paragraph):
+        rpr_eastasia, rpr_ascii, rpr_hansi, rpr_cs = _rfonts_from_rpr(rpr)
+        font_eastasia = font_eastasia or rpr_eastasia
+        font_ascii = font_ascii or rpr_ascii
+        font_hansi = font_hansi or rpr_hansi
+        font_cs = font_cs or rpr_cs
+    return font_eastasia, font_ascii, font_hansi, font_cs
+
+
 def _font_size_from_rpr(rpr) -> float | None:
     if rpr is None:
         return None
@@ -231,6 +274,14 @@ def _font_size_from_rpr(rpr) -> float | None:
     if sz is None:
         return None
     return _half_points_to_pt(sz.get(qn("w:val")))
+
+
+def _style_font_size_pt(paragraph) -> float | None:
+    for rpr in _style_rprs(paragraph):
+        value = _font_size_from_rpr(rpr)
+        if value is not None:
+            return value
+    return None
 
 
 _MISSING = object()
@@ -306,13 +357,20 @@ def _with_style_fallback(direct, inherited, default=None):
     return default
 
 
+def _style_rpr_value(paragraph, reader):
+    for rpr in _style_rprs(paragraph):
+        value = reader(rpr)
+        if value is not _MISSING:
+            return value
+    return _MISSING
+
+
 def _load_run(run, paragraph=None) -> Run:
     """docx Run → IR Run。"""
     # 字体：eastAsia / ascii / hAnsi
     rpr = run._r.find(qn("w:rPr"))
-    style_rpr = _style_rpr(paragraph)
-    font_eastasia, font_ascii, font_hansi, font_cs = _rfonts_from_rpr(style_rpr)
-    font_size_pt = _font_size_from_rpr(style_rpr)
+    font_eastasia, font_ascii, font_hansi, font_cs = _style_rfonts(paragraph)
+    font_size_pt = _style_font_size_pt(paragraph)
     underline = None
     color_hex = None
     vert_align_value = None
@@ -356,12 +414,20 @@ def _load_run(run, paragraph=None) -> Run:
     else:
         highlight_value = None
 
-    bold = _with_style_fallback(_bool_property_from_rpr(rpr, "w:b"), _bool_property_from_rpr(style_rpr, "w:b"), False)
-    italic = _with_style_fallback(_bool_property_from_rpr(rpr, "w:i"), _bool_property_from_rpr(style_rpr, "w:i"), False)
-    underline = _with_style_fallback(_underline_from_rpr(rpr), _underline_from_rpr(style_rpr))
-    color_hex = _with_style_fallback(_color_from_rpr(rpr), _color_from_rpr(style_rpr))
-    highlight_value = _with_style_fallback(_highlight_from_rpr(rpr), _highlight_from_rpr(style_rpr))
-    vert_align_value = _with_style_fallback(_vert_align_from_rpr(rpr), _vert_align_from_rpr(style_rpr))
+    bold = _with_style_fallback(
+        _bool_property_from_rpr(rpr, "w:b"),
+        _style_rpr_value(paragraph, lambda style_rpr: _bool_property_from_rpr(style_rpr, "w:b")),
+        False,
+    )
+    italic = _with_style_fallback(
+        _bool_property_from_rpr(rpr, "w:i"),
+        _style_rpr_value(paragraph, lambda style_rpr: _bool_property_from_rpr(style_rpr, "w:i")),
+        False,
+    )
+    underline = _with_style_fallback(_underline_from_rpr(rpr), _style_rpr_value(paragraph, _underline_from_rpr))
+    color_hex = _with_style_fallback(_color_from_rpr(rpr), _style_rpr_value(paragraph, _color_from_rpr))
+    highlight_value = _with_style_fallback(_highlight_from_rpr(rpr), _style_rpr_value(paragraph, _highlight_from_rpr))
+    vert_align_value = _with_style_fallback(_vert_align_from_rpr(rpr), _style_rpr_value(paragraph, _vert_align_from_rpr))
 
     return Run(
         text=run.text or "",
