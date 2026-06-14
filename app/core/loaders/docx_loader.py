@@ -509,6 +509,30 @@ def _load_paragraph(paragraph) -> Paragraph:
     )
 
 
+def _iter_block_paragraphs(parent):
+    from docx.oxml.table import CT_Tbl
+    from docx.oxml.text.paragraph import CT_P
+    from docx.table import Table as DocxTable
+    from docx.table import _Cell
+    from docx.text.paragraph import Paragraph as DocxParagraph
+
+    if isinstance(parent, DocxDocumentType):
+        parent_element = parent.element.body
+    elif isinstance(parent, _Cell):
+        parent_element = parent._tc
+    else:
+        parent_element = parent._element
+
+    for child in parent_element.iterchildren():
+        if isinstance(child, CT_P):
+            yield DocxParagraph(child, parent)
+        elif isinstance(child, CT_Tbl):
+            table = DocxTable(child, parent)
+            for row in table.rows:
+                for cell in row.cells:
+                    yield from _iter_block_paragraphs(cell)
+
+
 def _load_metadata(doc: DocxDocumentType) -> DocumentMetadata:
     """从 docx 的 core_properties 取元数据。"""
     props = doc.core_properties
@@ -540,7 +564,7 @@ def load_docx(path: str | Path) -> Document:
         raise ValueError(f"无法解析 docx 文件 {path}: {e}") from e
 
     sections = tuple(_load_section(s) for s in docx.sections)
-    paragraphs = tuple(_load_paragraph(p) for p in docx.paragraphs)
+    paragraphs = tuple(_load_paragraph(p) for p in _iter_block_paragraphs(docx))
     metadata = _load_metadata(docx)
 
     return Document(

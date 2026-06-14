@@ -406,5 +406,27 @@ class TestLoadDocxParagraphStyleInheritance(unittest.TestCase):
         self.assertEqual(paragraph.runs[0].font_size_pt, 12.0)
 
 
+class TestLoadDocxTableParagraphs(unittest.TestCase):
+    def test_reads_table_cell_paragraphs_in_document_order(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table_paragraphs.docx"
+            docx = DocxDocument()
+            docx.add_paragraph("before table")
+            table = docx.add_table(rows=1, cols=2)
+            table.cell(0, 0).paragraphs[0].text = "left cell"
+            table.cell(0, 1).paragraphs[0].text = "right cell"
+            docx.add_paragraph("after table")
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        self.assertEqual(
+            [paragraph.text for paragraph in loaded.paragraphs],
+            ["before table", "left cell", "right cell", "after table"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
