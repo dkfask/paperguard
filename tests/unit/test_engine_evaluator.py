@@ -138,6 +138,22 @@ class TestEvaluateScope(unittest.TestCase):
         # 该测试只确认 __index__ 在 node 里能查到 idx
         self.assertEqual(node.get("__index__"), 0)
 
+    def test_scope_can_select_header_paragraphs_without_body_index(self):
+        header = _make_para(style_id="Header", text="paper title")
+        doc = Document(
+            sections=(),
+            paragraphs=(),
+            metadata=DocumentMetadata(title="test"),
+            header_paragraphs=(header,),
+        )
+
+        result = evaluate_scope("header_paragraphs[*]", doc)
+
+        self.assertEqual(len(result), 1)
+        idx, node = result[0]
+        self.assertIsNone(idx)
+        self.assertEqual(node["text"], "paper title")
+
 
 # ---------------------------------------------------------------------------
 # evaluate_when — JSONLogic 单节点求值

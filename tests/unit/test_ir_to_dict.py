@@ -125,6 +125,30 @@ class TestDocumentToDict(unittest.TestCase):
         self.assertIsInstance(d["sections"][0], dict)
         self.assertIsInstance(d["metadata"], dict)
 
+    def test_document_to_dict_includes_header_and_footer_paragraphs(self):
+        header = Paragraph(
+            style_id="Header", text="header", level=None, runs=(),
+            line_spacing=1.0, space_before_pt=0.0, space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        footer = Paragraph(
+            style_id="Footer", text="footer", level=None, runs=(),
+            line_spacing=1.0, space_before_pt=0.0, space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        doc = Document(
+            sections=(),
+            paragraphs=(),
+            metadata=DocumentMetadata(title="test"),
+            header_paragraphs=(header,),
+            footer_paragraphs=(footer,),
+        )
+
+        d = doc.to_dict()
+
+        self.assertEqual(d["header_paragraphs"][0]["text"], "header")
+        self.assertEqual(d["footer_paragraphs"][0]["text"], "footer")
+
 
 class TestToDictIsJmespathSearchable(unittest.TestCase):
     """**集成验证**：to_dict() 的结果必须可被 jmespath filter（Sprint 2 evaluator 关键依赖）。

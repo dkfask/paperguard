@@ -155,6 +155,30 @@ class TestDocument(unittest.TestCase):
         self.assertIsInstance(doc.sections, tuple)
         self.assertIsInstance(doc.paragraphs, tuple)
 
+    def test_header_and_footer_paragraphs_are_separate_tuples(self):
+        header = Paragraph(
+            style_id="Header", text="header", level=None, runs=(),
+            line_spacing=1.0, space_before_pt=0.0, space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        footer = Paragraph(
+            style_id="Footer", text="footer", level=None, runs=(),
+            line_spacing=1.0, space_before_pt=0.0, space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        doc = Document(
+            sections=(),
+            paragraphs=(),
+            metadata=DocumentMetadata(),
+            header_paragraphs=(header,),
+            footer_paragraphs=(footer,),
+        )
+
+        self.assertIsInstance(doc.header_paragraphs, tuple)
+        self.assertIsInstance(doc.footer_paragraphs, tuple)
+        self.assertEqual(doc.header_paragraphs[0].text, "header")
+        self.assertEqual(doc.footer_paragraphs[0].text, "footer")
+
 
 class TestFinding(unittest.TestCase):
     def test_construction_minimal(self):

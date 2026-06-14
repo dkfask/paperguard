@@ -136,6 +136,31 @@ class TestApplyFix(unittest.TestCase):
         # 关键：原 IR 的段 line_spacing 仍是 1.0（不可变）
         self.assertEqual(ir.paragraphs[0].line_spacing, 1.0)
 
+    def test_apply_fix_preserves_header_and_footer_paragraphs(self):
+        para = _para(line_spacing=1.0)
+        header = Paragraph(
+            style_id="Header", text="header", level=None, runs=(),
+            line_spacing=1.0, space_before_pt=0.0, space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        footer = Paragraph(
+            style_id="Footer", text="footer", level=None, runs=(),
+            line_spacing=1.0, space_before_pt=0.0, space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(para,),
+            metadata=DocumentMetadata(title="t"),
+            header_paragraphs=(header,),
+            footer_paragraphs=(footer,),
+        )
+
+        fixed = apply_fix(ir, _finding("paragraph.line_spacing", 1.5))
+
+        self.assertEqual(fixed.header_paragraphs, (header,))
+        self.assertEqual(fixed.footer_paragraphs, (footer,))
+
     def test_apply_all_fixes_applies_each_set(self):
         """apply_all_fixes 顺序应用多条 set fix"""
         para = _para(line_spacing=1.0, font_size=10.0)

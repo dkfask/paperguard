@@ -89,6 +89,8 @@ def apply_fix(ir: Document, finding: Finding) -> Document:
         sections=ir.sections,
         paragraphs=tuple(new_paragraphs),
         metadata=ir.metadata,
+        header_paragraphs=ir.header_paragraphs,
+        footer_paragraphs=ir.footer_paragraphs,
     )
 
 

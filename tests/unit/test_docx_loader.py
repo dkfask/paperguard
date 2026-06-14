@@ -205,6 +205,25 @@ class TestLoadDocxErrors(unittest.TestCase):
             load_docx("nonexistent_zzz.docx")
 
 
+class TestLoadDocxHeaderFooterParagraphs(unittest.TestCase):
+    def test_loads_header_and_footer_paragraphs_separately_from_body(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "header_footer.docx"
+            docx = DocxDocument()
+            docx.sections[0].header.paragraphs[0].text = "论文题名"
+            docx.sections[0].footer.paragraphs[0].text = "第 1 页"
+            docx.add_paragraph("正文内容")
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        self.assertEqual([p.text for p in loaded.paragraphs], ["正文内容"])
+        self.assertEqual([p.text for p in loaded.header_paragraphs], ["论文题名"])
+        self.assertEqual([p.text for p in loaded.footer_paragraphs], ["第 1 页"])
+
+
 class TestLoadDocxParagraphStyleInheritance(unittest.TestCase):
     def test_reads_alignment_from_paragraph_style_when_paragraph_has_no_direct_alignment(self):
         import tempfile

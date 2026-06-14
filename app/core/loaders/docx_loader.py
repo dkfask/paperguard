@@ -12,7 +12,6 @@ MVP 只读 sections + paragraphs + metadata，**不**读 styles / numbering / he
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
 
 from docx import Document as DocxDocument
 from docx.document import Document as DocxDocumentType
@@ -542,6 +541,22 @@ def _iter_block_paragraphs(parent):
                     yield from _iter_block_paragraphs(cell)
 
 
+def _load_header_footer_paragraphs(sections, attr: str) -> tuple[Paragraph, ...]:
+    paragraphs: list[Paragraph] = []
+    seen = set()
+    for section in sections:
+        container = getattr(section, attr)
+        for paragraph in _iter_block_paragraphs(container):
+            marker = id(paragraph._p)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            if not (paragraph.text or "").strip():
+                continue
+            paragraphs.append(_load_paragraph(paragraph))
+    return tuple(paragraphs)
+
+
 def _load_metadata(doc: DocxDocumentType) -> DocumentMetadata:
     """从 docx 的 core_properties 取元数据。"""
     props = doc.core_properties
@@ -574,12 +589,16 @@ def load_docx(path: str | Path) -> Document:
 
     sections = tuple(_load_section(s) for s in docx.sections)
     paragraphs = tuple(_load_paragraph(p) for p in _iter_block_paragraphs(docx))
+    header_paragraphs = _load_header_footer_paragraphs(docx.sections, "header")
+    footer_paragraphs = _load_header_footer_paragraphs(docx.sections, "footer")
     metadata = _load_metadata(docx)
 
     return Document(
         sections=sections,
         paragraphs=paragraphs,
         metadata=metadata,
+        header_paragraphs=header_paragraphs,
+        footer_paragraphs=footer_paragraphs,
     )
 
 

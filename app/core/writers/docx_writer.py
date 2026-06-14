@@ -28,21 +28,10 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
     # 段落
     for p in ir.paragraphs:
         para = doc.add_paragraph()
-        _apply_paragraph_style(para, p, doc)
-        for run in p.runs:
-            r = para.add_run(run.text)
-            _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_UNDERLINE)
-
-        # paragraph format
-        if p.line_spacing:
-            para.paragraph_format.line_spacing = p.line_spacing
-        para.paragraph_format.space_before = Pt(p.space_before_pt)
-        para.paragraph_format.space_after = Pt(p.space_after_pt)
-        if p.first_line_indent_cm:
-            para.paragraph_format.first_line_indent = Cm(p.first_line_indent_cm)
-        if p.alignment:
-            para.alignment = _paragraph_alignment(p.alignment, WD_PARAGRAPH_ALIGNMENT)
-        para.paragraph_format.page_break_before = p.is_page_break_before
+        _write_paragraph(
+            para, p, doc, Pt, Cm, RGBColor, OxmlElement, qn,
+            WD_COLOR_INDEX, WD_UNDERLINE, WD_PARAGRAPH_ALIGNMENT,
+        )
 
     # sections（用第一个节或新建）
     if ir.sections:
@@ -64,7 +53,74 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
     if ir.metadata.title:
         doc.core_properties.title = ir.metadata.title
 
+    if ir.header_paragraphs:
+        _write_container_paragraphs(
+            doc.sections[0].header, ir.header_paragraphs, doc, Pt, Cm,
+            RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_UNDERLINE,
+            WD_PARAGRAPH_ALIGNMENT,
+        )
+    if ir.footer_paragraphs:
+        _write_container_paragraphs(
+            doc.sections[0].footer, ir.footer_paragraphs, doc, Pt, Cm,
+            RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_UNDERLINE,
+            WD_PARAGRAPH_ALIGNMENT,
+        )
+
     doc.save(output_path)
+
+
+def _write_container_paragraphs(
+    container,
+    paragraphs,
+    doc,
+    Pt,
+    Cm,
+    RGBColor,
+    OxmlElement,
+    qn,
+    WD_COLOR_INDEX,
+    WD_UNDERLINE,
+    WD_PARAGRAPH_ALIGNMENT,
+) -> None:
+    for i, p in enumerate(paragraphs):
+        if i == 0 and container.paragraphs:
+            para = container.paragraphs[0]
+            para.clear()
+        else:
+            para = container.add_paragraph()
+        _write_paragraph(
+            para, p, doc, Pt, Cm, RGBColor, OxmlElement, qn,
+            WD_COLOR_INDEX, WD_UNDERLINE, WD_PARAGRAPH_ALIGNMENT,
+        )
+
+
+def _write_paragraph(
+    para,
+    p,
+    doc,
+    Pt,
+    Cm,
+    RGBColor,
+    OxmlElement,
+    qn,
+    WD_COLOR_INDEX,
+    WD_UNDERLINE,
+    WD_PARAGRAPH_ALIGNMENT,
+) -> None:
+    _apply_paragraph_style(para, p, doc)
+    for run in p.runs:
+        r = para.add_run(run.text)
+        _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_UNDERLINE)
+
+    if p.line_spacing:
+        para.paragraph_format.line_spacing = p.line_spacing
+    para.paragraph_format.space_before = Pt(p.space_before_pt)
+    para.paragraph_format.space_after = Pt(p.space_after_pt)
+    if p.first_line_indent_cm:
+        para.paragraph_format.first_line_indent = Cm(p.first_line_indent_cm)
+    if p.alignment:
+        para.alignment = _paragraph_alignment(p.alignment, WD_PARAGRAPH_ALIGNMENT)
+    para.paragraph_format.page_break_before = p.is_page_break_before
 
 
 def _apply_run_format(r, run, Pt, RGBColor, OxmlElement, qn, WD_COLOR_INDEX, WD_UNDERLINE) -> None:

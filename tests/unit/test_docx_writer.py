@@ -186,6 +186,54 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertEqual(loaded.paragraphs[0].style_id, "Heading 2")
         self.assertEqual(loaded.paragraphs[0].level, 2)
 
+    def test_written_docx_roundtrips_header_and_footer_paragraphs(self):
+        header = Paragraph(
+            style_id="Header",
+            text="论文题名",
+            level=None,
+            runs=(Run(text="论文题名"),),
+            line_spacing=1.0,
+            space_before_pt=0.0,
+            space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        footer = Paragraph(
+            style_id="Footer",
+            text="第 1 页",
+            level=None,
+            runs=(Run(text="第 1 页"),),
+            line_spacing=1.0,
+            space_before_pt=0.0,
+            space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="Body Text",
+                    text="正文",
+                    level=None,
+                    runs=(Run(text="正文"),),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.74,
+                ),
+            ),
+            metadata=DocumentMetadata(title="t"),
+            header_paragraphs=(header,),
+            footer_paragraphs=(footer,),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "header_footer.docx"
+            write_ir_to_docx(ir, str(path))
+            loaded = load_docx(path)
+
+        self.assertEqual([p.text for p in loaded.header_paragraphs], ["论文题名"])
+        self.assertEqual([p.text for p in loaded.footer_paragraphs], ["第 1 页"])
+
 
 if __name__ == "__main__":
     unittest.main()
