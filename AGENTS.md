@@ -23,6 +23,7 @@
 | 路径 | 用途 | 何时读 |
 |------|------|--------|
 | `HANDOFF.md` | 人类可读恢复指南，当前状态优先看这里 | 用户问“项目到哪了” |
+| `docs/progress.md` | 持续进度清单：已实现、未实现、下一步、更新时间线 | 每次完成设计/实现节点后更新 |
 | `docs/design-proposal.md` | 架构圣经：4 层架构、IR、YAML 规则 DSL、路线 | 实现细节不确定时 |
 | `docs/sprints/sprint-3-plan.md` | Sprint 3 历史计划归档：多 pack + Click CLI | 追溯 Sprint 3 决策 |
 | `docs/sprints/sprint-4-plan.md` | Sprint 4 历史计划归档：HTML/SARIF + CLI 辅助 + pyproject | 追溯 Sprint 4 决策 |

@@ -3,6 +3,7 @@
 > **这是给你（人类）看的**——下次打开项目时，30 秒读这一份就够。
 > 给 AI 看的版本见 [`CLAUDE.md`](./CLAUDE.md)。
 > 完整 AI 入口见 [`SKILL.md`](./SKILL.md)。
+> 持续进度清单见 [`docs/progress.md`](./docs/progress.md)。
 
 ---
 
