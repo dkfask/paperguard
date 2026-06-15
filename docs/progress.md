@@ -6,8 +6,8 @@
 
 - 当前阶段：Sprint 5，mutator 成熟与真实 docx 修复闭环强化。
 - 当前分支：`codex/sprint-5-mutator`
-- 最近提交：`bd33c37 fix(sprint-5): preserve custom docx paragraph styles`
-- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `473 passed, 1 skipped`
+- 最近提交：`5399305 feat(sprint-5): roundtrip reference hanging indent`
+- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `477 passed, 1 skipped`
 - 当前可用程度：CLI 批改链路可内部试用；PyQt 实时约束仍是 beta。
 
 ## 已实现
@@ -21,6 +21,7 @@
   - 表格单元格段落读取，含合并单元格去重。
   - section 页面尺寸、页边距、方向、页眉页脚距离读取。
   - 段落行距、段前段后、首行缩进、对齐、分页前读取。
+  - 参考文献悬挂缩进读取。
   - run 字体、字号、粗体、斜体、下划线、颜色、高亮、上下标读取。
   - 样式继承与 base style chain 的主要格式读取。
 
@@ -31,7 +32,7 @@
 - visitor 生成 `Finding`，支持正文、页眉、页脚段落定位。
 - 内置规则包：
   - `GB-T-7713-1-2006`
-  - `GB-T-7714-1-2015`
+  - `GB-T-7714-1-2015`（含参考文献悬挂缩进规则）
   - `SIM-UNIV-generic`
 
 ### CLI 与报告
@@ -72,6 +73,7 @@
   - 段落行距
   - 段前段后
   - 首行缩进
+  - 悬挂缩进
   - 段落对齐
   - 分页前
   - run 字体、字号、粗体、斜体、下划线、颜色、高亮、上下标
@@ -115,7 +117,7 @@
 - 表格规则与表格写回未成熟。
 - 编号、目录、图表题注、交叉引用未成熟。
 - 参考文献目前偏格式检查，不是完整 GB/T 7714 著录格式解析器。
-- 悬挂缩进、编号缩进、列表样式等复杂段落结构还需补。
+- 编号缩进、列表样式等复杂段落结构还需补；基础悬挂缩进闭环已完成。
 - 学校规则包需要更多真实模板和真实论文样例回归。
 - 真实样例论文回归库尚未建立。
 
@@ -184,6 +186,7 @@
 
 | 日期 | 提交/节点 | 内容 | 验证 |
 |------|-----------|------|------|
+| 2026-06-15 | `5399305` | 增加 `paragraph.hanging_indent_cm`，补参考文献悬挂缩进读取、写回、规则和 fix 闭环 | `477 passed, 1 skipped` |
 | 2026-06-15 | `bd33c37` | 保留自定义 docx 段落样式，修复参考文献对齐规则字段，补参考文献 alignment 闭环测试 | `473 passed, 1 skipped` |
 | 2026-06-15 | `2355866` | 页眉/页脚 paragraph alignment 定位、修复、写回、读取闭环 | `471 passed, 1 skipped` |
 | 2026-06-15 | `858536b` | run 为空时写回保留 paragraph text | `468 passed, 1 skipped` |
