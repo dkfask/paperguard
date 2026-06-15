@@ -299,6 +299,21 @@ class TestLoadDocxParagraphStyleInheritance(unittest.TestCase):
         self.assertAlmostEqual(loaded.paragraphs[0].first_line_indent_cm, 0.74, places=2)
         self.assertTrue(loaded.paragraphs[0].is_page_break_before)
 
+    def test_reads_direct_hanging_indent(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hanging_indent.docx"
+            docx = DocxDocument()
+            paragraph = docx.add_paragraph("reference item")
+            paragraph.paragraph_format.first_line_indent = Cm(-0.74)
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        self.assertAlmostEqual(loaded.paragraphs[0].hanging_indent_cm, 0.74, places=2)
+        self.assertAlmostEqual(loaded.paragraphs[0].first_line_indent_cm, 0.0, places=2)
+
     def test_reads_run_font_from_paragraph_style_when_run_has_no_direct_format(self):
         import tempfile
 

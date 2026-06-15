@@ -177,7 +177,19 @@ def _style_first_line_indent_cm(paragraph) -> float:
     for style in _paragraph_styles(paragraph):
         value = style.paragraph_format.first_line_indent
         if value is not None:
-            return _length_to_cm(value)
+            cm = _length_to_cm(value)
+            if cm > 0:
+                return cm
+    return 0.0
+
+
+def _style_hanging_indent_cm(paragraph) -> float:
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.first_line_indent
+        if value is not None:
+            cm = _length_to_cm(value)
+            if cm < 0:
+                return abs(cm)
     return 0.0
 
 
@@ -212,8 +224,26 @@ def _first_line_indent_to_cm(paragraph) -> float:
     # fallback firstLine (twips)
     fl = ind.get(qn("w:firstLine"))
     if fl:
-        return _twips_to_cm(fl)
+        cm = _twips_to_cm(fl)
+        return cm if cm > 0 else 0.0
     return _style_first_line_indent_cm(paragraph)
+
+
+def _hanging_indent_to_cm(paragraph) -> float:
+    ppr = paragraph._p.find(qn("w:pPr"))
+    if ppr is None:
+        return _style_hanging_indent_cm(paragraph)
+    ind = ppr.find(qn("w:ind"))
+    if ind is None:
+        return _style_hanging_indent_cm(paragraph)
+    hanging = ind.get(qn("w:hanging"))
+    if hanging:
+        return _twips_to_cm(hanging)
+    fl = ind.get(qn("w:firstLine"))
+    if fl:
+        cm = _twips_to_cm(fl)
+        return abs(cm) if cm < 0 else 0.0
+    return _style_hanging_indent_cm(paragraph)
 
 
 def _load_section(section) -> Section:
@@ -490,6 +520,7 @@ def _load_paragraph(paragraph) -> Paragraph:
 
     line_spacing = _line_spacing_to_float(line, line_rule) if line is not None else _style_line_spacing(paragraph)
     first_line_indent_cm = _first_line_indent_to_cm(paragraph)
+    hanging_indent_cm = _hanging_indent_to_cm(paragraph)
     alignment = _paragraph_alignment_to_str(paragraph)
     if space_before is None:
         space_before = _style_space_before_pt(paragraph)
@@ -507,6 +538,7 @@ def _load_paragraph(paragraph) -> Paragraph:
         space_before_pt=float(space_before),
         space_after_pt=float(space_after),
         first_line_indent_cm=first_line_indent_cm,
+        hanging_indent_cm=hanging_indent_cm,
         alignment=alignment,
         is_page_break_before=is_page_break_before,
     )

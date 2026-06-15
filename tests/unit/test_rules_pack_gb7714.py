@@ -34,6 +34,7 @@ def _ref_para(
     style_id: str = "Bibliography",
     line_spacing: float = 1.5,
     first_line_indent_cm: float = 0.0,
+    hanging_indent_cm: float = 0.74,
     space_before_pt: float = 0.0,
     space_after_pt: float = 0.0,
     align: str = "left",
@@ -58,6 +59,7 @@ def _ref_para(
         space_before_pt=space_before_pt,
         space_after_pt=space_after_pt,
         first_line_indent_cm=first_line_indent_cm,
+        hanging_indent_cm=hanging_indent_cm,
     )
 
 
@@ -96,6 +98,10 @@ class TestGB7714PackRules(unittest.TestCase):
         doc = _doc((_ref_para(first_line_indent_cm=0.74),))
         self.assertTrue(_has_finding(validate_docx(doc, PACK_ID), "PG-REF-FIRST-LINE-INDENT"))
 
+    def test_PG_REF_HANGING_INDENT_violated_by_0(self):
+        doc = _doc((_ref_para(hanging_indent_cm=0.0),))
+        self.assertTrue(_has_finding(validate_docx(doc, PACK_ID), "PG-REF-HANGING-INDENT"))
+
     def test_PG_REF_ALIGN_violated_by_center(self):
         doc = _doc((_ref_para(align="center"),))
         self.assertTrue(_has_finding(validate_docx(doc, PACK_ID), "PG-REF-ALIGN"))
@@ -129,11 +135,11 @@ class TestGB7714PackRules(unittest.TestCase):
 class TestGB7714PackIntegration(unittest.TestCase):
     """集成 + rule_id 命名约定"""
 
-    def test_load_pack_with_10_rules(self):
+    def test_load_pack_with_11_rules(self):
         pack = load_pack(PACK_ID)
         self.assertEqual(pack.id, PACK_ID)
-        self.assertEqual(len(pack.rules), 10,
-                         f"GB-T-7714 应有 10 条规则，实际 {len(pack.rules)}")
+        self.assertEqual(len(pack.rules), 11,
+                         f"GB-T-7714 应有 11 条规则，实际 {len(pack.rules)}")
 
     def test_all_rule_ids_use_pg_ref_prefix(self):
         pack = load_pack(PACK_ID)

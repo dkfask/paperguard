@@ -329,6 +329,52 @@ class TestFixWriteValidateLoop(unittest.TestCase):
         self.assertEqual(loaded.paragraphs[0].alignment, "left")
         self.assertNotIn("PG-REF-ALIGN", {f.rule_id for f in post_findings})
 
+    def test_reference_hanging_indent_fix_survives_docx_roundtrip(self):
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="Bibliography",
+                    text="[1] Paper.",
+                    level=None,
+                    runs=(
+                        Run(
+                            text="[1] Paper.",
+                            font_eastasia="瀹嬩綋",
+                            font_ascii="Times New Roman",
+                            font_size_pt=10.5,
+                            bold=False,
+                            underline=None,
+                        ),
+                    ),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                    hanging_indent_cm=0.0,
+                    alignment="left",
+                    is_page_break_before=False,
+                ),
+            ),
+            metadata=DocumentMetadata(title="reference hanging indent loop"),
+        )
+
+        pre_findings = validate_docx(ir, "GB-T-7714-1-2015")
+        self.assertIn("PG-REF-HANGING-INDENT", {f.rule_id for f in pre_findings})
+
+        fixed, skipped = apply_all_fixes(ir, pre_findings)
+        self.assertEqual(skipped, [])
+        self.assertAlmostEqual(fixed.paragraphs[0].hanging_indent_cm, 0.74, places=2)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fixed_reference_hanging.docx"
+            write_ir_to_docx(fixed, str(path))
+            loaded = load_docx(path)
+
+        post_findings = validate_docx(loaded, "GB-T-7714-1-2015")
+        self.assertAlmostEqual(loaded.paragraphs[0].hanging_indent_cm, 0.74, places=2)
+        self.assertNotIn("PG-REF-HANGING-INDENT", {f.rule_id for f in post_findings})
+
     def test_body_vert_align_fix_survives_docx_roundtrip(self):
         ir = Document(
             sections=(Section(),),

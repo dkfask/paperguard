@@ -21,6 +21,7 @@ class Paragraph:
     space_before_pt: float
     space_after_pt: float
     first_line_indent_cm: float
+    hanging_indent_cm: float = 0.0
     alignment: str | None = None       # left / center / right / justify
     is_page_break_before: bool = False
 
@@ -35,6 +36,7 @@ class Paragraph:
             "space_before_pt": self.space_before_pt,
             "space_after_pt": self.space_after_pt,
             "first_line_indent_cm": self.first_line_indent_cm,
+            "hanging_indent_cm": self.hanging_indent_cm,
             "alignment": self.alignment,
             "is_page_break_before": self.is_page_break_before,
         }

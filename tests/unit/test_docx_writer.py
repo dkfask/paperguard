@@ -369,6 +369,33 @@ class TestDocxWriterFormatting(unittest.TestCase):
 
         self.assertEqual(loaded.paragraphs[0].style_id, "Bibliography")
 
+    def test_written_docx_roundtrips_hanging_indent(self):
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="Bibliography",
+                    text="[1] Paper.",
+                    level=None,
+                    runs=(Run(text="[1] Paper."),),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                    hanging_indent_cm=0.74,
+                ),
+            ),
+            metadata=DocumentMetadata(title="t"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hanging_indent.docx"
+            write_ir_to_docx(ir, str(path))
+            loaded = load_docx(path)
+
+        self.assertAlmostEqual(loaded.paragraphs[0].hanging_indent_cm, 0.74, places=2)
+        self.assertAlmostEqual(loaded.paragraphs[0].first_line_indent_cm, 0.0, places=2)
+
     def test_written_docx_roundtrips_header_and_footer_paragraphs(self):
         header = Paragraph(
             style_id="Header",

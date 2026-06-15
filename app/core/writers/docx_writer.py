@@ -132,7 +132,9 @@ def _write_paragraph(
         para.paragraph_format.line_spacing = p.line_spacing
     para.paragraph_format.space_before = Pt(p.space_before_pt)
     para.paragraph_format.space_after = Pt(p.space_after_pt)
-    if p.first_line_indent_cm:
+    if p.hanging_indent_cm:
+        para.paragraph_format.first_line_indent = Cm(-p.hanging_indent_cm)
+    elif p.first_line_indent_cm:
         para.paragraph_format.first_line_indent = Cm(p.first_line_indent_cm)
     if p.alignment:
         para.alignment = _paragraph_alignment(p.alignment, WD_PARAGRAPH_ALIGNMENT)
