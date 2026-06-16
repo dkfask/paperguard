@@ -78,6 +78,25 @@ class TestParagraphToDict(unittest.TestCase):
         self.assertEqual(d["runs"][0]["text"], "hi")
         self.assertEqual(d["runs"][0]["font_eastasia"], "宋体")
 
+    def test_paragraph_to_dict_includes_table_location(self):
+        para = Paragraph(
+            style_id="Table Text",
+            text="cell",
+            level=None,
+            runs=(Run(text="cell"),),
+            line_spacing=1.0,
+            space_before_pt=0.0,
+            space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+            table_index=0,
+            table_row_index=1,
+            table_cell_index=2,
+        )
+        d = para.to_dict()
+        self.assertEqual(d["table_index"], 0)
+        self.assertEqual(d["table_row_index"], 1)
+        self.assertEqual(d["table_cell_index"], 2)
+
 
 class TestSectionToDict(unittest.TestCase):
     """Section.to_dict() 应导出全部 9 个 margin/page 字段。"""

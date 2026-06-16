@@ -26,13 +26,10 @@ def write_ir_to_docx(ir: Document, output_path: str) -> None:
 
     doc = docx.Document()
 
-    # 段落
-    for p in ir.paragraphs:
-        para = doc.add_paragraph()
-        _write_paragraph(
-            para, p, doc, Pt, Cm, RGBColor, OxmlElement, qn,
-            WD_COLOR_INDEX, WD_UNDERLINE, WD_PARAGRAPH_ALIGNMENT,
-        )
+    _write_body_blocks(
+        doc, ir.paragraphs, Pt, Cm, RGBColor, OxmlElement, qn,
+        WD_COLOR_INDEX, WD_UNDERLINE, WD_PARAGRAPH_ALIGNMENT,
+    )
 
     # sections（用第一个节或新建）
     if ir.sections:
@@ -107,6 +104,87 @@ def _write_container_paragraphs(
             para, p, doc, Pt, Cm, RGBColor, OxmlElement, qn,
             WD_COLOR_INDEX, WD_UNDERLINE, WD_PARAGRAPH_ALIGNMENT,
         )
+
+
+def _write_body_blocks(
+    doc,
+    paragraphs,
+    Pt,
+    Cm,
+    RGBColor,
+    OxmlElement,
+    qn,
+    WD_COLOR_INDEX,
+    WD_UNDERLINE,
+    WD_PARAGRAPH_ALIGNMENT,
+) -> None:
+    written_tables: set[int] = set()
+    for p in paragraphs:
+        if _is_table_paragraph(p):
+            if p.table_index in written_tables:
+                continue
+            _write_table(
+                doc, paragraphs, p.table_index, Pt, Cm, RGBColor, OxmlElement,
+                qn, WD_COLOR_INDEX, WD_UNDERLINE, WD_PARAGRAPH_ALIGNMENT,
+            )
+            written_tables.add(p.table_index)
+            continue
+
+        para = doc.add_paragraph()
+        _write_paragraph(
+            para, p, doc, Pt, Cm, RGBColor, OxmlElement, qn,
+            WD_COLOR_INDEX, WD_UNDERLINE, WD_PARAGRAPH_ALIGNMENT,
+        )
+
+
+def _is_table_paragraph(p) -> bool:
+    return (
+        p.table_index is not None
+        and p.table_row_index is not None
+        and p.table_cell_index is not None
+    )
+
+
+def _write_table(
+    doc,
+    paragraphs,
+    table_index,
+    Pt,
+    Cm,
+    RGBColor,
+    OxmlElement,
+    qn,
+    WD_COLOR_INDEX,
+    WD_UNDERLINE,
+    WD_PARAGRAPH_ALIGNMENT,
+) -> None:
+    table_paragraphs = [
+        p for p in paragraphs
+        if _is_table_paragraph(p) and p.table_index == table_index
+    ]
+    if not table_paragraphs:
+        return
+
+    rows = max(p.table_row_index for p in table_paragraphs) + 1
+    cols = max(p.table_cell_index for p in table_paragraphs) + 1
+    table = doc.add_table(rows=rows, cols=cols)
+
+    by_cell: dict[tuple[int, int], list] = {}
+    for p in table_paragraphs:
+        by_cell.setdefault((p.table_row_index, p.table_cell_index), []).append(p)
+
+    for (row_index, cell_index), cell_paragraphs in by_cell.items():
+        cell = table.cell(row_index, cell_index)
+        for i, p in enumerate(cell_paragraphs):
+            if i == 0 and cell.paragraphs:
+                para = cell.paragraphs[0]
+                para.clear()
+            else:
+                para = cell.add_paragraph()
+            _write_paragraph(
+                para, p, doc, Pt, Cm, RGBColor, OxmlElement, qn,
+                WD_COLOR_INDEX, WD_UNDERLINE, WD_PARAGRAPH_ALIGNMENT,
+            )
 
 
 def _write_paragraph(

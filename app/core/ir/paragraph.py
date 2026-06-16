@@ -24,6 +24,9 @@ class Paragraph:
     hanging_indent_cm: float = 0.0
     alignment: str | None = None       # left / center / right / justify
     is_page_break_before: bool = False
+    table_index: int | None = None
+    table_row_index: int | None = None
+    table_cell_index: int | None = None
 
     def to_dict(self) -> dict:
         """Sprint 2 evaluator 用 — 嵌套 runs 展开为 list[dict] 供 jmespath 消费。"""
@@ -39,4 +42,7 @@ class Paragraph:
             "hanging_indent_cm": self.hanging_indent_cm,
             "alignment": self.alignment,
             "is_page_break_before": self.is_page_break_before,
+            "table_index": self.table_index,
+            "table_row_index": self.table_row_index,
+            "table_cell_index": self.table_cell_index,
         }

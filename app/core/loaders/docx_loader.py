@@ -478,7 +478,7 @@ def _load_run(run, paragraph=None) -> Run:
     )
 
 
-def _load_paragraph(paragraph) -> Paragraph:
+def _load_paragraph(paragraph, table_location=None) -> Paragraph:
     """docx Paragraph → IR Paragraph。"""
     # style_id
     style_id = paragraph.style.name if paragraph.style else ""
@@ -529,6 +529,12 @@ def _load_paragraph(paragraph) -> Paragraph:
     if is_page_break_before is None:
         is_page_break_before = _style_page_break_before(paragraph)
 
+    table_index = None
+    table_row_index = None
+    table_cell_index = None
+    if table_location is not None:
+        table_index, table_row_index, table_cell_index = table_location
+
     return Paragraph(
         style_id=style_id,
         text=paragraph.text or "",
@@ -541,10 +547,13 @@ def _load_paragraph(paragraph) -> Paragraph:
         hanging_indent_cm=hanging_indent_cm,
         alignment=alignment,
         is_page_break_before=is_page_break_before,
+        table_index=table_index,
+        table_row_index=table_row_index,
+        table_cell_index=table_cell_index,
     )
 
 
-def _iter_block_paragraphs(parent):
+def _iter_block_paragraphs(parent, table_counter=None, table_location=None):
     from docx.oxml.table import CT_Tbl
     from docx.oxml.text.paragraph import CT_P
     from docx.table import Table as DocxTable
@@ -558,19 +567,28 @@ def _iter_block_paragraphs(parent):
     else:
         parent_element = parent._element
 
+    if table_counter is None:
+        table_counter = [0]
+
     for child in parent_element.iterchildren():
         if isinstance(child, CT_P):
-            yield DocxParagraph(child, parent)
+            yield DocxParagraph(child, parent), table_location
         elif isinstance(child, CT_Tbl):
             table = DocxTable(child, parent)
+            table_index = table_counter[0]
+            table_counter[0] += 1
             seen_cells = set()
-            for row in table.rows:
-                for cell in row.cells:
-                    marker = id(cell._tc)
+            for row_index, row in enumerate(table.rows):
+                for cell_index, cell in enumerate(row.cells):
+                    marker = cell._tc
                     if marker in seen_cells:
                         continue
                     seen_cells.add(marker)
-                    yield from _iter_block_paragraphs(cell)
+                    yield from _iter_block_paragraphs(
+                        cell,
+                        table_counter,
+                        (table_index, row_index, cell_index),
+                    )
 
 
 def _load_header_footer_paragraphs(sections, attr: str) -> tuple[Paragraph, ...]:
@@ -578,14 +596,14 @@ def _load_header_footer_paragraphs(sections, attr: str) -> tuple[Paragraph, ...]
     seen = set()
     for section in sections:
         container = getattr(section, attr)
-        for paragraph in _iter_block_paragraphs(container):
+        for paragraph, table_location in _iter_block_paragraphs(container):
             marker = id(paragraph._p)
             if marker in seen:
                 continue
             seen.add(marker)
             if not (paragraph.text or "").strip():
                 continue
-            paragraphs.append(_load_paragraph(paragraph))
+            paragraphs.append(_load_paragraph(paragraph, table_location))
     return tuple(paragraphs)
 
 
@@ -620,7 +638,7 @@ def load_docx(path: str | Path) -> Document:
         raise ValueError(f"无法解析 docx 文件 {path}: {e}") from e
 
     sections = tuple(_load_section(s) for s in docx.sections)
-    paragraphs = tuple(_load_paragraph(p) for p in _iter_block_paragraphs(docx))
+    paragraphs = tuple(_load_paragraph(p, loc) for p, loc in _iter_block_paragraphs(docx))
     header_paragraphs = _load_header_footer_paragraphs(docx.sections, "header")
     footer_paragraphs = _load_header_footer_paragraphs(docx.sections, "footer")
     metadata = _load_metadata(docx)

@@ -131,6 +131,32 @@ class TestParagraph(unittest.TestCase):
         )
         self.assertEqual(p.level, 1)
 
+    def test_table_location_fields_default_to_none(self):
+        p = self._sample_paragraph()
+        self.assertIsNone(p.table_index)
+        self.assertIsNone(p.table_row_index)
+        self.assertIsNone(p.table_cell_index)
+
+    def test_table_location_fields_are_frozen(self):
+        p = Paragraph(
+            style_id="Body Text",
+            text="cell",
+            level=None,
+            runs=(Run(text="cell"),),
+            line_spacing=1.0,
+            space_before_pt=0.0,
+            space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+            table_index=0,
+            table_row_index=1,
+            table_cell_index=2,
+        )
+        self.assertEqual(p.table_index, 0)
+        self.assertEqual(p.table_row_index, 1)
+        self.assertEqual(p.table_cell_index, 2)
+        with self.assertRaises(FrozenInstanceError):
+            p.table_index = 1  # type: ignore[misc]
+
 
 class TestDocument(unittest.TestCase):
     def test_construction(self):

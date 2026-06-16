@@ -481,6 +481,82 @@ class TestDocxWriterFormatting(unittest.TestCase):
         self.assertEqual(loaded.header_paragraphs[0].text, "plain header")
         self.assertEqual(loaded.footer_paragraphs[0].text, "plain footer")
 
+    def test_written_docx_roundtrips_table_cell_paragraphs(self):
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="Body Text",
+                    text="before",
+                    level=None,
+                    runs=(Run(text="before"),),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                ),
+                Paragraph(
+                    style_id="Table Text",
+                    text="r0c0",
+                    level=None,
+                    runs=(Run(text="r0c0", font_size_pt=10.5),),
+                    line_spacing=1.0,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                    table_index=0,
+                    table_row_index=0,
+                    table_cell_index=0,
+                ),
+                Paragraph(
+                    style_id="Table Text",
+                    text="r0c1",
+                    level=None,
+                    runs=(Run(text="r0c1", font_size_pt=10.5),),
+                    line_spacing=1.0,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                    table_index=0,
+                    table_row_index=0,
+                    table_cell_index=1,
+                ),
+                Paragraph(
+                    style_id="Body Text",
+                    text="after",
+                    level=None,
+                    runs=(Run(text="after"),),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                ),
+            ),
+            metadata=DocumentMetadata(title="table"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table.docx"
+            write_ir_to_docx(ir, str(path))
+            written = docx.Document(str(path))
+            loaded = load_docx(path)
+
+        self.assertEqual(len(written.tables), 1)
+        self.assertEqual(written.tables[0].cell(0, 0).text, "r0c0")
+        self.assertEqual(written.tables[0].cell(0, 1).text, "r0c1")
+        self.assertEqual(
+            [
+                (p.text, p.table_index, p.table_row_index, p.table_cell_index)
+                for p in loaded.paragraphs
+            ],
+            [
+                ("before", None, None, None),
+                ("r0c0", 0, 0, 0),
+                ("r0c1", 0, 0, 1),
+                ("after", None, None, None),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

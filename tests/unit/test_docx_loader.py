@@ -475,6 +475,39 @@ class TestLoadDocxTableParagraphs(unittest.TestCase):
             ["before table", "left cell", "right cell", "after table"],
         )
 
+    def test_reads_table_cell_location_for_cell_paragraphs(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table_cell_location.docx"
+            docx = DocxDocument()
+            docx.add_paragraph("before table")
+            table = docx.add_table(rows=2, cols=2)
+            table.cell(0, 0).paragraphs[0].text = "r0c0"
+            table.cell(0, 1).paragraphs[0].text = "r0c1"
+            table.cell(1, 0).paragraphs[0].text = "r1c0"
+            table.cell(1, 1).paragraphs[0].text = "r1c1"
+            docx.add_paragraph("after table")
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        locations = [
+            (p.text, p.table_index, p.table_row_index, p.table_cell_index)
+            for p in loaded.paragraphs
+        ]
+        self.assertEqual(
+            locations,
+            [
+                ("before table", None, None, None),
+                ("r0c0", 0, 0, 0),
+                ("r0c1", 0, 0, 1),
+                ("r1c0", 0, 1, 0),
+                ("r1c1", 0, 1, 1),
+                ("after table", None, None, None),
+            ],
+        )
+
     def test_reads_merged_table_cell_paragraph_once(self):
         import tempfile
 

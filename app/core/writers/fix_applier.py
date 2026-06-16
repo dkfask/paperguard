@@ -160,6 +160,9 @@ def _paragraph_from_value(value) -> Paragraph | None:
             hanging_indent_cm=float(value.get("hanging_indent_cm", 0.0)),
             alignment=value.get("alignment"),
             is_page_break_before=bool(value.get("is_page_break_before", False)),
+            table_index=value.get("table_index"),
+            table_row_index=value.get("table_row_index"),
+            table_cell_index=value.get("table_cell_index"),
         )
     except (TypeError, ValueError):
         return None
