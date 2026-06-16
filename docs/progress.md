@@ -6,8 +6,8 @@
 
 - 当前阶段：Sprint 5，mutator 成熟与真实 docx 修复闭环强化。
 - 当前分支：`codex/sprint-5-mutator`
-- 最近提交：`5399305 feat(sprint-5): roundtrip reference hanging indent`
-- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `477 passed, 1 skipped`
+- 最近提交：`6ba2738 fix(sprint-5): cover reference multi-run formatting`
+- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `478 passed, 1 skipped`
 - 当前可用程度：CLI 批改链路可内部试用；PyQt 实时约束仍是 beta。
 
 ## 已实现
@@ -32,7 +32,7 @@
 - visitor 生成 `Finding`，支持正文、页眉、页脚段落定位。
 - 内置规则包：
   - `GB-T-7713-1-2006`
-  - `GB-T-7714-1-2015`（含参考文献悬挂缩进规则）
+  - `GB-T-7714-1-2015`（含参考文献悬挂缩进规则；参考文献字体、字号、下划线、加粗规则已覆盖多 run）
   - `SIM-UNIV-generic`
 
 ### CLI 与报告
@@ -82,6 +82,7 @@
   - 页眉/页脚段落
   - run 为空时保留 paragraph text
   - 自定义段落样式，如 `Bibliography`
+- GB/T 7714 参考文献 run 级修复已覆盖多 run 段落，并有 `fix -> write -> load -> validate` 回归测试。
 - `fix` 默认二次 check 并写 `changes.md`。
 - `--skip-verify` 可跳过二次 check，兼容隐藏别名 `--no-verify`。
 
@@ -186,6 +187,7 @@
 
 | 日期 | 提交/节点 | 内容 | 验证 |
 |------|-----------|------|------|
+| 2026-06-16 | `6ba2738` | GB/T 7714 参考文献字号、中文字体、西文字体、下划线、加粗规则从首 run 扩展为多 run 覆盖，补真实 docx 往返闭环测试 | `478 passed, 1 skipped` |
 | 2026-06-15 | `5399305` | 增加 `paragraph.hanging_indent_cm`，补参考文献悬挂缩进读取、写回、规则和 fix 闭环 | `477 passed, 1 skipped` |
 | 2026-06-15 | `bd33c37` | 保留自定义 docx 段落样式，修复参考文献对齐规则字段，补参考文献 alignment 闭环测试 | `473 passed, 1 skipped` |
 | 2026-06-15 | `2355866` | 页眉/页脚 paragraph alignment 定位、修复、写回、读取闭环 | `471 passed, 1 skipped` |
