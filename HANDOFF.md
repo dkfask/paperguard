@@ -9,7 +9,7 @@
 
 ## 一句话状态
 
-> ✅ **Sprint 4 已完成**（2026-06-11）：补齐 HTML reporter + SARIF 2.1.0 子集 reporter；`paperguard check --format text|json|html|sarif` 全通；新增 `list-packs` / `doctor` / `version` 3 个 CLI 辅助命令；`fix` 默认二次 check 并写完整 `changes.md`，新增 `--skip-verify`，保留隐藏兼容 `--no-verify`；新增 `pyproject.toml` + console_scripts 入口。下一步：**Sprint 5（mutator 成熟 + 更多修复能力 / 学校 pack 深化）**。
+> ✅ **Sprint 5 已完成**（2026-06-16）：mutator/docx 写回闭环成熟，覆盖段落、run、section、页眉页脚、表格单元格段落、列表段落；GB/T 7714 参考文献多 run 与悬挂缩进闭环完成；SIM-UNIV 新增表格单元格字号、列表行距规则；`scripts/sprint5_smoke.py` 通过。最近验证：`492 passed, 1 skipped`。下一步：**真实样例回归 + PyQt 正常使用链路 + CI/发布工程化**。
 
 ---
 
@@ -223,10 +223,15 @@ git push
 
 > 交付：`app/core/reporters/html_reporter.py`（Jinja2 + autoescape）+ `sarif_reporter.py`（SARIF 2.1.0 子集）；`check --format html|sarif`；`list-packs` / `doctor` / `version`；`fix --skip-verify` + 完整 `changes.md`；`pyproject.toml` console_scripts；`scripts/sprint4_smoke.py`。保留原有 `text/json` 输出、`--version`、隐藏 `--no-verify` 兼容。
 
-### 🚧 P0（下一个）：MVP Sprint 5（mutator 成熟 + 学校 pack 深化）
-- 扩展 `fix_applier` 支持更多安全修复类型和 docx 写回字段
-- 深化学校规则包/参考文献规则的真实场景覆盖
-- 保持 `fix` 输出新文件 + 二次 audit 的硬约束
+### ✅ P0：MVP Sprint 5（**mutator 成熟 + 学校 pack 深化**）— **已完成 2026-06-16**
+
+> 交付：`fix_applier` 支持 set / insert / delete / `runs.*`；`docx_writer` 与 `docx_loader` 完成段落、run、section、页眉页脚、表格单元格段落、列表段落的写回/读取闭环；GB/T 7714 参考文献悬挂缩进、多 run 字体/字号/下划线/加粗规则闭环；SIM-UNIV 表格单元格字号、列表行距规则；`scripts/sprint5_smoke.py`。**最近验证：492 passed, 1 skipped**；smoke 通过。收口 commit `89c6b98`。
+
+### 🚧 P0（下一个）：真实样例回归 + PyQt 正常使用链路
+- 建立不含真实学生隐私的合成论文样例库。
+- 为 GB/T 7713、GB/T 7714、SIM-UNIV 各准备合规、违规、自动修复后三类样例。
+- 打通 PyQt 导入 `.docx`、实时检查、修复、导出 `.docx`。
+- 配置 CI，把全量 pytest 和 Sprint 5 smoke 纳入基础检查。
 
 完整 Sprint 计划见 `docs/design-proposal.md` §7。
 
@@ -289,13 +294,14 @@ git push
 | 2026-06-09 | **Sprint 3 完成**（commits `08d9cd3` ~ `aa8b180`，15 atomic）：fix Sprint 2 follow-up B1+T0；GB-T-7714-1-2015.yaml (10 refs) + SIM-UNIV-generic.yaml (20 学校样式)；Click 8.x CLI 5 子命令 + json_reporter + fix_applier/docx_writer + _fix_then_check；64 新测试 / 359 全绿；smoke 端到端跑通（check 5 findings / fix 36811 bytes / 3 packs validate-pass / init 194 bytes 骨架） |
 | 2026-06-09 | HANDOFF.md 刷新到 v1.5（标记 Sprint 3 完成 + 提级 Sprint 4） |
 | 2026-06-11 | **Sprint 4 完成**：HTML/SARIF reporter；`check --format html|sarif`；`list-packs` / `doctor` / `version`；完整 `changes.md` fix 闭环；`pyproject.toml`；Sprint 4 smoke |
+| 2026-06-16 | **Sprint 5 完成**：mutator/docx 写回闭环成熟；表格单元格段落、列表段落、参考文献悬挂缩进、多 run 修复闭环；SIM-UNIV 表格/列表规则；492 passed, 1 skipped；Sprint 5 smoke 通过 |
 | _待定_ | MVP 全部完成（3 周后） |
 
 ---
 
 ## 一句话建议
 
-> 下次回来，直接说"开始 Sprint 2.5"——我会读 CLAUDE.md / HANDOFF.md / design-proposal.md §7 Sprint 2.5 计划 + format-thesis-docx-review.md 的 `extract_requirements.py` 精读，然后在 `app/core/extract/` 实现 FORMAT_WORDS 启发式 + 7 类别 Requirement 抽取。
+> 下次回来，直接说“开始真实样例回归”或“继续 PyQt 正常使用链路”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后建立合成论文样例库，或打通 PyQt 导入 `.docx`、实时检查、修复、导出 `.docx` 的用户链路。
 
 ---
 

@@ -9,14 +9,16 @@
 - **PyQt 实时约束（主路径）**：学生边写边查，侧边栏提示 + 高亮 + 一键修复。
 - **CLI 事后批改（辅路径）**：CI 集成、批量审稿、AI Agent 入口。
 
-**当前阶段**：Sprint 4 已完成并提交；Sprint 5 mutator 成熟已开始，第一刀 `docx_writer` 扩展写回已完成并提交。
+**当前阶段**：Sprint 5 mutator 成熟已完成并提交；下一阶段进入真实样例回归、PyQt 使用链路和发布工程化。
 
 ## 当前提交与分支
 
 - 当前分支：`codex/sprint-5-mutator`
 - Sprint 4 commit：`5f36692 feat(sprint-4): add reporters cli helpers and fix verification`
 - Sprint 5 首个 commit：`e60a05a feat(sprint-5): write expanded docx formatting`
-- 最近验证：`python -m pytest -q` -> `383 passed, 1 skipped`
+- Sprint 5 收口 commit：`89c6b98 test(sprint-5): add mutator smoke`
+- 最近验证：`python -m pytest -p no:cacheprovider -q` -> `492 passed, 1 skipped`
+- 最近 smoke：`python scripts/sprint5_smoke.py` -> `OK Sprint 5 smoke passed`
 
 ## 关键文件清单
 
@@ -27,6 +29,7 @@
 | `docs/design-proposal.md` | 架构圣经：4 层架构、IR、YAML 规则 DSL、路线 | 实现细节不确定时 |
 | `docs/sprints/sprint-3-plan.md` | Sprint 3 历史计划归档：多 pack + Click CLI | 追溯 Sprint 3 决策 |
 | `docs/sprints/sprint-4-plan.md` | Sprint 4 历史计划归档：HTML/SARIF + CLI 辅助 + pyproject | 追溯 Sprint 4 决策 |
+| `docs/sprints/sprint-5-plan.md` | Sprint 5 历史计划归档：mutator 成熟 + docx 闭环 | 追溯 Sprint 5 决策 |
 | `SKILL.md` | AI agent 入口 | 用户问“AI 怎么调用” |
 | `SKILL_USAGE.md` | 人类快速上手 | 用户问“我怎么用” |
 | `docs/research-report.md` | 5 份 GitHub 调研综合 | 问“为什么这么设计” |
@@ -52,9 +55,9 @@
 | Extract | 已有 FORMAT_WORDS 启发式与模板抽取链路 |
 | Reporters | 已有 terminal / JSON / HTML / SARIF / PyQt reporter |
 | CLI | 已有 8 个命令：check / fix / extract / init / validate-pack / list-packs / doctor / version |
-| Fix / writer | `fix_applier` 已能 set IR；`docx_writer` 已扩展写回段落间距、缩进、分页前、run 字体/字号/粗斜体/下划线/颜色 |
+| Fix / writer | `fix_applier` 已支持 set / insert / delete / runs.*；`docx_writer` 已扩展写回段落、run、section、页眉页脚、表格单元格段落、列表段落 |
 | Packaging | 已有 `pyproject.toml` 和 `paperguard` console script |
-| 测试 | 当前 383 passed, 1 skipped |
+| 测试 | 当前 492 passed, 1 skipped |
 | CI | 仍未配置 |
 
 ## 架构现状
@@ -78,16 +81,14 @@
 
 读 `SKILL.md`。
 
-### 用户说“继续 Sprint 5 mutator”
+### 用户说“继续项目”或“做下一阶段”
 
-优先补 `docx_loader` 对 writer 已支持字段的读取闭环：
+优先做 Sprint 6 方向：
 
-- `paragraph.is_page_break_before`
-- `run.underline`
-- `run.color_hex`
-- 后续再补 `highlight`、`vert_align`、alignment 等字段。
-
-然后做“fix -> write -> load -> validate findings 减少”的真实 docx 闭环测试。
+- 建立不含真实学生隐私的合成论文样例库。
+- 为 GB/T 7713、GB/T 7714、SIM-UNIV 各准备合规、违规、自动修复后三类样例。
+- 打通 PyQt 导入 `.docx`、实时检查、修复、导出 `.docx` 的正常使用链路。
+- 配置 CI，并让 `python -m pytest -p no:cacheprovider -q` 和 `python scripts/sprint5_smoke.py` 成为基础检查。
 
 ### 用户说“加新规则”
 
@@ -116,6 +117,7 @@ paperguard fix paper.docx --pack GB-T-7713-1-2006 --output paper.fixed.docx
 8. HTML reporter 用 Jinja2 + autoescape。
 9. SARIF 用 2.1.0 实用子集。
 10. 网络检查默认关闭，仅 `version --check-update` / `doctor --check-network` 触发。
+11. Sprint 5 mutator 成熟范围是安全可验证的 docx 修复闭环，不包含完整目录、交叉引用、复杂 numbering.xml 续接。
 
 ## 不应该做的事
 
@@ -138,5 +140,5 @@ paperguard fix paper.docx --pack GB-T-7713-1-2006 --output paper.fixed.docx
 
 ---
 
-**版本**：v1.6（Sprint 4 完成，Sprint 5 已开始）
-**最后更新**：2026-06-11
+**版本**：v1.7（Sprint 5 完成）
+**最后更新**：2026-06-16

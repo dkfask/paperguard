@@ -4,11 +4,12 @@
 
 ## 当前状态
 
-- 当前阶段：Sprint 5，mutator 成熟与真实 docx 修复闭环强化。
+- 当前阶段：Sprint 5 已完成；下一阶段进入真实样例回归、PyQt 使用链路和发布工程化。
 - 当前分支：`codex/sprint-5-mutator`
-- 最近提交：`6ba2738 fix(sprint-5): cover reference multi-run formatting`
-- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `478 passed, 1 skipped`
-- 当前可用程度：CLI 批改链路可内部试用；PyQt 实时约束仍是 beta。
+- 最近提交：`89c6b98 test(sprint-5): add mutator smoke`
+- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `492 passed, 1 skipped`
+- 最近 smoke：`python scripts/sprint5_smoke.py` -> `OK Sprint 5 smoke passed`
+- 当前可用程度：CLI 批改/修复链路可内部试用；PyQt 实时约束仍是 beta。
 
 ## 已实现
 
@@ -19,6 +20,8 @@
   - 正文段落读取。
   - 页眉/页脚段落读取。
   - 表格单元格段落读取，含合并单元格去重。
+  - 表格单元格段落定位：`table_index` / `table_row_index` / `table_cell_index`。
+  - 列表段落元数据读取：`list_type` / `list_level`。
   - section 页面尺寸、页边距、方向、页眉页脚距离读取。
   - 段落行距、段前段后、首行缩进、对齐、分页前读取。
   - 参考文献悬挂缩进读取。
@@ -33,7 +36,7 @@
 - 内置规则包：
   - `GB-T-7713-1-2006`
   - `GB-T-7714-1-2015`（含参考文献悬挂缩进规则；参考文献字体、字号、下划线、加粗规则已覆盖多 run）
-  - `SIM-UNIV-generic`
+  - `SIM-UNIV-generic`（含 Sprint 5 表格单元格字号、列表行距规则）
 
 ### CLI 与报告
 
@@ -82,7 +85,10 @@
   - 页眉/页脚段落
   - run 为空时保留 paragraph text
   - 自定义段落样式，如 `Bibliography`
+  - 表格单元格段落重建与写回。
+  - 列表段落样式重建与写回。
 - GB/T 7714 参考文献 run 级修复已覆盖多 run 段落，并有 `fix -> write -> load -> validate` 回归测试。
+- SIM-UNIV 表格单元格字号、列表行距已覆盖 `fix -> write -> load -> validate` 回归测试。
 - `fix` 默认二次 check 并写 `changes.md`。
 - `--skip-verify` 可跳过二次 check，兼容隐藏别名 `--no-verify`。
 
@@ -115,10 +121,9 @@
 
 ### 规则与 docx 能力缺口
 
-- 表格规则与表格写回未成熟。
-- 编号、目录、图表题注、交叉引用未成熟。
+- 目录、图表题注、交叉引用未成熟。
 - 参考文献目前偏格式检查，不是完整 GB/T 7714 著录格式解析器。
-- 编号缩进、列表样式等复杂段落结构还需补；基础悬挂缩进闭环已完成。
+- 复杂编号定义、编号续接、多级列表缩进仍需真实样例验证；基础列表样式闭环已完成。
 - 学校规则包需要更多真实模板和真实论文样例回归。
 - 真实样例论文回归库尚未建立。
 
@@ -133,14 +138,7 @@
 
 ## 后续路线
 
-### P0：继续 Sprint 5 mutator 成熟
-
-- 补表格段落与表格格式的读取、规则、写回闭环。
-- 补悬挂缩进、编号缩进、列表样式闭环。
-- 补更多 `fix -> write -> load -> validate` 真实 docx 回归测试。
-- 继续清理规则包中无法二次验证闭环的字段名和 fix target。
-
-### P1：真实样例回归
+### P0：真实样例回归
 
 - 建立不含真实学生隐私的合成论文样例库。
 - 为 GB/T 7713、GB/T 7714、SIM-UNIV 各准备至少 3 类样例：
@@ -148,13 +146,13 @@
   - 部分违规
   - 自动修复后应合规
 
-### P2：PyQt 正常使用链路
+### P1：PyQt 正常使用链路
 
 - 打通导入 `.docx`、实时检查、修复、导出 `.docx`。
 - 优化侧边栏交互、定位、高亮和一键修复反馈。
 - 增加失败提示和不可自动修复项说明。
 
-### P3：发布与工程化
+### P2：发布与工程化
 
 - 配置 CI。
 - 增加 release smoke。
@@ -187,6 +185,10 @@
 
 | 日期 | 提交/节点 | 内容 | 验证 |
 |------|-----------|------|------|
+| 2026-06-16 | `89c6b98` | Sprint 5 smoke：多 run 正文、参考文献悬挂缩进、表格单元格、列表段落 4 个修复闭环 | `492 passed, 1 skipped`; smoke passed |
+| 2026-06-16 | `e141e41` | SIM-UNIV 新增表格单元格字号、列表行距规则，补真实 docx 往返闭环测试 | related tests passed |
+| 2026-06-16 | `702b8c0` | 增加列表段落 `list_type/list_level` 读取、写回、to_dict 支持 | related tests passed |
+| 2026-06-16 | `0200ad2` | 增加表格单元格段落定位与表格重建写回闭环 | related tests passed |
 | 2026-06-16 | `6ba2738` | GB/T 7714 参考文献字号、中文字体、西文字体、下划线、加粗规则从首 run 扩展为多 run 覆盖，补真实 docx 往返闭环测试 | `478 passed, 1 skipped` |
 | 2026-06-15 | `5399305` | 增加 `paragraph.hanging_indent_cm`，补参考文献悬挂缩进读取、写回、规则和 fix 闭环 | `477 passed, 1 skipped` |
 | 2026-06-15 | `bd33c37` | 保留自定义 docx 段落样式，修复参考文献对齐规则字段，补参考文献 alignment 闭环测试 | `473 passed, 1 skipped` |
