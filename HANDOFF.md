@@ -9,7 +9,7 @@
 
 ## 一句话状态
 
-> ✅ **Sprint 5 已完成**（2026-06-16）：mutator/docx 写回闭环成熟，覆盖段落、run、section、页眉页脚、表格单元格段落、列表段落；GB/T 7714 参考文献多 run 与悬挂缩进闭环完成；SIM-UNIV 新增表格单元格字号、列表行距规则；`scripts/sprint5_smoke.py` 通过。最近验证：`492 passed, 1 skipped`。下一步：**真实样例回归 + PyQt 正常使用链路 + CI/发布工程化**。
+> ✅ **真实样例回归第一版已落地**（2026-06-16）：Sprint 5 mutator/docx 写回闭环已完成；新增不含真实学生隐私的合成样例矩阵，覆盖 GB/T 7713、GB/T 7714、SIM-UNIV 三个 pack 的合规、违规、修复后三类 `.docx` 生成与 `fix -> write -> load -> validate` 回归。下一步：**PyQt 正常使用链路 + CI/发布工程化 + 复杂样例扩充**。
 
 ---
 
@@ -227,11 +227,14 @@ git push
 
 > 交付：`fix_applier` 支持 set / insert / delete / `runs.*`；`docx_writer` 与 `docx_loader` 完成段落、run、section、页眉页脚、表格单元格段落、列表段落的写回/读取闭环；GB/T 7714 参考文献悬挂缩进、多 run 字体/字号/下划线/加粗规则闭环；SIM-UNIV 表格单元格字号、列表行距规则；`scripts/sprint5_smoke.py`。**最近验证：492 passed, 1 skipped**；smoke 通过。收口 commit `89c6b98`。
 
-### 🚧 P0（下一个）：真实样例回归 + PyQt 正常使用链路
-- 建立不含真实学生隐私的合成论文样例库。
-- 为 GB/T 7713、GB/T 7714、SIM-UNIV 各准备合规、违规、自动修复后三类样例。
+### ✅ P0：真实样例回归第一版 — **已完成 2026-06-16**
+
+> 交付：`tests/synthetic_regression_samples.py` 代码生成 9 个合成 `.docx` 样例，覆盖 GB/T 7713、GB/T 7714、SIM-UNIV 三个 pack 的合规、违规、修复后三类状态；`tests/integration/test_synthetic_regression_samples.py` 验证 `write -> load -> validate` 与 `fix -> write -> load -> validate`；`scripts/regression_samples_smoke.py` 提供本地 smoke。样例运行时写入临时目录，不提交真实论文或学生作业。提交 `8793168`。
+
+### 🚧 P0（下一个）：PyQt 正常使用链路 + CI/发布工程化
 - 打通 PyQt 导入 `.docx`、实时检查、修复、导出 `.docx`。
-- 配置 CI，把全量 pytest 和 Sprint 5 smoke 纳入基础检查。
+- 配置 CI，把全量 pytest、Sprint 5 smoke 和 regression samples smoke 纳入基础检查。
+- 继续扩充复杂长文档、真实学校模板匿名化样例、目录、题注、交叉引用和多级列表样例。
 
 完整 Sprint 计划见 `docs/design-proposal.md` §7。
 
@@ -295,17 +298,18 @@ git push
 | 2026-06-09 | HANDOFF.md 刷新到 v1.5（标记 Sprint 3 完成 + 提级 Sprint 4） |
 | 2026-06-11 | **Sprint 4 完成**：HTML/SARIF reporter；`check --format html|sarif`；`list-packs` / `doctor` / `version`；完整 `changes.md` fix 闭环；`pyproject.toml`；Sprint 4 smoke |
 | 2026-06-16 | **Sprint 5 完成**：mutator/docx 写回闭环成熟；表格单元格段落、列表段落、参考文献悬挂缩进、多 run 修复闭环；SIM-UNIV 表格/列表规则；492 passed, 1 skipped；Sprint 5 smoke 通过 |
+| 2026-06-16 | **真实样例回归第一版**：3 pack x 合规/违规/修复后合成 `.docx` 样例矩阵；集成测试和 smoke 覆盖 `fix -> write -> load -> validate` |
 | _待定_ | MVP 全部完成（3 周后） |
 
 ---
 
 ## 一句话建议
 
-> 下次回来，直接说“开始真实样例回归”或“继续 PyQt 正常使用链路”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后建立合成论文样例库，或打通 PyQt 导入 `.docx`、实时检查、修复、导出 `.docx` 的用户链路。
+> 下次回来，直接说“继续 PyQt 正常使用链路”或“配置 CI”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后打通 PyQt 导入 `.docx`、实时检查、修复、导出 `.docx` 的用户链路，或把 pytest 与 smoke 纳入基础检查。
 
 ---
 
-**版本**：v1.6（标记 Sprint 4 完成）
-**最后更新**：2026-06-11
+**版本**：v1.8（真实样例回归第一版）
+**最后更新**：2026-06-16
 **配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/*.md`
-**最新 commit**：待提交
+**最新实现 commit**：`8793168 feat(regression): add synthetic sample matrix`

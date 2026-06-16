@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-- 当前阶段：Sprint 5 已完成；下一阶段进入真实样例回归、PyQt 使用链路和发布工程化。
+- 当前阶段：真实样例回归第一版已落地；下一阶段进入 PyQt 正常使用链路和发布工程化。
 - 当前分支：`codex/sprint-5-mutator`
-- 最近提交：`89c6b98 test(sprint-5): add mutator smoke`
-- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `492 passed, 1 skipped`
-- 最近 smoke：`python scripts/sprint5_smoke.py` -> `OK Sprint 5 smoke passed`
+- 最近提交：`8793168 feat(regression): add synthetic sample matrix`
+- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `495 passed, 1 skipped`
+- 最近 smoke：`python scripts/regression_samples_smoke.py` -> `OK synthetic regression samples smoke passed`
 - 当前可用程度：CLI 批改/修复链路可内部试用；PyQt 实时约束仍是 beta。
 
 ## 已实现
@@ -103,6 +103,20 @@
 - 已有 FORMAT_WORDS 启发式。
 - 已有模板抽取到规则包的基本链路。
 
+### 合成真实场景样例回归
+
+- 已有不含真实学生隐私的代码生成样例库：`tests/synthetic_regression_samples.py`。
+- 覆盖 3 个内置规则包：
+  - `GB-T-7713-1-2006`
+  - `GB-T-7714-1-2015`
+  - `SIM-UNIV-generic`
+- 每个规则包覆盖 3 种状态：
+  - 合规样例
+  - 违规样例
+  - 自动修复后样例
+- 已有集成测试 `tests/integration/test_synthetic_regression_samples.py`，验证 `write -> load -> validate` 与 `fix -> write -> load -> validate` 闭环。
+- 已有 smoke 脚本 `scripts/regression_samples_smoke.py`。
+
 ## 未实现 / 未完善
 
 ### 产品化缺口
@@ -124,8 +138,8 @@
 - 目录、图表题注、交叉引用未成熟。
 - 参考文献目前偏格式检查，不是完整 GB/T 7714 著录格式解析器。
 - 复杂编号定义、编号续接、多级列表缩进仍需真实样例验证；基础列表样式闭环已完成。
-- 学校规则包需要更多真实模板和真实论文样例回归。
-- 真实样例论文回归库尚未建立。
+- 学校规则包需要更多真实模板和匿名化/合成论文样例回归。
+- 合成样例回归第一版已建立，但复杂长文档、真实学校模板、目录、题注、交叉引用样例仍需扩充。
 
 ## 当前可用性判断
 
@@ -134,23 +148,21 @@
 - 给同学/老师直接使用：暂不建议。
   - PyQt 产品体验、安装包、真实模板覆盖和异常处理还没有完成。
 - 作为论文规范产品 MVP：未完成。
-  - 还需要更多真实样例、复杂 docx 结构和发布流程。
+  - 还需要更多复杂 docx 结构、PyQt 正常使用链路和发布流程。
 
 ## 后续路线
 
-### P0：真实样例回归
-
-- 建立不含真实学生隐私的合成论文样例库。
-- 为 GB/T 7713、GB/T 7714、SIM-UNIV 各准备至少 3 类样例：
-  - 完全合规
-  - 部分违规
-  - 自动修复后应合规
-
-### P1：PyQt 正常使用链路
+### P0：PyQt 正常使用链路
 
 - 打通导入 `.docx`、实时检查、修复、导出 `.docx`。
 - 优化侧边栏交互、定位、高亮和一键修复反馈。
 - 增加失败提示和不可自动修复项说明。
+
+### P1：样例库扩充
+
+- 增加复杂长文档、真实学校模板匿名化样例。
+- 增加目录、图表题注、交叉引用、多级列表和编号续接样例。
+- 把回归样例纳入后续 CI。
 
 ### P2：发布与工程化
 
@@ -185,6 +197,7 @@
 
 | 日期 | 提交/节点 | 内容 | 验证 |
 |------|-----------|------|------|
+| 2026-06-16 | `8793168` | 真实样例回归第一版：3 个 pack x 合规/违规/修复后 3 状态生成样例，补集成测试与 smoke | `495 passed, 1 skipped`; regression smoke passed; Sprint 5 smoke passed |
 | 2026-06-16 | `89c6b98` | Sprint 5 smoke：多 run 正文、参考文献悬挂缩进、表格单元格、列表段落 4 个修复闭环 | `492 passed, 1 skipped`; smoke passed |
 | 2026-06-16 | `e141e41` | SIM-UNIV 新增表格单元格字号、列表行距规则，补真实 docx 往返闭环测试 | related tests passed |
 | 2026-06-16 | `702b8c0` | 增加列表段落 `list_type/list_level` 读取、写回、to_dict 支持 | related tests passed |

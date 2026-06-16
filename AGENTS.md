@@ -9,7 +9,7 @@
 - **PyQt 实时约束（主路径）**：学生边写边查，侧边栏提示 + 高亮 + 一键修复。
 - **CLI 事后批改（辅路径）**：CI 集成、批量审稿、AI Agent 入口。
 
-**当前阶段**：Sprint 5 mutator 成熟已完成并提交；下一阶段进入真实样例回归、PyQt 使用链路和发布工程化。
+**当前阶段**：Sprint 5 mutator 成熟已完成并提交；真实样例回归第一版已落地；下一阶段进入 PyQt 使用链路和发布工程化。
 
 ## 当前提交与分支
 
@@ -17,8 +17,9 @@
 - Sprint 4 commit：`5f36692 feat(sprint-4): add reporters cli helpers and fix verification`
 - Sprint 5 首个 commit：`e60a05a feat(sprint-5): write expanded docx formatting`
 - Sprint 5 收口 commit：`89c6b98 test(sprint-5): add mutator smoke`
-- 最近验证：`python -m pytest -p no:cacheprovider -q` -> `492 passed, 1 skipped`
-- 最近 smoke：`python scripts/sprint5_smoke.py` -> `OK Sprint 5 smoke passed`
+- 真实样例回归 commit：`8793168 feat(regression): add synthetic sample matrix`
+- 最近验证：`python -m pytest -p no:cacheprovider -q` -> `495 passed, 1 skipped`
+- 最近 smoke：`python scripts/regression_samples_smoke.py` -> `OK synthetic regression samples smoke passed`
 
 ## 关键文件清单
 
@@ -34,6 +35,9 @@
 | `SKILL_USAGE.md` | 人类快速上手 | 用户问“我怎么用” |
 | `docs/research-report.md` | 5 份 GitHub 调研综合 | 问“为什么这么设计” |
 | `docs/format-thesis-docx-review.md` | 参考项目 945 行精读 | 想参考现成实现 |
+| `tests/synthetic_regression_samples.py` | 合成真实场景样例矩阵生成器 | 扩充样例回归 |
+| `tests/integration/test_synthetic_regression_samples.py` | 样例回归集成测试 | 改 docx loader/writer/fix 时 |
+| `scripts/regression_samples_smoke.py` | 样例回归 smoke | 提交前或 CI 接入 |
 | `references/format-thesis-docx/` | 参考项目源码 submodule | 不要直接改 |
 
 ## 命名约定
@@ -56,8 +60,9 @@
 | Reporters | 已有 terminal / JSON / HTML / SARIF / PyQt reporter |
 | CLI | 已有 8 个命令：check / fix / extract / init / validate-pack / list-packs / doctor / version |
 | Fix / writer | `fix_applier` 已支持 set / insert / delete / runs.*；`docx_writer` 已扩展写回段落、run、section、页眉页脚、表格单元格段落、列表段落 |
+| 样例回归 | 已有 3 pack x 合规/违规/修复后合成 `.docx` 样例矩阵 |
 | Packaging | 已有 `pyproject.toml` 和 `paperguard` console script |
-| 测试 | 当前 492 passed, 1 skipped |
+| 测试 | 当前待跑全量验证 |
 | CI | 仍未配置 |
 
 ## 架构现状
@@ -85,10 +90,9 @@
 
 优先做 Sprint 6 方向：
 
-- 建立不含真实学生隐私的合成论文样例库。
-- 为 GB/T 7713、GB/T 7714、SIM-UNIV 各准备合规、违规、自动修复后三类样例。
 - 打通 PyQt 导入 `.docx`、实时检查、修复、导出 `.docx` 的正常使用链路。
-- 配置 CI，并让 `python -m pytest -p no:cacheprovider -q` 和 `python scripts/sprint5_smoke.py` 成为基础检查。
+- 配置 CI，并让 `python -m pytest -p no:cacheprovider -q`、`python scripts/sprint5_smoke.py` 和 `python scripts/regression_samples_smoke.py` 成为基础检查。
+- 继续扩充复杂长文档、真实学校模板匿名化样例、目录、题注、交叉引用和多级列表样例。
 
 ### 用户说“加新规则”
 
@@ -118,6 +122,7 @@ paperguard fix paper.docx --pack GB-T-7713-1-2006 --output paper.fixed.docx
 9. SARIF 用 2.1.0 实用子集。
 10. 网络检查默认关闭，仅 `version --check-update` / `doctor --check-network` 触发。
 11. Sprint 5 mutator 成熟范围是安全可验证的 docx 修复闭环，不包含完整目录、交叉引用、复杂 numbering.xml 续接。
+12. 样例回归优先用代码生成合成 `.docx`，不要把真实论文或学生作业 commit 进仓库。
 
 ## 不应该做的事
 
@@ -140,5 +145,5 @@ paperguard fix paper.docx --pack GB-T-7713-1-2006 --output paper.fixed.docx
 
 ---
 
-**版本**：v1.7（Sprint 5 完成）
+**版本**：v1.8（真实样例回归第一版）
 **最后更新**：2026-06-16
