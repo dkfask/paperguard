@@ -375,6 +375,73 @@ class TestFixWriteValidateLoop(unittest.TestCase):
         self.assertAlmostEqual(loaded.paragraphs[0].hanging_indent_cm, 0.74, places=2)
         self.assertNotIn("PG-REF-HANGING-INDENT", {f.rule_id for f in post_findings})
 
+    def test_reference_run_fixes_clean_all_runs_through_docx_roundtrip(self):
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="Bibliography",
+                    text="[1] Good. Bad.",
+                    level=None,
+                    runs=(
+                        Run(
+                            text="[1] Good. ",
+                            font_eastasia="宋体",
+                            font_ascii="Times New Roman",
+                            font_size_pt=10.5,
+                            bold=False,
+                            underline=None,
+                        ),
+                        Run(
+                            text="Bad.",
+                            font_eastasia="Arial",
+                            font_ascii="Arial",
+                            font_size_pt=12.0,
+                            bold=True,
+                            underline="single",
+                        ),
+                    ),
+                    line_spacing=1.5,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                    hanging_indent_cm=0.74,
+                    alignment="left",
+                    is_page_break_before=False,
+                ),
+            ),
+            metadata=DocumentMetadata(title="reference multi run loop"),
+        )
+
+        pre_findings = validate_docx(ir, "GB-T-7714-1-2015")
+        pre_rule_ids = {f.rule_id for f in pre_findings}
+        self.assertIn("PG-REF-FONT-SIZE", pre_rule_ids)
+        self.assertIn("PG-REF-FONT-EASTASIA", pre_rule_ids)
+        self.assertIn("PG-REF-FONT-ASCII", pre_rule_ids)
+        self.assertIn("PG-REF-NO-UNDERLINE", pre_rule_ids)
+        self.assertIn("PG-REF-NO-BOLD", pre_rule_ids)
+
+        fixed, skipped = apply_all_fixes(ir, pre_findings)
+        self.assertEqual(skipped, [])
+        self.assertEqual([r.font_size_pt for r in fixed.paragraphs[0].runs], [10.5, 10.5])
+        self.assertEqual([r.font_eastasia for r in fixed.paragraphs[0].runs], ["宋体", "宋体"])
+        self.assertEqual([r.font_ascii for r in fixed.paragraphs[0].runs], ["Times New Roman", "Times New Roman"])
+        self.assertEqual([r.underline for r in fixed.paragraphs[0].runs], [None, None])
+        self.assertEqual([r.bold for r in fixed.paragraphs[0].runs], [False, False])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fixed_reference_multi_run.docx"
+            write_ir_to_docx(fixed, str(path))
+            loaded = load_docx(path)
+
+        post_findings = validate_docx(loaded, "GB-T-7714-1-2015")
+        post_rule_ids = {f.rule_id for f in post_findings}
+        self.assertNotIn("PG-REF-FONT-SIZE", post_rule_ids)
+        self.assertNotIn("PG-REF-FONT-EASTASIA", post_rule_ids)
+        self.assertNotIn("PG-REF-FONT-ASCII", post_rule_ids)
+        self.assertNotIn("PG-REF-NO-UNDERLINE", post_rule_ids)
+        self.assertNotIn("PG-REF-NO-BOLD", post_rule_ids)
+
     def test_body_vert_align_fix_survives_docx_roundtrip(self):
         ir = Document(
             sections=(Section(),),
