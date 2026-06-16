@@ -275,3 +275,29 @@ rules:
       action: set
       target: "paragraph.alignment"
       value: "center"
+
+  - id: PG-TABLE-CELL-FONT-SIZE
+    severity: info
+    scope: "paragraphs[?table_index != `null` && runs[?font_size_pt != `10.5`]]"
+    when:
+      "==":
+        - true
+        - true
+    message: "表格单元格文字字号建议为 10.5pt（小五）"
+    fix:
+      action: set
+      target: "runs.*.font_size_pt"
+      value: 10.5
+
+  - id: PG-LIST-LINE-SPACING
+    severity: info
+    scope: "paragraphs[?list_type != `null`]"
+    when:
+      "!=":
+        - var: "line_spacing"
+        - 1.5
+    message: "列表段落行距应为 1.5 倍"
+    fix:
+      action: set
+      target: "paragraph.line_spacing"
+      value: 1.5

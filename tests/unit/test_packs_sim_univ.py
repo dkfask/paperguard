@@ -32,7 +32,12 @@ def _para(style_id: str = "BodyText", level: int | None = None,
          font_size: float = 12.0, font_eastasia: str = "宋体",
          font_ascii: str = "Times New Roman",
          is_page_break_before: bool = False,
-         alignment: str | None = None) -> Paragraph:
+         alignment: str | None = None,
+         table_index: int | None = None,
+         table_row_index: int | None = None,
+         table_cell_index: int | None = None,
+         list_type: str | None = None,
+         list_level: int | None = None) -> Paragraph:
     return Paragraph(
         style_id=style_id, text="测试段", level=level,
         runs=(Run(text="测试段", font_eastasia=font_eastasia,
@@ -41,6 +46,11 @@ def _para(style_id: str = "BodyText", level: int | None = None,
         space_after_pt=space_after_pt, first_line_indent_cm=first_line_indent_cm,
         is_page_break_before=is_page_break_before,
         alignment=alignment,
+        table_index=table_index,
+        table_row_index=table_row_index,
+        table_cell_index=table_cell_index,
+        list_type=list_type,
+        list_level=list_level,
     )
 
 
@@ -184,14 +194,41 @@ class TestFigureTableRules(unittest.TestCase):
         self.assertFalse(_has_finding(validate_docx(doc, PACK_ID), "PG-TABLE-CAPTION-ALIGN"))
 
 
+class TestSprint5MutatorRules(unittest.TestCase):
+    """Sprint 5 mutator fields: table cell and list paragraph rules."""
+
+    def test_PG_TABLE_CELL_FONT_SIZE_violated_by_12pt(self):
+        doc = _doc(
+            _para(
+                style_id="Table Text",
+                font_size=12.0,
+                table_index=0,
+                table_row_index=0,
+                table_cell_index=0,
+            )
+        )
+        self.assertTrue(_has_finding(validate_docx(doc, PACK_ID), "PG-TABLE-CELL-FONT-SIZE"))
+
+    def test_PG_LIST_LINE_SPACING_violated_by_1_0(self):
+        doc = _doc(
+            _para(
+                style_id="List Number",
+                line_spacing=1.0,
+                list_type="number",
+                list_level=0,
+            )
+        )
+        self.assertTrue(_has_finding(validate_docx(doc, PACK_ID), "PG-LIST-LINE-SPACING"))
+
+
 class TestSimUnivPackIntegration(unittest.TestCase):
     """集成 + rule_id 命名约定"""
 
-    def test_load_pack_with_20_rules(self):
+    def test_load_pack_with_22_rules(self):
         pack = load_pack(PACK_ID)
         self.assertEqual(pack.id, PACK_ID)
-        self.assertEqual(len(pack.rules), 20,
-                         f"SIM-UNIV-generic 应有 20 条规则，实际 {len(pack.rules)}")
+        self.assertEqual(len(pack.rules), 22,
+                         f"SIM-UNIV-generic 应有 22 条规则，实际 {len(pack.rules)}")
 
     def test_all_rule_ids_use_pg_prefix(self):
         pack = load_pack(PACK_ID)
