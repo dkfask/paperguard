@@ -311,6 +311,9 @@ def _apply_paragraph_style(para, p, doc) -> None:
     candidates: list[str] = []
     if p.level is not None:
         candidates.append(f"Heading {p.level}")
+    list_style = _list_style_name(p)
+    if list_style:
+        candidates.append(list_style)
     if p.style_id:
         candidates.append(p.style_id)
 
@@ -327,6 +330,16 @@ def _apply_paragraph_style(para, p, doc) -> None:
             para.style = doc.styles.add_style(p.style_id, WD_STYLE_TYPE.PARAGRAPH)
         except (KeyError, ValueError, AttributeError):
             return
+
+
+def _list_style_name(p) -> str | None:
+    if p.list_type not in ("bullet", "number"):
+        return None
+    base = "List Bullet" if p.list_type == "bullet" else "List Number"
+    level = p.list_level or 0
+    if level <= 0:
+        return base
+    return f"{base} {level + 1}"
 
 
 __all__ = ["write_ir_to_docx"]

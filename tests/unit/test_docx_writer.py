@@ -557,6 +557,49 @@ class TestDocxWriterFormatting(unittest.TestCase):
             ],
         )
 
+    def test_written_docx_roundtrips_list_paragraphs(self):
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(
+                Paragraph(
+                    style_id="",
+                    text="bullet item",
+                    level=None,
+                    runs=(Run(text="bullet item"),),
+                    line_spacing=1.0,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                    list_type="bullet",
+                    list_level=0,
+                ),
+                Paragraph(
+                    style_id="",
+                    text="numbered item",
+                    level=None,
+                    runs=(Run(text="numbered item"),),
+                    line_spacing=1.0,
+                    space_before_pt=0.0,
+                    space_after_pt=0.0,
+                    first_line_indent_cm=0.0,
+                    list_type="number",
+                    list_level=0,
+                ),
+            ),
+            metadata=DocumentMetadata(title="lists"),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "lists.docx"
+            write_ir_to_docx(ir, str(path))
+            written = docx.Document(str(path))
+            loaded = load_docx(path)
+
+        self.assertEqual(written.paragraphs[0].style.name, "List Bullet")
+        self.assertEqual(written.paragraphs[1].style.name, "List Number")
+        self.assertEqual(loaded.paragraphs[0].list_type, "bullet")
+        self.assertEqual(loaded.paragraphs[1].list_type, "number")
+
 
 if __name__ == "__main__":
     unittest.main()

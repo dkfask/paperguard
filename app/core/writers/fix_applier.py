@@ -163,6 +163,8 @@ def _paragraph_from_value(value) -> Paragraph | None:
             table_index=value.get("table_index"),
             table_row_index=value.get("table_row_index"),
             table_cell_index=value.get("table_cell_index"),
+            list_type=value.get("list_type"),
+            list_level=value.get("list_level"),
         )
     except (TypeError, ValueError):
         return None

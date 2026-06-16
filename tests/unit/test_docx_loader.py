@@ -524,5 +524,26 @@ class TestLoadDocxTableParagraphs(unittest.TestCase):
         self.assertEqual([paragraph.text for paragraph in loaded.paragraphs], ["merged cell"])
 
 
+class TestLoadDocxListParagraphs(unittest.TestCase):
+    def test_reads_list_type_from_builtin_list_styles(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "lists.docx"
+            docx = DocxDocument()
+            bullet = docx.add_paragraph("bullet item")
+            bullet.style = docx.styles["List Bullet"]
+            numbered = docx.add_paragraph("numbered item")
+            numbered.style = docx.styles["List Number"]
+            docx.save(path)
+
+            loaded = load_docx(path)
+
+        self.assertEqual(loaded.paragraphs[0].list_type, "bullet")
+        self.assertEqual(loaded.paragraphs[0].list_level, 0)
+        self.assertEqual(loaded.paragraphs[1].list_type, "number")
+        self.assertEqual(loaded.paragraphs[1].list_level, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -201,6 +201,31 @@ def _style_page_break_before(paragraph) -> bool:
     return False
 
 
+def _list_type_from_style_id(style_id: str) -> str | None:
+    normalized = (style_id or "").lower()
+    if "bullet" in normalized or "项目符号" in style_id:
+        return "bullet"
+    if "number" in normalized or "编号" in style_id:
+        return "number"
+    return None
+
+
+def _list_level_from_ppr(ppr) -> int | None:
+    if ppr is None:
+        return None
+    num_pr = ppr.find(qn("w:numPr"))
+    if num_pr is None:
+        return None
+    ilvl = num_pr.find(qn("w:ilvl"))
+    if ilvl is None:
+        return 0
+    value = ilvl.get(qn("w:val"))
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _first_line_indent_to_cm(paragraph) -> float:
     """读首行缩进（twips → cm）。
 
@@ -522,6 +547,10 @@ def _load_paragraph(paragraph, table_location=None) -> Paragraph:
     first_line_indent_cm = _first_line_indent_to_cm(paragraph)
     hanging_indent_cm = _hanging_indent_to_cm(paragraph)
     alignment = _paragraph_alignment_to_str(paragraph)
+    list_type = _list_type_from_style_id(style_id)
+    list_level = _list_level_from_ppr(ppr)
+    if list_type is not None and list_level is None:
+        list_level = 0
     if space_before is None:
         space_before = _style_space_before_pt(paragraph)
     if space_after is None:
@@ -550,6 +579,8 @@ def _load_paragraph(paragraph, table_location=None) -> Paragraph:
         table_index=table_index,
         table_row_index=table_row_index,
         table_cell_index=table_cell_index,
+        list_type=list_type,
+        list_level=list_level,
     )
 
 
