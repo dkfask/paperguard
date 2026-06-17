@@ -9,7 +9,7 @@
 
 ## 一句话状态
 
-> 🚧 **Word 模板导入已支持章节结构，PyQt DOCX 批改链路继续打磨**（2026-06-17）：Word `.docx/.dotx` 导入现在会从 `标题 1/2/3` 生成模板章节树；PyQt DOCX 批改面板已有问题列表、定位反馈、逐条修复和导出摘要。下一步：**打磨异常提示 + CI/发布工程化**。
+> 🚧 **GitHub Actions CI 已上线，PyQt DOCX 批改链路继续打磨**（2026-06-17）：CI 覆盖 pytest matrix（py3.10/3.11）+ 3 个端到端 smoke 脚本；Word `.docx/.dotx` 导入支持从 `标题 1/2/3` 生成模板章节树；PyQt DOCX 批改面板已有问题列表、定位反馈、逐条修复和导出摘要。下一步：**打磨异常提示 + 持续扩充样例**。
 
 ---
 
@@ -231,10 +231,16 @@ git push
 
 > 交付：`tests/synthetic_regression_samples.py` 代码生成 9 个合成 `.docx` 样例，覆盖 GB/T 7713、GB/T 7714、SIM-UNIV 三个 pack 的合规、违规、修复后三类状态；`tests/integration/test_synthetic_regression_samples.py` 验证 `write -> load -> validate` 与 `fix -> write -> load -> validate`；`scripts/regression_samples_smoke.py` 提供本地 smoke。样例运行时写入临时目录，不提交真实论文或学生作业。提交 `8793168`。
 
-### 🚧 P0（下一个）：PyQt 正常使用链路 + CI/发布工程化
+### ✅ P0：CI/发布工程化（第一版）— **已完成 2026-06-17**
+
+> 交付：`.github/workflows/ci.yml`，两个 job：
+> - `test`：matrix py3.10/3.11 + ubuntu-latest + `QT_QPA_PLATFORM=offscreen` 跑全量 pytest（504 tests），上传 JUnit 报告
+> - `smoke`：依赖 `test` 通过后，跑 3 个端到端 smoke 脚本（`sprint5_smoke.py` / `regression_samples_smoke.py` / `pyqt_docx_session_smoke.py`）
+> 触发：push 到 `main` 或 `codex/**` / PR 到 `main` / `workflow_dispatch`。本地预演：YAML 语法 ✓，`pip install -e .` ✓，pytest 32.76s 504 passed/1 skipped ✓，3 smoke OK ✓。
+
+### 🚧 P0（下一个）：PyQt 正常使用链路
 - 打磨 DOCX 批改面板的异常提示和失败恢复。
 - 将 DOCX 批改结果和现有侧边栏/高亮定位进一步融合。
-- 配置 CI，把全量 pytest、Sprint 5 smoke 和 regression samples smoke 纳入基础检查。
 - 继续扩充复杂长文档、真实学校模板匿名化样例、目录、题注、交叉引用和多级列表样例。
 
 完整 Sprint 计划见 `docs/design-proposal.md` §7。
@@ -306,6 +312,7 @@ git push
 | 2026-06-17 | **PyQt DOCX 定位反馈**：finding 卡片新增定位按钮，显示规则、段落号、文本片段并同步状态栏；提交 `a39b81e`；`503 passed, 1 skipped` |
 | 2026-06-17 | **PyQt DOCX 导出反馈**：导出后在面板显示文件名、剩余问题数和导出时间摘要；提交 `82509de`；`503 passed, 1 skipped` |
 | 2026-06-17 | **Word 模板章节结构导入**：从 Word `标题 1/2/3` 段落生成模板章节树，未识别标题时回退默认结构；提交 `9fcc480`；`504 passed, 1 skipped` |
+| 2026-06-17 | **GitHub Actions CI 第一版**：`.github/workflows/ci.yml`（test matrix py3.10/3.11 + 3 smoke）；本地预演全绿 | 待 push 后首次 CI 验证 |
 | _待定_ | MVP 全部完成（3 周后） |
 
 ---
@@ -316,7 +323,7 @@ git push
 
 ---
 
-**版本**：v2.3（Word 模板章节结构导入）
+**版本**：v2.4（GitHub Actions CI 第一版）
 **最后更新**：2026-06-17
-**配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/*.md`
-**最新实现 commit**：`9fcc480 feat(template): import word heading structure`
+**配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/*.md` / `.github/workflows/ci.yml`
+**最新实现 commit**：`9fcc480 feat(template): import word heading structure`（CI 配置为本地未提交）

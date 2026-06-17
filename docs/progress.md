@@ -4,11 +4,12 @@
 
 ## 当前状态
 
-- 当前阶段：Word 模板导入已支持从标题层级生成章节结构；PyQt DOCX 批改面板已支持问题列表、定位反馈、逐条修复和导出摘要。
+- 当前阶段：GitHub Actions CI 已上线（pytest matrix + 3 smoke），后续工作均在 CI 保护下推进；PyQt DOCX 批改面板已支持问题列表、定位反馈、逐条修复和导出摘要。
 - 当前分支：`codex/sprint-5-mutator`
-- 最近提交：`9fcc480 feat(template): import word heading structure`
+- 最近提交：`9fcc480 feat(template): import word heading structure`（CI 配置 `.github/workflows/ci.yml` 本地未提交）
 - 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `504 passed, 1 skipped`
-- 最近 smoke：`python scripts/pyqt_docx_session_smoke.py` -> `OK PyQt DOCX review session smoke passed`
+- 最近 smoke：sprint5 / regression / pyqt_docx_session 三个 smoke 全过
+- CI 状态：本地预演全绿；待 push 后首次 GitHub Actions 验证
 - 当前可用程度：CLI 批改/修复链路可内部试用；PyQt 实时约束仍是 beta。
 
 ## 已实现
@@ -125,14 +126,24 @@
 - 已有集成测试 `tests/integration/test_synthetic_regression_samples.py`，验证 `write -> load -> validate` 与 `fix -> write -> load -> validate` 闭环。
 - 已有 smoke 脚本 `scripts/regression_samples_smoke.py`。
 
+### CI 工程化
+
+- `.github/workflows/ci.yml` 第一版已配置。
+- 触发：push 到 `main` 或 `codex/**` / PR 到 `main` / `workflow_dispatch`。
+- 两个 job：
+  - `test`：ubuntu-latest + Python matrix（3.10/3.11）+ `QT_QPA_PLATFORM=offscreen` 跑全量 pytest，上传 JUnit 报告。
+  - `smoke`：依赖 `test` 通过后跑 3 个端到端 smoke 脚本（`sprint5_smoke.py` / `regression_samples_smoke.py` / `pyqt_docx_session_smoke.py`）。
+- PyQt5 在 Linux 上用 offscreen 平台，无需 xvfb；装了 `libxcb-xinerama0` / `libxcb-cursor0` / `libxkbcommon-x11-0` / `libgl1` 作为系统依赖。
+- 本地预演：YAML 语法 ✓，`pip install -e .` ✓，pytest 32.76s `504 passed, 1 skipped` ✓，3 smoke 全过 ✓。
+
 ## 未实现 / 未完善
 
 ### 产品化缺口
 
-- CI 未配置。
 - Windows 桌面安装包未制作。
 - 用户手册和面向普通用户的操作文档不完整。
 - 异常恢复、日志、隐私提示、真实论文保护策略还不完整。
+- CI badge 未挂到 README；CI 失败通知规则未配。
 
 ### PyQt 端缺口
 
@@ -176,7 +187,7 @@
 
 ### P2：发布与工程化
 
-- 配置 CI。
+- 把 CI badge 挂到 README，给失败 PR 自动加红 X。
 - 增加 release smoke。
 - 制作 Windows 安装包。
 - 完成 README、用户手册、故障排查文档。
@@ -208,6 +219,7 @@
 | 日期 | 提交/节点 | 内容 | 验证 |
 |------|-----------|------|------|
 | 2026-06-17 | `9fcc480` | Word 模板导入支持从 `标题 1/2/3` 生成章节结构，导入提示同步更新 | `504 passed, 1 skipped`; Sprint 5 smoke passed; regression smoke passed; PyQt session smoke passed |
+| 2026-06-17 | 本地（未推送） | `.github/workflows/ci.yml` 第一版：pytest matrix py3.10/3.11 + 3 smoke；本地预演全绿 | YAML 语法 ✓; pytest 504 passed ✓; 3 smoke OK ✓ |
 | 2026-06-17 | `82509de` | PyQt DOCX 导出后在面板显示文件名、剩余问题数和导出时间摘要 | `503 passed, 1 skipped`; Sprint 5 smoke passed; regression smoke passed; PyQt session smoke passed |
 | 2026-06-17 | `a39b81e` | PyQt DOCX finding 卡片支持定位反馈，显示段落号、文本片段并同步状态栏 | `503 passed, 1 skipped`; Sprint 5 smoke passed; regression smoke passed; PyQt session smoke passed |
 | 2026-06-17 | `04bddbc` | PyQt DOCX 批改面板支持问题列表和逐条修复 | `502 passed, 1 skipped`; UI/session tests passed; smoke passed |
