@@ -206,6 +206,14 @@ class Fix:
     target: str            # JMESPath 表达式
     value: Any
     description: str
+
+@dataclass(frozen=True)
+class Location:
+    """Finding 的位置定位。v1.1 修订：增加 ``text_snippet`` 字段让 SKILL.md 承诺的 ``location.text_snippet`` 有据可依。"""
+    section: str | None              # 章节名（如 "正文" / "参考文献"）
+    paragraph_index: int | None      # 段落号（0-based）
+    text_snippet: str | None         # 段落前 N 字（用于"在第 3 段'绪论...'"）
+    source_path: str                 # 段落所属的 source_path（docx 内路径或文件名）
 ```
 
 ### 3.3 Rule Pack 模型（YAML 文件结构）
@@ -757,6 +765,7 @@ Sprint 1  →  1.5  →  2  →  2.5  →  3  →  4  →  4.5  →  5  →  6
 - [ ] **学校规范包生态**：`paperguard pack install <name>`，预制 10 所高校
 - [ ] **AI Agent Skill 入口**：打包为 Claude Code / Codex Skill，提供 `SKILL.md` + `AGENTS.md`
 - [ ] **GB/T 7714—2015 参考文献**：内置规则（含顺序编码、上标交叉引用、悬挂缩进）
+- [ ] **GB/T 9704—2012 党政机关公文**：内置规则（公文排版助手派用户需求，含页面、字体、行距、要素顺序等）
 - [ ] **pandoc 中间路径**：md → docx 也能用
 - [ ] **Web UI（最小版）**：FastAPI 后端 + 静态前端（上传 docx → 出报告）
 - [ ] **GitHub Action**：`paperguard-action` 让 `.github/workflows` 直接挂
@@ -786,6 +795,7 @@ Sprint 1  →  1.5  →  2  →  2.5  →  3  →  4  →  4.5  →  5  →  6
 | 性能（论文动辄 200 页） | 🟢 低 | 用户卡顿 | 增量遍历 + 流式输出 Finding；V2 用 Rust 重写热路径 |
 | 与"论文管理系统"重叠 | 🟢 低 | 内部竞争 | 明确定位："规范 + 批改"是工具；"流程管理"是系统——后者集成前者 |
 | 实时检查 UI 卡顿 | 🟡 高 | 学生写作体验差 | 0.5s debounce + 失败容忍（try/except + log） + V1.3 增量检查 |
+| 破坏性修复需确认 | 🟡 中 | 用户可能误用 | `fix` 步骤前加交互确认："将修改 N 个段落中的 M 个，确认？(y/N)"；CLI 加 `--yes` 跳过（CI 友好）；Sprint 4 已实现 `changes.md` 让用户事后审计 |
 
 ---
 
