@@ -9,7 +9,7 @@
 
 ## 一句话状态
 
-> 🚧 **PyQt 检查与导出工作区已接入 DOCX 批改入口**（2026-06-17）：Sprint 5 mutator/docx 写回闭环、真实样例回归第一版、`DocxReviewSession` 服务均已完成；`ReviewExportView` 已有规则包选择、导入、检查、修复、导出按钮。下一步：**打磨问题列表/逐条修复/定位反馈 + CI/发布工程化**。
+> 🚧 **PyQt DOCX 批改面板已支持问题列表和逐条修复**（2026-06-17）：Sprint 5 mutator/docx 写回闭环、真实样例回归第一版、`DocxReviewSession` 服务均已完成；`ReviewExportView` 已有规则包选择、导入、检查、问题列表、逐条修复、批量修复、导出按钮。下一步：**打磨定位反馈/异常提示 + CI/发布工程化**。
 
 ---
 
@@ -232,7 +232,7 @@ git push
 > 交付：`tests/synthetic_regression_samples.py` 代码生成 9 个合成 `.docx` 样例，覆盖 GB/T 7713、GB/T 7714、SIM-UNIV 三个 pack 的合规、违规、修复后三类状态；`tests/integration/test_synthetic_regression_samples.py` 验证 `write -> load -> validate` 与 `fix -> write -> load -> validate`；`scripts/regression_samples_smoke.py` 提供本地 smoke。样例运行时写入临时目录，不提交真实论文或学生作业。提交 `8793168`。
 
 ### 🚧 P0（下一个）：PyQt 正常使用链路 + CI/发布工程化
-- 打磨 DOCX 批改面板的问题列表、逐条修复、定位反馈和异常提示。
+- 打磨 DOCX 批改面板的定位反馈、异常提示和导出反馈。
 - 将 DOCX 批改结果和现有侧边栏/高亮定位进一步融合。
 - 配置 CI，把全量 pytest、Sprint 5 smoke 和 regression samples smoke 纳入基础检查。
 - 继续扩充复杂长文档、真实学校模板匿名化样例、目录、题注、交叉引用和多级列表样例。
@@ -302,17 +302,18 @@ git push
 | 2026-06-16 | **真实样例回归第一版**：3 pack x 合规/违规/修复后合成 `.docx` 样例矩阵；集成测试和 smoke 覆盖 `fix -> write -> load -> validate` |
 | 2026-06-17 | **PyQt docx 会话服务第一版**：`DocxReviewSession` 封装 `.docx` 导入、检查、自动修复、导出新 `.docx`，补 session smoke；提交 `5df9894` |
 | 2026-06-17 | **PyQt DOCX 批改 UI 接入**：`ReviewExportView` 增加 DOCX 批改面板，`MainWindow` 接入导入、检查、修复、导出方法；提交 `8ceb945` |
+| 2026-06-17 | **PyQt DOCX 问题列表与逐条修复**：`DocxReviewSession.apply_fix_at()`；批改面板渲染 finding 卡片并支持单项修复；提交 `04bddbc` |
 | _待定_ | MVP 全部完成（3 周后） |
 
 ---
 
 ## 一句话建议
 
-> 下次回来，直接说“打磨 DOCX 批改面板”或“配置 CI”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后做问题列表、逐条修复、定位反馈，或把 pytest 与 smoke 纳入基础检查。
+> 下次回来，直接说“打磨 DOCX 批改定位反馈”或“配置 CI”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后做定位反馈、异常提示、导出反馈，或把 pytest 与 smoke 纳入基础检查。
 
 ---
 
-**版本**：v1.9（PyQt docx 会话服务第一版）
+**版本**：v2.0（PyQt DOCX 问题列表与逐条修复）
 **最后更新**：2026-06-17
 **配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/*.md`
-**最新实现 commit**：`8ceb945 feat(pyqt): wire docx review ui`
+**最新实现 commit**：`04bddbc feat(pyqt): add docx issue cards and single fixes`

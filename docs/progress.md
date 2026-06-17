@@ -4,10 +4,10 @@
 
 ## 当前状态
 
-- 当前阶段：PyQt 检查与导出工作区已接入 DOCX 批改入口；下一阶段继续打磨交互和发布工程化。
+- 当前阶段：PyQt DOCX 批改面板已支持问题列表和逐条修复；下一阶段继续打磨定位反馈、异常提示和发布工程化。
 - 当前分支：`codex/sprint-5-mutator`
-- 最近提交：`8ceb945 feat(pyqt): wire docx review ui`
-- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `499 passed, 1 skipped`
+- 最近提交：`04bddbc feat(pyqt): add docx issue cards and single fixes`
+- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `502 passed, 1 skipped`
 - 最近 smoke：`python scripts/pyqt_docx_session_smoke.py` -> `OK PyQt DOCX review session smoke passed`
 - 当前可用程度：CLI 批改/修复链路可内部试用；PyQt 实时约束仍是 beta。
 
@@ -98,8 +98,9 @@
 - 已接入 Live Checker。
 - 已有侧边栏 issue、格式高亮、LiveMutator 基础修复能力。
 - 已有 PyQt-facing `DocxReviewSession` 服务，可执行 `.docx` 导入、规则检查、批量自动修复、导出新 `.docx`。
-- `ReviewExportView` 已接入 DOCX 批改面板：规则包选择、导入、检查、修复、导出。
-- `MainWindow` 已提供可测试的 DOCX 批改 UI 方法：`_open_docx_review_path`、`_check_docx_review_session`、`_fix_docx_review_session`、`_export_fixed_docx_review_path`。
+- `DocxReviewSession` 已支持 `apply_fix_at(index)` 逐条修复。
+- `ReviewExportView` 已接入 DOCX 批改面板：规则包选择、导入、检查、问题列表、逐条修复、批量修复、导出。
+- `MainWindow` 已提供可测试的 DOCX 批改 UI 方法：`_open_docx_review_path`、`_check_docx_review_session`、`_fix_one_docx_review_finding`、`_fix_docx_review_session`、`_export_fixed_docx_review_path`。
 - 已有 `scripts/pyqt_docx_session_smoke.py` 验证 3 个 pack 的违规样例会话闭环。
 
 ### 模板抽取
@@ -133,7 +134,7 @@
 ### PyQt 端缺口
 
 - UI 仍需打磨到可交付状态。
-- DOCX 批改入口已接入“检查与导出”工作区，但还需要更完整的错误展示、问题列表、逐条修复和定位反馈。
+- DOCX 批改入口已接入“检查与导出”工作区，并已有问题列表和逐条修复；定位反馈和异常提示仍需打磨。
 - 保存/导出流程已有服务层和 UI 方法闭环，仍需做真实用户交互打磨。
 - 一键修复后的真实 `.docx` 闭环已有服务层 smoke 和 PyQt 集成测试，仍需覆盖手工 GUI 冒烟。
 - 长文档实时检查的体验和性能需要真实样例验证。
@@ -159,7 +160,7 @@
 
 ### P0：PyQt 正常使用链路
 
-- 打磨 DOCX 批改面板的错误展示、问题列表、逐条修复和导出反馈。
+- 打磨 DOCX 批改面板的定位反馈、异常提示和导出反馈。
 - 将 DOCX 批改结果和现有侧边栏/高亮定位进一步融合。
 - 优化侧边栏交互、定位、高亮和一键修复反馈。
 - 增加失败提示和不可自动修复项说明。
@@ -203,6 +204,7 @@
 
 | 日期 | 提交/节点 | 内容 | 验证 |
 |------|-----------|------|------|
+| 2026-06-17 | `04bddbc` | PyQt DOCX 批改面板支持问题列表和逐条修复 | `502 passed, 1 skipped`; UI/session tests passed; smoke passed |
 | 2026-06-17 | `8ceb945` | PyQt 检查与导出工作区接入 DOCX 批改入口：规则包选择、导入、检查、修复、导出 | `499 passed, 1 skipped`; UI integration passed; session smoke passed |
 | 2026-06-17 | `5df9894` | PyQt docx 会话服务第一版：封装导入、检查、自动修复、导出 `.docx` 链路，补 smoke | `497 passed, 1 skipped`; session smoke passed; regression smoke passed; Sprint 5 smoke passed |
 | 2026-06-16 | `8793168` | 真实样例回归第一版：3 个 pack x 合规/违规/修复后 3 状态生成样例，补集成测试与 smoke | `495 passed, 1 skipped`; regression smoke passed; Sprint 5 smoke passed |
