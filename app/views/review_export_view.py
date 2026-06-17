@@ -28,6 +28,7 @@ class ReviewExportView(QWidget):
     docx_check_requested = pyqtSignal()
     docx_fix_requested = pyqtSignal()
     docx_fix_one_requested = pyqtSignal(int)
+    docx_locate_requested = pyqtSignal(int)
     docx_export_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -102,6 +103,10 @@ class ReviewExportView(QWidget):
         self.docx_status_label.setWordWrap(True)
         docx_layout.addWidget(self.docx_status_label)
 
+        self.docx_location_label = QLabel("尚未定位具体问题。")
+        self.docx_location_label.setWordWrap(True)
+        docx_layout.addWidget(self.docx_location_label)
+
         self.docx_issue_scroll = QScrollArea()
         self.docx_issue_scroll.setWidgetResizable(True)
         self.docx_issue_container = QWidget()
@@ -110,6 +115,7 @@ class ReviewExportView(QWidget):
         self.docx_issue_scroll.setMinimumHeight(120)
         docx_layout.addWidget(self.docx_issue_scroll)
         self.docx_issue_buttons: list[QPushButton] = []
+        self.docx_locate_buttons: list[QPushButton] = []
         self.docx_issue_labels: list[QLabel] = []
 
         self.docx_export_name = QLineEdit()
@@ -174,6 +180,9 @@ class ReviewExportView(QWidget):
         self.btn_docx_export.setEnabled(can_export)
         self._render_docx_findings(findings or [])
 
+    def set_docx_location_feedback(self, message: str) -> None:
+        self.docx_location_label.setText(message or "尚未定位具体问题。")
+
     def _render_docx_findings(self, findings: list) -> None:
         while self.docx_issue_layout.count():
             item = self.docx_issue_layout.takeAt(0)
@@ -181,6 +190,7 @@ class ReviewExportView(QWidget):
             if widget is not None:
                 widget.deleteLater()
         self.docx_issue_buttons = []
+        self.docx_locate_buttons = []
         self.docx_issue_labels = []
 
         if not findings:
@@ -212,10 +222,19 @@ class ReviewExportView(QWidget):
                 fix_text.setWordWrap(True)
                 card_layout.addWidget(fix_text)
 
+            button_row = QHBoxLayout()
+            locate_button = QPushButton("定位")
+            locate_button.clicked.connect(
+                lambda _, item_index=index: self.docx_locate_requested.emit(item_index)
+            )
+            button_row.addWidget(locate_button)
+            self.docx_locate_buttons.append(locate_button)
+
             button = QPushButton("修复此项")
             button.setEnabled(finding.fix is not None)
             button.clicked.connect(lambda _, item_index=index: self.docx_fix_one_requested.emit(item_index))
-            card_layout.addWidget(button)
+            button_row.addWidget(button)
+            card_layout.addLayout(button_row)
             self.docx_issue_buttons.append(button)
             self.docx_issue_layout.addWidget(card)
 

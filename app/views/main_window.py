@@ -56,6 +56,7 @@ class MainWindow(QMainWindow):
         self.is_dirty = False
         self.docx_review_session: DocxReviewSession | None = None
         self.last_docx_review_export_path: str = ""
+        self.current_docx_review_finding_index: int | None = None
 
         self._setup_ui()
         self._create_menus()
@@ -190,6 +191,7 @@ class MainWindow(QMainWindow):
         self.review_workspace.docx_check_requested.connect(self._check_docx_review_from_ui)
         self.review_workspace.docx_fix_requested.connect(self._fix_docx_review_from_ui)
         self.review_workspace.docx_fix_one_requested.connect(self._fix_one_docx_review_from_ui)
+        self.review_workspace.docx_locate_requested.connect(self._locate_docx_review_finding_from_ui)
         self.review_workspace.docx_export_requested.connect(self._export_docx_review_dialog)
 
         self.help_workspace.open_demo_requested.connect(self._open_demo_project)
@@ -546,6 +548,7 @@ class MainWindow(QMainWindow):
         session = DocxReviewSession.open(path, pack_id=pack_id)
         self.docx_review_session = session
         self.last_docx_review_export_path = ""
+        self.current_docx_review_finding_index = None
         source = Path(path)
         self.review_workspace.set_docx_review_state(
             source_path=str(source),
@@ -554,6 +557,7 @@ class MainWindow(QMainWindow):
             can_fix=False,
             can_export=False,
         )
+        self.review_workspace.set_docx_location_feedback("尚未定位具体问题。")
         self.review_workspace.docx_export_name.setText(f"{source.stem}.fixed.docx")
         self._set_status(f"已导入 DOCX：{source.name}")
         self._show_workspace("review")
@@ -569,6 +573,7 @@ class MainWindow(QMainWindow):
         if self.docx_review_session is None:
             raise ValueError("请先导入 DOCX 文件。")
         findings = self.docx_review_session.check()
+        self.current_docx_review_finding_index = None
         source_path = self.docx_review_session.source_path
         if findings:
             status = f"发现 {len(findings)} 个格式问题，可尝试自动修复。"
@@ -583,6 +588,7 @@ class MainWindow(QMainWindow):
             can_export=not bool(findings),
             findings=findings,
         )
+        self.review_workspace.set_docx_location_feedback("尚未定位具体问题。")
         self._set_status(status)
         return findings
 
@@ -596,6 +602,7 @@ class MainWindow(QMainWindow):
         if self.docx_review_session is None:
             raise ValueError("请先导入 DOCX 文件。")
         summary = self.docx_review_session.apply_all_fixes()
+        self.current_docx_review_finding_index = None
         source_path = self.docx_review_session.source_path
         status = (
             f"已自动修复 {summary.auto_fixed_count} 项；"
@@ -611,6 +618,7 @@ class MainWindow(QMainWindow):
             can_export=True,
             findings=self.docx_review_session.last_findings,
         )
+        self.review_workspace.set_docx_location_feedback("尚未定位具体问题。")
         self._set_status(status)
         return summary
 
@@ -624,6 +632,7 @@ class MainWindow(QMainWindow):
         if self.docx_review_session is None:
             raise ValueError("请先导入 DOCX 文件。")
         result = self.docx_review_session.apply_fix_at(index)
+        self.current_docx_review_finding_index = None
         source_path = self.docx_review_session.source_path
         action = "已修复" if result.applied else "未能自动修复"
         status = f"{action} {result.finding.rule_id}；剩余 {result.remaining_count} 项。"
@@ -636,8 +645,34 @@ class MainWindow(QMainWindow):
             can_export=True,
             findings=self.docx_review_session.last_findings,
         )
+        self.review_workspace.set_docx_location_feedback("尚未定位具体问题。")
         self._set_status(status)
         return result
+
+    def _locate_docx_review_finding_from_ui(self, index: int):
+        try:
+            self._locate_docx_review_finding(index)
+        except Exception as error:
+            QMessageBox.warning(self, "DOCX 定位失败", str(error))
+
+    def _locate_docx_review_finding(self, index: int):
+        if self.docx_review_session is None:
+            raise ValueError("请先导入 DOCX 文件。")
+        findings = self.docx_review_session.last_findings or self.docx_review_session.check()
+        if index < 0 or index >= len(findings):
+            raise IndexError("DOCX 问题索引超出范围。")
+
+        finding = findings[index]
+        self.current_docx_review_finding_index = index
+        para_index = finding.location.paragraph_index
+        location_text = "未定位段落" if para_index is None else f"第 {para_index + 1} 段"
+        snippet = finding.location.text_snippet or ""
+        message = f"已定位 {finding.rule_id}：{location_text}"
+        if snippet:
+            message = f"{message}；片段：{snippet}"
+        self.review_workspace.set_docx_location_feedback(message)
+        self._set_status(message)
+        return finding
 
     def _export_docx_review_dialog(self, file_name: str):
         if self.docx_review_session is None:
@@ -662,6 +697,7 @@ class MainWindow(QMainWindow):
         if self.docx_review_session is None:
             raise ValueError("请先导入 DOCX 文件。")
         exported = self.docx_review_session.export(path)
+        self.current_docx_review_finding_index = None
         self.last_docx_review_export_path = str(exported)
         self.review_workspace.set_docx_review_state(
             source_path=str(self.docx_review_session.source_path),
@@ -672,6 +708,7 @@ class MainWindow(QMainWindow):
             can_export=True,
             findings=self.docx_review_session.last_findings,
         )
+        self.review_workspace.set_docx_location_feedback("尚未定位具体问题。")
         self._set_status(f"已导出修复后 DOCX：{exported.name}")
         self._show_workspace("review")
         return exported

@@ -96,6 +96,29 @@ class TestPyQtDocxReviewUi(unittest.TestCase):
             self.assertEqual(window.review_workspace.docx_issue_buttons, [])
             self.assertTrue(window.review_workspace.btn_docx_export.isEnabled())
 
+    def test_main_window_docx_review_can_locate_rendered_issue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            generated = generate_samples(output_dir)
+            sample, source_path = next(
+                item for item in generated if item[0].name == "gb7713-violating"
+            )
+
+            window = MainWindow()
+            self.addCleanup(window.close)
+            window._open_docx_review_path(source_path, pack_id=sample.pack_id)
+            findings = window._check_docx_review_session()
+            self.assertTrue(findings)
+            self.assertEqual(len(window.review_workspace.docx_locate_buttons), len(findings))
+
+            window.review_workspace.docx_locate_buttons[0].click()
+            self.app.processEvents()
+
+            self.assertEqual(window.current_docx_review_finding_index, 0)
+            self.assertIn("第 1 段", window.review_workspace.docx_location_label.text())
+            self.assertIn(findings[0].location.text_snippet, window.review_workspace.docx_location_label.text())
+            self.assertIn("已定位", window.status_label.text())
+
 
 if __name__ == "__main__":
     unittest.main()
