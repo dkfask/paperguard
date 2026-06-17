@@ -403,6 +403,28 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(body.font.italic)
         self.assertEqual(cover.font.name_cn, "黑体")
 
+    def test_word_template_import_builds_structure_from_heading_paragraphs(self):
+        word_path = self.workdir / "structured-template.docx"
+        document = Document()
+        document.add_paragraph("中文摘要", style="Heading 1")
+        document.add_paragraph("第1章 绪论", style="Heading 1")
+        document.add_paragraph("1.1 研究背景", style="Heading 2")
+        document.add_paragraph("1.1.1 研究范围", style="Heading 3")
+        document.add_paragraph("参考文献", style="Heading 1")
+        document.add_paragraph("致谢", style="Heading 1")
+        document.save(word_path)
+
+        template = import_word_template(word_path)
+
+        self.assertEqual([node.label for node in template.structure], ["中文摘要", "第1章 绪论", "参考文献", "致谢"])
+        self.assertEqual([node.type for node in template.structure], ["abstract", "chapter", "references", "acknowledgements"])
+        chapter = template.structure[1]
+        self.assertEqual(chapter.style_id, "heading_1")
+        self.assertEqual([node.label for node in chapter.subsections], ["1.1 研究背景"])
+        self.assertEqual(chapter.subsections[0].style_id, "heading_2")
+        self.assertEqual([node.label for node in chapter.subsections[0].subsections], ["1.1.1 研究范围"])
+        self.assertEqual(chapter.subsections[0].subsections[0].style_id, "heading_3")
+
     def test_word_template_import_supports_dotx(self):
         docx_path = self.workdir / "import-source.docx"
         dotx_path = self.workdir / "import-source.dotx"

@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "导入成功",
-            "已导入页面设置与样式。章节结构仍使用系统默认结构，请在模板中心按需继续编辑并保存为 .ptpl。",
+            "已导入页面设置、样式与可识别章节结构。未识别到 Word 标题层级时会使用系统默认结构，请在模板中心按需继续编辑并保存为 .ptpl。",
         )
 
     def _load_template_dialog(self):
