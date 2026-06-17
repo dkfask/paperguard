@@ -9,7 +9,7 @@
 
 ## 一句话状态
 
-> 🚧 **PyQt DOCX 批改面板已支持问题列表、定位反馈、逐条修复和导出摘要**（2026-06-17）：Sprint 5 mutator/docx 写回闭环、真实样例回归第一版、`DocxReviewSession` 服务均已完成；`ReviewExportView` 已有规则包选择、导入、检查、问题列表、定位、逐条修复、批量修复、导出按钮和导出摘要。下一步：**打磨异常提示 + CI/发布工程化**。
+> 🚧 **Word 模板导入已支持章节结构，PyQt DOCX 批改链路继续打磨**（2026-06-17）：Word `.docx/.dotx` 导入现在会从 `标题 1/2/3` 生成模板章节树；PyQt DOCX 批改面板已有问题列表、定位反馈、逐条修复和导出摘要。下一步：**打磨异常提示 + CI/发布工程化**。
 
 ---
 
@@ -305,6 +305,7 @@ git push
 | 2026-06-17 | **PyQt DOCX 问题列表与逐条修复**：`DocxReviewSession.apply_fix_at()`；批改面板渲染 finding 卡片并支持单项修复；提交 `04bddbc` |
 | 2026-06-17 | **PyQt DOCX 定位反馈**：finding 卡片新增定位按钮，显示规则、段落号、文本片段并同步状态栏；提交 `a39b81e`；`503 passed, 1 skipped` |
 | 2026-06-17 | **PyQt DOCX 导出反馈**：导出后在面板显示文件名、剩余问题数和导出时间摘要；提交 `82509de`；`503 passed, 1 skipped` |
+| 2026-06-17 | **Word 模板章节结构导入**：从 Word `标题 1/2/3` 段落生成模板章节树，未识别标题时回退默认结构；提交 `9fcc480`；`504 passed, 1 skipped` |
 | _待定_ | MVP 全部完成（3 周后） |
 
 ---
@@ -315,7 +316,7 @@ git push
 
 ---
 
-**版本**：v2.2（PyQt DOCX 导出反馈）
+**版本**：v2.3（Word 模板章节结构导入）
 **最后更新**：2026-06-17
 **配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/*.md`
-**最新实现 commit**：`82509de feat(pyqt): add docx export feedback`
+**最新实现 commit**：`9fcc480 feat(template): import word heading structure`

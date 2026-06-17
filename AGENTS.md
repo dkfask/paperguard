@@ -9,7 +9,7 @@
 - **PyQt 实时约束（主路径）**：学生边写边查，侧边栏提示 + 高亮 + 一键修复。
 - **CLI 事后批改（辅路径）**：CI 集成、批量审稿、AI Agent 入口。
 
-**当前阶段**：Sprint 5 mutator 成熟和真实样例回归第一版已完成；PyQt DOCX 批改面板已支持问题列表、定位反馈、逐条修复和导出摘要；下一阶段继续打磨异常提示、失败恢复和发布工程化。
+**当前阶段**：Sprint 5 mutator 成熟和真实样例回归第一版已完成；Word 模板导入已支持从 `标题 1/2/3` 生成章节结构；PyQt DOCX 批改面板已支持问题列表、定位反馈、逐条修复和导出摘要；下一阶段继续打磨异常提示、失败恢复和发布工程化。
 
 ## 当前提交与分支
 
@@ -23,7 +23,8 @@
 - PyQt DOCX 问题列表/逐条修复 commit：`04bddbc feat(pyqt): add docx issue cards and single fixes`
 - PyQt DOCX 定位反馈 commit：`a39b81e feat(pyqt): add docx issue location feedback`
 - PyQt DOCX 导出反馈 commit：`82509de feat(pyqt): add docx export feedback`
-- 最近验证：`python -m pytest -p no:cacheprovider -q` -> `503 passed, 1 skipped`
+- Word 模板章节结构导入 commit：`9fcc480 feat(template): import word heading structure`
+- 最近验证：`python -m pytest -p no:cacheprovider -q` -> `504 passed, 1 skipped`
 - 最近 smoke：`python scripts/pyqt_docx_session_smoke.py` -> `OK PyQt DOCX review session smoke passed`
 
 ## 关键文件清单
@@ -66,13 +67,14 @@
 | Rule engine | 已有 YAML loader + evaluator + visitor |
 | 规则包 | 已有 `GB-T-7713-1-2006`、`GB-T-7714-1-2015`、`SIM-UNIV-generic` |
 | Extract | 已有 FORMAT_WORDS 启发式与模板抽取链路 |
+| Word 模板导入 | 已支持页面设置、页眉页脚、样式，以及从 `标题 1/2/3` 生成模板章节结构 |
 | Reporters | 已有 terminal / JSON / HTML / SARIF / PyQt reporter |
 | CLI | 已有 8 个命令：check / fix / extract / init / validate-pack / list-packs / doctor / version |
 | Fix / writer | `fix_applier` 已支持 set / insert / delete / runs.*；`docx_writer` 已扩展写回段落、run、section、页眉页脚、表格单元格段落、列表段落 |
 | 样例回归 | 已有 3 pack x 合规/违规/修复后合成 `.docx` 样例矩阵 |
 | PyQt docx session | 已有 `DocxReviewSession` 服务封装 `.docx` 导入、检查、逐条修复、批量修复、导出；`ReviewExportView` 已接入问题列表、定位反馈、导出摘要和修复入口 |
 | Packaging | 已有 `pyproject.toml` 和 `paperguard` console script |
-| 测试 | 当前 `503 passed, 1 skipped` |
+| 测试 | 当前 `504 passed, 1 skipped` |
 | CI | 仍未配置 |
 
 ## 架构现状
@@ -156,5 +158,5 @@ paperguard fix paper.docx --pack GB-T-7713-1-2006 --output paper.fixed.docx
 
 ---
 
-**版本**：v2.2（PyQt DOCX 导出反馈）
+**版本**：v2.3（Word 模板章节结构导入）
 **最后更新**：2026-06-17
