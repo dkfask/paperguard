@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-- 当前阶段：真实样例回归第一版已落地；下一阶段进入 PyQt 正常使用链路和发布工程化。
+- 当前阶段：PyQt docx 会话服务第一版已落地；下一阶段继续接 UI 按钮/文件选择和发布工程化。
 - 当前分支：`codex/sprint-5-mutator`
-- 最近提交：`8793168 feat(regression): add synthetic sample matrix`
-- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `495 passed, 1 skipped`
-- 最近 smoke：`python scripts/regression_samples_smoke.py` -> `OK synthetic regression samples smoke passed`
+- 最近提交：`5df9894 feat(pyqt): add docx review session`
+- 最近全量验证：`python -m pytest -p no:cacheprovider -q` -> `497 passed, 1 skipped`
+- 最近 smoke：`python scripts/pyqt_docx_session_smoke.py` -> `OK PyQt DOCX review session smoke passed`
 - 当前可用程度：CLI 批改/修复链路可内部试用；PyQt 实时约束仍是 beta。
 
 ## 已实现
@@ -97,6 +97,8 @@
 - 已有桌面应用骨架。
 - 已接入 Live Checker。
 - 已有侧边栏 issue、格式高亮、LiveMutator 基础修复能力。
+- 已有 PyQt-facing `DocxReviewSession` 服务，可执行 `.docx` 导入、规则检查、批量自动修复、导出新 `.docx`。
+- 已有 `scripts/pyqt_docx_session_smoke.py` 验证 3 个 pack 的违规样例会话闭环。
 
 ### 模板抽取
 
@@ -129,8 +131,9 @@
 ### PyQt 端缺口
 
 - UI 仍需打磨到可交付状态。
-- 保存/导出流程需要和 core fix/write 更深整合。
-- 一键修复后的真实 `.docx` 闭环还需要继续覆盖。
+- UI 文件选择、按钮、状态反馈还需要接入 `DocxReviewSession`。
+- 保存/导出流程已有服务层闭环，仍需接入 PyQt 视图。
+- 一键修复后的真实 `.docx` 闭环已有服务层 smoke，仍需覆盖 GUI 交互层。
 - 长文档实时检查的体验和性能需要真实样例验证。
 
 ### 规则与 docx 能力缺口
@@ -154,7 +157,7 @@
 
 ### P0：PyQt 正常使用链路
 
-- 打通导入 `.docx`、实时检查、修复、导出 `.docx`。
+- 将 `DocxReviewSession` 接入 PyQt 文件选择、检查按钮、修复按钮和导出按钮。
 - 优化侧边栏交互、定位、高亮和一键修复反馈。
 - 增加失败提示和不可自动修复项说明。
 
@@ -197,6 +200,7 @@
 
 | 日期 | 提交/节点 | 内容 | 验证 |
 |------|-----------|------|------|
+| 2026-06-17 | `5df9894` | PyQt docx 会话服务第一版：封装导入、检查、自动修复、导出 `.docx` 链路，补 smoke | `497 passed, 1 skipped`; session smoke passed; regression smoke passed; Sprint 5 smoke passed |
 | 2026-06-16 | `8793168` | 真实样例回归第一版：3 个 pack x 合规/违规/修复后 3 状态生成样例，补集成测试与 smoke | `495 passed, 1 skipped`; regression smoke passed; Sprint 5 smoke passed |
 | 2026-06-16 | `89c6b98` | Sprint 5 smoke：多 run 正文、参考文献悬挂缩进、表格单元格、列表段落 4 个修复闭环 | `492 passed, 1 skipped`; smoke passed |
 | 2026-06-16 | `e141e41` | SIM-UNIV 新增表格单元格字号、列表行距规则，补真实 docx 往返闭环测试 | related tests passed |

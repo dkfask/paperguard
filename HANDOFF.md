@@ -9,7 +9,7 @@
 
 ## 一句话状态
 
-> ✅ **真实样例回归第一版已落地**（2026-06-16）：Sprint 5 mutator/docx 写回闭环已完成；新增不含真实学生隐私的合成样例矩阵，覆盖 GB/T 7713、GB/T 7714、SIM-UNIV 三个 pack 的合规、违规、修复后三类 `.docx` 生成与 `fix -> write -> load -> validate` 回归。下一步：**PyQt 正常使用链路 + CI/发布工程化 + 复杂样例扩充**。
+> 🚧 **PyQt docx 会话服务第一版已落地**（2026-06-17）：Sprint 5 mutator/docx 写回闭环与真实样例回归第一版已完成；新增 `DocxReviewSession` 服务，PyQt 可调用 `.docx` 导入、规则检查、批量自动修复、导出新 `.docx`。下一步：**把该 session 接入 PyQt 文件选择/检查/修复/导出按钮 + CI/发布工程化**。
 
 ---
 
@@ -232,7 +232,7 @@ git push
 > 交付：`tests/synthetic_regression_samples.py` 代码生成 9 个合成 `.docx` 样例，覆盖 GB/T 7713、GB/T 7714、SIM-UNIV 三个 pack 的合规、违规、修复后三类状态；`tests/integration/test_synthetic_regression_samples.py` 验证 `write -> load -> validate` 与 `fix -> write -> load -> validate`；`scripts/regression_samples_smoke.py` 提供本地 smoke。样例运行时写入临时目录，不提交真实论文或学生作业。提交 `8793168`。
 
 ### 🚧 P0（下一个）：PyQt 正常使用链路 + CI/发布工程化
-- 打通 PyQt 导入 `.docx`、实时检查、修复、导出 `.docx`。
+- 将 `DocxReviewSession` 接入 PyQt 文件选择、检查按钮、修复按钮和导出按钮。
 - 配置 CI，把全量 pytest、Sprint 5 smoke 和 regression samples smoke 纳入基础检查。
 - 继续扩充复杂长文档、真实学校模板匿名化样例、目录、题注、交叉引用和多级列表样例。
 
@@ -299,17 +299,18 @@ git push
 | 2026-06-11 | **Sprint 4 完成**：HTML/SARIF reporter；`check --format html|sarif`；`list-packs` / `doctor` / `version`；完整 `changes.md` fix 闭环；`pyproject.toml`；Sprint 4 smoke |
 | 2026-06-16 | **Sprint 5 完成**：mutator/docx 写回闭环成熟；表格单元格段落、列表段落、参考文献悬挂缩进、多 run 修复闭环；SIM-UNIV 表格/列表规则；492 passed, 1 skipped；Sprint 5 smoke 通过 |
 | 2026-06-16 | **真实样例回归第一版**：3 pack x 合规/违规/修复后合成 `.docx` 样例矩阵；集成测试和 smoke 覆盖 `fix -> write -> load -> validate` |
+| 2026-06-17 | **PyQt docx 会话服务第一版**：`DocxReviewSession` 封装 `.docx` 导入、检查、自动修复、导出新 `.docx`，补 session smoke；提交 `5df9894` |
 | _待定_ | MVP 全部完成（3 周后） |
 
 ---
 
 ## 一句话建议
 
-> 下次回来，直接说“继续 PyQt 正常使用链路”或“配置 CI”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后打通 PyQt 导入 `.docx`、实时检查、修复、导出 `.docx` 的用户链路，或把 pytest 与 smoke 纳入基础检查。
+> 下次回来，直接说“把 DocxReviewSession 接到 PyQt UI”或“配置 CI”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后接文件选择、检查、修复、导出按钮，或把 pytest 与 smoke 纳入基础检查。
 
 ---
 
-**版本**：v1.8（真实样例回归第一版）
-**最后更新**：2026-06-16
+**版本**：v1.9（PyQt docx 会话服务第一版）
+**最后更新**：2026-06-17
 **配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/*.md`
-**最新实现 commit**：`8793168 feat(regression): add synthetic sample matrix`
+**最新实现 commit**：`5df9894 feat(pyqt): add docx review session`
