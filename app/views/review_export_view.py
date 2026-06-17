@@ -6,6 +6,7 @@ from datetime import datetime
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -23,6 +24,10 @@ class ReviewExportView(QWidget):
     jump_to_target_requested = pyqtSignal(str)
     export_requested = pyqtSignal(str)
     validate_requested = pyqtSignal()
+    docx_import_requested = pyqtSignal()
+    docx_check_requested = pyqtSignal()
+    docx_fix_requested = pyqtSignal()
+    docx_export_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -72,6 +77,59 @@ class ReviewExportView(QWidget):
         result_layout.addWidget(self.result_body)
         right.addWidget(self.result_panel)
 
+        self.docx_panel = QFrame()
+        self.docx_panel.setFrameShape(QFrame.StyledPanel)
+        docx_layout = QVBoxLayout(self.docx_panel)
+
+        docx_title = QLabel("DOCX 批改")
+        docx_title.setStyleSheet("font-weight: bold;")
+        docx_layout.addWidget(docx_title)
+
+        self.docx_pack_combo = QComboBox()
+        self.docx_pack_combo.addItems([
+            "GB-T-7713-1-2006",
+            "GB-T-7714-1-2015",
+            "SIM-UNIV-generic",
+        ])
+        docx_layout.addWidget(self.docx_pack_combo)
+
+        self.docx_source_label = QLabel("尚未导入 DOCX")
+        self.docx_source_label.setWordWrap(True)
+        docx_layout.addWidget(self.docx_source_label)
+
+        self.docx_status_label = QLabel("导入后可检查、自动修复并导出新 DOCX。")
+        self.docx_status_label.setWordWrap(True)
+        docx_layout.addWidget(self.docx_status_label)
+
+        self.docx_export_name = QLineEdit()
+        self.docx_export_name.setPlaceholderText("修复后文件名")
+        docx_layout.addWidget(self.docx_export_name)
+
+        self.docx_export_label = QLabel("尚未导出修复文件")
+        self.docx_export_label.setWordWrap(True)
+        docx_layout.addWidget(self.docx_export_label)
+
+        docx_button_row = QHBoxLayout()
+        self.btn_docx_import = QPushButton("导入")
+        self.btn_docx_import.clicked.connect(self.docx_import_requested.emit)
+        docx_button_row.addWidget(self.btn_docx_import)
+
+        self.btn_docx_check = QPushButton("检查")
+        self.btn_docx_check.clicked.connect(self.docx_check_requested.emit)
+        docx_button_row.addWidget(self.btn_docx_check)
+
+        self.btn_docx_fix = QPushButton("修复")
+        self.btn_docx_fix.clicked.connect(self.docx_fix_requested.emit)
+        docx_button_row.addWidget(self.btn_docx_fix)
+
+        self.btn_docx_export = QPushButton("导出")
+        self.btn_docx_export.clicked.connect(
+            lambda: self.docx_export_requested.emit(self.docx_export_name.text().strip())
+        )
+        docx_button_row.addWidget(self.btn_docx_export)
+        docx_layout.addLayout(docx_button_row)
+        right.addWidget(self.docx_panel)
+
         btn_validate = QPushButton("重新检查")
         btn_validate.clicked.connect(self.validate_requested.emit)
         right.addWidget(btn_validate)
@@ -81,6 +139,27 @@ class ReviewExportView(QWidget):
         right.addWidget(btn_export)
         right.addStretch()
         layout.addLayout(right, 1)
+        self.set_docx_review_state()
+
+    def selected_docx_pack(self) -> str:
+        return self.docx_pack_combo.currentText()
+
+    def set_docx_review_state(
+        self,
+        *,
+        source_path: str = "",
+        status: str = "导入后可检查、自动修复并导出新 DOCX。",
+        export_path: str = "",
+        can_check: bool = False,
+        can_fix: bool = False,
+        can_export: bool = False,
+    ) -> None:
+        self.docx_source_label.setText(f"当前文件：{source_path}" if source_path else "尚未导入 DOCX")
+        self.docx_status_label.setText(status)
+        self.docx_export_label.setText(f"最近导出修复文件：{export_path}" if export_path else "尚未导出修复文件")
+        self.btn_docx_check.setEnabled(can_check)
+        self.btn_docx_fix.setEnabled(can_fix)
+        self.btn_docx_export.setEnabled(can_export)
 
     def set_context(
         self,
