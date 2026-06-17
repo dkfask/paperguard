@@ -9,7 +9,7 @@
 - **PyQt 实时约束（主路径）**：学生边写边查，侧边栏提示 + 高亮 + 一键修复。
 - **CLI 事后批改（辅路径）**：CI 集成、批量审稿、AI Agent 入口。
 
-**当前阶段**：Sprint 5 mutator 成熟和真实样例回归第一版已完成；PyQt docx 会话服务第一版已落地；下一阶段继续接 PyQt UI 和发布工程化。
+**当前阶段**：Sprint 5 mutator 成熟和真实样例回归第一版已完成；PyQt 检查与导出工作区已接入 DOCX 批改入口；下一阶段继续打磨 PyQt 交互和发布工程化。
 
 ## 当前提交与分支
 
@@ -19,7 +19,8 @@
 - Sprint 5 收口 commit：`89c6b98 test(sprint-5): add mutator smoke`
 - 真实样例回归 commit：`8793168 feat(regression): add synthetic sample matrix`
 - PyQt docx 会话服务 commit：`5df9894 feat(pyqt): add docx review session`
-- 最近验证：`python -m pytest -p no:cacheprovider -q` -> `497 passed, 1 skipped`
+- PyQt DOCX 批改 UI commit：`8ceb945 feat(pyqt): wire docx review ui`
+- 最近验证：`python -m pytest -p no:cacheprovider -q` -> `499 passed, 1 skipped`
 - 最近 smoke：`python scripts/pyqt_docx_session_smoke.py` -> `OK PyQt DOCX review session smoke passed`
 
 ## 关键文件清单
@@ -40,6 +41,8 @@
 | `tests/integration/test_synthetic_regression_samples.py` | 样例回归集成测试 | 改 docx loader/writer/fix 时 |
 | `scripts/regression_samples_smoke.py` | 样例回归 smoke | 提交前或 CI 接入 |
 | `app/services/docx_review_session.py` | PyQt-facing docx 导入/检查/修复/导出会话服务 | 接 PyQt 正常使用链路 |
+| `app/views/review_export_view.py` | 检查与导出工作区，含 DOCX 批改面板 | 打磨 PyQt 批改入口 |
+| `tests/integration/test_pyqt_docx_review_ui.py` | PyQt DOCX 批改 UI 集成测试 | 改批改 UI/接线时 |
 | `scripts/pyqt_docx_session_smoke.py` | docx 会话服务 smoke | 提交前或 CI 接入 |
 | `references/format-thesis-docx/` | 参考项目源码 submodule | 不要直接改 |
 
@@ -64,7 +67,7 @@
 | CLI | 已有 8 个命令：check / fix / extract / init / validate-pack / list-packs / doctor / version |
 | Fix / writer | `fix_applier` 已支持 set / insert / delete / runs.*；`docx_writer` 已扩展写回段落、run、section、页眉页脚、表格单元格段落、列表段落 |
 | 样例回归 | 已有 3 pack x 合规/违规/修复后合成 `.docx` 样例矩阵 |
-| PyQt docx session | 已有 `DocxReviewSession` 服务封装 `.docx` 导入、检查、自动修复、导出 |
+| PyQt docx session | 已有 `DocxReviewSession` 服务封装 `.docx` 导入、检查、自动修复、导出；`ReviewExportView` 已接入导入/检查/修复/导出入口 |
 | Packaging | 已有 `pyproject.toml` 和 `paperguard` console script |
 | 测试 | 当前待跑全量验证 |
 | CI | 仍未配置 |
@@ -94,7 +97,8 @@
 
 优先做 Sprint 6 方向：
 
-- 将 `DocxReviewSession` 接入 PyQt 文件选择、检查按钮、修复按钮和导出按钮。
+- 打磨 DOCX 批改面板的问题列表、逐条修复、定位反馈和异常提示。
+- 将 DOCX 批改结果和现有侧边栏/高亮定位进一步融合。
 - 配置 CI，并让 `python -m pytest -p no:cacheprovider -q`、`python scripts/sprint5_smoke.py`、`python scripts/regression_samples_smoke.py` 和 `python scripts/pyqt_docx_session_smoke.py` 成为基础检查。
 - 继续扩充复杂长文档、真实学校模板匿名化样例、目录、题注、交叉引用和多级列表样例。
 
