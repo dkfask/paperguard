@@ -37,6 +37,8 @@ class Document:
     sections: tuple[Section, ...]
     paragraphs: tuple[Paragraph, ...]
     metadata: DocumentMetadata
+    header_paragraphs: tuple[Paragraph, ...] = ()
+    footer_paragraphs: tuple[Paragraph, ...] = ()
 
     def to_dict(self) -> dict:
         """Sprint 2 evaluator 用 — 嵌套 sections / paragraphs / metadata 全部展开。"""
@@ -44,5 +46,6 @@ class Document:
             "sections": [s.to_dict() for s in self.sections],
             "paragraphs": [p.to_dict() for p in self.paragraphs],
             "metadata": self.metadata.to_dict(),
+            "header_paragraphs": [p.to_dict() for p in self.header_paragraphs],
+            "footer_paragraphs": [p.to_dict() for p in self.footer_paragraphs],
         }
-

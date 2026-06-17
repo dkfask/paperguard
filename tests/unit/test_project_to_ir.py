@@ -105,7 +105,122 @@ class TestFontExtraction(unittest.TestCase):
         first_run = para.runs[0]
         self.assertIsInstance(first_run, Run)
         self.assertEqual(first_run.font_eastasia, "宋体")
+        self.assertEqual(first_run.font_hansi, "宋体")
         self.assertEqual(first_run.text, "正文")
+
+    def test_underline_extraction_from_runs(self):
+        html = '<p><u>下划线</u></p>'
+        project = Project(title="下划线", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        run = doc.paragraphs[0].runs[0]
+        self.assertEqual(run.underline, "single")
+
+    def test_highlight_extraction_from_runs(self):
+        html = '<p><span style="background-color: yellow;">marked</span></p>'
+        project = Project(title="highlight", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        run = doc.paragraphs[0].runs[0]
+        self.assertEqual(run.highlight, "yellow")
+
+    def test_vert_align_extraction_from_runs(self):
+        html = '<p><span style="vertical-align: super;">sup</span></p>'
+        project = Project(title="vert-align", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        run = doc.paragraphs[0].runs[0]
+        self.assertEqual(run.vert_align, "superscript")
+
+
+class TestParagraphFormattingExtraction(unittest.TestCase):
+    def test_alignment_extraction_from_paragraph_style(self):
+        html = '<p style="text-align: justify;">正文</p>'
+        project = Project(title="对齐", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].alignment, "justify")
+
+    def test_line_spacing_extraction_from_paragraph_style(self):
+        html = '<p style="line-height: 1.5;">正文</p>'
+        project = Project(title="行距", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].line_spacing, 1.5)
+
+    def test_first_line_indent_extraction_from_paragraph_style(self):
+        html = '<p style="text-indent: 0.74cm;">正文</p>'
+        project = Project(title="缩进", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].first_line_indent_cm, 0.74)
+
+    def test_space_before_extraction_from_paragraph_style(self):
+        html = '<p style="margin-top: 6pt;">正文</p>'
+        project = Project(title="段前", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].space_before_pt, 6.0)
+
+    def test_space_after_extraction_from_paragraph_style(self):
+        html = '<p style="margin-bottom: 12pt;">正文</p>'
+        project = Project(title="段后", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].space_after_pt, 12.0)
+
+    def test_page_break_before_extraction_from_heading_style(self):
+        html = '<h1 style="page-break-before: always;">1 引言</h1>'
+        project = Project(title="分页", sections={
+            "ch1": SectionContent(section_id="ch1", blocks=[
+                ParagraphBlock(html=html),
+            ]),
+        })
+
+        doc = _convert(project, "ch1")
+
+        self.assertEqual(doc.paragraphs[0].level, 1)
+        self.assertTrue(doc.paragraphs[0].is_page_break_before)
 
 
 class TestUnknownSectionId(unittest.TestCase):

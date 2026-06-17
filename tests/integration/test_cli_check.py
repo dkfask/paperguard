@@ -53,6 +53,7 @@ class TestCLICheck(unittest.TestCase):
             runs=(Run(text="x", font_eastasia="宋体", font_size_pt=12.0),),
             line_spacing=1.5,  # 合规
             space_before_pt=0.0, space_after_pt=0.0, first_line_indent_cm=0.74,
+            alignment="justify",
         )
         ir = Document(
             sections=(Section(),), paragraphs=(para,),

@@ -63,10 +63,10 @@ class YamlEngineEndToEnd(unittest.TestCase):
                 f.fix.target,
                 f"Fix.target '{f.fix.target}' (rule {f.rule_id}) 不是点分形式",
             )
-            # 必须以 paragraph. 或 run. 开头（兼容 LiveMutator 硬编码）
+            # 必须以 paragraph. / run. / runs.*. 开头（兼容 LiveMutator 与 Sprint 5 wildcard）
             self.assertTrue(
-                f.fix.target.startswith(("paragraph.", "run.")),
-                f"Fix.target '{f.fix.target}' 应以 paragraph. 或 run. 开头",
+                f.fix.target.startswith(("paragraph.", "run.", "runs.*.")),
+                f"Fix.target '{f.fix.target}' 应以 paragraph. / run. / runs.*. 开头",
             )
 
     def test_unknown_pack_raises(self):
@@ -88,11 +88,11 @@ class YamlEngineEndToEnd(unittest.TestCase):
 class YamlPackSelfCheck(unittest.TestCase):
     """单独验证 YAML pack 文件本身的健康度（不依赖 fixture docx）。"""
 
-    def test_gb_pack_loads_with_26_rules(self):
+    def test_gb_pack_loads_with_28_rules(self):
         pack = load_pack(PACK_ID)
         self.assertEqual(pack.id, PACK_ID)
-        self.assertEqual(len(pack.rules), 26,
-                         f"GB-T-7713-1-2006 应有 26 条规则（25 原始 + 1 B1 拆出），实际 {len(pack.rules)}")
+        self.assertEqual(len(pack.rules), 28,
+                         f"GB-T-7713-1-2006 应有 28 条规则（含正文上下标规则），实际 {len(pack.rules)}")
 
     def test_all_pack_rule_ids_use_pg_prefix(self):
         """ADR-7 A 决策：rule_id 全部 PG- 前缀。"""

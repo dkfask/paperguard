@@ -1,12 +1,12 @@
 """LiveMutator — Sprint 1.5 实时约束 "一键修复" 组件。
 
-Sprint 1.5 修订：只支持 3 类 Fix（与本 Sprint stub engine 范围对齐）：
+Sprint 1.5 起步只支持 3 类 Fix（与当时 stub engine 范围对齐）：
   - ``line_spacing``           → 段行距
   - ``font_size_pt``           → 段首个 run 的字号
   - ``first_line_indent_cm``   → 段首行缩进
 
-其他 6 类 Fix 中剩下的 ``page_margin`` / ``font_family`` / ``paragraph_spacing``
-Sprint 2 才落地（见 docs/sprints/sprint-1.5-plan.md §3 Q2 决策）。
+Sprint 5 扩展支持 ``runs.*.<attr>``：可把字号、字体、颜色、粗斜体、
+下划线等安全样式修复应用到段内所有 HTML run。
 
 设计要点（来自 plan §3 "app/services/live_mutator.py"）：
 
@@ -53,11 +53,26 @@ from app.models.project import (
 )
 
 
-# Sprint 1.5 支持的 Fix target 集合（白名单；plan §3 Q2 决策缩减版）。
+# 支持的 Fix target leaf 集合（白名单）。
 SUPPORTED_RULE_IDS: frozenset[str] = frozenset({
     "line_spacing",
+    "space_before_pt",
+    "space_after_pt",
     "font_size_pt",
     "first_line_indent_cm",
+    "alignment",
+    "level",
+    "is_page_break_before",
+    "page_break_before",
+    "font_eastasia",
+    "font_ascii",
+    "font_hansi",
+    "color_hex",
+    "bold",
+    "italic",
+    "underline",
+    "highlight",
+    "vert_align",
 })
 
 
@@ -65,7 +80,7 @@ SUPPORTED_RULE_IDS: frozenset[str] = frozenset({
 # HTML 内部小工具 — 改 <p> 的 style 属性 / 改首个 run 的 font-size
 # ---------------------------------------------------------------------------
 
-_P_TAG_RE = re.compile(r"<p\b([^>]*)>", re.IGNORECASE)
+_BLOCK_TAG_RE = re.compile(r"<(p|div|h[1-6])\b([^>]*)>", re.IGNORECASE)
 _STYLE_ATTR_RE = re.compile(r"""style\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
 _RUN_TAG_RE = re.compile(r"<(span|font)\b([^>]*)>", re.IGNORECASE)
 
@@ -93,40 +108,112 @@ def _set_style_property(attrs: str, prop_name: str, prop_value: str) -> str:
 
 def _update_paragraph_style(html: str, prop_name: str, prop_value: str) -> str:
     """更新首个 ``<p>`` 标签的 inline style 属性；无 ``<p>`` 时包一层。"""
-    p_match = _P_TAG_RE.search(html or "")
+    p_match = _BLOCK_TAG_RE.search(html or "")
     if p_match is None:
         wrapped = f'<p style="{prop_name}: {prop_value};">{html or ""}</p>'
         return wrapped
-    new_attrs = _set_style_property(p_match.group(1), prop_name, prop_value)
-    new_tag = f"<p{new_attrs}>"
+    tag_name = p_match.group(1)
+    new_attrs = _set_style_property(p_match.group(2), prop_name, prop_value)
+    new_tag = f"<{tag_name}{new_attrs}>"
     return html[:p_match.start()] + new_tag + html[p_match.end():]
 
 
-def _update_first_run_font_size(html: str, value_pt: float) -> str:
-    """把 block HTML 里的首个 run（``<span>`` / ``<font>``）字号设为 ``value_pt``。
+def _update_block_level(html: str, level: Any) -> str:
+    try:
+        n = int(level)
+    except (TypeError, ValueError):
+        return html
+    if n < 1 or n > 6:
+        return html
 
-    步骤：
-      1) 找 ``<p ...>...</p>``；无则包一层 ``<p>`` 即可。
-      2) 在内部内容里找第一个 ``<span>`` / ``<font>``，更新其 font-size。
-      3) 没有任何 run 时，把整个 inner 包在 ``<span style="font-size: ...pt">``。
-    """
+    heading_tag = f"h{n}"
+    p_open_re = re.compile(r"<(p|div|h[1-6])\b([^>]*)>(.*)</\1>", re.IGNORECASE | re.DOTALL)
+    p_match = p_open_re.search(html or "")
+    if p_match is None:
+        return f"<{heading_tag}>{html or ''}</{heading_tag}>"
+
+    attrs = p_match.group(2)
+    inner = p_match.group(3)
+    replacement = f"<{heading_tag}{attrs}>{inner}</{heading_tag}>"
+    return html[:p_match.start()] + replacement + html[p_match.end():]
+
+
+def _update_first_run_font_size(html: str, value_pt: float) -> str:
+    """把 block HTML 里的首个 run 字号设为 ``value_pt``，并保留段落/标题标签。"""
+    return _update_first_run_style(html, "font-size", f"{value_pt}pt")
+
+
+def _update_first_run_style(html: str, prop_name: str, prop_value: str) -> str:
+    """Update the first explicit HTML run; wrap plain paragraph text when needed."""
+    p_open_re = re.compile(r"<(p|div|h[1-6])\b([^>]*)>(.*)</\1>", re.IGNORECASE | re.DOTALL)
+    p_match = p_open_re.search(html or "")
+    if p_match is None:
+        return f'<p><span style="{prop_name}: {prop_value};">{html or ""}</span></p>'
+
+    tag_name = p_match.group(1)
+    p_attrs = p_match.group(2)
+    inner = p_match.group(3)
+    run_match = _RUN_TAG_RE.search(inner)
+    if run_match is None:
+        new_inner = f'<span style="{prop_name}: {prop_value};">{inner}</span>'
+    else:
+        run_tag_name = run_match.group(1)
+        tag_attrs = run_match.group(2)
+        new_tag_attrs = _set_style_property(tag_attrs, prop_name, prop_value)
+        new_tag = f"<{run_tag_name}{new_tag_attrs}>"
+        new_inner = inner[:run_match.start()] + new_tag + inner[run_match.end():]
+    return f"<{tag_name}{p_attrs}>{new_inner}</{tag_name}>"
+
+
+def _update_all_runs_style(html: str, prop_name: str, prop_value: str) -> str:
+    """Update every explicit HTML run; wrap plain paragraph text when needed."""
     p_open_re = re.compile(r"<p\b([^>]*)>(.*)</p>", re.IGNORECASE | re.DOTALL)
     p_match = p_open_re.search(html or "")
     if p_match is None:
-        return f'<p><span style="font-size: {value_pt}pt;">{html or ""}</span></p>'
+        return f'<p><span style="{prop_name}: {prop_value};">{html or ""}</span></p>'
 
     p_attrs = p_match.group(1)
     inner = p_match.group(2)
-    run_match = _RUN_TAG_RE.search(inner)
-    if run_match is None:
-        new_inner = f'<span style="font-size: {value_pt}pt;">{inner}</span>'
-    else:
-        tag_name = run_match.group(1)
-        tag_attrs = run_match.group(2)
-        new_tag_attrs = _set_style_property(tag_attrs, "font-size", f"{value_pt}pt")
-        new_tag = f"<{tag_name}{new_tag_attrs}>"
-        new_inner = inner[:run_match.start()] + new_tag + inner[run_match.end():]
-    return f"<p{p_attrs}>{new_inner}</p>"
+    if _RUN_TAG_RE.search(inner) is None:
+        return f'<p{p_attrs}><span style="{prop_name}: {prop_value};">{inner}</span></p>'
+
+    def replace_run(match: re.Match) -> str:
+        tag_name = match.group(1)
+        tag_attrs = match.group(2)
+        new_tag_attrs = _set_style_property(tag_attrs, prop_name, prop_value)
+        return f"<{tag_name}{new_tag_attrs}>"
+
+    return f"<p{p_attrs}>{_RUN_TAG_RE.sub(replace_run, inner)}</p>"
+
+
+def _is_runs_wildcard(target: str) -> bool:
+    return target.startswith("runs.*.")
+
+
+def _highlight_css_value(value: Any) -> str:
+    if value is None:
+        return "transparent"
+    normalized = str(value).strip()
+    if not normalized or normalized.lower() in {"none", "null"}:
+        return "transparent"
+    return normalized
+
+
+def _vert_align_css_value(value: Any) -> str:
+    if value is None:
+        return "baseline"
+    normalized = str(value).strip().lower()
+    if normalized in {"", "none", "null", "baseline"}:
+        return "baseline"
+    if normalized == "superscript":
+        return "super"
+    if normalized == "subscript":
+        return "sub"
+    return normalized
+
+
+def _page_break_css_value(value: Any) -> str:
+    return "always" if bool(value) else "auto"
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +229,94 @@ def _apply_fix_to_block(block: ParagraphBlock, fix: Fix) -> None:
     target = _target_leaf(fix.target)
     if target == "line_spacing":
         block.html = _update_paragraph_style(block.html, "line-height", f"{fix.value}")
+    elif target == "space_before_pt":
+        block.html = _update_paragraph_style(block.html, "margin-top", f"{float(fix.value)}pt")
+    elif target == "space_after_pt":
+        block.html = _update_paragraph_style(block.html, "margin-bottom", f"{float(fix.value)}pt")
     elif target == "first_line_indent_cm":
         block.html = _update_paragraph_style(block.html, "text-indent", f"{fix.value}cm")
+    elif target == "alignment":
+        block.html = _update_paragraph_style(block.html, "text-align", str(fix.value))
+    elif target == "level":
+        block.html = _update_block_level(block.html, fix.value)
+    elif target in {"is_page_break_before", "page_break_before"}:
+        block.html = _update_paragraph_style(
+            block.html,
+            "page-break-before",
+            _page_break_css_value(fix.value),
+        )
+    elif target == "font_size_pt" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(block.html, "font-size", f"{float(fix.value)}pt")
     elif target == "font_size_pt":
         block.html = _update_first_run_font_size(block.html, float(fix.value))
+    elif target in {"font_eastasia", "font_ascii", "font_hansi"} and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(block.html, "font-family", str(fix.value))
+    elif target in {"font_eastasia", "font_ascii", "font_hansi"}:
+        block.html = _update_first_run_style(block.html, "font-family", str(fix.value))
+    elif target == "color_hex" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(block.html, "color", f"#{str(fix.value).lstrip('#')}")
+    elif target == "color_hex":
+        block.html = _update_first_run_style(block.html, "color", f"#{str(fix.value).lstrip('#')}")
+    elif target == "bold" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "font-weight",
+            "bold" if bool(fix.value) else "normal",
+        )
+    elif target == "bold":
+        block.html = _update_first_run_style(
+            block.html,
+            "font-weight",
+            "bold" if bool(fix.value) else "normal",
+        )
+    elif target == "italic" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "font-style",
+            "italic" if bool(fix.value) else "normal",
+        )
+    elif target == "italic":
+        block.html = _update_first_run_style(
+            block.html,
+            "font-style",
+            "italic" if bool(fix.value) else "normal",
+        )
+    elif target == "underline" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "text-decoration",
+            "underline" if fix.value else "none",
+        )
+    elif target == "underline":
+        block.html = _update_first_run_style(
+            block.html,
+            "text-decoration",
+            "underline" if fix.value else "none",
+        )
+    elif target == "highlight" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "background-color",
+            _highlight_css_value(fix.value),
+        )
+    elif target == "highlight":
+        block.html = _update_first_run_style(
+            block.html,
+            "background-color",
+            _highlight_css_value(fix.value),
+        )
+    elif target == "vert_align" and _is_runs_wildcard(fix.target):
+        block.html = _update_all_runs_style(
+            block.html,
+            "vertical-align",
+            _vert_align_css_value(fix.value),
+        )
+    elif target == "vert_align":
+        block.html = _update_first_run_style(
+            block.html,
+            "vertical-align",
+            _vert_align_css_value(fix.value),
+        )
 
 
 def _find_target_section(project: Project, paragraph_index: int) -> Optional[SectionContent]:

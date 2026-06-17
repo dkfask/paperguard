@@ -11,7 +11,7 @@ from docx.oxml.ns import qn
 from docx.shared import Length
 
 from app.models.format_config import FormatConfig, StyleConfig
-from app.models.template import Template, default_structure
+from app.models.template import SectionNode, Template, default_structure
 
 
 SUPPORTED_WORD_TEMPLATE_EXTENSIONS = {".docx", ".dotx"}
@@ -55,6 +55,7 @@ def import_word_template(path: str | Path) -> Template:
     _import_page_setup(document, template)
     _import_header_footer(document, template)
     _import_styles(document, template)
+    _import_structure(document, template)
     return template
 
 
@@ -99,6 +100,104 @@ def _import_styles(document: Document, template: Template):
             continue
         current = template.format_config.styles.get(internal_style_id, StyleConfig(style_id=internal_style_id))
         template.format_config.styles[internal_style_id] = _style_from_word(source_style, current, internal_style_id)
+
+
+def _import_structure(document: Document, template: Template):
+    imported = _structure_from_heading_paragraphs(document)
+    if imported:
+        template.structure = imported
+
+
+def _structure_from_heading_paragraphs(document: Document) -> list[SectionNode]:
+    roots: list[SectionNode] = []
+    stack: list[SectionNode | None] = [None, None, None]
+    counters = {1: 0, 2: 0, 3: 0}
+
+    for paragraph in document.paragraphs:
+        label = paragraph.text.strip()
+        if not label:
+            continue
+        level = _heading_level(paragraph)
+        if level is None:
+            continue
+
+        counters[level] += 1
+        for deeper in range(level + 1, 4):
+            counters[deeper] = 0
+            stack[deeper - 1] = None
+
+        node = SectionNode(
+            id=_section_id(label, level, counters),
+            label=label,
+            type=_section_type(label, level),
+            required=True,
+            auto_generate=_section_type(label, level) == "toc",
+            style_id=f"heading_{level}",
+        )
+
+        parent = _nearest_parent(stack, level)
+        if parent is None:
+            roots.append(node)
+        else:
+            parent.subsections.append(node)
+        stack[level - 1] = node
+
+    return roots
+
+
+def _heading_level(paragraph) -> int | None:
+    style = paragraph.style
+    tokens = [
+        getattr(style, "name", "") or "",
+        getattr(style, "style_id", "") or "",
+    ]
+    normalized = [_normalize_style_token(token) for token in tokens]
+    for level in (1, 2, 3):
+        candidates = {
+            f"heading{level}",
+            f"标题{level}",
+        }
+        if any(token in candidates for token in normalized):
+            return level
+    return None
+
+
+def _nearest_parent(stack: list[SectionNode | None], level: int) -> SectionNode | None:
+    for index in range(level - 2, -1, -1):
+        if stack[index] is not None:
+            return stack[index]
+    return None
+
+
+def _section_type(label: str, level: int) -> str:
+    normalized = label.replace(" ", "")
+    if "摘要" in normalized:
+        return "abstract"
+    if "目录" in normalized:
+        return "toc"
+    if "参考文献" in normalized:
+        return "references"
+    if "致谢" in normalized:
+        return "acknowledgements"
+    if "附录" in normalized:
+        return "appendix"
+    return "chapter" if level == 1 else "section"
+
+
+def _section_id(label: str, level: int, counters: dict[int, int]) -> str:
+    section_type = _section_type(label, level)
+    if section_type in {"abstract", "toc", "references", "acknowledgements", "appendix"}:
+        return _special_section_id(section_type, label, counters[level])
+    parts = [str(counters[index]) for index in range(1, level + 1) if counters[index]]
+    return "imported_" + "_".join(parts)
+
+
+def _special_section_id(section_type: str, label: str, ordinal: int) -> str:
+    if section_type == "abstract":
+        return "abstract_en" if "英文" in label or "English" in label else "abstract_cn"
+    if section_type == "appendix":
+        return f"appendix_{ordinal}"
+    return section_type
 
 
 def _find_style(document: Document, candidates: list[str]):

@@ -26,12 +26,16 @@ Public API:
 from __future__ import annotations
 
 import functools
+import math
 from typing import Any
 
 import jmespath
 from json_logic import jsonLogic
 
 from app.core.ir import Document
+
+
+_DOCX_NUMERIC_ABS_TOL = 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -75,9 +79,11 @@ def evaluate_scope(
     """
     doc_dict = document.to_dict()
 
-    # 注入 __index__ 到每个 paragraph
-    for i, p in enumerate(doc_dict.get("paragraphs", [])):
-        p["__index__"] = i
+    # Inject paragraph container metadata for reverse lookup by visitor/fixer.
+    for container_name in ("paragraphs", "header_paragraphs", "footer_paragraphs"):
+        for i, p in enumerate(doc_dict.get(container_name, [])):
+            p["__index__"] = i
+            p["__section__"] = container_name
 
     raw = _compile(scope).search(doc_dict)
 
@@ -116,8 +122,42 @@ def evaluate_when(when: dict, node: dict) -> bool:
         - 缺失字段时 var 返回 None；与具体值比较时通常为 False
         - 异常不 swallow（jsonLogic 内部不抛常见类型错，传播留给上层）
     """
-    result = jsonLogic(when, node)
+    normalized_when = _normalize_numeric_equality(when, node)
+    result = jsonLogic(normalized_when, node)
     return bool(result)
+
+
+def _normalize_numeric_equality(expr: Any, node: dict) -> Any:
+    """Pre-evaluate numeric ==/!= with tolerance for docx unit round-trips."""
+    if isinstance(expr, list):
+        return [_normalize_numeric_equality(item, node) for item in expr]
+    if not isinstance(expr, dict) or len(expr) != 1:
+        return expr
+
+    op, operands = next(iter(expr.items()))
+    if op in ("==", "!=") and isinstance(operands, list) and len(operands) == 2:
+        left = _resolve_json_logic_operand(operands[0], node)
+        right = _resolve_json_logic_operand(operands[1], node)
+        if _is_plain_number(left) and _is_plain_number(right):
+            equal = math.isclose(
+                float(left),
+                float(right),
+                rel_tol=0.0,
+                abs_tol=_DOCX_NUMERIC_ABS_TOL,
+            )
+            return equal if op == "==" else not equal
+
+    return {op: _normalize_numeric_equality(operands, node)}
+
+
+def _resolve_json_logic_operand(operand: Any, node: dict) -> Any:
+    if isinstance(operand, dict):
+        return jsonLogic(_normalize_numeric_equality(operand, node), node)
+    return operand
+
+
+def _is_plain_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 __all__ = ["evaluate_scope", "evaluate_when", "_compile"]

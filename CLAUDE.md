@@ -109,6 +109,11 @@
 - **不可变 IR**：dataclass(frozen=True)
 - **显式错误处理**：不静默吞错
 - **每步 commit**：每完成一个 Sprint 节点就 commit（用 conventional commits：`feat:` / `docs:` / `test:` / `refactor:`）
+- **CI 必跑绿**：任何 push / PR 前必须本地 `pytest` + 三个 smoke 全过；推送后 GitHub Actions 两个 job（test + smoke）全绿才算完成
+  - 跑全量测试：`python -m pytest -p no:cacheprovider -q`
+  - 跑 smoke：`python scripts/sprint5_smoke.py` / `python scripts/regression_samples_smoke.py` / `python scripts/pyqt_docx_session_smoke.py`
+  - PyQt 在 Linux/headless 上用 `QT_QPA_PLATFORM=offscreen` 环境变量
+  - CI workflow 在 `.github/workflows/ci.yml`
 
 ## 与外部系统的关系
 

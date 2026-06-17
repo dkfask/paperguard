@@ -2,13 +2,12 @@
 
 Sprint 1.5 TDD step 4（见 docs/sprints/sprint-1.5-plan.md §4.1）。
 
-本测试覆盖 3 类支持的 Fix：line_spacing / font_size_pt / first_line_indent_cm。
-仅支持 3 类（plan 修订后，page_margin / font_family / paragraph_spacing 在
-Sprint 2 才支持，本 Sprint 1.5 走 plan §3 "app/services/live_mutator.py"
-中的 Q2 决策 6 类缩减为 3 类以契合当前 Sprint 1.5 stub engine 范围）。
+本测试覆盖段落级 Fix、单 run Fix，以及 Sprint 5 新增的 ``runs.*.<attr>``
+wildcard run 修复。
 
-10 个测试（严格按 prompt 列表）：
+12 个测试：
 - 3 类 fix 各自 set block
+- wildcard runs.* 字号 / 颜色修复
 - 单参数签名（Must-fix #1）
 - 修改 blocks 不修改 content_html 直接路径（Must-fix #3）
 - can_apply 已知 / 未知
@@ -135,6 +134,162 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         # 首个 run 的 font-size 必须更新为 12pt
         self.assertIn("font-size: 12.0pt", block.html)
 
+    def test_apply_fix_run_font_size_preserves_heading_tag(self):
+        project = _make_project(["<h1>1 引言</h1>"])
+        checker = _FakeChecker({
+            "R012": Fix(action="set", target="run.font_size_pt", value=22.0),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R012", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertTrue(block.html.startswith("<h1"))
+        self.assertIn('<span style="font-size: 22.0pt;">1 引言</span>', block.html)
+
+    def test_apply_fix_runs_wildcard_font_size_sets_all_runs(self):
+        project = _make_project([
+            '<p><span style="font-size: 10pt;">甲</span><span style="font-size: 14pt;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R001": Fix(action="set", target="runs.*.font_size_pt", value=12.0),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R001", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("font-size: 12.0pt"), 2)
+        self.assertNotIn("font-size: 10pt", block.html)
+        self.assertNotIn("font-size: 14pt", block.html)
+
+    def test_apply_fix_run_font_eastasia_sets_first_run_only(self):
+        project = _make_project([
+            '<p><span style="font-family: Arial;">甲</span>'
+            '<span style="font-family: 黑体;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R010": Fix(action="set", target="run.font_eastasia", value="宋体"),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R010", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("font-family: 宋体"), 1)
+        self.assertIn('<span style="font-family: 黑体;">乙</span>', block.html)
+
+    def test_apply_fix_run_font_ascii_sets_first_plain_run(self):
+        project = _make_project(["<p>Plain text</p>"])
+        checker = _FakeChecker({
+            "R011": Fix(action="set", target="run.font_ascii", value="Times New Roman"),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R011", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertIn('<span style="font-family: Times New Roman;">Plain text</span>', block.html)
+
+    def test_apply_fix_runs_wildcard_color_sets_all_runs(self):
+        project = _make_project([
+            '<p><span style="color: #ff0000;">甲</span><span style="color: blue;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R002": Fix(action="set", target="runs.*.color_hex", value="000000"),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R002", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("color: #000000"), 2)
+        self.assertNotIn("#ff0000", block.html.lower())
+        self.assertNotIn("color: blue", block.html.lower())
+
+    def test_apply_fix_run_bold_sets_first_run_only(self):
+        project = _make_project([
+            '<p><span style="font-weight: normal;">甲</span>'
+            '<span style="font-weight: normal;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R013": Fix(action="set", target="run.bold", value=True),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R013", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("font-weight: bold"), 1)
+        self.assertIn('<span style="font-weight: normal;">乙</span>', block.html)
+
+    def test_apply_fix_run_underline_clears_first_run_only(self):
+        project = _make_project([
+            '<p><span style="text-decoration: underline;">甲</span>'
+            '<span style="text-decoration: underline;">乙</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R014": Fix(action="set", target="run.underline", value=None),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R014", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("text-decoration: none"), 1)
+        self.assertEqual(block.html.count("text-decoration: underline"), 1)
+
+    def test_apply_fix_runs_wildcard_highlight_clears_all_runs(self):
+        project = _make_project([
+            '<p><span style="background-color: yellow;">A</span>'
+            '<span style="background-color: yellow;">B</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R004": Fix(action="set", target="runs.*.highlight", value=None),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R004", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("background-color: transparent"), 2)
+        self.assertNotIn("background-color: yellow", block.html.lower())
+
+    def test_apply_fix_runs_wildcard_vert_align_clears_all_runs(self):
+        project = _make_project([
+            '<p><span style="vertical-align: super;">A</span>'
+            '<span style="vertical-align: sub;">B</span></p>'
+        ])
+        checker = _FakeChecker({
+            "R005": Fix(action="set", target="runs.*.vert_align", value=None),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R005", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html.count("vertical-align: baseline"), 2)
+        self.assertNotIn("vertical-align: super", block.html.lower())
+        self.assertNotIn("vertical-align: sub", block.html.lower())
+
     def test_apply_fix_first_line_indent_sets_block(self):
         # Given 1 段 <p>text</p>，first_line_indent_cm fix = 0.74
         project = _make_project(["<p>第一段</p>"])
@@ -152,6 +307,112 @@ class TestApplyFixSetsBlock(unittest.TestCase):
         block = project.sections["ch1"].blocks[0]
         # text-indent: 0.74cm 必须出现在 block.html 中
         self.assertIn("text-indent: 0.74cm", block.html)
+
+    def test_apply_fix_alignment_sets_paragraph_text_align(self):
+        project = _make_project(['<p style="text-align: center;">第一段</p>'])
+        checker = _FakeChecker({
+            "R003": Fix(action="set", target="paragraph.alignment", value="justify"),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R003", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertIn("text-align: justify", block.html)
+        self.assertNotIn("text-align: center", block.html)
+
+    def test_apply_fix_space_before_sets_paragraph_margin_top(self):
+        project = _make_project(['<p style="margin-top: 6pt;">第一段</p>'])
+        checker = _FakeChecker({
+            "R006": Fix(action="set", target="paragraph.space_before_pt", value=0.0),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R006", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertIn("margin-top: 0.0pt", block.html)
+        self.assertNotIn("margin-top: 6pt", block.html)
+
+    def test_apply_fix_space_after_sets_paragraph_margin_bottom(self):
+        project = _make_project(['<p style="margin-bottom: 12pt;">第一段</p>'])
+        checker = _FakeChecker({
+            "R007": Fix(action="set", target="paragraph.space_after_pt", value=0.0),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R007", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertIn("margin-bottom: 0.0pt", block.html)
+        self.assertNotIn("margin-bottom: 12pt", block.html)
+
+    def test_apply_fix_page_break_before_preserves_heading_tag(self):
+        project = _make_project(['<h1>1 引言</h1>'])
+        checker = _FakeChecker({
+            "R008": Fix(action="set", target="paragraph.is_page_break_before", value=True),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R008", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertTrue(block.html.startswith("<h1"))
+        self.assertIn("page-break-before: always", block.html)
+
+    def test_apply_fix_page_break_before_alias_sets_heading_style(self):
+        project = _make_project(['<h1 style="page-break-before: auto;">1 引言</h1>'])
+        checker = _FakeChecker({
+            "R009": Fix(action="set", target="paragraph.page_break_before", value=True),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R009", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertTrue(block.html.startswith("<h1"))
+        self.assertIn("page-break-before: always", block.html)
+        self.assertNotIn("page-break-before: auto", block.html)
+
+    def test_apply_fix_level_changes_heading_tag_and_preserves_attrs(self):
+        project = _make_project(['<h2 style="text-align: left;">1.1 背景</h2>'])
+        checker = _FakeChecker({
+            "R015": Fix(action="set", target="paragraph.level", value=1),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R015", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertTrue(block.html.startswith('<h1 style="text-align: left;">'))
+        self.assertTrue(block.html.endswith("</h1>"))
+        self.assertNotIn("<h2", block.html)
+
+    def test_apply_fix_level_converts_plain_paragraph_to_heading(self):
+        project = _make_project(["<p>1 引言</p>"])
+        checker = _FakeChecker({
+            "R016": Fix(action="set", target="paragraph.level", value=3),
+        })
+        mutator = LiveMutator(project, checker=checker)
+        issue = _make_issue("R016", paragraph_index=0)
+
+        ok = mutator.apply_fix(issue)
+
+        self.assertTrue(ok)
+        block = project.sections["ch1"].blocks[0]
+        self.assertEqual(block.html, "<h3>1 引言</h3>")
 
 
 class TestApplyFixSignature(unittest.TestCase):

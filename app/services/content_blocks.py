@@ -33,6 +33,8 @@ class RichTextRun:
     font_size_pt: float | None = None
     font_name: str | None = None
     color_hex: str | None = None
+    highlight: str | None = None
+    vert_align: str | None = None
 
 
 @dataclass
@@ -40,6 +42,11 @@ class ParsedParagraph:
     alignment: str | None
     runs: list[RichTextRun]
     quote_level: int = 0
+    line_spacing: float | None = None
+    first_line_indent_cm: float | None = None
+    space_before_pt: float | None = None
+    space_after_pt: float | None = None
+    is_page_break_before: bool = False
 
 
 def section_content_from_html(section_id: str, editor_html: str) -> SectionContent:
@@ -153,6 +160,11 @@ def parse_paragraph_html(paragraph_html: str) -> ParsedParagraph:
         alignment=parser.alignment,
         runs=parser.runs,
         quote_level=parser.max_quote_level,
+        line_spacing=parser.line_spacing,
+        first_line_indent_cm=parser.first_line_indent_cm,
+        space_before_pt=parser.space_before_pt,
+        space_after_pt=parser.space_after_pt,
+        is_page_break_before=parser.is_page_break_before,
     )
 
 
@@ -272,6 +284,10 @@ def _merge_style(parent: dict, tag: str, attrs: dict[str, str]) -> dict:
         color_hex = normalize_color(css["color"])
         if color_hex:
             style["color_hex"] = color_hex
+    if "background-color" in css:
+        style["highlight"] = normalize_highlight(css["background-color"])
+    if "vertical-align" in css:
+        style["vert_align"] = normalize_vert_align(css["vertical-align"])
     if tag == "font":
         color_hex = normalize_color(attrs.get("color", ""))
         if color_hex:
@@ -280,6 +296,56 @@ def _merge_style(parent: dict, tag: str, attrs: dict[str, str]) -> dict:
             style["font_name"] = attrs["face"].strip().strip("'\"")
 
     return style
+
+
+def _parse_line_height(raw_value: str | None) -> float | None:
+    if not raw_value:
+        return None
+    value = raw_value.strip().strip(";")
+    percent_match = re.fullmatch(r"([0-9.]+)\s*%", value)
+    if percent_match:
+        try:
+            return round(float(percent_match.group(1)) / 100.0, 3)
+        except ValueError:
+            return None
+    number_match = re.fullmatch(r"([0-9.]+)", value)
+    if number_match:
+        try:
+            return float(number_match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_text_indent_cm(raw_value: str | None) -> float | None:
+    if not raw_value:
+        return None
+    value = raw_value.strip().strip(";")
+    cm_match = re.fullmatch(r"([0-9.]+)\s*cm", value, flags=re.IGNORECASE)
+    if cm_match:
+        try:
+            return float(cm_match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_css_pt(raw_value: str | None) -> float | None:
+    if not raw_value:
+        return None
+    value = raw_value.strip().strip(";")
+    pt_match = re.fullmatch(r"([0-9.]+)\s*pt", value, flags=re.IGNORECASE)
+    if pt_match:
+        try:
+            return float(pt_match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_page_break_before(css: dict[str, str]) -> bool:
+    value = (css.get("page-break-before") or css.get("break-before") or "").strip().lower()
+    return value in {"always", "page", "left", "right", "recto", "verso"}
 
 
 def normalize_color(raw_color: str) -> str | None:
@@ -316,11 +382,67 @@ def normalize_color(raw_color: str) -> str | None:
     return named.get(value.lower())
 
 
+def normalize_highlight(raw_color: str) -> str | None:
+    value = raw_color.strip().strip(";").lower()
+    if value in {"", "none", "transparent", "inherit", "initial", "unset"}:
+        return None
+
+    named = {
+        "black",
+        "blue",
+        "cyan",
+        "green",
+        "magenta",
+        "red",
+        "yellow",
+        "darkblue",
+        "darkcyan",
+        "darkgreen",
+        "darkmagenta",
+        "darkred",
+        "darkyellow",
+        "lightgray",
+        "darkgray",
+    }
+    if value in named:
+        return value
+    if value in {"grey", "gray"}:
+        return "lightgray"
+
+    color_hex = normalize_color(value)
+    return {
+        "000000": "black",
+        "0000FF": "blue",
+        "00FFFF": "cyan",
+        "00FF00": "green",
+        "FF00FF": "magenta",
+        "FF0000": "red",
+        "FFFF00": "yellow",
+        "808080": "lightgray",
+    }.get(color_hex or "")
+
+
+def normalize_vert_align(raw_value: str) -> str | None:
+    value = raw_value.strip().strip(";").lower()
+    if value in {"", "baseline", "none", "inherit", "initial", "unset"}:
+        return None
+    if value in {"super", "superscript"}:
+        return "superscript"
+    if value in {"sub", "subscript"}:
+        return "subscript"
+    return None
+
+
 class _ParagraphHtmlParser(HTMLParser):
     def __init__(self):
         super().__init__()
         self.runs: list[RichTextRun] = []
         self.alignment: str | None = None
+        self.line_spacing: float | None = None
+        self.first_line_indent_cm: float | None = None
+        self.space_before_pt: float | None = None
+        self.space_after_pt: float | None = None
+        self.is_page_break_before = False
         self.quote_level = 0
         self.max_quote_level = 0
         self._style_stack: list[dict] = [{}]
@@ -329,9 +451,14 @@ class _ParagraphHtmlParser(HTMLParser):
         attr_map = {key.lower(): value or "" for key, value in attrs}
         lower_tag = tag.lower()
 
-        if lower_tag in {"p", "div"}:
+        if lower_tag in {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6"}:
             css = _parse_css(attr_map.get("style", ""))
             self.alignment = attr_map.get("align") or css.get("text-align")
+            self.line_spacing = _parse_line_height(css.get("line-height"))
+            self.first_line_indent_cm = _parse_text_indent_cm(css.get("text-indent"))
+            self.space_before_pt = _parse_css_pt(css.get("margin-top"))
+            self.space_after_pt = _parse_css_pt(css.get("margin-bottom"))
+            self.is_page_break_before = _parse_page_break_before(css)
         if lower_tag == "blockquote":
             self.quote_level += 1
             self.max_quote_level = max(self.max_quote_level, self.quote_level)
@@ -364,6 +491,8 @@ class _ParagraphHtmlParser(HTMLParser):
             font_size_pt=current.get("font_size_pt"),
             font_name=current.get("font_name"),
             color_hex=current.get("color_hex"),
+            highlight=current.get("highlight"),
+            vert_align=current.get("vert_align"),
         )
         if self.runs and self._same_style(self.runs[-1], run):
             self.runs[-1].text += run.text
@@ -379,4 +508,6 @@ class _ParagraphHtmlParser(HTMLParser):
             and left.font_size_pt == right.font_size_pt
             and left.font_name == right.font_name
             and left.color_hex == right.color_hex
+            and left.highlight == right.highlight
+            and left.vert_align == right.vert_align
         )

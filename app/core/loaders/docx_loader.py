@@ -12,10 +12,10 @@ MVP 只读 sections + paragraphs + metadata，**不**读 styles / numbering / he
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
 
 from docx import Document as DocxDocument
 from docx.document import Document as DocxDocumentType
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
 
 from app.core.ir import (
@@ -84,6 +84,148 @@ def _line_spacing_to_float(line: str | int | None, line_rule: str | None) -> flo
     return 1.0
 
 
+def _alignment_to_str(alignment) -> str | None:
+    mapping = {
+        WD_PARAGRAPH_ALIGNMENT.LEFT: "left",
+        WD_PARAGRAPH_ALIGNMENT.CENTER: "center",
+        WD_PARAGRAPH_ALIGNMENT.RIGHT: "right",
+        WD_PARAGRAPH_ALIGNMENT.JUSTIFY: "justify",
+        WD_PARAGRAPH_ALIGNMENT.JUSTIFY_MED: "justify",
+        WD_PARAGRAPH_ALIGNMENT.JUSTIFY_HI: "justify",
+        WD_PARAGRAPH_ALIGNMENT.JUSTIFY_LOW: "justify",
+        WD_PARAGRAPH_ALIGNMENT.THAI_JUSTIFY: "justify",
+        WD_PARAGRAPH_ALIGNMENT.DISTRIBUTE: "distribute",
+    }
+    return mapping.get(alignment)
+
+
+def _style_chain(style):
+    seen = set()
+    while style is not None:
+        marker = id(style)
+        if marker in seen:
+            break
+        seen.add(marker)
+        yield style
+        style = style.base_style
+
+
+def _paragraph_styles(paragraph):
+    if paragraph.style is None:
+        return ()
+    return tuple(_style_chain(paragraph.style))
+
+
+def _paragraph_alignment_to_str(paragraph) -> str | None:
+    direct = _alignment_to_str(paragraph.alignment)
+    if direct is not None:
+        return direct
+    for style in _paragraph_styles(paragraph):
+        alignment = _alignment_to_str(style.paragraph_format.alignment)
+        if alignment is not None:
+            return alignment
+    return None
+
+
+def _style_paragraph_format(paragraph):
+    styles = _paragraph_styles(paragraph)
+    if not styles:
+        return None
+    return styles[0].paragraph_format
+
+
+def _length_to_pt(length) -> float:
+    if length is None:
+        return 0.0
+    return round(float(length.pt), 3)
+
+
+def _length_to_cm(length) -> float:
+    if length is None:
+        return 0.0
+    return round(float(length.cm), 3)
+
+
+def _style_line_spacing(paragraph) -> float:
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.line_spacing
+        if value is None:
+            continue
+        if isinstance(value, (int, float)):
+            return float(value)
+        return _length_to_pt(value)
+    return 1.0
+
+
+def _style_space_before_pt(paragraph) -> float:
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.space_before
+        if value is not None:
+            return _length_to_pt(value)
+    return 0.0
+
+
+def _style_space_after_pt(paragraph) -> float:
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.space_after
+        if value is not None:
+            return _length_to_pt(value)
+    return 0.0
+
+
+def _style_first_line_indent_cm(paragraph) -> float:
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.first_line_indent
+        if value is not None:
+            cm = _length_to_cm(value)
+            if cm > 0:
+                return cm
+    return 0.0
+
+
+def _style_hanging_indent_cm(paragraph) -> float:
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.first_line_indent
+        if value is not None:
+            cm = _length_to_cm(value)
+            if cm < 0:
+                return abs(cm)
+    return 0.0
+
+
+def _style_page_break_before(paragraph) -> bool:
+    for style in _paragraph_styles(paragraph):
+        value = style.paragraph_format.page_break_before
+        if value is not None:
+            return bool(value)
+    return False
+
+
+def _list_type_from_style_id(style_id: str) -> str | None:
+    normalized = (style_id or "").lower()
+    if "bullet" in normalized or "项目符号" in style_id:
+        return "bullet"
+    if "number" in normalized or "编号" in style_id:
+        return "number"
+    return None
+
+
+def _list_level_from_ppr(ppr) -> int | None:
+    if ppr is None:
+        return None
+    num_pr = ppr.find(qn("w:numPr"))
+    if num_pr is None:
+        return None
+    ilvl = num_pr.find(qn("w:ilvl"))
+    if ilvl is None:
+        return 0
+    value = ilvl.get(qn("w:val"))
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _first_line_indent_to_cm(paragraph) -> float:
     """读首行缩进（twips → cm）。
 
@@ -91,10 +233,10 @@ def _first_line_indent_to_cm(paragraph) -> float:
     """
     ppr = paragraph._p.find(qn("w:pPr"))
     if ppr is None:
-        return 0.0
+        return _style_first_line_indent_cm(paragraph)
     ind = ppr.find(qn("w:ind"))
     if ind is None:
-        return 0.0
+        return _style_first_line_indent_cm(paragraph)
     # firstLineChars 优先
     chars = ind.get(qn("w:firstLineChars"))
     if chars:
@@ -107,8 +249,26 @@ def _first_line_indent_to_cm(paragraph) -> float:
     # fallback firstLine (twips)
     fl = ind.get(qn("w:firstLine"))
     if fl:
-        return _twips_to_cm(fl)
-    return 0.0
+        cm = _twips_to_cm(fl)
+        return cm if cm > 0 else 0.0
+    return _style_first_line_indent_cm(paragraph)
+
+
+def _hanging_indent_to_cm(paragraph) -> float:
+    ppr = paragraph._p.find(qn("w:pPr"))
+    if ppr is None:
+        return _style_hanging_indent_cm(paragraph)
+    ind = ppr.find(qn("w:ind"))
+    if ind is None:
+        return _style_hanging_indent_cm(paragraph)
+    hanging = ind.get(qn("w:hanging"))
+    if hanging:
+        return _twips_to_cm(hanging)
+    fl = ind.get(qn("w:firstLine"))
+    if fl:
+        cm = _twips_to_cm(fl)
+        return abs(cm) if cm < 0 else 0.0
+    return _style_hanging_indent_cm(paragraph)
 
 
 def _load_section(section) -> Section:
@@ -127,37 +287,223 @@ def _load_section(section) -> Section:
     )
 
 
-def _load_run(run) -> Run:
-    """docx Run → IR Run。"""
-    # 字体：eastAsia / ascii / hAnsi
-    rpr = run._r.find(qn("w:rPr"))
+def _style_rpr(paragraph):
+    if paragraph is None or paragraph.style is None:
+        return None
+    return paragraph.style.element.find(qn("w:rPr"))
+
+
+def _style_rprs(paragraph):
+    return tuple(style.element.find(qn("w:rPr")) for style in _paragraph_styles(paragraph))
+
+
+def _rfonts_from_rpr(rpr) -> tuple[str | None, str | None, str | None, str | None]:
+    if rpr is None:
+        return None, None, None, None
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        return None, None, None, None
+    return (
+        rfonts.get(qn("w:eastAsia")),
+        rfonts.get(qn("w:ascii")),
+        rfonts.get(qn("w:hAnsi")),
+        rfonts.get(qn("w:cs")),
+    )
+
+
+def _style_rfonts(paragraph) -> tuple[str | None, str | None, str | None, str | None]:
     font_eastasia = None
     font_ascii = None
     font_hansi = None
-    font_size_pt = None
+    font_cs = None
+    for rpr in _style_rprs(paragraph):
+        rpr_eastasia, rpr_ascii, rpr_hansi, rpr_cs = _rfonts_from_rpr(rpr)
+        font_eastasia = font_eastasia or rpr_eastasia
+        font_ascii = font_ascii or rpr_ascii
+        font_hansi = font_hansi or rpr_hansi
+        font_cs = font_cs or rpr_cs
+    return font_eastasia, font_ascii, font_hansi, font_cs
+
+
+def _font_size_from_rpr(rpr) -> float | None:
+    if rpr is None:
+        return None
+    sz = rpr.find(qn("w:sz"))
+    if sz is None:
+        return None
+    return _half_points_to_pt(sz.get(qn("w:val")))
+
+
+def _style_font_size_pt(paragraph) -> float | None:
+    for rpr in _style_rprs(paragraph):
+        value = _font_size_from_rpr(rpr)
+        if value is not None:
+            return value
+    return None
+
+
+_MISSING = object()
+
+
+def _bool_property_from_rpr(rpr, tag: str):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn(tag))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if val is not None and val.lower() in ("0", "false", "off"):
+        return False
+    return True
+
+
+def _underline_from_rpr(rpr):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn("w:u"))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if val in (None, "single"):
+        return "single"
+    if val in ("none", "0", "false"):
+        return None
+    return val
+
+
+def _color_from_rpr(rpr):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn("w:color"))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if not val or val.lower() == "auto":
+        return None
+    return val.upper()
+
+
+def _highlight_from_rpr(rpr):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn("w:highlight"))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if val and val.lower() not in ("none", "0", "false"):
+        return val.lower()
+    return None
+
+
+def _vert_align_from_rpr(rpr):
+    if rpr is None:
+        return _MISSING
+    element = rpr.find(qn("w:vertAlign"))
+    if element is None:
+        return _MISSING
+    val = element.get(qn("w:val"))
+    if val in ("superscript", "subscript"):
+        return val
+    return None
+
+
+def _with_style_fallback(direct, inherited, default=None):
+    if direct is not _MISSING:
+        return direct
+    if inherited is not _MISSING:
+        return inherited
+    return default
+
+
+def _style_rpr_value(paragraph, reader):
+    for rpr in _style_rprs(paragraph):
+        value = reader(rpr)
+        if value is not _MISSING:
+            return value
+    return _MISSING
+
+
+def _load_run(run, paragraph=None) -> Run:
+    """docx Run → IR Run。"""
+    # 字体：eastAsia / ascii / hAnsi
+    rpr = run._r.find(qn("w:rPr"))
+    font_eastasia, font_ascii, font_hansi, font_cs = _style_rfonts(paragraph)
+    font_size_pt = _style_font_size_pt(paragraph)
+    underline = None
+    color_hex = None
+    vert_align_value = None
     if rpr is not None:
         rfonts = rpr.find(qn("w:rFonts"))
         if rfonts is not None:
-            font_eastasia = rfonts.get(qn("w:eastAsia"))
-            font_ascii = rfonts.get(qn("w:ascii"))
-            font_hansi = rfonts.get(qn("w:hAnsi"))
+            font_eastasia = rfonts.get(qn("w:eastAsia")) or font_eastasia
+            font_ascii = rfonts.get(qn("w:ascii")) or font_ascii
+            font_hansi = rfonts.get(qn("w:hAnsi")) or font_hansi
+            font_cs = rfonts.get(qn("w:cs")) or font_cs
         # 字号：OOXML 存半磅
         sz = rpr.find(qn("w:sz"))
         if sz is not None:
             font_size_pt = _half_points_to_pt(sz.get(qn("w:val")))
+        u = rpr.find(qn("w:u"))
+        if u is not None:
+            val = u.get(qn("w:val"))
+            if val in (None, "single"):
+                underline = "single"
+            elif val not in ("none", "0", "false"):
+                underline = val
+        color = rpr.find(qn("w:color"))
+        if color is not None:
+            val = color.get(qn("w:val"))
+            if val and val.lower() != "auto":
+                color_hex = val.upper()
+        highlight = rpr.find(qn("w:highlight"))
+        if highlight is not None:
+            val = highlight.get(qn("w:val"))
+            if val and val.lower() not in ("none", "0", "false"):
+                highlight_value = val.lower()
+            else:
+                highlight_value = None
+        else:
+            highlight_value = None
+        vert_align = rpr.find(qn("w:vertAlign"))
+        if vert_align is not None:
+            val = vert_align.get(qn("w:val"))
+            if val in ("superscript", "subscript"):
+                vert_align_value = val
+    else:
+        highlight_value = None
+
+    bold = _with_style_fallback(
+        _bool_property_from_rpr(rpr, "w:b"),
+        _style_rpr_value(paragraph, lambda style_rpr: _bool_property_from_rpr(style_rpr, "w:b")),
+        False,
+    )
+    italic = _with_style_fallback(
+        _bool_property_from_rpr(rpr, "w:i"),
+        _style_rpr_value(paragraph, lambda style_rpr: _bool_property_from_rpr(style_rpr, "w:i")),
+        False,
+    )
+    underline = _with_style_fallback(_underline_from_rpr(rpr), _style_rpr_value(paragraph, _underline_from_rpr))
+    color_hex = _with_style_fallback(_color_from_rpr(rpr), _style_rpr_value(paragraph, _color_from_rpr))
+    highlight_value = _with_style_fallback(_highlight_from_rpr(rpr), _style_rpr_value(paragraph, _highlight_from_rpr))
+    vert_align_value = _with_style_fallback(_vert_align_from_rpr(rpr), _style_rpr_value(paragraph, _vert_align_from_rpr))
 
     return Run(
         text=run.text or "",
         font_eastasia=font_eastasia,
         font_ascii=font_ascii,
         font_hansi=font_hansi,
+        font_cs=font_cs,
         font_size_pt=font_size_pt,
-        bold=bool(run.bold),
-        italic=bool(run.italic),
+        bold=bold,
+        italic=italic,
+        underline=underline,
+        color_hex=color_hex,
+        highlight=highlight_value,
+        vert_align=vert_align_value,
     )
 
 
-def _load_paragraph(paragraph) -> Paragraph:
+def _load_paragraph(paragraph, table_location=None) -> Paragraph:
     """docx Paragraph → IR Paragraph。"""
     # style_id
     style_id = paragraph.style.name if paragraph.style else ""
@@ -166,34 +512,57 @@ def _load_paragraph(paragraph) -> Paragraph:
     level = _HEADING_STYLE_TO_LEVEL.get(style_id)
 
     # runs
-    runs = tuple(_load_run(r) for r in paragraph.runs)
+    runs = tuple(_load_run(r, paragraph) for r in paragraph.runs)
 
     # 行距
     ppr = paragraph._p.find(qn("w:pPr"))
     line = None
     line_rule = None
-    space_before = 0
-    space_after = 0
+    space_before = None
+    space_after = None
+    is_page_break_before = None
     if ppr is not None:
+        page_break_before = ppr.find(qn("w:pageBreakBefore"))
+        if page_break_before is not None:
+            val = page_break_before.get(qn("w:val"))
+            is_page_break_before = not (val and val.lower() in ("0", "false", "off"))
         spacing = ppr.find(qn("w:spacing"))
         if spacing is not None:
             line = spacing.get(qn("w:line"))
             line_rule = spacing.get(qn("w:lineRule"))
             sb = spacing.get(qn("w:before"))
             sa = spacing.get(qn("w:after"))
-            if sb:
+            if sb is not None:
                 try:
-                    space_before = int(sb) // 20  # twips/20 = pt
+                    space_before = int(sb) / 20  # twips/20 = pt
                 except (TypeError, ValueError):
                     space_before = 0
-            if sa:
+            if sa is not None:
                 try:
-                    space_after = int(sa) // 20
+                    space_after = int(sa) / 20
                 except (TypeError, ValueError):
                     space_after = 0
 
-    line_spacing = _line_spacing_to_float(line, line_rule)
+    line_spacing = _line_spacing_to_float(line, line_rule) if line is not None else _style_line_spacing(paragraph)
     first_line_indent_cm = _first_line_indent_to_cm(paragraph)
+    hanging_indent_cm = _hanging_indent_to_cm(paragraph)
+    alignment = _paragraph_alignment_to_str(paragraph)
+    list_type = _list_type_from_style_id(style_id)
+    list_level = _list_level_from_ppr(ppr)
+    if list_type is not None and list_level is None:
+        list_level = 0
+    if space_before is None:
+        space_before = _style_space_before_pt(paragraph)
+    if space_after is None:
+        space_after = _style_space_after_pt(paragraph)
+    if is_page_break_before is None:
+        is_page_break_before = _style_page_break_before(paragraph)
+
+    table_index = None
+    table_row_index = None
+    table_cell_index = None
+    if table_location is not None:
+        table_index, table_row_index, table_cell_index = table_location
 
     return Paragraph(
         style_id=style_id,
@@ -204,7 +573,69 @@ def _load_paragraph(paragraph) -> Paragraph:
         space_before_pt=float(space_before),
         space_after_pt=float(space_after),
         first_line_indent_cm=first_line_indent_cm,
+        hanging_indent_cm=hanging_indent_cm,
+        alignment=alignment,
+        is_page_break_before=is_page_break_before,
+        table_index=table_index,
+        table_row_index=table_row_index,
+        table_cell_index=table_cell_index,
+        list_type=list_type,
+        list_level=list_level,
     )
+
+
+def _iter_block_paragraphs(parent, table_counter=None, table_location=None):
+    from docx.oxml.table import CT_Tbl
+    from docx.oxml.text.paragraph import CT_P
+    from docx.table import Table as DocxTable
+    from docx.table import _Cell
+    from docx.text.paragraph import Paragraph as DocxParagraph
+
+    if isinstance(parent, DocxDocumentType):
+        parent_element = parent.element.body
+    elif isinstance(parent, _Cell):
+        parent_element = parent._tc
+    else:
+        parent_element = parent._element
+
+    if table_counter is None:
+        table_counter = [0]
+
+    for child in parent_element.iterchildren():
+        if isinstance(child, CT_P):
+            yield DocxParagraph(child, parent), table_location
+        elif isinstance(child, CT_Tbl):
+            table = DocxTable(child, parent)
+            table_index = table_counter[0]
+            table_counter[0] += 1
+            seen_cells = set()
+            for row_index, row in enumerate(table.rows):
+                for cell_index, cell in enumerate(row.cells):
+                    marker = cell._tc
+                    if marker in seen_cells:
+                        continue
+                    seen_cells.add(marker)
+                    yield from _iter_block_paragraphs(
+                        cell,
+                        table_counter,
+                        (table_index, row_index, cell_index),
+                    )
+
+
+def _load_header_footer_paragraphs(sections, attr: str) -> tuple[Paragraph, ...]:
+    paragraphs: list[Paragraph] = []
+    seen = set()
+    for section in sections:
+        container = getattr(section, attr)
+        for paragraph, table_location in _iter_block_paragraphs(container):
+            marker = id(paragraph._p)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            if not (paragraph.text or "").strip():
+                continue
+            paragraphs.append(_load_paragraph(paragraph, table_location))
+    return tuple(paragraphs)
 
 
 def _load_metadata(doc: DocxDocumentType) -> DocumentMetadata:
@@ -238,13 +669,17 @@ def load_docx(path: str | Path) -> Document:
         raise ValueError(f"无法解析 docx 文件 {path}: {e}") from e
 
     sections = tuple(_load_section(s) for s in docx.sections)
-    paragraphs = tuple(_load_paragraph(p) for p in docx.paragraphs)
+    paragraphs = tuple(_load_paragraph(p, loc) for p, loc in _iter_block_paragraphs(docx))
+    header_paragraphs = _load_header_footer_paragraphs(docx.sections, "header")
+    footer_paragraphs = _load_header_footer_paragraphs(docx.sections, "footer")
     metadata = _load_metadata(docx)
 
     return Document(
         sections=sections,
         paragraphs=paragraphs,
         metadata=metadata,
+        header_paragraphs=header_paragraphs,
+        footer_paragraphs=footer_paragraphs,
     )
 
 

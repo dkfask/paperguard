@@ -197,12 +197,14 @@ class TemplateWorkspaceView(QWidget):
             if font_name and font_name not in font_names:
                 font_names.append(font_name)
         font_family = ", ".join(f"'{html.escape(name, quote=True)}'" for name in font_names)
+        if not font_family:
+            font_family = "'Times New Roman'"
         color_hex = style.font.color_hex or "000000"
         if not color_hex.startswith("#"):
             color_hex = f"#{color_hex}"
         return "; ".join(
             [
-                f"font-family: {font_family or '\'Times New Roman\''}",
+                f"font-family: {font_family}",
                 f"font-size: {style.font.size_pt:g}pt",
                 f"font-weight: {'700' if style.font.bold else '400'}",
                 f"font-style: {'italic' if style.font.italic else 'normal'}",

@@ -138,6 +138,23 @@ class TestEvaluateScope(unittest.TestCase):
         # 该测试只确认 __index__ 在 node 里能查到 idx
         self.assertEqual(node.get("__index__"), 0)
 
+    def test_scope_can_select_header_paragraphs_with_container_index(self):
+        header = _make_para(style_id="Header", text="paper title")
+        doc = Document(
+            sections=(),
+            paragraphs=(),
+            metadata=DocumentMetadata(title="test"),
+            header_paragraphs=(header,),
+        )
+
+        result = evaluate_scope("header_paragraphs[*]", doc)
+
+        self.assertEqual(len(result), 1)
+        idx, node = result[0]
+        self.assertEqual(idx, 0)
+        self.assertEqual(node["__section__"], "header_paragraphs")
+        self.assertEqual(node["text"], "paper title")
+
 
 # ---------------------------------------------------------------------------
 # evaluate_when — JSONLogic 单节点求值
@@ -157,6 +174,22 @@ class TestEvaluateWhen(unittest.TestCase):
         node = {"line_spacing": 1.5}
         result = evaluate_when({"==": [{"var": "line_spacing"}, 1.5]}, node)
         self.assertTrue(result)
+
+    def test_when_equals_allows_docx_roundtrip_float_drift(self):
+        node = {"first_line_indent_cm": 0.741}
+        result = evaluate_when(
+            {"==": [{"var": "first_line_indent_cm"}, 0.74]},
+            node,
+        )
+        self.assertTrue(result)
+
+    def test_when_not_equals_allows_docx_roundtrip_float_drift(self):
+        node = {"first_line_indent_cm": 0.741}
+        result = evaluate_when(
+            {"!=": [{"var": "first_line_indent_cm"}, 0.74]},
+            node,
+        )
+        self.assertFalse(result)
 
     def test_when_and_true(self):
         node = {"x": 5, "y": "hi"}

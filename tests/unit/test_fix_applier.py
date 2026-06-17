@@ -39,12 +39,18 @@ def _doc(paragraphs: tuple[Paragraph, ...] = ()) -> Document:
     )
 
 
-def _para(line_spacing: float = 1.5, font_size: float = 12.0) -> Paragraph:
+def _para(
+    line_spacing: float = 1.5,
+    font_size: float = 12.0,
+    runs: tuple[Run, ...] | None = None,
+) -> Paragraph:
     return Paragraph(
         style_id="Body Text",
         text="测试段",
         level=None,
-        runs=(Run(text="测试段", font_eastasia="宋体", font_size_pt=font_size),),
+        runs=runs if runs is not None else (
+            Run(text="测试段", font_eastasia="宋体", font_size_pt=font_size),
+        ),
         line_spacing=line_spacing,
         space_before_pt=0.0,
         space_after_pt=0.0,
@@ -65,6 +71,19 @@ def _finding(target: str, value, paragraph_index: int = 0,
     )
 
 
+def _para_text(text: str) -> Paragraph:
+    return Paragraph(
+        style_id="Body Text",
+        text=text,
+        level=None,
+        runs=(Run(text=text, font_eastasia="Songti", font_size_pt=12.0),),
+        line_spacing=1.5,
+        space_before_pt=0.0,
+        space_after_pt=0.0,
+        first_line_indent_cm=0.74,
+    )
+
+
 class TestApplyFix(unittest.TestCase):
 
     def test_apply_fix_paragraph_line_spacing(self):
@@ -81,6 +100,32 @@ class TestApplyFix(unittest.TestCase):
         fixed = apply_fix(ir, _finding("run.font_size_pt", 12.0))
         self.assertEqual(fixed.paragraphs[0].runs[0].font_size_pt, 12.0)
 
+    def test_apply_fix_runs_wildcard_sets_all_runs(self):
+        """set runs.*.bold=False 清理同段所有 run 的加粗。"""
+        para = _para(runs=(
+            Run(text="甲", bold=True),
+            Run(text="乙", bold=True),
+        ))
+        ir = _doc((para,))
+        fixed = apply_fix(ir, _finding("runs.*.bold", False))
+
+        self.assertEqual([r.bold for r in fixed.paragraphs[0].runs], [False, False])
+        self.assertEqual([r.bold for r in ir.paragraphs[0].runs], [True, True])
+
+    def test_apply_fix_accepts_page_break_before_alias(self):
+        """set paragraph.page_break_before=True 兼容旧 pack target."""
+        para = _para(line_spacing=1.0)
+        ir = _doc((para,))
+        fixed = apply_fix(ir, _finding("paragraph.page_break_before", True))
+        self.assertTrue(fixed.paragraphs[0].is_page_break_before)
+
+    def test_apply_fix_paragraph_alignment(self):
+        """set paragraph.alignment=center 修复段落对齐方式."""
+        para = _para(line_spacing=1.0)
+        ir = _doc((para,))
+        fixed = apply_fix(ir, _finding("paragraph.alignment", "center"))
+        self.assertEqual(fixed.paragraphs[0].alignment, "center")
+
     def test_apply_fix_unknown_target_returns_original(self):
         """未知 target（不在 mapping 表里）→ 返原 IR（fail-safe）"""
         para = _para(line_spacing=1.0)
@@ -96,6 +141,43 @@ class TestApplyFix(unittest.TestCase):
         fixed = apply_fix(ir, _finding("paragraph.line_spacing", 1.5, action="insert"))
         self.assertEqual(fixed.paragraphs[0].line_spacing, 1.0)
 
+    def test_apply_fix_delete_paragraph(self):
+        first = _para_text("first")
+        second = _para_text("second")
+        ir = _doc((first, second))
+
+        fixed = apply_fix(ir, _finding("paragraph", None, paragraph_index=0, action="delete"))
+
+        self.assertEqual([p.text for p in fixed.paragraphs], ["second"])
+        self.assertEqual([p.text for p in ir.paragraphs], ["first", "second"])
+
+    def test_apply_fix_insert_paragraph_after_from_dict(self):
+        first = _para_text("first")
+        ir = _doc((first,))
+        new_para = {
+            "style_id": "Body Text",
+            "text": "inserted",
+            "runs": [{"text": "inserted", "font_size_pt": 12.0}],
+            "line_spacing": 1.5,
+            "space_before_pt": 0.0,
+            "space_after_pt": 0.0,
+            "first_line_indent_cm": 0.74,
+        }
+
+        fixed = apply_fix(ir, _finding("paragraph.after", new_para, action="insert"))
+
+        self.assertEqual([p.text for p in fixed.paragraphs], ["first", "inserted"])
+        self.assertEqual(fixed.paragraphs[1].runs[0].text, "inserted")
+
+    def test_apply_fix_insert_paragraph_before_from_ir(self):
+        first = _para_text("first")
+        inserted = _para_text("inserted")
+        ir = _doc((first,))
+
+        fixed = apply_fix(ir, _finding("paragraph.before", inserted, action="insert"))
+
+        self.assertEqual([p.text for p in fixed.paragraphs], ["inserted", "first"])
+
     def test_apply_fix_preserves_immutability(self):
         """原 IR 不可变：apply_fix 后原 IR 段属性不变"""
         para = _para(line_spacing=1.0)
@@ -104,6 +186,73 @@ class TestApplyFix(unittest.TestCase):
         # 关键：原 IR 的段 line_spacing 仍是 1.0（不可变）
         self.assertEqual(ir.paragraphs[0].line_spacing, 1.0)
 
+    def test_apply_fix_preserves_header_and_footer_paragraphs(self):
+        para = _para(line_spacing=1.0)
+        header = Paragraph(
+            style_id="Header", text="header", level=None, runs=(),
+            line_spacing=1.0, space_before_pt=0.0, space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        footer = Paragraph(
+            style_id="Footer", text="footer", level=None, runs=(),
+            line_spacing=1.0, space_before_pt=0.0, space_after_pt=0.0,
+            first_line_indent_cm=0.0,
+        )
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(para,),
+            metadata=DocumentMetadata(title="t"),
+            header_paragraphs=(header,),
+            footer_paragraphs=(footer,),
+        )
+
+        fixed = apply_fix(ir, _finding("paragraph.line_spacing", 1.5))
+
+        self.assertEqual(fixed.header_paragraphs, (header,))
+        self.assertEqual(fixed.footer_paragraphs, (footer,))
+
+    def test_apply_fix_header_paragraph_alignment(self):
+        header = _para_text("header")
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(),
+            metadata=DocumentMetadata(title="t"),
+            header_paragraphs=(header,),
+        )
+        finding = Finding(
+            rule_id="R-HEADER-ALIGN",
+            severity=Severity.WARNING,
+            message="header alignment",
+            location=Location(section="header_paragraphs", paragraph_index=0, text_snippet="header"),
+            fix=Fix(action="set", target="paragraph.alignment", value="center"),
+        )
+
+        fixed = apply_fix(ir, finding)
+
+        self.assertEqual(fixed.header_paragraphs[0].alignment, "center")
+        self.assertEqual(ir.header_paragraphs[0].alignment, None)
+
+    def test_apply_fix_footer_paragraph_alignment(self):
+        footer = _para_text("footer")
+        ir = Document(
+            sections=(Section(),),
+            paragraphs=(),
+            metadata=DocumentMetadata(title="t"),
+            footer_paragraphs=(footer,),
+        )
+        finding = Finding(
+            rule_id="R-FOOTER-ALIGN",
+            severity=Severity.WARNING,
+            message="footer alignment",
+            location=Location(section="footer_paragraphs", paragraph_index=0, text_snippet="footer"),
+            fix=Fix(action="set", target="paragraph.alignment", value="right"),
+        )
+
+        fixed = apply_fix(ir, finding)
+
+        self.assertEqual(fixed.footer_paragraphs[0].alignment, "right")
+        self.assertEqual(ir.footer_paragraphs[0].alignment, None)
+
     def test_apply_all_fixes_applies_each_set(self):
         """apply_all_fixes 顺序应用多条 set fix"""
         para = _para(line_spacing=1.0, font_size=10.0)
@@ -111,9 +260,15 @@ class TestApplyFix(unittest.TestCase):
         fixed, remaining = apply_all_fixes(ir, [
             _finding("paragraph.line_spacing", 1.5),
             _finding("run.font_size_pt", 12.0),
+            _finding("runs.*.bold", False),
+            _finding("paragraph.page_break_before", True),
+            _finding("paragraph.alignment", "center"),
         ])
         self.assertEqual(fixed.paragraphs[0].line_spacing, 1.5)
         self.assertEqual(fixed.paragraphs[0].runs[0].font_size_pt, 12.0)
+        self.assertFalse(fixed.paragraphs[0].runs[0].bold)
+        self.assertTrue(fixed.paragraphs[0].is_page_break_before)
+        self.assertEqual(fixed.paragraphs[0].alignment, "center")
         self.assertEqual(remaining, [])
 
     def test_apply_all_fixes_returns_remaining_no_fix(self):
@@ -146,6 +301,21 @@ class TestApplyFix(unittest.TestCase):
         self.assertEqual(fixed.paragraphs[0].line_spacing, 1.0)
         # remaining 含原 finding（无法 fix 但记录在 remaining）
         self.assertEqual(len(remaining), 1)
+
+
+    def test_apply_all_fixes_applies_insert_and_delete_actions(self):
+        first = _para_text("first")
+        second = _para_text("second")
+        ir = _doc((first, second))
+        inserted = _para_text("inserted")
+
+        fixed, remaining = apply_all_fixes(ir, [
+            _finding("paragraph.after", inserted, paragraph_index=0, action="insert"),
+            _finding("paragraph", None, paragraph_index=2, action="delete"),
+        ])
+
+        self.assertEqual(remaining, [])
+        self.assertEqual([p.text for p in fixed.paragraphs], ["first", "inserted"])
 
 
 if __name__ == "__main__":

@@ -3,12 +3,13 @@
 > **这是给你（人类）看的**——下次打开项目时，30 秒读这一份就够。
 > 给 AI 看的版本见 [`CLAUDE.md`](./CLAUDE.md)。
 > 完整 AI 入口见 [`SKILL.md`](./SKILL.md)。
+> 持续进度清单见 [`docs/progress.md`](./docs/progress.md)。
 
 ---
 
 ## 一句话状态
 
-> ✅ **Sprint 3 已完成**（2026-06-09，15 个 atomic commit）：多规范包 + Click CLI 5 子命令全栈跑通 — 新增 `GB-T-7714-1-2015.yaml`（10 参考文献规则）+ `SIM-UNIV-generic.yaml`（20 学校样式规则，**自制模拟零版权**）；修复 Sprint 2 follow-up B1（拆 `PG-BODY-PARAGRAPH-SPACING` 为 2 独立规则）+ T0（perf 断言失效）；Click 8.x CLI 5 子命令（check / fix / extract / init / validate-pack），退出码 0/1/2 + JSON reporter（SARIF-like）+ fix_applier/docx_writer（不可变修复 + docx 回写）+ `_fix_then_check` 闭环预铺。**359 tests 全绿**（含 19 CLI integration + 9 extract integration），**smoke 端到端跑通**：check 5 findings → fix 写 36811 bytes 新文件 → 3 packs validate-pack 全部通过 → init 生成 194 bytes 骨架。`app/core/` 零 PyQt 依赖保持。下一步：**Sprint 4（HTML reporter + SARIF + 多 pack CLI 增强）**。
+> 🚧 **GitHub Actions CI 已上线，PyQt DOCX 批改链路继续打磨**（2026-06-17）：CI 覆盖 pytest matrix（py3.10/3.11）+ 3 个端到端 smoke 脚本；Word `.docx/.dotx` 导入支持从 `标题 1/2/3` 生成模板章节树；PyQt DOCX 批改面板已有问题列表、定位反馈、逐条修复和导出摘要。下一步：**打磨异常提示 + 持续扩充样例**。
 
 ---
 
@@ -218,27 +219,29 @@ git push
 
 > 交付：`GB-T-7714-1-2015.yaml`（10 参考文献规则）+ `SIM-UNIV-generic.yaml`（20 学校样式规则，**自制零版权**）；修复 Sprint 2 follow-up B1（拆 `PG-BODY-PARAGRAPH-SPACING` 为 2 独立规则 PG-BODY-SPACE-BEFORE/AFTER）+ T0（perf 断言失效）；Click 8.x CLI 5 子命令（check / fix / extract / init / validate-pack）；`app/core/reporters/json_reporter.py`（SARIF-like 结构化 JSON）+ `app/core/writers/{fix_applier,docx_writer}.py`（不可变 IR 修复 + python-docx 回写）；`app/cli/_fix_then_check.py`（Sprint 4.5 闭环预铺）；`TerminalReporter.report_findings()` 与 JSONReporter 接口对齐。**64 新测试 / 359 全绿**（含 19 CLI integration + 9 extract integration）。**smoke 端到端跑通**：check 5 findings → fix 写 36811 bytes 新文件 → 3 packs validate-pack 全过 → init 194 bytes 骨架。`app/core/` 零 PyQt 依赖保持。共 15 atomic commits。**最新 commit `aa8b180`（feat: CLI 4 subcommands full impl）**。
 
-### 🚧 P0（下一个）：MVP Sprint 4（**HTML reporter + SARIF + CLI 增强**）
+### ✅ P0：MVP Sprint 4（**HTML/SARIF reporter + CLI 增强 + fix 闭环**）— **已完成 2026-06-11**
 
-```bash
-# app/core/reporters/html_reporter.py — HTML 报告（用 Jinja2 模板）
-# app/core/reporters/sarif_reporter.py — SARIF 2.1 标准
-# paperguard --version 增强 (auto-update check)
-# paperguard list-packs (列出已安装 packs)
-# paperguard doctor (诊断: 检查 Python 版本/依赖/packs 路径)
-# Sprint 4.5: 完整 fix → check 闭环
-```
+> 交付：`app/core/reporters/html_reporter.py`（Jinja2 + autoescape）+ `sarif_reporter.py`（SARIF 2.1.0 子集）；`check --format html|sarif`；`list-packs` / `doctor` / `version`；`fix --skip-verify` + 完整 `changes.md`；`pyproject.toml` console_scripts；`scripts/sprint4_smoke.py`。保留原有 `text/json` 输出、`--version`、隐藏 `--no-verify` 兼容。
 
-**Sprint 4 关键意义**：补齐 reporter 层 (HTML + SARIF)；CLI 辅助命令 (list-packs / doctor) 提升易用性。Sprint 3 已落 check/fix 闭环基础，Sprint 4 把 Sprint 4.5 闭环做完整。
-### P2：MVP Sprint 5（修复闭环 + mutator 成熟）
-- 实现 GB/T 7714—2015（参考文献）
-- 至少 1 所学校 pack（清华 / 浙大）
-- `paperguard validate-pack` CLI 命令
+### ✅ P0：MVP Sprint 5（**mutator 成熟 + 学校 pack 深化**）— **已完成 2026-06-16**
 
-### P4：MVP Sprint 4 / 4.5（报告 + CLI + 修复后验证）
-- JSON / HTML / SARIF reporter
-- `paperguard check` / `init` CLI
-- **`fix` 完成后自动 `check`**
+> 交付：`fix_applier` 支持 set / insert / delete / `runs.*`；`docx_writer` 与 `docx_loader` 完成段落、run、section、页眉页脚、表格单元格段落、列表段落的写回/读取闭环；GB/T 7714 参考文献悬挂缩进、多 run 字体/字号/下划线/加粗规则闭环；SIM-UNIV 表格单元格字号、列表行距规则；`scripts/sprint5_smoke.py`。**最近验证：492 passed, 1 skipped**；smoke 通过。收口 commit `89c6b98`。
+
+### ✅ P0：真实样例回归第一版 — **已完成 2026-06-16**
+
+> 交付：`tests/synthetic_regression_samples.py` 代码生成 9 个合成 `.docx` 样例，覆盖 GB/T 7713、GB/T 7714、SIM-UNIV 三个 pack 的合规、违规、修复后三类状态；`tests/integration/test_synthetic_regression_samples.py` 验证 `write -> load -> validate` 与 `fix -> write -> load -> validate`；`scripts/regression_samples_smoke.py` 提供本地 smoke。样例运行时写入临时目录，不提交真实论文或学生作业。提交 `8793168`。
+
+### ✅ P0：CI/发布工程化（第一版）— **已完成 2026-06-17**
+
+> 交付：`.github/workflows/ci.yml`，两个 job：
+> - `test`：matrix py3.10/3.11 + ubuntu-latest + `QT_QPA_PLATFORM=offscreen` 跑全量 pytest（504 tests），上传 JUnit 报告
+> - `smoke`：依赖 `test` 通过后，跑 3 个端到端 smoke 脚本（`sprint5_smoke.py` / `regression_samples_smoke.py` / `pyqt_docx_session_smoke.py`）
+> 触发：push 到 `main` 或 `codex/**` / PR 到 `main` / `workflow_dispatch`。本地预演：YAML 语法 ✓，`pip install -e .` ✓，pytest 32.76s 504 passed/1 skipped ✓，3 smoke OK ✓。
+
+### 🚧 P0（下一个）：PyQt 正常使用链路
+- 打磨 DOCX 批改面板的异常提示和失败恢复。
+- 将 DOCX 批改结果和现有侧边栏/高亮定位进一步融合。
+- 继续扩充复杂长文档、真实学校模板匿名化样例、目录、题注、交叉引用和多级列表样例。
 
 完整 Sprint 计划见 `docs/design-proposal.md` §7。
 
@@ -300,18 +303,27 @@ git push
 | 2026-06-09 | HANDOFF.md 刷新到 v1.4（标记 Sprint 2.5 完成 + 提级 Sprint 3） |
 | 2026-06-09 | **Sprint 3 完成**（commits `08d9cd3` ~ `aa8b180`，15 atomic）：fix Sprint 2 follow-up B1+T0；GB-T-7714-1-2015.yaml (10 refs) + SIM-UNIV-generic.yaml (20 学校样式)；Click 8.x CLI 5 子命令 + json_reporter + fix_applier/docx_writer + _fix_then_check；64 新测试 / 359 全绿；smoke 端到端跑通（check 5 findings / fix 36811 bytes / 3 packs validate-pass / init 194 bytes 骨架） |
 | 2026-06-09 | HANDOFF.md 刷新到 v1.5（标记 Sprint 3 完成 + 提级 Sprint 4） |
-| _待定_ | MVP Sprint 4 开工（HTML reporter + SARIF + CLI 增强） |
+| 2026-06-11 | **Sprint 4 完成**：HTML/SARIF reporter；`check --format html|sarif`；`list-packs` / `doctor` / `version`；完整 `changes.md` fix 闭环；`pyproject.toml`；Sprint 4 smoke |
+| 2026-06-16 | **Sprint 5 完成**：mutator/docx 写回闭环成熟；表格单元格段落、列表段落、参考文献悬挂缩进、多 run 修复闭环；SIM-UNIV 表格/列表规则；492 passed, 1 skipped；Sprint 5 smoke 通过 |
+| 2026-06-16 | **真实样例回归第一版**：3 pack x 合规/违规/修复后合成 `.docx` 样例矩阵；集成测试和 smoke 覆盖 `fix -> write -> load -> validate` |
+| 2026-06-17 | **PyQt docx 会话服务第一版**：`DocxReviewSession` 封装 `.docx` 导入、检查、自动修复、导出新 `.docx`，补 session smoke；提交 `5df9894` |
+| 2026-06-17 | **PyQt DOCX 批改 UI 接入**：`ReviewExportView` 增加 DOCX 批改面板，`MainWindow` 接入导入、检查、修复、导出方法；提交 `8ceb945` |
+| 2026-06-17 | **PyQt DOCX 问题列表与逐条修复**：`DocxReviewSession.apply_fix_at()`；批改面板渲染 finding 卡片并支持单项修复；提交 `04bddbc` |
+| 2026-06-17 | **PyQt DOCX 定位反馈**：finding 卡片新增定位按钮，显示规则、段落号、文本片段并同步状态栏；提交 `a39b81e`；`503 passed, 1 skipped` |
+| 2026-06-17 | **PyQt DOCX 导出反馈**：导出后在面板显示文件名、剩余问题数和导出时间摘要；提交 `82509de`；`503 passed, 1 skipped` |
+| 2026-06-17 | **Word 模板章节结构导入**：从 Word `标题 1/2/3` 段落生成模板章节树，未识别标题时回退默认结构；提交 `9fcc480`；`504 passed, 1 skipped` |
+| 2026-06-17 | **GitHub Actions CI 第一版**：`.github/workflows/ci.yml`（test matrix py3.10/3.11 + 3 smoke）；本地预演全绿 | 待 push 后首次 CI 验证 |
 | _待定_ | MVP 全部完成（3 周后） |
 
 ---
 
 ## 一句话建议
 
-> 下次回来，直接说"开始 Sprint 2.5"——我会读 CLAUDE.md / HANDOFF.md / design-proposal.md §7 Sprint 2.5 计划 + format-thesis-docx-review.md 的 `extract_requirements.py` 精读，然后在 `app/core/extract/` 实现 FORMAT_WORDS 启发式 + 7 类别 Requirement 抽取。
+> 下次回来，直接说“打磨 DOCX 批改异常提示”或“配置 CI”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后做异常提示、失败恢复，或把 pytest 与 smoke 纳入基础检查。
 
 ---
 
-**版本**：v1.3（标记 Sprint 2 完成）
-**最后更新**：2026-06-08
-**配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/sprint-1.5-plan.md` / `docs/sprints/sprint-2-plan.md`
-**最新 commit**：`91309ba test(sprint-2): integration — perf baseline + e2e + pack self-check`
+**版本**：v2.4（GitHub Actions CI 第一版）
+**最后更新**：2026-06-17
+**配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/*.md` / `.github/workflows/ci.yml`
+**最新实现 commit**：`9fcc480 feat(template): import word heading structure`（CI 配置为本地未提交）
