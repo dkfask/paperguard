@@ -9,7 +9,7 @@
 
 ## 一句话状态
 
-> 🚧 **PyQt DOCX 批改面板已支持问题列表、定位反馈和逐条修复**（2026-06-17）：Sprint 5 mutator/docx 写回闭环、真实样例回归第一版、`DocxReviewSession` 服务均已完成；`ReviewExportView` 已有规则包选择、导入、检查、问题列表、定位、逐条修复、批量修复、导出按钮。下一步：**打磨异常提示/导出反馈 + CI/发布工程化**。
+> 🚧 **PyQt DOCX 批改面板已支持问题列表、定位反馈、逐条修复和导出摘要**（2026-06-17）：Sprint 5 mutator/docx 写回闭环、真实样例回归第一版、`DocxReviewSession` 服务均已完成；`ReviewExportView` 已有规则包选择、导入、检查、问题列表、定位、逐条修复、批量修复、导出按钮和导出摘要。下一步：**打磨异常提示 + CI/发布工程化**。
 
 ---
 
@@ -232,7 +232,7 @@ git push
 > 交付：`tests/synthetic_regression_samples.py` 代码生成 9 个合成 `.docx` 样例，覆盖 GB/T 7713、GB/T 7714、SIM-UNIV 三个 pack 的合规、违规、修复后三类状态；`tests/integration/test_synthetic_regression_samples.py` 验证 `write -> load -> validate` 与 `fix -> write -> load -> validate`；`scripts/regression_samples_smoke.py` 提供本地 smoke。样例运行时写入临时目录，不提交真实论文或学生作业。提交 `8793168`。
 
 ### 🚧 P0（下一个）：PyQt 正常使用链路 + CI/发布工程化
-- 打磨 DOCX 批改面板的异常提示和导出反馈。
+- 打磨 DOCX 批改面板的异常提示和失败恢复。
 - 将 DOCX 批改结果和现有侧边栏/高亮定位进一步融合。
 - 配置 CI，把全量 pytest、Sprint 5 smoke 和 regression samples smoke 纳入基础检查。
 - 继续扩充复杂长文档、真实学校模板匿名化样例、目录、题注、交叉引用和多级列表样例。
@@ -304,17 +304,18 @@ git push
 | 2026-06-17 | **PyQt DOCX 批改 UI 接入**：`ReviewExportView` 增加 DOCX 批改面板，`MainWindow` 接入导入、检查、修复、导出方法；提交 `8ceb945` |
 | 2026-06-17 | **PyQt DOCX 问题列表与逐条修复**：`DocxReviewSession.apply_fix_at()`；批改面板渲染 finding 卡片并支持单项修复；提交 `04bddbc` |
 | 2026-06-17 | **PyQt DOCX 定位反馈**：finding 卡片新增定位按钮，显示规则、段落号、文本片段并同步状态栏；提交 `a39b81e`；`503 passed, 1 skipped` |
+| 2026-06-17 | **PyQt DOCX 导出反馈**：导出后在面板显示文件名、剩余问题数和导出时间摘要；提交 `82509de`；`503 passed, 1 skipped` |
 | _待定_ | MVP 全部完成（3 周后） |
 
 ---
 
 ## 一句话建议
 
-> 下次回来，直接说“打磨 DOCX 批改异常提示”或“配置 CI”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后做异常提示、导出反馈，或把 pytest 与 smoke 纳入基础检查。
+> 下次回来，直接说“打磨 DOCX 批改异常提示”或“配置 CI”——我会先读 `docs/progress.md`、`docs/sprints/sprint-5-plan.md`、`AGENTS.md`，然后做异常提示、失败恢复，或把 pytest 与 smoke 纳入基础检查。
 
 ---
 
-**版本**：v2.1（PyQt DOCX 定位反馈）
+**版本**：v2.2（PyQt DOCX 导出反馈）
 **最后更新**：2026-06-17
 **配套文件**：`CLAUDE.md` / `SKILL.md` / `docs/*.md` / `references/format-thesis-docx/` / `docs/sprints/*.md`
-**最新实现 commit**：`a39b81e feat(pyqt): add docx issue location feedback`
+**最新实现 commit**：`82509de feat(pyqt): add docx export feedback`
