@@ -29,6 +29,7 @@ from app.services.navigation_state_service import NavigationStateService
 from app.services.recent_items_service import RecentItemsService
 from app.services.template_parser import load_template, save_template
 from app.services.word_template_importer import import_word_template
+from app.views.common import show_error
 from app.views.dashboard_view import DashboardView
 from app.views.help_workspace_view import HelpWorkspaceView
 from app.views.project_workspace_view import ProjectWorkspaceView
@@ -537,7 +538,8 @@ class MainWindow(QMainWindow):
         try:
             self._open_docx_review_path(path, pack_id=self.review_workspace.selected_docx_pack())
         except Exception as error:
-            QMessageBox.critical(self, "导入 DOCX 失败", str(error))
+            title, first_line = show_error(self, error, context="导入", docx_path=path)
+            self.review_workspace.set_docx_error_state(f"{title}：{first_line}")
 
     def _open_docx_review_path(
         self,
@@ -567,7 +569,15 @@ class MainWindow(QMainWindow):
         try:
             self._check_docx_review_session()
         except Exception as error:
-            QMessageBox.warning(self, "DOCX 检查失败", str(error))
+            docx_path = (
+                str(self.docx_review_session.source_path)
+                if self.docx_review_session is not None
+                else None
+            )
+            title, first_line = show_error(
+                self, error, context="检查", docx_path=docx_path
+            )
+            self.review_workspace.set_docx_error_state(f"{title}：{first_line}")
 
     def _check_docx_review_session(self):
         if self.docx_review_session is None:
@@ -596,7 +606,15 @@ class MainWindow(QMainWindow):
         try:
             self._fix_docx_review_session()
         except Exception as error:
-            QMessageBox.warning(self, "DOCX 修复失败", str(error))
+            docx_path = (
+                str(self.docx_review_session.source_path)
+                if self.docx_review_session is not None
+                else None
+            )
+            title, first_line = show_error(
+                self, error, context="修复", docx_path=docx_path
+            )
+            self.review_workspace.set_docx_error_state(f"{title}：{first_line}")
 
     def _fix_docx_review_session(self):
         if self.docx_review_session is None:
@@ -626,7 +644,15 @@ class MainWindow(QMainWindow):
         try:
             self._fix_one_docx_review_finding(index)
         except Exception as error:
-            QMessageBox.warning(self, "DOCX 单项修复失败", str(error))
+            docx_path = (
+                str(self.docx_review_session.source_path)
+                if self.docx_review_session is not None
+                else None
+            )
+            title, first_line = show_error(
+                self, error, context="逐条修复", docx_path=docx_path
+            )
+            self.review_workspace.set_docx_error_state(f"{title}：{first_line}")
 
     def _fix_one_docx_review_finding(self, index: int):
         if self.docx_review_session is None:
@@ -653,7 +679,15 @@ class MainWindow(QMainWindow):
         try:
             self._locate_docx_review_finding(index)
         except Exception as error:
-            QMessageBox.warning(self, "DOCX 定位失败", str(error))
+            docx_path = (
+                str(self.docx_review_session.source_path)
+                if self.docx_review_session is not None
+                else None
+            )
+            title, first_line = show_error(
+                self, error, context="定位", docx_path=docx_path
+            )
+            self.review_workspace.set_docx_error_state(f"{title}：{first_line}")
 
     def _locate_docx_review_finding(self, index: int):
         if self.docx_review_session is None:
@@ -691,7 +725,8 @@ class MainWindow(QMainWindow):
             self._export_fixed_docx_review_path(path)
             QMessageBox.information(self, "导出成功", f"修复后 DOCX 已导出到：\n{path}")
         except Exception as error:
-            QMessageBox.critical(self, "导出失败", str(error))
+            title, first_line = show_error(self, error, context="导出", docx_path=path)
+            self.review_workspace.set_docx_error_state(f"{title}：{first_line}")
 
     def _export_fixed_docx_review_path(self, path: str | Path) -> Path:
         if self.docx_review_session is None:

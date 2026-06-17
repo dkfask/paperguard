@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -122,6 +123,93 @@ class TestPyQtDocxReviewUi(unittest.TestCase):
             self.assertIn("第 1 段", window.review_workspace.docx_location_label.text())
             self.assertIn(findings[0].location.text_snippet, window.review_workspace.docx_location_label.text())
             self.assertIn("已定位", window.status_label.text())
+
+    # --- 异常路径：show_error 接入 (Sprint 6) ---
+
+    def test_main_window_docx_review_open_nonexistent_shows_friendly_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            window = MainWindow()
+            self.addCleanup(window.close)
+            fake_path = str(Path(tmp) / "nonexistent.docx")
+            with patch(
+                "app.views.main_window.QFileDialog.getOpenFileName",
+                return_value=(fake_path, ""),
+            ), patch(
+                "app.views.main_window.DocxReviewSession.open",
+                side_effect=FileNotFoundError(f"docx 文件不存在: {fake_path}"),
+            ), patch("app.views.common.QMessageBox.warning") as warning_box:
+                window._import_docx_review_dialog()
+                warning_box.assert_called_once()
+                args = warning_box.call_args[0]
+                self.assertEqual(args[1], "DOCX 导入 文件未找到")
+                self.assertIn(fake_path, args[2])
+
+    def test_main_window_docx_review_check_without_session_shows_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            window = MainWindow()
+            self.addCleanup(window.close)
+            # docx_review_session 默认为 None → ValueError
+            with patch("app.views.common.QMessageBox.warning") as warning_box:
+                window._check_docx_review_from_ui()
+                warning_box.assert_called_once()
+                args = warning_box.call_args[0]
+                # ValueError 不在翻译表 → 走 fallback
+                self.assertEqual(args[1], "DOCX 检查 操作失败")
+                self.assertIn("请先导入", args[2])
+
+    def test_main_window_docx_review_export_to_unwritable_shows_critical(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            generated = generate_samples(output_dir)
+            sample, source_path = next(
+                item for item in generated if item[0].name == "gb7713-violating"
+            )
+            window = MainWindow()
+            self.addCleanup(window.close)
+            window._open_docx_review_path(source_path, pack_id=sample.pack_id)
+            bad_path = str(output_dir / "subdir" / "fixed.docx")
+            with patch(
+                "app.views.main_window.QFileDialog.getSaveFileName",
+                return_value=(bad_path, ""),
+            ), patch(
+                "app.services.docx_review_session.os.access",
+                return_value=False,
+            ), patch("app.views.common.QMessageBox.critical") as critical_box:
+                window._export_docx_review_dialog("")
+                critical_box.assert_called_once()
+                args = critical_box.call_args[0]
+                self.assertEqual(args[1], "DOCX 导出 权限不足")
+                self.assertIn(bad_path, args[2])
+
+    def test_main_window_docx_review_error_label_appears_on_error(self):
+        """error label 在 error path 后文字含关键信息。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            window = MainWindow()
+            self.addCleanup(window.close)
+            with patch("app.views.common.QMessageBox.warning"):
+                # 触发 check without session → ValueError
+                window._check_docx_review_from_ui()
+            # error label 文字含"DOCX 检查"和"请先导入"
+            label_text = window.review_workspace._docx_error_label.text()
+            self.assertIn("DOCX 检查", label_text)
+            self.assertIn("请先导入", label_text)
+
+    def test_main_window_docx_review_error_label_clears_on_success(self):
+        """happy path 调 set_docx_review_state 后 error label 文字清空。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            generated = generate_samples(output_dir)
+            sample, source_path = next(
+                item for item in generated if item[0].name == "gb7713-violating"
+            )
+            window = MainWindow()
+            self.addCleanup(window.close)
+            # 先设个错误状态
+            window.review_workspace.set_docx_error_state("之前的错误")
+            self.assertIn("之前的错误", window.review_workspace._docx_error_label.text())
+            # happy path：open 成功，set_docx_review_state 自动清错误
+            window._open_docx_review_path(source_path, pack_id=sample.pack_id)
+            self.assertEqual(window.review_workspace._docx_error_label.text(), "")
 
 
 if __name__ == "__main__":
