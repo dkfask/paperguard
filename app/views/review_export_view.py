@@ -103,6 +103,16 @@ class ReviewExportView(QWidget):
         self.docx_status_label.setWordWrap(True)
         docx_layout.addWidget(self.docx_status_label)
 
+        # 错误状态标签（Sprint 6）：仅失败时显示，红色背景
+        self._docx_error_label = QLabel("")
+        self._docx_error_label.setWordWrap(True)
+        self._docx_error_label.setStyleSheet(
+            "background-color: #fde2e2; color: #8a1f1f; "
+            "padding: 6px 8px; border: 1px solid #e0a4a4; border-radius: 4px;"
+        )
+        self._docx_error_label.setVisible(False)
+        docx_layout.addWidget(self._docx_error_label)
+
         self.docx_location_label = QLabel("尚未定位具体问题。")
         self.docx_location_label.setWordWrap(True)
         docx_layout.addWidget(self.docx_location_label)
@@ -175,6 +185,7 @@ class ReviewExportView(QWidget):
         can_fix: bool = False,
         can_export: bool = False,
         findings: list | None = None,
+        error_message: str | None = None,
     ) -> None:
         self.docx_source_label.setText(f"当前文件：{source_path}" if source_path else "尚未导入 DOCX")
         self.docx_status_label.setText(status)
@@ -185,6 +196,17 @@ class ReviewExportView(QWidget):
         self.btn_docx_fix.setEnabled(can_fix)
         self.btn_docx_export.setEnabled(can_export)
         self._render_docx_findings(findings or [])
+        # Sprint 6: happy path 自动清错误状态
+        self.set_docx_error_state(error_message)
+
+    def set_docx_error_state(self, message: str | None) -> None:
+        """设置 DOCX 错误状态标签。``message`` 非空时显示红色，空时隐藏。"""
+        if message:
+            self._docx_error_label.setText(f"⚠ {message}")
+            self._docx_error_label.setVisible(True)
+        else:
+            self._docx_error_label.setText("")
+            self._docx_error_label.setVisible(False)
 
     def set_docx_location_feedback(self, message: str) -> None:
         self.docx_location_label.setText(message or "尚未定位具体问题。")
