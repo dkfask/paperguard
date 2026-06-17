@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -81,7 +82,9 @@ class DocxReviewSession:
     def apply_fix_at(self, index: int) -> DocxSingleFixResult:
         findings = self.last_findings or self.check()
         if index < 0 or index >= len(findings):
-            raise IndexError(f"finding index out of range: {index}")
+            raise IndexError(
+                f"无效的修复编号：{index}（共 {len(findings)} 条）"
+            )
         finding = findings[index]
         fixed_document = apply_fix(self.document, finding)
         applied = fixed_document is not self.document
@@ -101,6 +104,10 @@ class DocxReviewSession:
         if path.resolve() == self.source_path.resolve():
             raise ValueError("不会覆盖源文件；请指定新的 .docx 输出路径")
         path.parent.mkdir(parents=True, exist_ok=True)
+        if not os.access(path.parent, os.W_OK):
+            raise PermissionError(
+                f"目标目录无写入权限: {path.parent}"
+            )
         write_ir_to_docx(self.document, str(path))
         return path
 

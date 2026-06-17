@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.core.engine import validate_docx
 from app.core.loaders.docx_loader import load_docx
@@ -86,8 +87,22 @@ class TestDocxReviewSession(unittest.TestCase):
             session = DocxReviewSession.open(source_path, pack_id=sample.pack_id)
             session.check()
 
-            with self.assertRaisesRegex(IndexError, "finding index"):
+            with self.assertRaisesRegex(IndexError, "无效的修复编号"):
                 session.apply_fix_at(99)
+
+    def test_export_raises_permission_error_when_dir_not_writable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            generated = generate_samples(output_dir)
+            sample, source_path = next(
+                (item for item in generated if item[0].name == "gb7714-violating")
+            )
+            session = DocxReviewSession.open(source_path, pack_id=sample.pack_id)
+            export_path = output_dir / "fixed.docx"
+
+            with patch("app.services.docx_review_session.os.access", return_value=False):
+                with self.assertRaisesRegex(PermissionError, "目标目录无写入权限"):
+                    session.export(export_path)
 
 
 if __name__ == "__main__":
