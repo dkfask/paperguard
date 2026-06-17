@@ -126,6 +126,10 @@ class ReviewExportView(QWidget):
         self.docx_export_label.setWordWrap(True)
         docx_layout.addWidget(self.docx_export_label)
 
+        self.docx_export_summary_label = QLabel("尚未生成导出摘要。")
+        self.docx_export_summary_label.setWordWrap(True)
+        docx_layout.addWidget(self.docx_export_summary_label)
+
         docx_button_row = QHBoxLayout()
         self.btn_docx_import = QPushButton("导入")
         self.btn_docx_import.clicked.connect(self.docx_import_requested.emit)
@@ -175,6 +179,8 @@ class ReviewExportView(QWidget):
         self.docx_source_label.setText(f"当前文件：{source_path}" if source_path else "尚未导入 DOCX")
         self.docx_status_label.setText(status)
         self.docx_export_label.setText(f"最近导出修复文件：{export_path}" if export_path else "尚未导出修复文件")
+        if not export_path:
+            self.docx_export_summary_label.setText("尚未生成导出摘要。")
         self.btn_docx_check.setEnabled(can_check)
         self.btn_docx_fix.setEnabled(can_fix)
         self.btn_docx_export.setEnabled(can_export)
@@ -182,6 +188,15 @@ class ReviewExportView(QWidget):
 
     def set_docx_location_feedback(self, message: str) -> None:
         self.docx_location_label.setText(message or "尚未定位具体问题。")
+
+    def set_docx_export_feedback(self, export_path: str, remaining_count: int) -> None:
+        name = export_path.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+        self.docx_export_summary_label.setText(
+            "导出完成\n"
+            f"文件：{name}\n"
+            f"剩余问题：{remaining_count}\n"
+            f"时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        )
 
     def _render_docx_findings(self, findings: list) -> None:
         while self.docx_issue_layout.count():

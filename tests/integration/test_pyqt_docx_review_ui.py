@@ -58,6 +58,10 @@ class TestPyQtDocxReviewUi(unittest.TestCase):
             self.assertEqual(exported, fixed_path)
             self.assertTrue(fixed_path.exists())
             self.assertIn(fixed_path.name, window.review_workspace.docx_export_label.text())
+            self.assertIn("导出完成", window.review_workspace.docx_export_summary_label.text())
+            self.assertIn(fixed_path.name, window.review_workspace.docx_export_summary_label.text())
+            self.assertIn("剩余问题：0", window.review_workspace.docx_export_summary_label.text())
+            self.assertIn("时间：", window.review_workspace.docx_export_summary_label.text())
 
             reloaded = load_docx(fixed_path)
             remaining = {finding.rule_id for finding in validate_docx(reloaded, sample.pack_id)}

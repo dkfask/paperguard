@@ -709,6 +709,10 @@ class MainWindow(QMainWindow):
             findings=self.docx_review_session.last_findings,
         )
         self.review_workspace.set_docx_location_feedback("尚未定位具体问题。")
+        self.review_workspace.set_docx_export_feedback(
+            str(exported),
+            len(self.docx_review_session.last_findings),
+        )
         self._set_status(f"已导出修复后 DOCX：{exported.name}")
         self._show_workspace("review")
         return exported
