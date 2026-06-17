@@ -53,6 +53,42 @@ class TestDocxReviewSession(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "不会覆盖源文件"):
                 session.export(source_path)
 
+    def test_apply_one_fix_by_index_updates_remaining_findings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            generated = generate_samples(output_dir)
+            sample, source_path = next(
+                (item for item in generated if item[0].name == "sim-univ-violating")
+            )
+            session = DocxReviewSession.open(source_path, pack_id=sample.pack_id)
+            findings = session.check()
+            self.assertTrue(set(sample.expected_rule_ids).issubset({f.rule_id for f in findings}))
+
+            result = session.apply_fix_at(0)
+
+            self.assertTrue(result.applied)
+            self.assertEqual(result.finding.rule_id, "PG-LIST-LINE-SPACING")
+            self.assertTrue(set(sample.expected_rule_ids).isdisjoint(result.remaining_rule_ids))
+
+            fixed_path = output_dir / "single-fixed.docx"
+            session.export(fixed_path)
+            reloaded = load_docx(fixed_path)
+            remaining = {finding.rule_id for finding in validate_docx(reloaded, sample.pack_id)}
+            self.assertTrue(remaining.isdisjoint(sample.expected_rule_ids))
+
+    def test_apply_one_fix_rejects_out_of_range_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            generated = generate_samples(output_dir)
+            sample, source_path = next(
+                (item for item in generated if item[0].name == "gb7713-violating")
+            )
+            session = DocxReviewSession.open(source_path, pack_id=sample.pack_id)
+            session.check()
+
+            with self.assertRaisesRegex(IndexError, "finding index"):
+                session.apply_fix_at(99)
+
 
 if __name__ == "__main__":
     unittest.main()

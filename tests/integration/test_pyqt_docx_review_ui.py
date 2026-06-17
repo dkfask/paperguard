@@ -40,6 +40,13 @@ class TestPyQtDocxReviewUi(unittest.TestCase):
             findings = window._check_docx_review_session()
             self.assertTrue(set(sample.expected_rule_ids).issubset({f.rule_id for f in findings}))
             self.assertIn("发现", window.review_workspace.docx_status_label.text())
+            self.assertGreaterEqual(len(window.review_workspace.docx_issue_buttons), 1)
+            self.assertTrue(
+                any(
+                    "PG-BODY-LINE-SPACING" in label.text()
+                    for label in window.review_workspace.docx_issue_labels
+                )
+            )
 
             summary = window._fix_docx_review_session()
             self.assertEqual(summary.skipped_count, 0)
@@ -63,6 +70,31 @@ class TestPyQtDocxReviewUi(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "请先导入"):
                 window._export_fixed_docx_review_path(Path(tmp) / "fixed.docx")
+
+    def test_main_window_docx_review_can_fix_one_rendered_issue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            generated = generate_samples(output_dir)
+            sample, source_path = next(
+                item for item in generated if item[0].name == "sim-univ-violating"
+            )
+
+            window = MainWindow()
+            self.addCleanup(window.close)
+            window._open_docx_review_path(source_path, pack_id=sample.pack_id)
+            findings = window._check_docx_review_session()
+            self.assertTrue(findings)
+            self.assertEqual(len(window.review_workspace.docx_issue_buttons), len(findings))
+
+            window.review_workspace.docx_issue_buttons[0].click()
+            self.app.processEvents()
+
+            remaining_rule_ids = {
+                finding.rule_id for finding in window.docx_review_session.last_findings
+            }
+            self.assertTrue(remaining_rule_ids.isdisjoint(sample.expected_rule_ids))
+            self.assertEqual(window.review_workspace.docx_issue_buttons, [])
+            self.assertTrue(window.review_workspace.btn_docx_export.isEnabled())
 
 
 if __name__ == "__main__":

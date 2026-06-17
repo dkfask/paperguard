@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
         self.review_workspace.docx_import_requested.connect(self._import_docx_review_dialog)
         self.review_workspace.docx_check_requested.connect(self._check_docx_review_from_ui)
         self.review_workspace.docx_fix_requested.connect(self._fix_docx_review_from_ui)
+        self.review_workspace.docx_fix_one_requested.connect(self._fix_one_docx_review_from_ui)
         self.review_workspace.docx_export_requested.connect(self._export_docx_review_dialog)
 
         self.help_workspace.open_demo_requested.connect(self._open_demo_project)
@@ -580,6 +581,7 @@ class MainWindow(QMainWindow):
             can_check=True,
             can_fix=bool(findings),
             can_export=not bool(findings),
+            findings=findings,
         )
         self._set_status(status)
         return findings
@@ -607,9 +609,35 @@ class MainWindow(QMainWindow):
             can_check=True,
             can_fix=summary.remaining_count > 0,
             can_export=True,
+            findings=self.docx_review_session.last_findings,
         )
         self._set_status(status)
         return summary
+
+    def _fix_one_docx_review_from_ui(self, index: int):
+        try:
+            self._fix_one_docx_review_finding(index)
+        except Exception as error:
+            QMessageBox.warning(self, "DOCX 单项修复失败", str(error))
+
+    def _fix_one_docx_review_finding(self, index: int):
+        if self.docx_review_session is None:
+            raise ValueError("请先导入 DOCX 文件。")
+        result = self.docx_review_session.apply_fix_at(index)
+        source_path = self.docx_review_session.source_path
+        action = "已修复" if result.applied else "未能自动修复"
+        status = f"{action} {result.finding.rule_id}；剩余 {result.remaining_count} 项。"
+        self.review_workspace.set_docx_review_state(
+            source_path=str(source_path),
+            status=status,
+            export_path=self.last_docx_review_export_path,
+            can_check=True,
+            can_fix=result.remaining_count > 0,
+            can_export=True,
+            findings=self.docx_review_session.last_findings,
+        )
+        self._set_status(status)
+        return result
 
     def _export_docx_review_dialog(self, file_name: str):
         if self.docx_review_session is None:
@@ -642,6 +670,7 @@ class MainWindow(QMainWindow):
             can_check=True,
             can_fix=bool(self.docx_review_session.last_findings),
             can_export=True,
+            findings=self.docx_review_session.last_findings,
         )
         self._set_status(f"已导出修复后 DOCX：{exported.name}")
         self._show_workspace("review")
