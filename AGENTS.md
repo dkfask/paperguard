@@ -9,7 +9,7 @@
 - **PyQt 实时约束（主路径）**：学生边写边查，侧边栏提示 + 高亮 + 一键修复。
 - **CLI 事后批改（辅路径）**：CI 集成、批量审稿、AI Agent 入口。
 
-**当前阶段**：Sprint 5 mutator 成熟和真实样例回归第一版已完成；PyQt DOCX 批改面板已支持问题列表和逐条修复；下一阶段继续打磨定位反馈、异常提示和发布工程化。
+**当前阶段**：Sprint 5 mutator 成熟和真实样例回归第一版已完成；PyQt DOCX 批改面板已支持问题列表、定位反馈和逐条修复；下一阶段继续打磨异常提示、导出反馈和发布工程化。
 
 ## 当前提交与分支
 
@@ -21,7 +21,8 @@
 - PyQt docx 会话服务 commit：`5df9894 feat(pyqt): add docx review session`
 - PyQt DOCX 批改 UI commit：`8ceb945 feat(pyqt): wire docx review ui`
 - PyQt DOCX 问题列表/逐条修复 commit：`04bddbc feat(pyqt): add docx issue cards and single fixes`
-- 最近验证：`python -m pytest -p no:cacheprovider -q` -> `502 passed, 1 skipped`
+- PyQt DOCX 定位反馈 commit：`a39b81e feat(pyqt): add docx issue location feedback`
+- 最近验证：`python -m pytest -p no:cacheprovider -q` -> `503 passed, 1 skipped`
 - 最近 smoke：`python scripts/pyqt_docx_session_smoke.py` -> `OK PyQt DOCX review session smoke passed`
 
 ## 关键文件清单
@@ -68,9 +69,9 @@
 | CLI | 已有 8 个命令：check / fix / extract / init / validate-pack / list-packs / doctor / version |
 | Fix / writer | `fix_applier` 已支持 set / insert / delete / runs.*；`docx_writer` 已扩展写回段落、run、section、页眉页脚、表格单元格段落、列表段落 |
 | 样例回归 | 已有 3 pack x 合规/违规/修复后合成 `.docx` 样例矩阵 |
-| PyQt docx session | 已有 `DocxReviewSession` 服务封装 `.docx` 导入、检查、逐条修复、批量修复、导出；`ReviewExportView` 已接入问题列表和修复入口 |
+| PyQt docx session | 已有 `DocxReviewSession` 服务封装 `.docx` 导入、检查、逐条修复、批量修复、导出；`ReviewExportView` 已接入问题列表、定位反馈和修复入口 |
 | Packaging | 已有 `pyproject.toml` 和 `paperguard` console script |
-| 测试 | 当前待跑全量验证 |
+| 测试 | 当前 `503 passed, 1 skipped` |
 | CI | 仍未配置 |
 
 ## 架构现状
@@ -98,7 +99,7 @@
 
 优先做 Sprint 6 方向：
 
-- 打磨 DOCX 批改面板的定位反馈、异常提示和导出反馈。
+- 打磨 DOCX 批改面板的异常提示和导出反馈。
 - 将 DOCX 批改结果和现有侧边栏/高亮定位进一步融合。
 - 配置 CI，并让 `python -m pytest -p no:cacheprovider -q`、`python scripts/sprint5_smoke.py`、`python scripts/regression_samples_smoke.py` 和 `python scripts/pyqt_docx_session_smoke.py` 成为基础检查。
 - 继续扩充复杂长文档、真实学校模板匿名化样例、目录、题注、交叉引用和多级列表样例。
@@ -154,5 +155,5 @@ paperguard fix paper.docx --pack GB-T-7713-1-2006 --output paper.fixed.docx
 
 ---
 
-**版本**：v2.0（PyQt DOCX 问题列表与逐条修复）
+**版本**：v2.1（PyQt DOCX 定位反馈）
 **最后更新**：2026-06-17
