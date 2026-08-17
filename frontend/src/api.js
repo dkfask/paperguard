@@ -134,3 +134,15 @@ export async function deleteProject(projectId) {
   const resp = await fetch(`${API_BASE}/projects/${projectId}`, { method: 'DELETE' })
   if (!resp.ok) throw new Error('删除项目失败')
 }
+
+/** 上传 Word 模板, 识别其中的字体/字号/行距等样式 */
+export async function importDocxTemplate(file) {
+  const form = new FormData()
+  form.append('file', file)
+  const resp = await fetch(`${API_BASE}/templates/import`, { method: 'POST', body: form })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detail.detail || `模板识别失败 (${resp.status})`)
+  }
+  return resp.json()
+}

@@ -15,6 +15,8 @@ from fastapi.testclient import TestClient
 from app.db import Store
 from app.main import app
 
+FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+
 client = TestClient(app)
 
 
@@ -140,3 +142,21 @@ def test_export_docx():
 
 def test_export_missing_project_404():
     assert client.post("/api/projects/nonexist/export").status_code == 404
+
+
+def test_import_docx_template_detects_styles():
+    """上传 docx 应识别出标题/正文的字体字号等样式。"""
+    fixture = FIXTURES / "templates" / "gb7713-official.docx"
+    with fixture.open("rb") as f:
+        resp = client.post(
+            "/api/templates/import",
+            files={"file": ("gb7713-official.docx", f, "application/octet-stream")},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "heading1" in data["styles"], data
+    h1 = data["styles"]["heading1"]
+    assert h1["size_pt"] == 14.0          # 28 half-points / 2
+    assert h1["bold"] is True
+    assert "body" in data["styles"]
+    assert data["style_names"], "应识别到至少一个 Word 样式"

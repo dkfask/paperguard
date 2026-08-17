@@ -1,11 +1,16 @@
-"""模板管理 API: 章节结构 + 样式规范在线配置。"""
+"""模板管理 API: 章节结构 + 样式规范在线配置 + Word 导入。"""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import shutil
+import tempfile
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.db import Store, new_id
 from app.models.template import PaperTemplate
+from app.services.import_template import import_template_styles
 from app.services.projects import default_template, seed_default_template
 
 router = APIRouter(prefix="/api/templates")
@@ -56,6 +61,31 @@ def create_default_template(store: Store = Depends(get_store)) -> PaperTemplate:
     tpl = default_template()
     store.save_template(tpl)
     return tpl
+
+
+@router.post("/import")
+async def import_docx_template(file: UploadFile = File(...)) -> dict:
+    """上传 Word .docx, 识别其中的字体/字号/行距/缩进等样式, 返回可生成模板的配置。"""
+    if not file.filename or not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="只支持 .docx 文件")
+    tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-import-"))
+    path = tmp_dir / "template.docx"
+    try:
+        with path.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+        result = import_template_styles(path)
+        # 识别结果合并默认样式: 未识别到的键保留默认值, 保证返回完整样式集
+        merged = {k: v.model_dump() for k, v in default_template().styles.items()}
+        merged.update({k: v.model_dump() for k, v in result["styles"].items()})
+        return {
+            "filename": file.filename,
+            **result,
+            "styles": merged,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"模板识别失败: {exc}") from exc
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @router.put("/{tpl_id}")
