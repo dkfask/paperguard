@@ -115,11 +115,13 @@ export async function updateProjectMeta(projectId, meta) {
   return resp.json()
 }
 
-export async function exportProject(projectId) {
-  const resp = await fetch(`${API_BASE}/projects/${projectId}/export`, { method: 'POST' })
+export async function exportProject(projectId, force = false) {
+  const resp = await fetch(`${API_BASE}/projects/${projectId}/export?force=${force}`, { method: 'POST' })
   if (!resp.ok) {
     const detail = await resp.json().catch(() => ({}))
-    throw new Error(detail.detail || '导出失败')
+    const err = new Error(detail.detail?.message || detail.detail || '导出失败')
+    err.missing = detail.detail?.missing || []
+    throw err
   }
   const blob = await resp.blob()
   const url = URL.createObjectURL(blob)
@@ -128,6 +130,13 @@ export async function exportProject(projectId) {
   a.download = 'paper.docx'
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/** 对写作项目实时跑格式检查 */
+export async function checkProject(projectId, pack = 'GB-T-7713-1-2006') {
+  const resp = await fetch(`${API_BASE}/projects/${projectId}/check?pack=${encodeURIComponent(pack)}`)
+  if (!resp.ok) throw new Error('检查失败')
+  return resp.json()
 }
 
 export async function deleteProject(projectId) {

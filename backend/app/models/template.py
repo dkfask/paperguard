@@ -94,7 +94,7 @@ DEFAULT_STYLES: dict[str, TextStyle] = {
     "heading1": TextStyle(font_zh="黑体", size_pt=18.0, bold=True, align=Align.CENTER,
                           space_before_pt=24.0, space_after_pt=18.0,
                           page_break_before=True),
-    "heading2": TextStyle(font_zh="黑体", size_pt=16.0, bold=True, align=Align.LEFT,
+    "heading2": TextStyle(font_zh="黑体", size_pt=15.0, bold=True, align=Align.LEFT,
                           space_before_pt=18.0, space_after_pt=12.0),
     "heading3": TextStyle(font_zh="黑体", size_pt=14.0, bold=True, align=Align.LEFT,
                           space_before_pt=12.0, space_after_pt=6.0),

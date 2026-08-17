@@ -44,6 +44,36 @@
     <section class="editor-pane">
       <div v-if="error" class="error-banner">⚠ {{ error }}</div>
 
+      <!-- 实时格式检查面板 -->
+      <div v-if="checkResult" class="check-panel" :class="{ clean: checkResult.summary.total === 0 }">
+        <div class="check-head" @click="checkOpen = !checkOpen">
+          <span v-if="checking">⏳ 检查中…</span>
+          <span v-else-if="checkResult.summary.total === 0">✅ 格式检查通过</span>
+          <span v-else>⚠ {{ checkResult.summary.total }} 个格式问题({{ checkResult.summary.error }} 错 / {{ checkResult.summary.warning }} 警)</span>
+          <button class="tiny" @click.stop="runCheckNow">🔄 重新检查</button>
+        </div>
+        <div v-if="checkOpen && checkResult.findings.length" class="check-list">
+          <div v-for="(f, i) in checkResult.findings" :key="i" class="check-item"
+               :class="'severity-' + f.severity" @click="jumpTo(f)">
+            <span class="badge" :class="f.severity">{{ { error: '错', warning: '警', info: '提' }[f.severity] }}</span>
+            <span class="check-msg">{{ f.message }}</span>
+            <span class="check-sec" v-if="f.section_key">{{ sectionTitle(f.section_key) }} →</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 导出缺失清单 -->
+      <div v-if="missing.length" class="missing-panel">
+        <b>⚠ 以下必填项未完成, 无法导出:</b>
+        <ul>
+          <li v-for="(m, i) in missing" :key="i">{{ m }}</li>
+        </ul>
+        <div class="form-row" style="margin-top: 8px">
+          <button @click="exportDocx(true)">仍要导出(跳过检查)</button>
+          <button @click="missing = []">知道了</button>
+        </div>
+      </div>
+
       <!-- 封面 -->
       <div v-if="currentSection && currentSection.type === 'cover'">
         <h2>📋 封面信息</h2>
@@ -66,7 +96,7 @@
                :class="'type-' + currentSection.type" @change="saveCurrent" />
         <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
-                    @change="scheduleSave" />
+                    :chapter="chapterOf(currentSection.key)" @change="scheduleSave" />
       </div>
 
       <!-- 正文节: 内容块编辑器 -->
@@ -79,7 +109,7 @@
                @change="saveCurrent" />
         <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
-                    @change="scheduleSave" />
+                    :chapter="chapterOf(currentSection.key)" @change="scheduleSave" />
       </div>
     </section>
   </div>
@@ -89,7 +119,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject,
+  fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject, checkProject,
 } from '../api'
 import BlockList from '../components/BlockList.vue'
 
@@ -103,8 +133,14 @@ const error = ref('')
 const saving = ref(false)
 const savedAt = ref('')
 const exporting = ref(false)
+const checkResult = ref(null)
+const checking = ref(false)
+const checkOpen = ref(true)
+const missing = ref([])
 
 let saveTimer = null
+let checkTimer = null
+const chapterMap = ref({})
 const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
 
@@ -124,8 +160,27 @@ onMounted(async () => {
     const p = await fetchProject(projectId)
     project.value = p
     template.value = await fetchTemplate(p.template_id)
+    computeChapterNumbers()
+    runCheckNow()
   } catch (e) { error.value = e.message }
 })
+
+/** 计算每个章节所属章号(一级标题/参考文献各占一章) */
+function computeChapterNumbers() {
+  const map = {}
+  let chapter = 0
+  function walk(nodes) {
+    for (const node of nodes) {
+      if (node.type === 'heading1' || node.type === 'references') chapter += 1
+      map[node.key] = chapter
+      walk(node.children || [])
+    }
+  }
+  walk(templateSections.value)
+  chapterMap.value = map
+}
+
+function chapterOf(key) { return chapterMap.value[key] || 0 }
 
 function label(node) {
   return node.title || node.key
@@ -168,6 +223,33 @@ function select(node) {
 function scheduleSave() {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(saveCurrent, 800)
+  // 内容变化后延迟触发实时检查
+  clearTimeout(checkTimer)
+  checkTimer = setTimeout(runCheckNow, 2500)
+}
+
+async function runCheckNow() {
+  if (!project.value) return
+  checking.value = true
+  try {
+    checkResult.value = await checkProject(projectId)
+  } catch (e) {
+    // 检查失败不打断写作, 静默忽略
+    console.warn('实时检查失败:', e.message)
+  } finally {
+    checking.value = false
+  }
+}
+
+function jumpTo(f) {
+  if (f.section_key) {
+    current.value = f.section_key
+  }
+}
+
+function sectionTitle(key) {
+  const sec = project.value?.sections.find((s) => s.key === key)
+  return sec ? sec.title || key : key
 }
 
 async function saveCurrent() {
@@ -193,14 +275,18 @@ async function saveMeta() {
   finally { saving.value = false }
 }
 
-async function exportDocx() {
+async function exportDocx(force = false) {
   exporting.value = true
-  try { await exportProject(projectId) }
-  catch (e) { error.value = e.message }
+  error.value = ''
+  try { await exportProject(projectId, force) }
+  catch (e) {
+    if (e.missing && e.missing.length) missing.value = e.missing
+    else error.value = e.message
+  }
   finally { exporting.value = false }
 }
 
-onBeforeUnmount(() => clearTimeout(saveTimer))
+onBeforeUnmount(() => { clearTimeout(saveTimer); clearTimeout(checkTimer) })
 </script>
 
 <style scoped>
@@ -247,4 +333,27 @@ button.tiny.danger { color: var(--error); }
 .meta-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .meta-row label { width: 120px; font-size: 14px; color: var(--muted); }
 .meta-row input { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+
+/* 实时检查面板 */
+.check-panel {
+  border: 1px solid #fecaca; background: #fff7f7; border-radius: 10px;
+  padding: 10px 14px; margin-bottom: 16px;
+}
+.check-panel.clean { border-color: #bbf7d0; background: #f0fdf4; }
+.check-head { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
+.check-head .tiny { margin-left: auto; }
+.check-list { margin-top: 8px; border-top: 1px solid #fee2e2; padding-top: 8px; max-height: 220px; overflow-y: auto; }
+.check-item { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.check-item:hover { background: #fff; }
+.check-item .badge { font-size: 11px; padding: 1px 8px; }
+.check-msg { flex: 1; }
+.check-sec { color: var(--primary); white-space: nowrap; }
+
+/* 导出缺失清单 */
+.missing-panel {
+  border: 1px solid #fecaca; background: #fef2f2; color: var(--error);
+  border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px;
+}
+.missing-panel ul { margin: 8px 0 0 20px; }
+.missing-panel li { margin: 2px 0; }
 </style>

@@ -37,18 +37,20 @@ def default_template() -> PaperTemplate:
                 key="ch1", type=SectionType.HEADING1, title="第一章 绪论", required=True,
                 children=[
                     TemplateSection(key="ch1_1", type=SectionType.HEADING2,
-                                    title="1.1 研究背景与意义"),
+                                    title="1.1 研究背景与意义", required=False),
                     TemplateSection(key="ch1_2", type=SectionType.HEADING2,
-                                    title="1.2 国内外研究现状"),
+                                    title="1.2 国内外研究现状", required=False),
                     TemplateSection(key="ch1_3", type=SectionType.HEADING2,
-                                    title="1.3 本文主要工作"),
+                                    title="1.3 本文主要工作", required=False),
                 ],
             ),
             TemplateSection(
                 key="ch2", type=SectionType.HEADING1, title="第二章 相关技术", required=True,
                 children=[
-                    TemplateSection(key="ch2_1", type=SectionType.HEADING2, title="2.1 技术概述"),
-                    TemplateSection(key="ch2_2", type=SectionType.HEADING2, title="2.2 关键技术"),
+                    TemplateSection(key="ch2_1", type=SectionType.HEADING2,
+                                    title="2.1 技术概述", required=False),
+                    TemplateSection(key="ch2_2", type=SectionType.HEADING2,
+                                    title="2.2 关键技术", required=False),
                 ],
             ),
             TemplateSection(

@@ -33,8 +33,11 @@
           <div>点击上传图片 (png/jpg)</div>
         </div>
         <input ref="imgInput" type="file" accept="image/*" hidden @change="onImagePicked" />
-        <input v-model="par.image.caption" class="caption-input" :placeholder="'题注, 如: 图 1.1 ' + sectionTitle"
-               @input="emitChange" />
+        <div class="caption-row">
+          <span class="caption-num">图 {{ chapter }}.{{ figureIndex(i) }}</span>
+          <input v-model="par.image.caption" class="caption-input"
+                 :placeholder="'题注文字, 如: ' + sectionTitle" @input="emitChange" />
+        </div>
       </div>
 
       <!-- 表格块 -->
@@ -51,8 +54,11 @@
             </td>
           </tr>
         </table>
-        <input v-model="par.table.caption" class="caption-input" :placeholder="'题注, 如: 表 1.1 ' + sectionTitle"
-               @input="emitChange" />
+        <div class="caption-row">
+          <span class="caption-num">表 {{ chapter }}.{{ tableIndex(i) }}</span>
+          <input v-model="par.table.caption" class="caption-input"
+                 :placeholder="'题注文字, 如: ' + sectionTitle" @input="emitChange" />
+        </div>
       </div>
     </div>
 
@@ -74,11 +80,30 @@ const props = defineProps({
   projectId: { type: String, required: true },
   styleClass: { type: String, default: '' },
   sectionTitle: { type: String, default: '' },
+  chapter: { type: Number, default: 0 },   // 所属章号(题注自动编号用)
 })
 const emit = defineEmits(['change'])
 
 const imgInput = ref(null)
 let pendingTarget = null
+
+/** 该块在本章中的图序号(第几个图) */
+function figureIndex(i) {
+  let n = 0
+  for (let k = 0; k <= i; k++) {
+    if (props.paragraphs[k]?.type === 'image') n += 1
+  }
+  return n
+}
+
+/** 该块在本章中的表序号 */
+function tableIndex(i) {
+  let n = 0
+  for (let k = 0; k <= i; k++) {
+    if (props.paragraphs[k]?.type === 'table') n += 1
+  }
+  return n
+}
 
 function emitChange() { emit('change') }
 
@@ -181,6 +206,8 @@ button.tiny.danger { color: var(--error); }
 .image-upload:hover { border-color: var(--primary); color: var(--primary); }
 .image-upload .icon { font-size: 28px; }
 .caption-input { width: 100%; margin-top: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+.caption-row { display: flex; align-items: center; gap: 10px; }
+.caption-num { font-size: 13px; color: var(--primary); background: #eff6ff; padding: 4px 10px; border-radius: 6px; white-space: nowrap; margin-top: 10px; }
 
 .table-block { padding: 12px; }
 .table-size { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; font-size: 13px; color: var(--muted); }

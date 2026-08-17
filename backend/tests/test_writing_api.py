@@ -126,7 +126,7 @@ def test_export_docx():
     client.put(f"/api/projects/{proj_id}/meta", json={
         "meta": {"author": "张三", "title": "论文题目"},
     })
-    resp = client.post(f"/api/projects/{proj_id}/export")
+    resp = client.post(f"/api/projects/{proj_id}/export?force=true")
     assert resp.status_code == 200
     assert resp.content[:2] == b"PK"  # docx 是 zip
 
@@ -232,7 +232,7 @@ def test_export_docx_with_image_and_table():
                        "caption": "表 1.1 对比结果"}},
         ],
     })
-    resp = client.post(f"/api/projects/{proj_id}/export")
+    resp = client.post(f"/api/projects/{proj_id}/export?force=true")
     assert resp.status_code == 200
     d = docx_lib.Document(io.BytesIO(resp.content))
     texts = [p.text for p in d.paragraphs]
@@ -330,3 +330,121 @@ def test_cleanup_orphan_images():
     assert not orphan.exists(), "孤儿文件应被删除"
     ref_fname = img.rsplit("/", 1)[-1]
     assert (uploads / ref_fname).exists(), "被引用的图片应保留"
+
+
+def test_export_blocked_when_incomplete():
+    """不完整的项目导出应返回 409 与缺失清单。"""
+    proj_id = test_create_project_instantiates_sections()
+    resp = client.post(f"/api/projects/{proj_id}/export")
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert "missing" in detail
+    missing = detail["missing"]
+    assert any("封面" in m for m in missing)          # 封面必填字段
+    assert any("第一章" in m for m in missing)        # 必填章节
+
+
+def test_export_force_skips_validation():
+    """force=true 跳过必填校验。"""
+    proj_id = test_create_project_instantiates_sections()
+    resp = client.post(f"/api/projects/{proj_id}/export?force=true")
+    assert resp.status_code == 200
+    assert resp.content[:2] == b"PK"
+
+
+def test_export_docx_has_toc_field_and_page_footer():
+    """导出文档应包含 TOC 域和页脚页码域。"""
+    import io
+    import docx as docx_lib
+
+    proj_id = test_create_project_instantiates_sections()
+    client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章 绪论",
+        "paragraphs": [{"id": "p1", "type": "paragraph", "text": "正文内容。"}],
+    })
+    client.put(f"/api/projects/{proj_id}/meta", json={
+        "meta": {"school": "XX大学", "title": "论文", "author": "张三",
+                 "student_id": "1", "major": "计算机", "advisor": "李四", "date": "2026"},
+    })
+    resp = client.post(f"/api/projects/{proj_id}/export?force=true")
+    assert resp.status_code == 200
+    d = docx_lib.Document(io.BytesIO(resp.content))
+
+    # TOC 域存在
+    xml = d.element.xml
+    assert "TOC" in xml and "fldChar" in xml
+
+    # 标题使用 Heading 1 样式 (导航/目录可用)
+    heading_paras = [p for p in d.paragraphs if p.style and "Heading 1" in (p.style.name or "")]
+    assert heading_paras, "第一章标题应使用 Heading 1 样式"
+
+    # 页脚页码域存在
+    footer_xml = d.sections[0].footer._element.xml if d.sections[0].footer else ""
+    assert "PAGE" in footer_xml, "页脚应包含页码域"
+
+
+def test_captions_auto_numbered():
+    """图表题注自动编号: 图 1.1 / 表 1.1, 手填编号会被替换。"""
+    import io
+    import docx as docx_lib
+
+    proj_id = test_create_project_instantiates_sections()
+    img = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("fig1.png", _make_image_png(), "image/png")},
+    ).json()["url"]
+    client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章 绪论",
+        "paragraphs": [
+            {"id": "p1", "type": "paragraph", "text": "正文。"},
+            {"id": "img1", "type": "image",
+             "image": {"url": img, "caption": "系统架构"}},   # 无手填编号
+            {"id": "tbl1", "type": "table",
+             "table": {"rows": 2, "cols": 2,
+                       "cells": [["方法", "准确率"], ["A", "95%"]],
+                       "caption": "表 9.9 对比结果"}},          # 旧数据手填编号
+        ],
+    })
+    client.put(f"/api/projects/{proj_id}/section/ch2", json={
+        "title": "第二章 相关技术",
+        "paragraphs": [{"id": "img2", "type": "image",
+                        "image": {"url": img, "caption": "架构图"}}],
+    })
+    client.put(f"/api/projects/{proj_id}/meta", json={
+        "meta": {"school": "XX大学", "title": "论文", "author": "张三",
+                 "student_id": "1", "major": "计算机", "advisor": "李四", "date": "2026"},
+    })
+    resp = client.post(f"/api/projects/{proj_id}/export?force=true")
+    assert resp.status_code == 200
+    d = docx_lib.Document(io.BytesIO(resp.content))
+    texts = [p.text for p in d.paragraphs]
+    assert "图 1.1 系统架构" in texts, texts
+    assert "表 1.1 对比结果" in texts, texts   # 手填 9.9 被替换为 1.1
+    assert "图 2.1 架构图" in texts, texts      # 第二章重新计数
+
+
+def test_check_project_realtime():
+    """写作项目实时检查: 正文加粗违规应被检出并定位到章节。"""
+    proj_id = test_create_project_instantiates_sections()
+    # 摘要节写违规内容: 正文段落加粗 (规则要求正文不加粗)
+    client.put(f"/api/projects/{proj_id}/section/abstract", json={
+        "title": "摘要",
+        "paragraphs": [{"id": "p1", "type": "paragraph", "text": "不应加粗的正文。",
+                        "bold": True, "italic": False, "underline": False}],
+    })
+    resp = client.get(f"/api/projects/{proj_id}/check?pack=GB-T-7713-1-2006")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "summary" in data and "findings" in data
+    ids = {f["rule_id"] for f in data["findings"]}
+    assert ids, "应检出至少一条问题"
+    # finding 应带章节定位, 且能定位到摘要
+    assert any(f["section_key"] == "abstract" for f in data["findings"]), data["findings"]
+
+
+def test_check_empty_project_ok():
+    """空项目检查不报错, 返回空结果。"""
+    proj_id = test_create_project_instantiates_sections()
+    resp = client.get(f"/api/projects/{proj_id}/check")
+    assert resp.status_code == 200
+    assert resp.json()["summary"]["total"] >= 0

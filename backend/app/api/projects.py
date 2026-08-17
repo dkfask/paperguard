@@ -16,6 +16,7 @@ from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
 from app.models.project import ParagraphBlock, WritingProject
 from app.services.image_cleanup import remove_project_images, remove_removed_images
+from app.services.project_validation import validate_project_completeness
 from app.services.projects import create_project_from_template
 
 router = APIRouter(prefix="/api/projects")
@@ -170,15 +171,42 @@ def delete_project(proj_id: str, store: Store = Depends(get_store)) -> None:
     store.delete_project(proj_id)
 
 
-@router.post("/{proj_id}/export")
-def export_docx(proj_id: str, store: Store = Depends(get_store)):
-    """按模板导出为 .docx, 下载新文件。"""
+@router.get("/{proj_id}/check")
+def check_project(proj_id: str, pack: str = "GB-T-7713-1-2006",
+                  store: Store = Depends(get_store)) -> dict:
+    """对写作项目实时跑格式规则, 返回问题列表(带章节定位)。"""
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     tpl = store.get_template(proj.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")
+    from app.services.project_check import check_project as run_check
+    return run_check(proj, tpl, pack=pack)
+
+
+@router.post("/{proj_id}/export")
+def export_docx(proj_id: str, force: bool = False,
+                store: Store = Depends(get_store)):
+    """按模板导出为 .docx, 下载新文件。
+
+    导出前校验必填章节与封面字段; 未完成时返回 409 与缺失清单,
+    除非 force=true 跳过校验。
+    """
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    tpl = store.get_template(proj.template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail="模板不存在")
+
+    if not force:
+        missing = validate_project_completeness(proj, tpl)
+        if missing:
+            raise HTTPException(
+                status_code=409,
+                detail={"message": "以下必填项未完成, 无法导出", "missing": missing},
+            )
 
     out = Path(tempfile.mkdtemp(prefix="paperguard-export-")) / "paper.docx"
     export_project_to_docx(proj, tpl, str(out))
