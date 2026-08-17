@@ -15,6 +15,7 @@ from app.api.templates import get_store
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
 from app.models.project import ParagraphBlock, WritingProject
+from app.services.image_cleanup import remove_project_images, remove_removed_images
 from app.services.projects import create_project_from_template
 
 router = APIRouter(prefix="/api/projects")
@@ -78,7 +79,10 @@ def update_section(proj_id: str, section_key: str, req: UpdateSectionRequest,
             if req.title is not None:
                 sec.title = req.title
             if req.paragraphs is not None:
-                sec.paragraphs = [_parse_par(p) for p in req.paragraphs]
+                new_pars = [_parse_par(p) for p in req.paragraphs]
+                # 删除从段落中移除的图片文件
+                remove_removed_images(proj, new_pars)
+                sec.paragraphs = new_pars
             return store.save_project(proj)
     raise HTTPException(status_code=404, detail="章节不存在")
 
@@ -158,8 +162,12 @@ def update_project(proj_id: str, proj: WritingProject,
 
 @router.delete("/{proj_id}", status_code=204)
 def delete_project(proj_id: str, store: Store = Depends(get_store)) -> None:
-    if not store.delete_project(proj_id):
+    proj = store.get_project(proj_id)
+    if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
+    # 先删除项目图片文件, 再删数据库记录
+    remove_project_images(proj)
+    store.delete_project(proj_id)
 
 
 @router.post("/{proj_id}/export")

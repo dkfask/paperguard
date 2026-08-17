@@ -244,3 +244,89 @@ def test_export_docx_with_image_and_table():
     assert d.tables[0].cell(1, 1).text == "95%"
     # 图片存在: 检查内嵌图片数量 (inline shapes)
     assert len(d.inline_shapes) == 1
+
+
+def test_removed_image_block_deletes_file():
+    """删除图片块后, 对应上传文件应从磁盘移除。"""
+    import os
+    from pathlib import Path
+
+    proj_id = test_create_project_instantiates_sections()
+    img = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("fig1.png", _make_image_png(), "image/png")},
+    ).json()["url"]
+    fname = img.rsplit("/", 1)[-1]
+
+    # 保存含图片的章节
+    client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章", "paragraphs": [
+            {"id": "img1", "type": "image", "image": {"url": img, "caption": "图 1"}},
+        ],
+    })
+    uploads = Path(__file__).resolve().parents[1] / "data" / "uploads"
+    assert (uploads / fname).exists(), "图片文件应已上传"
+
+    # 移除图片块再保存
+    client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章", "paragraphs": [
+            {"id": "p1", "type": "paragraph", "text": "删掉图片后的正文"},
+        ],
+    })
+    assert not (uploads / fname).exists(), "删除图片块后文件应被清理"
+
+
+def test_delete_project_removes_images():
+    """删除项目时, 该项目的所有图片文件一并删除。"""
+    from pathlib import Path
+
+    proj_id = test_create_project_instantiates_sections()
+    img = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("fig1.png", _make_image_png(), "image/png")},
+    ).json()["url"]
+    fname = img.rsplit("/", 1)[-1]
+    uploads = Path(__file__).resolve().parents[1] / "data" / "uploads"
+
+    client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章", "paragraphs": [
+            {"id": "img1", "type": "image", "image": {"url": img, "caption": "图 1"}},
+        ],
+    })
+    assert (uploads / fname).exists()
+
+    assert client.delete(f"/api/projects/{proj_id}").status_code == 204
+    assert not (uploads / fname).exists(), "删除项目后图片文件应被清理"
+
+
+def test_cleanup_orphan_images():
+    """cleanup_orphan_images 删除未被引用的文件, 保留被引用的。"""
+    from pathlib import Path
+
+    from app.db import Store
+    from app.services.image_cleanup import cleanup_orphan_images
+
+    store = Store()
+    uploads = Path(__file__).resolve().parents[1] / "data" / "uploads"
+
+    # 被引用图片
+    proj_id = test_create_project_instantiates_sections()
+    img = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("fig1.png", _make_image_png(), "image/png")},
+    ).json()["url"]
+    client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章", "paragraphs": [
+            {"id": "img1", "type": "image", "image": {"url": img, "caption": "图 1"}},
+        ],
+    })
+
+    # 孤儿文件: 直接写入 uploads 目录, 不关联任何项目
+    orphan = uploads / "proj-orphan-test.png"
+    orphan.write_bytes(_make_image_png())
+
+    removed = cleanup_orphan_images(store)
+    assert removed >= 1, f"应至少清理 1 个孤儿文件, 实际 {removed}"
+    assert not orphan.exists(), "孤儿文件应被删除"
+    ref_fname = img.rsplit("/", 1)[-1]
+    assert (uploads / ref_fname).exists(), "被引用的图片应保留"

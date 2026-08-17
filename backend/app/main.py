@@ -38,3 +38,15 @@ app.include_router(projects_router)
 _uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
 _uploads_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+
+
+@app.on_event("startup")
+def _startup_cleanup() -> None:
+    """启动时清理未被任何项目引用的孤儿图片文件。"""
+    try:
+        from app.db import Store
+        from app.services.image_cleanup import cleanup_orphan_images
+        cleanup_orphan_images(Store())
+    except Exception:
+        # 清理失败不影响服务启动
+        pass
