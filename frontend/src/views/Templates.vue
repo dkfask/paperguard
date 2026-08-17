@@ -81,6 +81,7 @@ const STYLE_LABELS = {
   cover_title: '封面标题', cover_meta: '封面信息', abstract: '摘要', toc: '目录',
   heading1: '一级标题', heading2: '二级标题', heading3: '三级标题',
   body: '正文', references: '参考文献', acknowledgement: '致谢', appendix: '附录',
+  figure_caption: '图注', table_caption: '表注', table_cell: '表格单元格',
 }
 const ALIGN_LABELS = { left: '左对齐', center: '居中', right: '右对齐', justify: '两端对齐' }
 

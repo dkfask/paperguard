@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import shutil
 import tempfile
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.api.templates import get_store
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
-from app.models.project import ProjectSection, WritingProject
+from app.models.project import ParagraphBlock, WritingProject
 from app.services.projects import create_project_from_template
 
 router = APIRouter(prefix="/api/projects")
+
+_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "uploads"
 
 
 class CreateProjectRequest(BaseModel):
@@ -80,7 +84,27 @@ def update_section(proj_id: str, section_key: str, req: UpdateSectionRequest,
 
 
 def _parse_par(data: dict):
-    from app.models.project import ParagraphBlock
+    """把前端传来的内容块 dict 解析为 ParagraphBlock (兼容旧格式纯文本)。"""
+    block_type = data.get("type", "paragraph")
+    if block_type == "image":
+        return ParagraphBlock(
+            id=str(data.get("id", "")),
+            type="image",
+            image={"url": str(data.get("image", {}).get("url", "")),
+                   "caption": str(data.get("image", {}).get("caption", ""))},
+        )
+    if block_type == "table":
+        t = data.get("table", {})
+        return ParagraphBlock(
+            id=str(data.get("id", "")),
+            type="table",
+            table={
+                "rows": int(t.get("rows", 2)),
+                "cols": int(t.get("cols", 2)),
+                "cells": t.get("cells", []),
+                "caption": str(t.get("caption", "")),
+            },
+        )
     return ParagraphBlock(
         id=str(data.get("id", "")),
         text=str(data.get("text", "")),
@@ -88,6 +112,24 @@ def _parse_par(data: dict):
         italic=bool(data.get("italic", False)),
         underline=bool(data.get("underline", False)),
     )
+
+
+@router.post("/{proj_id}/images", status_code=201)
+async def upload_image(proj_id: str, file: UploadFile = File(...)) -> dict:
+    """上传论文图片, 返回静态资源 URL。"""
+    store = get_store()
+    if store.get_project(proj_id) is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="只支持图片文件")
+
+    ext = Path(file.filename or "image.png").suffix.lower() or ".png"
+    fname = f"{proj_id}-{uuid.uuid4().hex[:8]}{ext}"
+    dest = _UPLOAD_DIR / fname
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+    return {"url": f"/media/uploads/{fname}"}
 
 
 class UpdateMetaRequest(BaseModel):

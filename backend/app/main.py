@@ -5,8 +5,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.projects import router as projects_router
@@ -30,3 +33,8 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(templates_router)
 app.include_router(projects_router)
+
+# 上传的图片等静态资源
+_uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
+_uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/media/uploads", StaticFiles(directory=_uploads_dir), name="uploads")

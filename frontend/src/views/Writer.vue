@@ -56,52 +56,30 @@
         <button class="primary" @click="saveMeta">💾 保存封面信息</button>
       </div>
 
-      <!-- 标题节: 标题 + 正文段落 -->
+      <!-- 标题节: 标题 + 内容块 -->
       <div v-else-if="currentSection && isHeading(currentSection.type)">
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
-          <span class="hint">标题排版由模板锁定, 下方为本章正文</span>
+          <span class="hint">标题排版由模板锁定, 下方为本章正文(可插图片/表格)</span>
         </div>
         <input v-model="currentSection.title" class="heading-input"
                :class="'type-' + currentSection.type" @change="saveCurrent" />
-        <div v-for="(par, i) in currentSection.paragraphs" :key="par.id" class="para-block">
-          <div class="para-toolbar">
-            <span class="para-no">第 {{ i + 1 }} 段</span>
-            <button class="tiny" :class="{ on: par.bold }" @click="togglePar(par, 'bold')"><b>B</b></button>
-            <button class="tiny" :class="{ on: par.italic }" @click="togglePar(par, 'italic')"><i>I</i></button>
-            <button class="tiny" :class="{ on: par.underline }" @click="togglePar(par, 'underline')"><u>U</u></button>
-            <button class="tiny" @click="movePar(i, -1)" :disabled="i === 0">↑</button>
-            <button class="tiny" @click="movePar(i, 1)" :disabled="i === currentSection.paragraphs.length - 1">↓</button>
-            <button class="tiny danger" @click="removePar(i)">✖</button>
-          </div>
-          <textarea v-model="par.text" rows="4" class="para-text" :class="'style-' + currentSection.type"
-                    :placeholder="'第 ' + (i + 1) + ' 段正文…'" @input="scheduleSave" />
-        </div>
-        <button class="primary" @click="addPar">➕ 添加段落</button>
+        <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
+                    :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
+                    @change="scheduleSave" />
       </div>
 
-      <!-- 正文节: 段落编辑器 -->
+      <!-- 正文节: 内容块编辑器 -->
       <div v-else-if="currentSection">
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
-          <span class="hint">正文段落 — 字体/字号/行距/缩进由模板自动控制</span>
+          <span class="hint">字体/字号/行距/缩进由模板自动控制, 可插入图片与表格</span>
         </div>
         <input v-model="currentSection.title" class="heading-input" :class="'type-' + currentSection.type"
                @change="saveCurrent" />
-        <div v-for="(par, i) in currentSection.paragraphs" :key="par.id" class="para-block">
-          <div class="para-toolbar">
-            <span class="para-no">第 {{ i + 1 }} 段</span>
-            <button class="tiny" :class="{ on: par.bold }" @click="togglePar(par, 'bold')"><b>B</b></button>
-            <button class="tiny" :class="{ on: par.italic }" @click="togglePar(par, 'italic')"><i>I</i></button>
-            <button class="tiny" :class="{ on: par.underline }" @click="togglePar(par, 'underline')"><u>U</u></button>
-            <button class="tiny" @click="movePar(i, -1)" :disabled="i === 0">↑</button>
-            <button class="tiny" @click="movePar(i, 1)" :disabled="i === currentSection.paragraphs.length - 1">↓</button>
-            <button class="tiny danger" @click="removePar(i)">✖</button>
-          </div>
-          <textarea v-model="par.text" rows="4" class="para-text" :class="'style-' + currentSection.type"
-                    :placeholder="'第 ' + (i + 1) + ' 段正文…'" @input="scheduleSave" />
-        </div>
-        <button class="primary" @click="addPar">➕ 添加段落</button>
+        <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
+                    :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
+                    @change="scheduleSave" />
       </div>
     </section>
   </div>
@@ -113,6 +91,7 @@ import { useRoute } from 'vue-router'
 import {
   fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject,
 } from '../api'
+import BlockList from '../components/BlockList.vue'
 
 const route = useRoute()
 const projectId = route.params.id
@@ -164,7 +143,11 @@ function isDone(node) {
   const sec = project.value?.sections.find((s) => s.key === node.key)
   if (!sec || sec.type === 'cover') return true
   if (sec.paragraphs && sec.paragraphs.length) {
-    return sec.paragraphs.some((p) => p.text.trim())
+    return sec.paragraphs.some((p) => {
+      if (p.type === 'image') return !!(p.image && p.image.url)
+      if (p.type === 'table') return !!p.table && p.table.cells.flat().some((c) => String(c).trim())
+      return p.text.trim()
+    })
   }
   return !!sec.title && sec.title.trim() !== ''
 }
@@ -181,32 +164,6 @@ function select(node) {
   current.value = node.key
 }
 
-// ---------- 段落编辑 ----------
-function addPar() {
-  const sec = currentSection.value
-  if (!sec) return
-  sec.paragraphs.push({
-    id: `${sec.key}-p${Date.now()}`,
-    text: '', bold: false, italic: false, underline: false,
-  })
-  scheduleSave()
-}
-
-function removePar(i) {
-  currentSection.value.paragraphs.splice(i, 1)
-  scheduleSave()
-}
-
-function togglePar(par, field) { par[field] = !par[field]; scheduleSave() }
-
-function movePar(i, delta) {
-  const sec = currentSection.value
-  const j = i + delta
-  if (j < 0 || j >= sec.paragraphs.length) return
-  ;[sec.paragraphs[i], sec.paragraphs[j]] = [sec.paragraphs[j], sec.paragraphs[i]]
-  scheduleSave()
-}
-
 // ---------- 保存 ----------
 function scheduleSave() {
   clearTimeout(saveTimer)
@@ -220,9 +177,7 @@ async function saveCurrent() {
   try {
     await updateProjectSection(projectId, sec.key, {
       title: sec.title,
-      paragraphs: sec.paragraphs.map((p) => ({
-        id: p.id, text: p.text, bold: p.bold, italic: p.italic, underline: p.underline,
-      })),
+      paragraphs: sec.paragraphs,
     })
     savedAt.value = new Date().toLocaleTimeString()
   } catch (e) { error.value = e.message }

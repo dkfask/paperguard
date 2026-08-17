@@ -146,3 +146,17 @@ export async function importDocxTemplate(file) {
   }
   return resp.json()
 }
+
+/** 上传论文图片, 返回 { url } */
+export async function uploadProjectImage(projectId, file) {
+  const form = new FormData()
+  form.append('file', file)
+  const resp = await fetch(`${API_BASE}/projects/${projectId}/images`, {
+    method: 'POST', body: form,
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detail.detail || '图片上传失败')
+  }
+  return resp.json()
+}

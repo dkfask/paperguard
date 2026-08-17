@@ -94,6 +94,7 @@ const STYLE_LABELS = {
   heading2: '二级标题(节)', heading3: '三级标题(小节)',
   body: '正文', references: '参考文献',
   acknowledgement: '致谢', appendix: '附录',
+  figure_caption: '图注', table_caption: '表注', table_cell: '表格单元格',
 }
 const DEFAULT_STYLE = () => ({
   font_zh: '宋体', font_en: 'Times New Roman', size_pt: 12,

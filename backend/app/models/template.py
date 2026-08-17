@@ -106,4 +106,10 @@ DEFAULT_STYLES: dict[str, TextStyle] = {
                                  line_spacing=1.5, page_break_before=True),
     "appendix": TextStyle(font_zh="宋体", size_pt=12.0, align=Align.JUSTIFY,
                           line_spacing=1.5, page_break_before=True),
+    # 图表规范
+    "figure_caption": TextStyle(font_zh="宋体", size_pt=10.5, align=Align.CENTER,
+                                space_before_pt=6.0, space_after_pt=12.0),
+    "table_caption": TextStyle(font_zh="宋体", size_pt=10.5, align=Align.CENTER,
+                               space_before_pt=12.0, space_after_pt=6.0),
+    "table_cell": TextStyle(font_zh="宋体", size_pt=10.5, align=Align.CENTER),
 }

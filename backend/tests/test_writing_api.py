@@ -160,3 +160,87 @@ def test_import_docx_template_detects_styles():
     assert h1["bold"] is True
     assert "body" in data["styles"]
     assert data["style_names"], "应识别到至少一个 Word 样式"
+
+
+def _make_image_png() -> bytes:
+    """生成 1x1 红色 PNG (最小合法 PNG)。"""
+    import base64
+    return base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
+    )
+
+
+def test_upload_image():
+    proj_id = test_create_project_instantiates_sections()
+    resp = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("fig1.png", _make_image_png(), "image/png")},
+    )
+    assert resp.status_code == 201
+    url = resp.json()["url"]
+    assert url.startswith("/media/uploads/")
+    # 静态资源可访问
+    resp2 = client.get(url)
+    assert resp2.status_code == 200
+    assert resp2.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_save_image_and_table_blocks():
+    proj_id = test_create_project_instantiates_sections()
+    img = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("fig1.png", _make_image_png(), "image/png")},
+    ).json()["url"]
+    resp = client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章 绪论",
+        "paragraphs": [
+            {"id": "p1", "type": "paragraph", "text": "这是正文。"},
+            {"id": "img1", "type": "image",
+             "image": {"url": img, "caption": "图 1.1 系统架构"}},
+            {"id": "tbl1", "type": "table",
+             "table": {"rows": 2, "cols": 2,
+                       "cells": [["方法", "准确率"], ["A", "95%"], ["B", "90%"]],
+                       "caption": "表 1.1 对比结果"}},
+        ],
+    })
+    assert resp.status_code == 200
+    sec = next(s for s in resp.json()["sections"] if s["key"] == "ch1")
+    assert len(sec["paragraphs"]) == 3
+    assert sec["paragraphs"][1]["type"] == "image"
+    assert sec["paragraphs"][2]["type"] == "table"
+
+
+def test_export_docx_with_image_and_table():
+    """导出的 docx 应包含图片、表格和题注。"""
+    import io
+    import docx as docx_lib
+
+    proj_id = test_create_project_instantiates_sections()
+    img = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("fig1.png", _make_image_png(), "image/png")},
+    ).json()["url"]
+    client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章 绪论",
+        "paragraphs": [
+            {"id": "p1", "type": "paragraph", "text": "正文内容。"},
+            {"id": "img1", "type": "image",
+             "image": {"url": img, "caption": "图 1.1 系统架构"}},
+            {"id": "tbl1", "type": "table",
+             "table": {"rows": 2, "cols": 2,
+                       "cells": [["方法", "准确率"], ["A", "95%"]],
+                       "caption": "表 1.1 对比结果"}},
+        ],
+    })
+    resp = client.post(f"/api/projects/{proj_id}/export")
+    assert resp.status_code == 200
+    d = docx_lib.Document(io.BytesIO(resp.content))
+    texts = [p.text for p in d.paragraphs]
+    assert "图 1.1 系统架构" in texts
+    assert "表 1.1 对比结果" in texts
+    # 表格存在且有数据
+    assert len(d.tables) == 1
+    assert d.tables[0].cell(0, 0).text == "方法"
+    assert d.tables[0].cell(1, 1).text == "95%"
+    # 图片存在: 检查内嵌图片数量 (inline shapes)
+    assert len(d.inline_shapes) == 1
