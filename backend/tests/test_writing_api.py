@@ -448,3 +448,26 @@ def test_check_empty_project_ok():
     resp = client.get(f"/api/projects/{proj_id}/check")
     assert resp.status_code == 200
     assert resp.json()["summary"]["total"] >= 0
+
+
+def test_import_detects_section_tree():
+    """导入应识别 Word 标题段落 → 章节树。"""
+    fixture = FIXTURES / "templates" / "gb7713-official.docx"
+    with fixture.open("rb") as f:
+        resp = client.post(
+            "/api/templates/import",
+            files={"file": ("gb7713-official.docx", f, "application/octet-stream")},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    sections = data["sections"]
+    assert sections, "应识别出章节结构"
+    # 一级标题 required, 二级选填
+    assert sections[0]["type"] == "heading1"
+    assert sections[0]["required"] is True
+    assert sections[0]["title"].strip()
+    has_child = any(s["children"] for s in sections)
+    if has_child:
+        child = next(s for s in sections if s["children"])["children"][0]
+        assert child["type"] == "heading2"
+        assert child["required"] is False

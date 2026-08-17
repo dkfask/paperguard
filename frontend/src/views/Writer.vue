@@ -38,6 +38,21 @@
         <span v-else-if="savedAt" style="color: var(--muted); font-size: 12px">已保存 {{ savedAt }}</span>
         <button class="small" @click="$router.push('/')">← 返回</button>
       </div>
+
+      <!-- 字数与进度 -->
+      <div class="stats-panel">
+        <div class="progress-row">
+          <span class="stats-label">完成度</span>
+          <span class="stats-value">{{ doneCount }}/{{ requiredCount }}</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
+        </div>
+        <div class="stats-row">
+          <span>总字数 <b>{{ totalChars }}</b></span>
+          <span>本章 <b>{{ sectionChars }}</b></span>
+        </div>
+      </div>
     </aside>
 
     <!-- 右侧编辑区 -->
@@ -182,6 +197,57 @@ function computeChapterNumbers() {
 
 function chapterOf(key) { return chapterMap.value[key] || 0 }
 
+// ---------- 字数统计与完成度 ----------
+const requiredSections = computed(() =>
+  (project.value?.sections || []).filter((s) => s.required && s.type !== 'cover' && s.type !== 'toc'),
+)
+
+const doneCount = computed(() => requiredSections.value.filter((s) => isDoneForSec(s)).length)
+
+const requiredCount = computed(() => requiredSections.value.length)
+
+const progressPct = computed(() => {
+  const total = requiredCount.value
+  return total ? Math.round((doneCount.value / total) * 100) : 0
+})
+
+const totalChars = computed(() => {
+  if (!project.value) return 0
+  let n = 0
+  for (const sec of project.value.sections) {
+    n += sectionCharsOf(sec)
+  }
+  return n
+})
+
+const sectionChars = computed(() => {
+  const sec = currentSection.value
+  return sec ? sectionCharsOf(sec) : 0
+})
+
+function sectionCharsOf(sec) {
+  let n = (sec.title || '').trim().length
+  for (const p of sec.paragraphs || []) {
+    if (p.type === 'paragraph') n += (p.text || '').trim().length
+    else if (p.type === 'table' && p.table) {
+      n += p.table.cells.flat().reduce((s, c) => s + String(c || '').trim().length, 0)
+    }
+  }
+  return n
+}
+
+function isDoneForSec(sec) {
+  if (sec.type === 'cover' || sec.type === 'toc') return true
+  if (sec.paragraphs && sec.paragraphs.length) {
+    return sec.paragraphs.some((p) => {
+      if (p.type === 'image') return !!(p.image && p.image.url)
+      if (p.type === 'table') return !!p.table && p.table.cells.flat().some((c) => String(c).trim())
+      return p.text.trim()
+    })
+  }
+  return !!sec.title && sec.title.trim() !== ''
+}
+
 function label(node) {
   return node.title || node.key
 }
@@ -196,15 +262,7 @@ function isRequired(node) {
 
 function isDone(node) {
   const sec = project.value?.sections.find((s) => s.key === node.key)
-  if (!sec || sec.type === 'cover') return true
-  if (sec.paragraphs && sec.paragraphs.length) {
-    return sec.paragraphs.some((p) => {
-      if (p.type === 'image') return !!(p.image && p.image.url)
-      if (p.type === 'table') return !!p.table && p.table.cells.flat().some((c) => String(c).trim())
-      return p.text.trim()
-    })
-  }
-  return !!sec.title && sec.title.trim() !== ''
+  return sec ? isDoneForSec(sec) : true
 }
 
 function typeLabel(type) {
@@ -356,4 +414,17 @@ button.tiny.danger { color: var(--error); }
 }
 .missing-panel ul { margin: 8px 0 0 20px; }
 .missing-panel li { margin: 2px 0; }
+
+/* 字数统计与进度 */
+.stats-panel {
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.progress-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.stats-label { color: var(--muted); }
+.stats-value { font-weight: 600; color: var(--primary); }
+.progress-bar { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; margin-bottom: 10px; }
+.progress-fill { height: 100%; background: var(--primary); border-radius: 999px; transition: width .3s; }
+.stats-row { display: flex; justify-content: space-between; color: var(--muted); }
+.stats-row b { color: var(--text); }
 </style>

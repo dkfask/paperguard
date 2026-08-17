@@ -115,13 +115,14 @@ async function createFromImport() {
   saving.value = true
   error.value = ''
   try {
-    // 章节结构沿用内置模板, 样式用识别结果
+    // 章节结构优先用识别的 Heading 树, 识别不到才沿用内置模板
     const base = await fetchTemplate('default-gb7713')
     const tpl = {
       id: '',
       name: importResult.value.filename.replace(/\.docx$/i, '') + ' (导入)',
       description: '由 Word 模板自动识别生成: ' + importResult.value.style_names.join('、'),
-      sections: base.sections,
+      sections: (importResult.value.sections && importResult.value.sections.length)
+        ? importResult.value.sections : base.sections,
       meta_fields: base.meta_fields,
       styles: importResult.value.styles,
     }

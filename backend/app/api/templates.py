@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.db import Store, new_id
 from app.models.template import PaperTemplate
-from app.services.import_template import import_template_styles
+from app.services.import_template import extract_section_tree, import_template_styles
 from app.services.projects import default_template, seed_default_template
 
 router = APIRouter(prefix="/api/templates")
@@ -77,10 +77,13 @@ async def import_docx_template(file: UploadFile = File(...)) -> dict:
         # 识别结果合并默认样式: 未识别到的键保留默认值, 保证返回完整样式集
         merged = {k: v.model_dump() for k, v in default_template().styles.items()}
         merged.update({k: v.model_dump() for k, v in result["styles"].items()})
+        # 识别章节结构 (Heading 段落 → 章节树)
+        sections = extract_section_tree(path)
         return {
             "filename": file.filename,
             **result,
             "styles": merged,
+            "sections": sections,
         }
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"模板识别失败: {exc}") from exc

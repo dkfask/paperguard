@@ -73,6 +73,12 @@
         <label class="checkbox"><input type="checkbox" v-model="tpl.styles[key].italic" /> 斜体</label>
         <label class="checkbox"><input type="checkbox" v-model="tpl.styles[key].underline" /> 下划线</label>
         <label class="checkbox"><input type="checkbox" v-model="tpl.styles[key].page_break_before" /> 段前分页</label>
+        <div class="style-preview">
+          <span>预览:</span>
+          <span class="preview-text" :style="previewStyle(tpl.styles[key])">
+            {{ styleLabel(key) }}示例 — 汉字 Abc 123
+          </span>
+        </div>
       </div>
     </div>
   </div>
@@ -148,6 +154,21 @@ function toggleStyle(k) { collapsed.value[k] = !collapsed.value[k] }
 
 function styleLabel(k) { return STYLE_LABELS[k] || k }
 
+function previewStyle(s) {
+  const alignMap = { left: 'left', center: 'center', right: 'right', justify: 'justify' }
+  return {
+    fontFamily: `'${s.font_zh}', '${s.font_en}', sans-serif`,
+    fontSize: s.size_pt + 'pt',
+    fontWeight: s.bold ? 'bold' : 'normal',
+    fontStyle: s.italic ? 'italic' : 'normal',
+    textDecoration: s.underline ? 'underline' : 'none',
+    textAlign: alignMap[s.align] || 'left',
+    lineHeight: s.line_spacing,
+    textIndent: s.first_line_indent_chars ? (s.first_line_indent_chars * s.size_pt) + 'pt' : '0',
+    margin: (s.space_before_pt || 0) + 'pt 0 ' + (s.space_after_pt || 0) + 'pt',
+  }
+}
+
 async function save() {
   saving.value = true; error.value = ''; saved.value = false
   try {
@@ -168,5 +189,10 @@ async function save() {
   padding: 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; color: var(--text);
 }
 .style-grid label.checkbox { flex-direction: row; align-items: center; gap: 6px; }
+.style-preview { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+.preview-text {
+  flex: 1; background: #fff; border: 1px dashed var(--border); border-radius: 6px;
+  padding: 8px 12px; color: #1f2937; min-height: 32px;
+}
 .head-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 </style>

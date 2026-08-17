@@ -144,3 +144,98 @@ def _attrs_to_text_style(attrs: dict[str, str]) -> TextStyle | None:
             pass
 
     return ts if changed else None
+
+
+# ---------------------------------------------------------------------------
+# 章节结构提取: 从 docx 的 Heading 段落识别章节树
+# ---------------------------------------------------------------------------
+
+_HEADING_STYLE_IDS = {
+    "Heading1", "Heading 1", "标题1", "标题 1",
+    "Heading2", "Heading 2", "标题2", "标题 2",
+    "Heading3", "Heading 3", "标题3", "标题 3",
+}
+
+
+def extract_section_tree(docx_path: str | Path) -> list[dict]:
+    """从 docx 的 Heading 1/2/3 段落提取章节树。
+
+    Returns:
+        TemplateSection dict 列表: [{key, type, title, required, children}, ...]
+        识别不到标题段落时返回空列表。
+    """
+    import zipfile
+
+    import lxml.etree as etree
+
+    W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+    with zipfile.ZipFile(docx_path) as zf:
+        if "word/document.xml" not in zf.namelist():
+            return []
+        root = etree.fromstring(zf.read("word/document.xml"))
+
+    body = root.find(f"{{{W}}}body")
+    if body is None:
+        return []
+
+    # 收集 (style_id, text)
+    items: list[tuple[str, str]] = []
+    for p in body.iter(f"{{{W}}}p"):
+        style_id = None
+        ppr = p.find(f"{{{W}}}pPr")
+        if ppr is not None:
+            pstyle = ppr.find(f"{{{W}}}pStyle")
+            if pstyle is not None:
+                style_id = pstyle.get(f"{{{W}}}val")
+        if style_id not in _HEADING_STYLE_IDS:
+            continue
+        text = "".join(t.text or "" for t in p.iter(f"{{{W}}}t")).strip()
+        if text:
+            items.append((style_id, text))
+
+    if not items:
+        return []
+
+    # 构建树
+    level_map = {"1": 1, "2": 2, "3": 3}
+    roots: list[dict] = []
+    stack: list[dict] = []   # (level, node) 栈
+    ch_counter = {"1": 0, "2": 0, "3": 0}
+
+    for style_id, text in items:
+        for n, lv in level_map.items():
+            if style_id.replace(" ", "").endswith(n) or f"标题{n}" in style_id:
+                level = lv
+                break
+        else:
+            continue
+
+        node = {
+            "key": "",   # 下面按层级生成
+            "type": f"heading{level}",
+            "title": text,
+            "required": level == 1,
+            "children": [],
+        }
+
+        # 弹出比自己层级深的栈元素
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        ch_counter[str(level)] += 1
+        # 子级计数器清零
+        for n in range(level + 1, 4):
+            ch_counter[str(n)] = 0
+
+        parts = [str(ch_counter["1"])]
+        for n in range(2, level + 1):
+            parts.append(str(ch_counter[str(n)]))
+        node["key"] = "ch" + "_".join(parts)
+
+        if stack:
+            stack[-1][1]["children"].append(node)
+        else:
+            roots.append(node)
+        stack.append((level, node))
+
+    return roots
