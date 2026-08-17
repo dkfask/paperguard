@@ -6,7 +6,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-COPY tests ./tests
+
+# 数据目录由 compose volume 挂载 (paperguard_data -> /app/data)
+RUN mkdir -p /app/data/uploads
 
 EXPOSE 8000
 

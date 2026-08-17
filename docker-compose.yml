@@ -6,11 +6,19 @@ services:
       - "8000:8000"
     environment:
       - UVICORN_HOST=0.0.0.0
+    volumes:
+      # 数据持久化: 论文项目(SQLite) + 上传图片
+      - paperguard_data:/app/data
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
     ports:
-      - "5173:80"
+      - "8080:80"
     depends_on:
       - backend
+    restart: unless-stopped
+
+volumes:
+  paperguard_data:

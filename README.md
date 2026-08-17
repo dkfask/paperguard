@@ -45,11 +45,38 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
 3. **导出 docx** — 写作页右上角一键导出
 4. **上传检查** — 对已有 docx 做格式检查/修复
 
-## Docker 部署
+## Docker 部署(服务器)
 
 ```bash
-docker compose up --build
-# 前端 http://localhost:5173,后端 API http://localhost:8000
+# 1. 服务器安装 Docker + Docker Compose 后:
+git clone https://github.com/dkfask/paperguard.git
+cd paperguard
+docker compose up -d --build
+
+# 2. 访问
+#    前端:  http://服务器IP:8080
+#    后端:  http://服务器IP:8000/api/health
+```
+
+- 数据(论文项目 SQLite + 上传图片)持久化在 Docker volume `paperguard_data`,重建/升级容器不丢数据
+- 首次启动自动创建内置管理员 `admin / admin123`(上线后请立即修改)
+- 端口如需更改,编辑 `docker-compose.yml` 的 `8080:80` / `8000:8000` 映射
+
+### 反向代理(可选,HTTPS/域名)
+
+用 Nginx/Caddy 把 80/443 转发到 `http://127.0.0.1:8080` 即可,无需改应用配置。
+
+### 升级
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+### 备份数据
+
+```bash
+docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backup/paperguard-backup.tar.gz -C /data .
 ```
 
 ## API
