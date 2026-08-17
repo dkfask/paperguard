@@ -1,20 +1,27 @@
-# PaperGuard — 论文格式规范检查与自动修复
+# PaperGuard — 论文格式全流程约束系统
 
-基于 **FastAPI + Vue 3** 的 Web 应用:上传 `.docx` 论文,按 YAML 规则包(国标/校规)自动检查格式问题,并可一键修复后下载新文件。**原文件永不被修改,服务器不保存论文内容。**
+基于 **FastAPI + Vue 3** 的 Web 应用,把论文格式从"事后检查"变为"**写作时约束**":
+
+- **模板约束写作**:教师在线配置论文模板(章节结构 + 每类元素的字体/字号/行距/缩进/分页规则 + 封面字段),学生从零开始写作时,结构由模板生成、排版样式自动应用且不可修改,只需填写内容
+- **一键导出 docx**:写作内容按模板生成符合规范的 `.docx`,可直接提交
+- **上传检查兜底**:对已有 `.docx` 按 YAML 规则包(GB/T 7713、GB/T 7714、校规)检查并自动修复,原文件永不被修改,服务器不保存论文内容
 
 ## 架构
 
 ```
-┌─────────────┐   HTTP    ┌─────────────────────┐   python-docx   ┌──────────────┐
-│  Vue 3 前端  │ ───────▶ │  FastAPI 后端        │ ──────────────▶ │  核心引擎     │
-│ 上传/报告/   │  /api/*  │  check / fix / packs │  IR + 规则包    │  (无 GUI)    │
-│ 预览/下载    │          └─────────────────────┘                 └──────────────┘
-└─────────────┘
+┌──────────────────────────┐   HTTP    ┌──────────────────────────────┐
+│  Vue 3 前端               │ ───────▶ │  FastAPI 后端                 │
+│  · 模板管理 (章节+样式)    │  /api/*  │  · 模板 CRUD / 项目 / 导出     │
+│  · 结构化写作 (锁定样式)   │          │  · 核心引擎 (检查/修复引擎)     │
+│  · 上传检查 / 报告         │          └──────────────────────────────┘
+└──────────────────────────┘
 ```
 
-- **backend/** — FastAPI API + 核心引擎(不可变 IR → YAML 规则包 → JMESPath 作用域过滤 → JSONLogic 条件求值 → 修复回写)
-- **frontend/** — Vue 3 + Vite 单页应用,拖拽上传、检查报告、docx 预览、一键修复下载
-- 规则包:`backend/app/core/rules/packs/*.yaml`(GB/T 7713、GB/T 7714、SIM-UNIV 通用,共 64 条规则)
+- **backend/app/models/** — 模板(章节树 + TextStyle)与写作项目(段落块)数据模型
+- **backend/app/core/export/** — 按模板生成 docx 的导出引擎
+- **backend/app/core/** — 检查引擎(不可变 IR → YAML 规则包 → JMESPath/JSONLogic → 修复回写)
+- **backend/app/db.py** — SQLite 存储(可用 `PAPERGUARD_DB_PATH` 覆盖)
+- **frontend/** — Vue 3 + Vite:模板编辑页、写作页、上传检查页
 
 ## 快速开始(本地开发)
 
@@ -31,7 +38,12 @@ npm install
 npm run dev                            # http://localhost:5173 (自动代理 /api)
 ```
 
-浏览器打开 http://localhost:5173 ,拖入 `.docx` 即可检查。
+浏览器打开 http://localhost:5173:
+
+1. **模板管理** — 编辑内置模板或新建(章节结构、每类元素样式、封面字段)
+2. **我的论文** — 选择模板新建论文,进入结构化写作(左侧章节树,右侧锁定样式编辑器)
+3. **导出 docx** — 写作页右上角一键导出
+4. **上传检查** — 对已有 docx 做格式检查/修复
 
 ## Docker 部署
 
@@ -44,35 +56,35 @@ docker compose up --build
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/health` | 健康检查 |
-| GET | `/api/packs` | 规则包列表 |
-| GET | `/api/packs/{id}` | 规则包详情(规则条数/列表) |
-| POST | `/api/check` | 上传 docx + pack → 检查报告 JSON |
-| POST | `/api/fix` | 上传 docx + pack → 返回修复后的新 docx |
+| GET | `/api/templates` | 模板列表 |
+| GET/POST/PUT/DELETE | `/api/templates/{id}` | 模板 CRUD(结构+样式+封面字段) |
+| GET | `/api/projects` | 项目列表 |
+| POST | `/api/projects` | 基于模板创建写作项目 |
+| GET/PUT/DELETE | `/api/projects/{id}` | 项目读写 |
+| PUT | `/api/projects/{id}/section/{key}` | 保存章节内容(标题+段落) |
+| PUT | `/api/projects/{id}/meta` | 保存封面字段 |
+| POST | `/api/projects/{id}/export` | 按模板导出 docx |
+| GET | `/api/packs` | 检查规则包列表 |
+| POST | `/api/check` | 上传 docx 检查 |
+| POST | `/api/fix` | 上传 docx 自动修复并下载 |
 
 ## 命令行
 
-核心引擎也保留了 Click CLI(`pip install -e backend` 后):
+核心引擎也保留了 Click CLI:
 
 ```bash
 paperguard check paper.docx --pack GB-T-7713-1-2006
 paperguard fix paper.docx -o fixed.docx --pack GB-T-7713-1-2006
-paperguard list-packs
 ```
 
 ## 测试
 
 ```bash
 cd backend
-pytest -q        # 380+ 测试:IR / 规则引擎 / docx 读写 / 修复闭环 / API
+pytest -q        # 396+ 测试: 引擎 / docx 读写 / 模板/项目 API / 导出验证
 ```
 
-## 规则包
+## 模板与规则
 
-内置三个规范包,可仿照编写自己的学校规范(`backend/app/core/rules/packs/`):
-
-- `GB-T-7713-1-2006` — 学位论文编写规则(29 条)
-- `GB-T-7714-1-2015` — 参考文献著录规则(12 条)
-- `SIM-UNIV-generic` — 通用学校样式规范(23 条,自制零版权)
-
-规则结构:每条规则包含 `scope`(JMESPath 过滤作用域)、`when`(JSONLogic 违规条件)、`message` 和可选的 `fix`(set/insert/delete/wrap)。
+- **模板**(`/api/templates`):章节树 + 每类元素样式 + 封面字段,在线配置
+- **检查规则包**(`backend/app/core/rules/packs/*.yaml`):GB/T 7713(29 条)、GB/T 7714(12 条)、SIM-UNIV 通用(23 条),每条含 `scope`(JMESPath)、`when`(JSONLogic)、`message` 和可选 `fix`

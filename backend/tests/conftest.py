@@ -1,10 +1,7 @@
 """Pytest 共享配置和 fixture。
 
-Sprint 6 引入：
-
-- ``QT_QPA_PLATFORM=offscreen``：让 PyQt 测试在无显示器环境运行。
-- ``qapp`` session 级 fixture：共享 :class:`QApplication` 单例。
-- ``corrupt_docx_file`` / ``non_docx_file``：错误路径测试用的临时文件。
+- ``QT_QPA_PLATFORM=offscreen``: 无显示器环境运行。
+- 独立临时数据库: API 测试不污染真实 ``data/paperguard.db``。
 """
 
 from __future__ import annotations
@@ -16,8 +13,11 @@ from pathlib import Path
 
 import pytest
 
-# offscreen 必须在 PyQt import 之前设置
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# API 测试使用独立临时数据库
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="paperguard-test-db-")
+os.environ["PAPERGUARD_DB_PATH"] = str(Path(_TEST_DB_DIR) / "test.db")
 
 
 @pytest.fixture(scope="session")

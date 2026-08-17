@@ -9,7 +9,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.api.projects import router as projects_router
 from app.api.routes import router
+from app.api.templates import router as templates_router
 
 app = FastAPI(
     title="PaperGuard API",
@@ -26,3 +28,5 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(templates_router)
+app.include_router(projects_router)

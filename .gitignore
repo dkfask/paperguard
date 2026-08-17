@@ -72,3 +72,5 @@ npm-debug.log*
 
 # Python 虚拟环境 (backend)
 backend/.venv/
+backend/data/
+frontend/dist/
