@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "paperguard"
-version = "0.1.0"
-description = "PaperGuard thesis formatting checker and fixer"
+version = "0.2.0"
+description = "PaperGuard — 论文格式规范检查与自动修复 (Web)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "PyQt5>=5.15.0",
   "python-docx>=1.0.0",
   "lxml>=4.9.0",
   "pyyaml>=6.0",
@@ -18,6 +17,9 @@ dependencies = [
   "pydantic>=2.5.0",
   "click>=8.0",
   "jinja2>=3.1,<4",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "python-multipart>=0.0.9",
 ]
 
 [project.scripts]

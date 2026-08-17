@@ -1,88 +1,78 @@
-# 论文模板规范软件
+# PaperGuard — 论文格式规范检查与自动修复
 
-一个基于 `PyQt5 + python-docx` 的桌面应用，用来把“教师配置论文模板”和“学生按模板写作、检查、导出”串成完整闭环。
+基于 **FastAPI + Vue 3** 的 Web 应用:上传 `.docx` 论文,按 YAML 规则包(国标/校规)自动检查格式问题,并可一键修复后下载新文件。**原文件永不被修改,服务器不保存论文内容。**
 
-当前版本已经从单页原型升级为工作台式桌面应用，包含：
+## 架构
 
-- `首页工作台`：角色入口、最近任务、示例项目、快速帮助
-- `模板中心`：教师创建和维护论文模板
-- `项目写作`：学生按章节填写论文内容
-- `检查与导出`：查看问题、定位修复、导出 DOCX
-- `资源与帮助`：内置模板、示例项目、操作说明
-
-## 主要能力
-
-- 教师可配置论文结构、页面规范、样式规范和章节说明
-- 教师可导入 `DOCX` / `DOTX` Word 模版，继承页面设置与常用样式后继续编辑为 `.ptpl`
-- 学生可编辑正文、插入图片、表格、列表、引用，并维护论文元信息
-- 系统支持模板恢复、项目保存、格式检查和 DOCX 导出
-- 软件内置示例模板、示例项目和参考导出文档，便于演示
-
-## 快速开始
-
-```bash
-pip install -r requirements.txt
-python main.py
+```
+┌─────────────┐   HTTP    ┌─────────────────────┐   python-docx   ┌──────────────┐
+│  Vue 3 前端  │ ───────▶ │  FastAPI 后端        │ ──────────────▶ │  核心引擎     │
+│ 上传/报告/   │  /api/*  │  check / fix / packs │  IR + 规则包    │  (无 GUI)    │
+│ 预览/下载    │          └─────────────────────┘                 └──────────────┘
+└─────────────┘
 ```
 
-## 推荐演示路径
+- **backend/** — FastAPI API + 核心引擎(不可变 IR → YAML 规则包 → JMESPath 作用域过滤 → JSONLogic 条件求值 → 修复回写)
+- **frontend/** — Vue 3 + Vite 单页应用,拖拽上传、检查报告、docx 预览、一键修复下载
+- 规则包:`backend/app/core/rules/packs/*.yaml`(GB/T 7713、GB/T 7714、SIM-UNIV 通用,共 64 条规则)
 
-1. 打开软件后进入 `首页工作台`
-2. 点击 `打开示例项目`
-3. 切换到 `项目写作`，修改摘要或第一章内容
-4. 切换到 `检查与导出`，查看问题并导出 DOCX
+## 快速开始(本地开发)
 
-## 工作流
+```bash
+# 后端 (Python 3.10+)
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload          # http://localhost:8000
 
-### 教师流程
+# 前端 (Node 18+)
+cd frontend
+npm install
+npm run dev                            # http://localhost:5173 (自动代理 /api)
+```
 
-1. 进入 `模板中心`
-2. 新建、导入 Word 模板或加载现有模板
-3. 配置论文结构、样式、页面规范和章节说明
-4. 应用修改并发布为 `.ptpl`
+浏览器打开 http://localhost:5173 ,拖入 `.docx` 即可检查。
 
-### 学生流程
+## Docker 部署
 
-1. 加载模板或直接打开示例项目
-2. 从模板创建论文项目
-3. 在 `项目写作` 中补充章节正文与元信息
-4. 在 `检查与导出` 中修复问题并导出 `.docx`
+```bash
+docker compose up --build
+# 前端 http://localhost:5173,后端 API http://localhost:8000
+```
 
-## 项目结构
+## API
 
-```text
-main.py
-requirements.txt
-app/
-  controllers/
-  models/
-  services/
-  views/
-  resources/samples/
-tests/
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/health` | 健康检查 |
+| GET | `/api/packs` | 规则包列表 |
+| GET | `/api/packs/{id}` | 规则包详情(规则条数/列表) |
+| POST | `/api/check` | 上传 docx + pack → 检查报告 JSON |
+| POST | `/api/fix` | 上传 docx + pack → 返回修复后的新 docx |
+
+## 命令行
+
+核心引擎也保留了 Click CLI(`pip install -e backend` 后):
+
+```bash
+paperguard check paper.docx --pack GB-T-7713-1-2006
+paperguard fix paper.docx -o fixed.docx --pack GB-T-7713-1-2006
+paperguard list-packs
 ```
 
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -v
+cd backend
+pytest -q        # 380+ 测试:IR / 规则引擎 / docx 读写 / 修复闭环 / API
 ```
 
-## Word 模版导入
+## 规则包
 
-- 支持格式：`DOCX`、`DOTX`
-- 导入内容：纸张大小、页面方向、页边距、页眉页脚距离、页眉页脚文本，以及 `Title`、`Heading 1/2/3`、`Normal` 对应的常用样式
-- 映射目标：`cover_title`、`heading_1`、`heading_2`、`heading_3`、`body_text`
-- 不导入内容：章节结构、图片、表格、目录域、脚注、批注、复杂分节布局
-- 导入后结果会作为“新模板草稿”打开，仍需在 `模板中心` 完善章节结构并保存为 `.ptpl`
+内置三个规范包,可仿照编写自己的学校规范(`backend/app/core/rules/packs/`):
 
-当前测试覆盖了：
+- `GB-T-7713-1-2006` — 学位论文编写规则(29 条)
+- `GB-T-7714-1-2015` — 参考文献著录规则(12 条)
+- `SIM-UNIV-generic` — 通用学校样式规范(23 条,自制零版权)
 
-- 项目打开后模板恢复不丢内容
-- DOCX 导出不重复小节
-- 图片、表格、列表、引用、基础富文本可导出
-- 必填章节未完成时会阻止导出
-- Word 模版导入可读取页面设置与样式
-- 模板编辑器能保存多项样式修改
-- 校验规则不会误报目录
-- 示例资产可自动生成
+规则结构:每条规则包含 `scope`(JMESPath 过滤作用域)、`when`(JSONLogic 违规条件)、`message` 和可选的 `fix`(set/insert/delete/wrap)。

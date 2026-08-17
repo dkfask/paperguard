@@ -1,0 +1,217 @@
+:root {
+  --primary: #2563eb;
+  --error: #dc2626;
+  --warning: #d97706;
+  --info: #0891b2;
+  --bg: #f5f7fa;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --muted: #64748b;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+header {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+header .logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+header .tagline {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 16px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.card h2 {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+
+/* 上传区 */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+
+.upload-zone:hover, .upload-zone.dragging {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+
+.upload-zone .icon { font-size: 40px; }
+.upload-zone .hint { color: var(--muted); font-size: 14px; margin-top: 8px; }
+
+/* 表单行 */
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+select, button {
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+
+button.primary:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 报告 */
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.summary-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+}
+
+.summary-card .num { font-size: 28px; font-weight: 700; }
+.summary-card .label { color: var(--muted); font-size: 13px; }
+
+.summary-card.total .num { color: var(--text); }
+.summary-card.error .num { color: var(--error); }
+.summary-card.warning .num { color: var(--warning); }
+.summary-card.info .num { color: var(--info); }
+
+.finding {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--muted);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  background: var(--card);
+}
+
+.finding.severity-error { border-left-color: var(--error); }
+.finding.severity-warning { border-left-color: var(--warning); }
+.finding.severity-info { border-left-color: var(--info); }
+
+.finding .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.finding .rule-id {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.badge {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: #fff;
+}
+
+.badge.error { background: var(--error); }
+.badge.warning { background: var(--warning); }
+.badge.info { background: var(--info); }
+
+.finding .message { margin-top: 6px; font-size: 14px; }
+
+.finding .meta {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.snippet {
+  display: block;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  margin-top: 6px;
+  color: #475569;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.finding .fix-btn {
+  margin-top: 10px;
+  font-size: 13px;
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.error-banner {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: var(--error);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+/* 预览 */
+.docx-preview {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* 响应式 */
+@media (max-width: 640px) {
+  .summary-cards { grid-template-columns: repeat(2, 1fr); }
+}
