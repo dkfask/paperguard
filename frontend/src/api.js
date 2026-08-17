@@ -6,7 +6,7 @@ const API_BASE = '/api'
 async function api(url, options = {}) {
   const headers = { ...(options.headers || {}) }
   if (auth.token) headers['Authorization'] = 'Bearer ' + auth.token
-  const resp = await api(url, { ...options, headers })
+  const resp = await fetch(url, { ...options, headers })
   if (resp.status === 401) {
     clearAuth()
     if (!location.pathname.startsWith('/login')) location.href = '/login'
