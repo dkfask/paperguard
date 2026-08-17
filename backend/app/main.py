@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.routes import router
 from app.api.templates import router as templates_router
@@ -31,6 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(auth_router)
 app.include_router(templates_router)
 app.include_router(projects_router)
 
@@ -41,12 +43,18 @@ app.mount("/media/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
 
 
 @app.on_event("startup")
-def _startup_cleanup() -> None:
-    """启动时清理未被任何项目引用的孤儿图片文件。"""
+def _startup_init() -> None:
+    """启动初始化: 内置管理员 + 孤儿图片清理。"""
     try:
+        from app.auth import seed_admin
         from app.db import Store
         from app.services.image_cleanup import cleanup_orphan_images
-        cleanup_orphan_images(Store())
+        from app.services.projects import seed_default_template
+
+        store = Store()
+        seed_admin(store)
+        seed_default_template(store)
+        cleanup_orphan_images(store)
     except Exception:
-        # 清理失败不影响服务启动
+        # 初始化失败不影响服务启动
         pass

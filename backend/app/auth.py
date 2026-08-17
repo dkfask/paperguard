@@ -1,0 +1,136 @@
+"""用户认证与权限。
+
+- 密码: PBKDF2-HMAC-SHA256 + 随机盐 (标准库, 无额外依赖)
+- 会话: 随机 token 存 users 表, 请求头 Authorization: Bearer <token>
+- 角色: admin(全权限) / teacher(模板管理) / student(写作)
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import secrets
+from datetime import datetime, timezone
+
+from fastapi import Depends, Header, HTTPException
+
+from app.db import Store, new_id
+
+_PBKDF2_ITERATIONS = 200_000
+
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "admin123"
+ADMIN_DISPLAY = "管理员"
+
+MANAGE_ROLES = ("admin", "teacher")
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    """返回 (hex_hash, salt)。"""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), _PBKDF2_ITERATIONS
+    )
+    return digest.hex(), salt
+
+
+def verify_password(password: str, password_hash: str, salt: str) -> bool:
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), _PBKDF2_ITERATIONS
+    )
+    return hmac.compare_digest(digest.hex(), password_hash)
+
+
+def seed_admin(store: Store) -> None:
+    """首次启动时创建内置管理员账号。"""
+    if store.get_user_by_username(ADMIN_USERNAME) is None:
+        ph, salt = hash_password(ADMIN_PASSWORD)
+        store.save_user({
+            "id": "user-admin",
+            "username": ADMIN_USERNAME,
+            "password_hash": ph,
+            "salt": salt,
+            "role": "admin",
+            "display_name": ADMIN_DISPLAY,
+            "token": None,
+            "created_at": _now(),
+        })
+
+
+def register_user(store: Store, username: str, password: str,
+                  display_name: str = "", role: str = "student") -> dict:
+    """注册新用户, 返回用户 dict(不含敏感字段)。"""
+    username = username.strip()
+    if len(username) < 3:
+        raise HTTPException(status_code=400, detail="用户名至少 3 个字符")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少 6 位")
+    if store.get_user_by_username(username):
+        raise HTTPException(status_code=409, detail="用户名已存在")
+    ph, salt = hash_password(password)
+    user = store.save_user({
+        "id": new_id("user"),
+        "username": username,
+        "password_hash": ph,
+        "salt": salt,
+        "role": role,
+        "display_name": display_name.strip() or username,
+        "token": None,
+        "created_at": _now(),
+    })
+    return public_user(user)
+
+
+def login_user(store: Store, username: str, password: str) -> dict:
+    """登录, 生成 token, 返回 {token, user}。"""
+    user = store.get_user_by_username(username.strip())
+    if user is None or not verify_password(password, user["password_hash"], user["salt"]):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    token = secrets.token_hex(32)
+    store.set_user_token(user["id"], token)
+    user["token"] = token
+    return {"token": token, "user": public_user(user)}
+
+
+def logout_user(store: Store, token: str) -> None:
+    user = store.get_user_by_token(token)
+    if user:
+        store.set_user_token(user["id"], None)
+
+
+def public_user(user: dict) -> dict:
+    """去除敏感字段。"""
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "role": user["role"],
+        "display_name": user["display_name"],
+    }
+
+
+def current_user(authorization: str | None = Header(default=None),
+                 store: Store = Depends(lambda: Store())) -> dict:
+    """FastAPI 依赖: 从 Authorization 头解析当前用户。"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="未登录")
+    token = authorization.removeprefix("Bearer ").strip()
+    user = store.get_user_by_token(token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="登录已失效, 请重新登录")
+    return user
+
+
+def require_manager(user: dict = Depends(current_user)) -> dict:
+    """模板管理权限: admin / teacher。"""
+    if user["role"] not in MANAGE_ROLES:
+        raise HTTPException(status_code=403, detail="仅教师/管理员可管理模板")
+    return user
+
+
+def can_manage(user: dict) -> bool:
+    return user["role"] in MANAGE_ROLES

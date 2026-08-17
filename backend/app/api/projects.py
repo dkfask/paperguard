@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.api.templates import get_store
+from app.auth import can_manage, current_user
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
 from app.models.project import ParagraphBlock, WritingProject
@@ -30,7 +31,12 @@ class CreateProjectRequest(BaseModel):
 
 
 @router.get("")
-def list_projects(store: Store = Depends(get_store)) -> list[dict]:
+def list_projects(store: Store = Depends(get_store),
+                  user: dict = Depends(current_user)) -> list[dict]:
+    """项目列表: 管理员/教师可见全部, 学生仅见自己的。"""
+    all_projects = store.list_projects()
+    if not can_manage(user):
+        all_projects = [p for p in all_projects if p.owner_id == user["id"]]
     return [
         {
             "id": p.id,
@@ -39,25 +45,37 @@ def list_projects(store: Store = Depends(get_store)) -> list[dict]:
             "title": p.title,
             "updated_at": p.updated_at,
         }
-        for p in store.list_projects()
+        for p in all_projects
     ]
 
 
+def _ensure_access(proj: WritingProject, user: dict) -> None:
+    """管理员/教师可访问全部; 学生仅自己的项目。"""
+    if can_manage(user):
+        return
+    if proj.owner_id and proj.owner_id != user["id"]:
+        raise HTTPException(status_code=403, detail="无权访问该项目")
+
+
 @router.get("/{proj_id}")
-def get_project(proj_id: str, store: Store = Depends(get_store)) -> WritingProject:
+def get_project(proj_id: str, store: Store = Depends(get_store),
+                user: dict = Depends(current_user)) -> WritingProject:
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
     return proj
 
 
 @router.post("", status_code=201)
-def create_project(req: CreateProjectRequest, store: Store = Depends(get_store)) -> WritingProject:
-    """基于模板创建写作项目(实例化章节树)。"""
+def create_project(req: CreateProjectRequest, store: Store = Depends(get_store),
+                   user: dict = Depends(current_user)) -> WritingProject:
+    """基于模板创建写作项目(实例化章节树), 归属当前用户。"""
     tpl = store.get_template(req.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")
     proj = create_project_from_template(store, tpl)
+    proj.owner_id = user["id"]
     if req.title:
         proj.title = req.title
     return store.save_project(proj)
@@ -70,11 +88,13 @@ class UpdateSectionRequest(BaseModel):
 
 @router.put("/{proj_id}/section/{section_key}")
 def update_section(proj_id: str, section_key: str, req: UpdateSectionRequest,
-                   store: Store = Depends(get_store)) -> WritingProject:
+                   store: Store = Depends(get_store),
+                   user: dict = Depends(current_user)) -> WritingProject:
     """保存单个章节的内容。"""
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
     for sec in proj.sections:
         if sec.key == section_key:
             if req.title is not None:
@@ -120,11 +140,14 @@ def _parse_par(data: dict):
 
 
 @router.post("/{proj_id}/images", status_code=201)
-async def upload_image(proj_id: str, file: UploadFile = File(...)) -> dict:
+async def upload_image(proj_id: str, file: UploadFile = File(...),
+                     user: dict = Depends(current_user)) -> dict:
     """上传论文图片, 返回静态资源 URL。"""
     store = get_store()
-    if store.get_project(proj_id) is None:
+    proj = store.get_project(proj_id)
+    if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="只支持图片文件")
 
@@ -143,29 +166,36 @@ class UpdateMetaRequest(BaseModel):
 
 @router.put("/{proj_id}/meta")
 def update_meta(proj_id: str, req: UpdateMetaRequest,
-                store: Store = Depends(get_store)) -> WritingProject:
+                store: Store = Depends(get_store),
+                user: dict = Depends(current_user)) -> WritingProject:
     """保存封面元信息。"""
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
     proj.meta.update(req.meta)
     return store.save_project(proj)
 
 
 @router.put("/{proj_id}")
 def update_project(proj_id: str, proj: WritingProject,
-                   store: Store = Depends(get_store)) -> WritingProject:
-    if store.get_project(proj_id) is None:
+                   store: Store = Depends(get_store),
+                   user: dict = Depends(current_user)) -> WritingProject:
+    old = store.get_project(proj_id)
+    if old is None:
         raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(old, user)
     proj.id = proj_id
     return store.save_project(proj)
 
 
 @router.delete("/{proj_id}", status_code=204)
-def delete_project(proj_id: str, store: Store = Depends(get_store)) -> None:
+def delete_project(proj_id: str, store: Store = Depends(get_store),
+                  user: dict = Depends(current_user)) -> None:
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
     # 先删除项目图片文件, 再删数据库记录
     remove_project_images(proj)
     store.delete_project(proj_id)
@@ -173,11 +203,13 @@ def delete_project(proj_id: str, store: Store = Depends(get_store)) -> None:
 
 @router.get("/{proj_id}/check")
 def check_project(proj_id: str, pack: str = "GB-T-7713-1-2006",
-                  store: Store = Depends(get_store)) -> dict:
+                  store: Store = Depends(get_store),
+                  user: dict = Depends(current_user)) -> dict:
     """对写作项目实时跑格式规则, 返回问题列表(带章节定位)。"""
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
     tpl = store.get_template(proj.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")
@@ -187,7 +219,8 @@ def check_project(proj_id: str, pack: str = "GB-T-7713-1-2006",
 
 @router.post("/{proj_id}/export")
 def export_docx(proj_id: str, force: bool = False,
-                store: Store = Depends(get_store)):
+                store: Store = Depends(get_store),
+                user: dict = Depends(current_user)):
     """按模板导出为 .docx, 下载新文件。
 
     导出前校验必填章节与封面字段; 未完成时返回 409 与缺失清单,
@@ -196,6 +229,7 @@ def export_docx(proj_id: str, force: bool = False,
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
     tpl = store.get_template(proj.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")

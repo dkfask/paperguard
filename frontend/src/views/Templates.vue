@@ -3,9 +3,12 @@
     <div class="head-row">
       <h2>论文模板</h2>
       <div class="form-row" style="margin-top: 0">
-        <button class="primary" @click="createNew">➕ 新建模板</button>
-        <button @click="pickImport">📥 从 Word 导入</button>
-        <input ref="importInput" type="file" accept=".docx" hidden @change="onImportPick" />
+        <template v-if="canManage">
+          <button class="primary" @click="createNew">➕ 新建模板</button>
+          <button @click="pickImport">📥 从 Word 导入</button>
+          <input ref="importInput" type="file" accept=".docx" hidden @change="onImportPick" />
+        </template>
+        <span v-else class="readonly-tag">👀 只读模式(教师/管理员可管理模板)</span>
       </div>
     </div>
     <p style="color: var(--muted); font-size: 14px; margin-bottom: 16px">
@@ -57,8 +60,11 @@
       </div>
       <div class="meta">{{ t.description || '无描述' }}</div>
       <div class="form-row" style="margin-top: 10px">
-        <button class="primary" @click="$router.push('/templates/' + t.id + '/edit')">✏️ 编辑</button>
-        <button v-if="t.id !== 'default-gb7713'" style="color: var(--error)" @click="remove(t)">删除</button>
+        <template v-if="canManage">
+          <button class="primary" @click="$router.push('/templates/' + t.id + '/edit')">✏️ 编辑</button>
+          <button v-if="t.id !== 'default-gb7713'" style="color: var(--error)" @click="remove(t)">删除</button>
+        </template>
+        <button v-else @click="$router.push('/templates/' + t.id + '/edit')" style="pointer-events: none; opacity: .6">🔒 只读</button>
       </div>
     </div>
   </div>
@@ -68,8 +74,10 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchTemplates, deleteTemplateApi, importDocxTemplate, saveTemplate, fetchTemplate } from '../api'
+import { isManager } from '../auth'
 
 const router = useRouter()
+const canManage = isManager()
 const templates = ref([])
 const error = ref('')
 const importing = ref(false)
@@ -159,4 +167,5 @@ function alignLabel(a) { return ALIGN_LABELS[a] || a }
 .style-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; background: #fff; }
 .style-table th, .style-table td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
 .style-table th { background: #f1f5f9; color: var(--muted); font-weight: 600; }
+.readonly-tag { font-size: 13px; color: var(--muted); }
 </style>

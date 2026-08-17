@@ -1,10 +1,23 @@
-import { ref, onMounted } from 'vue'
+import { auth, clearAuth } from './auth'
 
 const API_BASE = '/api'
 
+/** 带认证头的 fetch; 401 时清除会话并跳转登录页 */
+async function api(url, options = {}) {
+  const headers = { ...(options.headers || {}) }
+  if (auth.token) headers['Authorization'] = 'Bearer ' + auth.token
+  const resp = await api(url, { ...options, headers })
+  if (resp.status === 401) {
+    clearAuth()
+    if (!location.pathname.startsWith('/login')) location.href = '/login'
+    throw new Error('请先登录')
+  }
+  return resp
+}
+
 /** 获取规则包列表 */
 export async function fetchPacks() {
-  const resp = await fetch(`${API_BASE}/packs`)
+  const resp = await api(`${API_BASE}/packs`)
   if (!resp.ok) throw new Error('获取规则包失败')
   return resp.json()
 }
@@ -14,7 +27,7 @@ export async function checkDocx(file, pack) {
   const form = new FormData()
   form.append('file', file)
   form.append('pack', pack)
-  const resp = await fetch(`${API_BASE}/check`, { method: 'POST', body: form })
+  const resp = await api(`${API_BASE}/check`, { method: 'POST', body: form })
   if (!resp.ok) {
     const detail = await resp.json().catch(() => ({}))
     throw new Error(detail.detail || `检查失败 (${resp.status})`)
@@ -28,7 +41,7 @@ export async function fixDocx(file, pack, filename) {
   form.append('file', file)
   form.append('pack', pack)
   form.append('filename', filename)
-  const resp = await fetch(`${API_BASE}/fix`, { method: 'POST', body: form })
+  const resp = await api(`${API_BASE}/fix`, { method: 'POST', body: form })
   if (!resp.ok) {
     const detail = await resp.json().catch(() => ({}))
     throw new Error(detail.detail || `修复失败 (${resp.status})`)
@@ -47,19 +60,19 @@ export async function fixDocx(file, pack, filename) {
 // ---------------------------------------------------------------------------
 
 export async function fetchTemplates() {
-  const resp = await fetch(`${API_BASE}/templates`)
+  const resp = await api(`${API_BASE}/templates`)
   if (!resp.ok) throw new Error('获取模板列表失败')
   return resp.json()
 }
 
 export async function fetchTemplate(id) {
-  const resp = await fetch(`${API_BASE}/templates/${id}`)
+  const resp = await api(`${API_BASE}/templates/${id}`)
   if (!resp.ok) throw new Error('获取模板失败')
   return resp.json()
 }
 
 export async function saveTemplate(tpl, isNew = false) {
-  const resp = await fetch(`${API_BASE}/templates${tpl.id && !isNew ? '/' + tpl.id : ''}`, {
+  const resp = await api(`${API_BASE}/templates${tpl.id && !isNew ? '/' + tpl.id : ''}`, {
     method: isNew ? 'POST' : 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(tpl),
@@ -69,24 +82,24 @@ export async function saveTemplate(tpl, isNew = false) {
 }
 
 export async function deleteTemplateApi(id) {
-  const resp = await fetch(`${API_BASE}/templates/${id}`, { method: 'DELETE' })
+  const resp = await api(`${API_BASE}/templates/${id}`, { method: 'DELETE' })
   if (!resp.ok) throw new Error('删除模板失败')
 }
 
 export async function fetchProjects() {
-  const resp = await fetch(`${API_BASE}/projects`)
+  const resp = await api(`${API_BASE}/projects`)
   if (!resp.ok) throw new Error('获取项目列表失败')
   return resp.json()
 }
 
 export async function fetchProject(id) {
-  const resp = await fetch(`${API_BASE}/projects/${id}`)
+  const resp = await api(`${API_BASE}/projects/${id}`)
   if (!resp.ok) throw new Error('获取项目失败')
   return resp.json()
 }
 
 export async function createProject(templateId, title = '') {
-  const resp = await fetch(`${API_BASE}/projects`, {
+  const resp = await api(`${API_BASE}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ template_id: templateId, title }),
@@ -96,7 +109,7 @@ export async function createProject(templateId, title = '') {
 }
 
 export async function updateProjectSection(projectId, sectionKey, data) {
-  const resp = await fetch(`${API_BASE}/projects/${projectId}/section/${sectionKey}`, {
+  const resp = await api(`${API_BASE}/projects/${projectId}/section/${sectionKey}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -106,7 +119,7 @@ export async function updateProjectSection(projectId, sectionKey, data) {
 }
 
 export async function updateProjectMeta(projectId, meta) {
-  const resp = await fetch(`${API_BASE}/projects/${projectId}/meta`, {
+  const resp = await api(`${API_BASE}/projects/${projectId}/meta`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ meta }),
@@ -116,7 +129,7 @@ export async function updateProjectMeta(projectId, meta) {
 }
 
 export async function exportProject(projectId, force = false) {
-  const resp = await fetch(`${API_BASE}/projects/${projectId}/export?force=${force}`, { method: 'POST' })
+  const resp = await api(`${API_BASE}/projects/${projectId}/export?force=${force}`, { method: 'POST' })
   if (!resp.ok) {
     const detail = await resp.json().catch(() => ({}))
     const err = new Error(detail.detail?.message || detail.detail || '导出失败')
@@ -134,13 +147,13 @@ export async function exportProject(projectId, force = false) {
 
 /** 对写作项目实时跑格式检查 */
 export async function checkProject(projectId, pack = 'GB-T-7713-1-2006') {
-  const resp = await fetch(`${API_BASE}/projects/${projectId}/check?pack=${encodeURIComponent(pack)}`)
+  const resp = await api(`${API_BASE}/projects/${projectId}/check?pack=${encodeURIComponent(pack)}`)
   if (!resp.ok) throw new Error('检查失败')
   return resp.json()
 }
 
 export async function deleteProject(projectId) {
-  const resp = await fetch(`${API_BASE}/projects/${projectId}`, { method: 'DELETE' })
+  const resp = await api(`${API_BASE}/projects/${projectId}`, { method: 'DELETE' })
   if (!resp.ok) throw new Error('删除项目失败')
 }
 
@@ -148,7 +161,7 @@ export async function deleteProject(projectId) {
 export async function importDocxTemplate(file) {
   const form = new FormData()
   form.append('file', file)
-  const resp = await fetch(`${API_BASE}/templates/import`, { method: 'POST', body: form })
+  const resp = await api(`${API_BASE}/templates/import`, { method: 'POST', body: form })
   if (!resp.ok) {
     const detail = await resp.json().catch(() => ({}))
     throw new Error(detail.detail || `模板识别失败 (${resp.status})`)
@@ -160,7 +173,7 @@ export async function importDocxTemplate(file) {
 export async function uploadProjectImage(projectId, file) {
   const form = new FormData()
   form.append('file', file)
-  const resp = await fetch(`${API_BASE}/projects/${projectId}/images`, {
+  const resp = await api(`${API_BASE}/projects/${projectId}/images`, {
     method: 'POST', body: form,
   })
   if (!resp.ok) {

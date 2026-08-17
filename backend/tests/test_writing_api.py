@@ -19,6 +19,11 @@ FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 
 client = TestClient(app)
 
+# 登录内置管理员, 所有 API 请求带 token (TestClient 创建时触发 startup seed)
+_login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+assert _login.status_code == 200, _login.text
+client.headers.update({"Authorization": f"Bearer {_login.json()['token']}"})
+
 
 @pytest.fixture(scope="module")
 def store():
@@ -471,3 +476,70 @@ def test_import_detects_section_tree():
         child = next(s for s in sections if s["children"])["children"][0]
         assert child["type"] == "heading2"
         assert child["required"] is False
+
+
+def test_auth_login_and_me():
+    """登录返回 token, /me 返回用户信息。"""
+    resp = client.get("/api/auth/me")
+    assert resp.status_code == 200
+    assert resp.json()["username"] == "admin"
+    assert resp.json()["role"] == "admin"
+
+
+def test_register_and_student_isolation():
+    """学生注册后: 只能看到自己的项目, 不能管理模板。"""
+    # 注册学生
+    resp = client.post("/api/auth/register", json={
+        "username": "stu001", "password": "pass123", "display_name": "学生一",
+    })
+    assert resp.status_code == 201
+
+    # 学生登录
+    login = client.post("/api/auth/login", json={
+        "username": "stu001", "password": "pass123",
+    })
+    assert login.status_code == 200
+    student_headers = {"Authorization": f"Bearer {login.json()['token']}"}
+
+    # 学生创建自己的项目
+    resp = client.post("/api/projects", json={
+        "template_id": "default-gb7713", "title": "学生论文",
+    }, headers=student_headers)
+    assert resp.status_code == 201
+    proj_id = resp.json()["id"]
+    assert resp.json()["owner_id"]
+
+    # 学生看不到管理员的项目 (管理员创建过多个)
+    mine = client.get("/api/projects", headers=student_headers).json()
+    assert all(p["title"] == "学生论文" for p in mine), mine
+
+    # 学生不能创建模板 (403)
+    resp = client.post("/api/templates", json={
+        "id": "stu-tpl", "name": "x", "styles": {}, "sections": [], "meta_fields": [],
+    }, headers=student_headers)
+    assert resp.status_code == 403
+
+    # 学生不能访问别人的项目 (用管理员创建的项目 id)
+    admin_proj = client.get("/api/projects").json()
+    assert admin_proj, "管理员应有项目"
+    other = next((p for p in admin_proj if p["id"] != proj_id), None)
+    if other:
+        resp = client.get(f"/api/projects/{other['id']}", headers=student_headers)
+        assert resp.status_code in (403, 404)
+
+
+def test_unauthorized_requests_rejected():
+    """未登录请求应 401。"""
+    resp = client.get("/api/projects", headers={"Authorization": ""})
+    assert resp.status_code == 401
+    resp = client.post("/api/projects", json={"template_id": "default-gb7713"},
+                       headers={"Authorization": ""})
+    assert resp.status_code == 401
+
+
+def test_bad_login():
+    """错误密码 401, 不存在用户 401。"""
+    resp = client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
+    assert resp.status_code == 401
+    resp = client.post("/api/auth/login", json={"username": "nobody", "password": "x12345"})
+    assert resp.status_code == 401

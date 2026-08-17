@@ -77,6 +77,27 @@ header .nav {
   font-weight: 600;
 }
 
+.user-chip {
+  font-size: 13px;
+  background: #f1f5f9;
+  color: var(--text);
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+
+.logout-btn {
+  font-size: 13px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.logout-btn:hover { color: var(--error); border-color: #fecaca; }
+
 header .logo {
   font-size: 20px;
   font-weight: 700;

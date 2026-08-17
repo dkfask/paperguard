@@ -8,6 +8,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from app.auth import require_manager
+
 from app.db import Store, new_id
 from app.models.template import PaperTemplate
 from app.services.import_template import extract_section_tree, import_template_styles
@@ -46,7 +48,8 @@ def get_template(tpl_id: str, store: Store = Depends(get_store)) -> PaperTemplat
 
 
 @router.post("", status_code=201)
-def create_template(payload: PaperTemplate, store: Store = Depends(get_store)) -> PaperTemplate:
+def create_template(payload: PaperTemplate, store: Store = Depends(get_store),
+                  _: dict = Depends(require_manager)) -> PaperTemplate:
     """创建模板。id 未指定时自动生成。"""
     if not payload.id:
         payload.id = new_id("tpl")
@@ -56,7 +59,8 @@ def create_template(payload: PaperTemplate, store: Store = Depends(get_store)) -
 
 
 @router.post("/default")
-def create_default_template(store: Store = Depends(get_store)) -> PaperTemplate:
+def create_default_template(store: Store = Depends(get_store),
+                        _: dict = Depends(require_manager)) -> PaperTemplate:
     """内置模板存库(幂等)。"""
     tpl = default_template()
     store.save_template(tpl)
@@ -64,7 +68,8 @@ def create_default_template(store: Store = Depends(get_store)) -> PaperTemplate:
 
 
 @router.post("/import")
-async def import_docx_template(file: UploadFile = File(...)) -> dict:
+async def import_docx_template(file: UploadFile = File(...),
+                              _: dict = Depends(require_manager)) -> dict:
     """上传 Word .docx, 识别其中的字体/字号/行距/缩进等样式, 返回可生成模板的配置。"""
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="只支持 .docx 文件")
@@ -93,7 +98,8 @@ async def import_docx_template(file: UploadFile = File(...)) -> dict:
 
 @router.put("/{tpl_id}")
 def update_template(tpl_id: str, payload: PaperTemplate,
-                    store: Store = Depends(get_store)) -> PaperTemplate:
+                    store: Store = Depends(get_store),
+                    _: dict = Depends(require_manager)) -> PaperTemplate:
     if store.get_template(tpl_id) is None:
         raise HTTPException(status_code=404, detail="模板不存在")
     payload.id = tpl_id
@@ -101,7 +107,8 @@ def update_template(tpl_id: str, payload: PaperTemplate,
 
 
 @router.delete("/{tpl_id}", status_code=204)
-def delete_template(tpl_id: str, store: Store = Depends(get_store)) -> None:
+def delete_template(tpl_id: str, store: Store = Depends(get_store),
+                  _: dict = Depends(require_manager)) -> None:
     if not store.delete_template(tpl_id):
         raise HTTPException(status_code=404, detail="模板不存在")
 

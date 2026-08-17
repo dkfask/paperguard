@@ -61,8 +61,62 @@ class Store:
                     data TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    salt TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'student',
+                    display_name TEXT NOT NULL DEFAULT '',
+                    token TEXT,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
+
+    # ------------------------------ users --------------------------------
+
+    def save_user(self, user: dict) -> dict:
+        """user: {id, username, password_hash, salt, role, display_name, token, created_at}"""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO users "
+                "(id, username, password_hash, salt, role, display_name, token, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user["id"], user["username"], user["password_hash"], user["salt"],
+                 user["role"], user["display_name"], user.get("token"), user["created_at"]),
+            )
+        return user
+
+    def get_user_by_username(self, username: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE username = ?", (username,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_user_by_token(self, token: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE token = ?", (token,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_user(self, user_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_users(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()
+        return [dict(r) for r in rows]
+
+    def set_user_token(self, user_id: str, token: str | None) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE users SET token = ? WHERE id = ?", (token, user_id))
 
     # ---------------------------- templates ----------------------------
 

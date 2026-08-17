@@ -59,6 +59,7 @@ class WritingProject(BaseModel):
     template_id: str
     template_name: str = ""
     title: str = ""
+    owner_id: str = ""             # 归属用户 (空 = 旧数据, 视为公开/管理员)
     meta: dict[str, str] = {}          # 封面字段值 key -> value
     sections: list[ProjectSection] = []
     created_at: str = ""
