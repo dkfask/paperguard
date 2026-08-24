@@ -9,16 +9,25 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
+from docx import Document as DocxDocument
 from fastapi.testclient import TestClient
 
+from app.api import routes
 from app.main import app
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 
 client = TestClient(app)
+_admin_login = client.post(
+    "/api/auth/login",
+    json={"username": "admin", "password": "TestAdminPassword123"},
+)
+assert _admin_login.status_code == 200, _admin_login.text
+client.headers.update({"Authorization": f"Bearer {_admin_login.json()['token']}"})
 
 
 @pytest.fixture(scope="module")
@@ -53,6 +62,35 @@ def test_pack_detail():
 def test_pack_detail_404():
     resp = client.get("/api/packs/not-exist")
     assert resp.status_code == 404
+
+
+def test_logout_revokes_token():
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "TestAdminPassword123"},
+    )
+    token = "Bearer " + login.json()["token"]
+    resp = client.post("/api/auth/logout", headers={"Authorization": token})
+    assert resp.status_code == 200
+    assert client.get("/api/auth/me", headers={"Authorization": token}).status_code == 401
+
+
+def test_fix_rejects_filename_injection(sample_paper: bytes):
+    resp = client.post(
+        "/api/fix",
+        files={"file": ("sample_paper.docx", sample_paper, "application/octet-stream")},
+        data={"filename": "../evil.docx"},
+    )
+    assert resp.status_code == 400
+
+
+
+    resp = client.post(
+        "/api/check",
+        files={"file": ("sample_paper.docx", sample_paper, "application/octet-stream")},
+        headers={"Authorization": ""},
+    )
+    assert resp.status_code == 401
 
 
 def test_check_returns_report(sample_paper: bytes):
@@ -98,5 +136,74 @@ def test_fix_returns_new_docx(sample_paper: bytes):
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
     assert "fixed_paper.docx" in resp.headers["content-disposition"]
-    # 返回内容必须是合法的 docx (zip 魔数)
     assert resp.content[:2] == b"PK"
+    DocxDocument(io.BytesIO(resp.content))
+
+
+def test_fix_uses_default_filename(sample_paper: bytes):
+    resp = client.post(
+        "/api/fix",
+        files={"file": ("sample_paper.docx", sample_paper, "application/octet-stream")},
+    )
+    assert resp.status_code == 200
+    assert 'filename="fixed.docx"' in resp.headers["content-disposition"]
+
+
+def test_fix_rejects_non_docx():
+    resp = client.post(
+        "/api/fix",
+        files={"file": ("paper.txt", b"not a docx", "text/plain")},
+    )
+    assert resp.status_code == 400
+
+
+def test_fix_unknown_pack_404(sample_paper: bytes):
+    resp = client.post(
+        "/api/fix",
+        files={"file": ("sample_paper.docx", sample_paper, "application/octet-stream")},
+        data={"pack": "no-such-pack"},
+    )
+    assert resp.status_code == 404
+
+
+def test_fix_cleans_temp_dir_after_response(
+    sample_paper: bytes, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    tmp_dir = tmp_path / "paperguard-success"
+
+    def make_temp_dir(prefix: str) -> str:
+        tmp_dir.mkdir()
+        return str(tmp_dir)
+
+    monkeypatch.setattr(routes.tempfile, "mkdtemp", make_temp_dir)
+    resp = client.post(
+        "/api/fix",
+        files={"file": ("sample_paper.docx", sample_paper, "application/octet-stream")},
+    )
+
+    assert resp.status_code == 200
+    assert not tmp_dir.exists()
+
+
+def test_fix_cleans_temp_dir_when_processing_fails(
+    sample_paper: bytes, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    tmp_dir = tmp_path / "paperguard-error"
+
+    def make_temp_dir(prefix: str) -> str:
+        tmp_dir.mkdir()
+        return str(tmp_dir)
+
+    def fail_load_docx(path: str):
+        raise ValueError("broken document")
+
+    monkeypatch.setattr(routes.tempfile, "mkdtemp", make_temp_dir)
+    monkeypatch.setattr(routes, "load_docx", fail_load_docx)
+    resp = client.post(
+        "/api/fix",
+        files={"file": ("sample_paper.docx", sample_paper, "application/octet-stream")},
+    )
+
+    assert resp.status_code == 422
+    assert "修复失败" in resp.json()["detail"]
+    assert not tmp_dir.exists()

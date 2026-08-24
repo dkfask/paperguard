@@ -1,40 +1,30 @@
 <template>
-  <div class="writer">
+  <div v-if="loading" class="card loading-state">正在加载论文…</div>
+  <div v-else-if="loadError" class="card">
+    <div class="error-banner" role="alert">⚠ {{ loadError }}</div>
+    <button @click="loadProject">重新加载</button>
+    <button @click="$router.push('/')">返回论文列表</button>
+  </div>
+  <div v-else-if="project && template" class="writer">
     <!-- 左侧章节导航 -->
     <aside class="sidebar">
       <div class="sidebar-head">
         <span class="proj-title">{{ project.title || '未命名论文' }}</span>
-        <button class="small" @click="exportDocx" :disabled="exporting">⬇️ 导出</button>
+        <button class="small" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">⬇️ 导出</button>
       </div>
       <nav class="tree-nav">
-        <div v-for="node in templateSections" :key="node.key" class="nav-node">
-          <div class="nav-row" :class="{ active: current === node.key }" @click="select(node)">
-            <span v-if="isContentType(node.type) && node.key !== 'cover'">✍️</span>
-            <span v-else-if="node.type === 'cover'">📋</span>
-            <span class="nav-title">{{ label(node) }}</span>
-            <span v-if="isRequired(node) && !isDone(node)" class="dot" title="未完成">●</span>
-          </div>
-          <div v-if="node.children && node.children.length" class="nav-children">
-            <template v-for="child in node.children" :key="child.key">
-              <div class="nav-row child" :class="{ active: current === child.key }" @click="select(child)">
-                <span v-if="isContentType(child.type)">✍️</span>
-                <span class="nav-title">{{ label(child) }}</span>
-                <span v-if="isRequired(child) && !isDone(child)" class="dot">●</span>
-              </div>
-              <div v-if="child.children && child.children.length" class="nav-children">
-                <div v-for="grand in child.children" :key="grand.key"
-                     class="nav-row grand" :class="{ active: current === grand.key }"
-                     @click="select(grand)">
-                  <span class="nav-title">{{ label(grand) }}</span>
-                  <span v-if="isRequired(grand) && !isDone(grand)" class="dot">●</span>
-                </div>
-              </div>
-            </template>
-          </div>
+        <div v-for="node in flatTemplateSections" :key="node.key"
+             class="nav-row" :class="{ active: current === node.key }"
+             :style="{ paddingLeft: (8 + node.depth * 16) + 'px' }" @click="select(node)">
+          <span v-if="isContentType(node.type) && node.key !== 'cover'">✍️</span>
+          <span v-else-if="node.type === 'cover'">📋</span>
+          <span class="nav-title">{{ label(node) }}</span>
+          <span v-if="isRequired(node) && !isDone(node)" class="dot" title="未完成">●</span>
         </div>
       </nav>
       <div class="sidebar-foot">
         <span v-if="saving">保存中…</span>
+        <span v-else-if="dirtyCount" style="color: var(--warning); font-size: 12px">有 {{ dirtyCount }} 项待保存</span>
         <span v-else-if="savedAt" style="color: var(--muted); font-size: 12px">已保存 {{ savedAt }}</span>
         <button class="small" @click="$router.push('/')">← 返回</button>
       </div>
@@ -57,18 +47,20 @@
 
     <!-- 右侧编辑区 -->
     <section class="editor-pane">
-      <div v-if="error" class="error-banner">⚠ {{ error }}</div>
+      <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}</div>
 
       <!-- 实时格式检查面板 -->
-      <div v-if="checkResult" class="check-panel" :class="{ clean: checkResult.summary.total === 0 }">
+      <div v-if="checking || checkResult || checkError" class="check-panel" :class="{ clean: checkResult && checkResult.summary.total === 0 }">
         <div class="check-head" @click="checkOpen = !checkOpen">
           <span v-if="checking">⏳ 检查中…</span>
+          <span v-else-if="checkError">⚠ 检查失败: {{ checkError }}</span>
+          <span v-else-if="checkStale">⚠ 内容已变化, 检查结果可能过期</span>
           <span v-else-if="checkResult.summary.total === 0">✅ 格式检查通过</span>
           <span v-else>⚠ {{ checkResult.summary.total }} 个格式问题({{ checkResult.summary.error }} 错 / {{ checkResult.summary.warning }} 警)</span>
-          <button class="tiny" @click.stop="runCheckNow">🔄 重新检查</button>
+          <button class="tiny" :disabled="checking" @click.stop="runCheckNow">🔄 重新检查</button>
         </div>
-        <div v-if="checkOpen && checkResult.findings.length" class="check-list">
-          <div v-for="(f, i) in checkResult.findings" :key="i" class="check-item"
+        <div v-if="checkOpen && checkResult && checkResult.findings.length" class="check-list">
+          <div v-for="(f, i) in checkResult.findings" :key="f.rule_id + ':' + (f.section_key || '') + ':' + i" class="check-item"
                :class="'severity-' + f.severity" @click="jumpTo(f)">
             <span class="badge" :class="f.severity">{{ { error: '错', warning: '警', info: '提' }[f.severity] }}</span>
             <span class="check-msg">{{ f.message }}</span>
@@ -84,7 +76,7 @@
           <li v-for="(m, i) in missing" :key="i">{{ m }}</li>
         </ul>
         <div class="form-row" style="margin-top: 8px">
-          <button @click="exportDocx(true)">仍要导出(跳过检查)</button>
+          <button @click="exportDocx(true)" :disabled="exporting">仍要导出(跳过检查)</button>
           <button @click="missing = []">知道了</button>
         </div>
       </div>
@@ -95,10 +87,10 @@
         <p style="color: var(--muted); font-size: 14px; margin-bottom: 16px">填写封面字段, 导出时自动排版。</p>
         <div v-for="f in metaFields" :key="f.key" class="meta-row">
           <label>{{ f.label }}</label>
-          <input :value="project.meta[f.key]" @input="project.meta[f.key] = $event.target.value"
+          <input :value="project.meta[f.key]" @input="onMetaInput(f.key, $event.target.value)"
                  :placeholder="f.required ? '必填' : '选填'" />
         </div>
-        <button class="primary" @click="saveMeta">💾 保存封面信息</button>
+        <button class="primary" @click="saveMeta" :disabled="saving">💾 {{ saving ? '保存中…' : '保存封面信息' }}</button>
       </div>
 
       <!-- 标题节: 标题 + 内容块 -->
@@ -108,7 +100,7 @@
           <span class="hint">标题排版由模板锁定, 下方为本章正文(可插图片/表格)</span>
         </div>
         <input v-model="currentSection.title" class="heading-input"
-               :class="'type-' + currentSection.type" @change="saveCurrent" />
+               :class="'type-' + currentSection.type" @input="scheduleSave" />
         <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
                     :chapter="chapterOf(currentSection.key)" @change="scheduleSave" />
@@ -118,10 +110,10 @@
       <div v-else-if="currentSection">
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
-          <span class="hint">字体/字号/行距/缩进由模板自动控制, 可插入图片与表格</span>
+          <span class="hint">字体/字号/行距/缩进由模板自动控制, 可插图片/表格</span>
         </div>
         <input v-model="currentSection.title" class="heading-input" :class="'type-' + currentSection.type"
-               @change="saveCurrent" />
+               @input="scheduleSave" />
         <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
                     :chapter="chapterOf(currentSection.key)" @change="scheduleSave" />
@@ -131,67 +123,108 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import {
   fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject, checkProject,
 } from '../api'
 import BlockList from '../components/BlockList.vue'
 
 const route = useRoute()
+const router = useRouter()
 const projectId = route.params.id
 
 const project = ref(null)
 const template = ref(null)
 const current = ref('cover')
 const error = ref('')
+const loadError = ref('')
+const loading = ref(true)
 const saving = ref(false)
 const savedAt = ref('')
 const exporting = ref(false)
 const checkResult = ref(null)
 const checking = ref(false)
+const checkError = ref('')
+const checkStale = ref(false)
 const checkOpen = ref(true)
 const missing = ref([])
+const dirtyKeys = reactive(new Set())
 
-let saveTimer = null
-let checkTimer = null
+const saveTimers = new Map()
+const saveVersions = new Map()
+const pendingSaves = new Map()
+let pendingMeta = null
+let metaTimer = null
+let saveQueue = Promise.resolve()
+const inFlightSaves = new Set()
+let checkGeneration = 0
+let beforeUnloadHandler = null
+
 const chapterMap = ref({})
 const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
 
 const currentSection = computed(() => {
   if (!project.value) return null
-  if (current.value === 'cover') {
-    return { type: 'cover', key: 'cover', title: '封面' }
-  }
+  if (current.value === 'cover') return { type: 'cover', key: 'cover', title: '封面' }
   return project.value.sections.find((s) => s.key === current.value) || null
 })
 
 const metaFields = computed(() => template.value?.meta_fields || [])
-const templateSections = computed(() => template.value?.sections || [])
+const flatTemplateSections = computed(() => {
+  const result = []
+  function walk(nodes, depth = 0) {
+    for (const node of nodes || []) {
+      result.push({ ...node, depth })
+      walk(node.children, depth + 1)
+    }
+  }
+  walk(template.value?.sections)
+  return result
+})
+const dirtyCount = computed(() => dirtyKeys.size)
 
-onMounted(async () => {
+onMounted(loadProject)
+
+async function loadProject() {
+  loading.value = true
+  loadError.value = ''
+  error.value = ''
   try {
     const p = await fetchProject(projectId)
     project.value = p
-    template.value = await fetchTemplate(p.template_id)
+    template.value = p.template_snapshot
+      ? p.template_snapshot
+      : await fetchTemplate(p.template_id)
     computeChapterNumbers()
-    runCheckNow()
-  } catch (e) { error.value = e.message }
-})
+    loading.value = false
+    beforeUnloadHandler = (event) => {
+      if (dirtyCount.value || saving.value) {
+        event.preventDefault()
+        event.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', beforeUnloadHandler)
+    void runCheckNow()
+  } catch (e) {
+    loading.value = false
+    loadError.value = e.message || '论文加载失败'
+  }
+}
 
 /** 计算每个章节所属章号(一级标题/参考文献各占一章) */
 function computeChapterNumbers() {
   const map = {}
   let chapter = 0
   function walk(nodes) {
-    for (const node of nodes) {
+    for (const node of nodes || []) {
       if (node.type === 'heading1' || node.type === 'references') chapter += 1
       map[node.key] = chapter
-      walk(node.children || [])
+      walk(node.children)
     }
   }
-  walk(templateSections.value)
+  walk(template.value?.sections)
   chapterMap.value = map
 }
 
@@ -201,29 +234,14 @@ function chapterOf(key) { return chapterMap.value[key] || 0 }
 const requiredSections = computed(() =>
   (project.value?.sections || []).filter((s) => s.required && s.type !== 'cover' && s.type !== 'toc'),
 )
-
 const doneCount = computed(() => requiredSections.value.filter((s) => isDoneForSec(s)).length)
-
 const requiredCount = computed(() => requiredSections.value.length)
-
-const progressPct = computed(() => {
-  const total = requiredCount.value
-  return total ? Math.round((doneCount.value / total) * 100) : 0
-})
-
+const progressPct = computed(() => requiredCount.value ? Math.round((doneCount.value / requiredCount.value) * 100) : 0)
 const totalChars = computed(() => {
   if (!project.value) return 0
-  let n = 0
-  for (const sec of project.value.sections) {
-    n += sectionCharsOf(sec)
-  }
-  return n
+  return project.value.sections.reduce((n, sec) => n + sectionCharsOf(sec), 0)
 })
-
-const sectionChars = computed(() => {
-  const sec = currentSection.value
-  return sec ? sectionCharsOf(sec) : 0
-})
+const sectionChars = computed(() => currentSection.value ? sectionCharsOf(currentSection.value) : 0)
 
 function sectionCharsOf(sec) {
   let n = (sec.title || '').trim().length
@@ -242,109 +260,226 @@ function isDoneForSec(sec) {
     return sec.paragraphs.some((p) => {
       if (p.type === 'image') return !!(p.image && p.image.url)
       if (p.type === 'table') return !!p.table && p.table.cells.flat().some((c) => String(c).trim())
-      return p.text.trim()
+      return (p.text || '').trim()
     })
   }
   return !!sec.title && sec.title.trim() !== ''
 }
 
-function label(node) {
-  return node.title || node.key
-}
-
+function label(node) { return node.title || node.key }
 function isContentType(type) { return CONTENT_TYPES.includes(type) }
 function isHeading(type) { return HEADING_TYPES.includes(type) }
-
 function isRequired(node) {
   const sec = project.value?.sections.find((s) => s.key === node.key)
   return node.required !== false && (sec ? sec.required !== false : true)
 }
-
 function isDone(node) {
   const sec = project.value?.sections.find((s) => s.key === node.key)
   return sec ? isDoneForSec(sec) : true
 }
-
 function typeLabel(type) {
   return {
-    cover: '封面', abstract: '摘要', toc: '目录', heading1: '一级标题',
-    heading2: '二级标题', heading3: '三级标题', body: '正文', references: '参考文献',
-    acknowledgement: '致谢', appendix: '附录',
+    cover: '封面', abstract: '摘要', toc: '目录', heading1: '一级标题', heading2: '二级标题',
+    heading3: '三级标题', body: '正文', references: '参考文献', acknowledgement: '致谢', appendix: '附录',
   }[type] || type
 }
 
-function select(node) {
-  current.value = node.key
-}
-
-// ---------- 保存 ----------
-function scheduleSave() {
-  clearTimeout(saveTimer)
-  saveTimer = setTimeout(saveCurrent, 800)
-  // 内容变化后延迟触发实时检查
-  clearTimeout(checkTimer)
-  checkTimer = setTimeout(runCheckNow, 2500)
-}
-
-async function runCheckNow() {
-  if (!project.value) return
-  checking.value = true
+async function select(node) {
+  if (node.key === current.value) return
   try {
-    checkResult.value = await checkProject(projectId)
+    await flushPendingSaves()
+    current.value = node.key
+  } catch { /* 保存错误已显示, 保留当前章节 */ }
+}
+
+// ---------- 保存队列 ----------
+function clone(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+function markDirty(key) { dirtyKeys.add(key) }
+function markClean(key) { dirtyKeys.delete(key) }
+
+function scheduleSave() {
+  const sec = currentSection.value
+  if (!sec || sec.type === 'cover' || !project.value) return
+  const key = sec.key
+  const version = (saveVersions.get(key) || 0) + 1
+  saveVersions.set(key, version)
+  pendingSaves.set(key, { version, payload: clone({ title: sec.title, paragraphs: sec.paragraphs }) })
+  markDirty(key)
+  clearTimeout(saveTimers.get(key))
+  saveTimers.set(key, setTimeout(() => {
+    saveTimers.delete(key)
+    const pending = pendingSaves.get(key)
+    if (!pending) return
+    pendingSaves.delete(key)
+    enqueueSectionSave(key, pending.payload, pending.version)
+  }, 800))
+  scheduleCheck()
+}
+
+function onMetaInput(key, value) {
+  if (!project.value) return
+  project.value.meta[key] = value
+  pendingMeta = { version: (saveVersions.get('__meta') || 0) + 1, payload: clone(project.value.meta) }
+  saveVersions.set('__meta', pendingMeta.version)
+  markDirty('__meta')
+  clearTimeout(metaTimer)
+  metaTimer = setTimeout(() => {
+    metaTimer = null
+    const pending = pendingMeta
+    pendingMeta = null
+    enqueueMetaSave(pending.payload, pending.version)
+  }, 800)
+  scheduleCheck()
+}
+
+function scheduleCheck() {
+  checkStale.value = true
+  clearTimeout(scheduleCheck.timer)
+  scheduleCheck.timer = setTimeout(() => void runCheckNow(), 2500)
+}
+
+function enqueueSectionSave(key, payload, version) {
+  const task = async () => {
+    if (!project.value) return
+    saving.value = true
+    try {
+      const result = await updateProjectSection(projectId, key, payload, project.value.revision)
+      project.value.revision = result.revision
+      if (saveVersions.get(key) === version && !pendingSaves.has(key)) markClean(key)
+      savedAt.value = new Date().toLocaleTimeString()
+    } catch (e) {
+      error.value = e.message || '保存章节失败'
+      throw e
+    } finally {
+      saving.value = false
+    }
+  }
+  return enqueueSaveTask(task)
+}
+
+function enqueueMetaSave(payload, version) {
+  const task = async () => {
+    if (!project.value) return
+    saving.value = true
+    try {
+      const result = await updateProjectMeta(projectId, payload, project.value.revision)
+      project.value.revision = result.revision
+      if (saveVersions.get('__meta') === version && !pendingMeta) markClean('__meta')
+      savedAt.value = new Date().toLocaleTimeString()
+    } catch (e) {
+      error.value = e.message || '保存封面信息失败'
+      throw e
+    } finally {
+      saving.value = false
+    }
+  }
+  return enqueueSaveTask(task)
+}
+
+function enqueueSaveTask(task) {
+  const promise = saveQueue.catch(() => {}).then(task)
+  saveQueue = promise.catch(() => {})
+  inFlightSaves.add(promise)
+  promise.finally(() => inFlightSaves.delete(promise))
+  return promise
+}
+
+async function flushPendingSaves() {
+  for (const [key, pending] of pendingSaves) {
+    clearTimeout(saveTimers.get(key))
+    saveTimers.delete(key)
+    pendingSaves.delete(key)
+    enqueueSectionSave(key, pending.payload, pending.version)
+  }
+  if (metaTimer) {
+    clearTimeout(metaTimer)
+    metaTimer = null
+  }
+  if (pendingMeta) {
+    const pending = pendingMeta
+    pendingMeta = null
+    enqueueMetaSave(pending.payload, pending.version)
+  }
+  const pendingPromises = [...inFlightSaves]
+  if (pendingPromises.length) await Promise.all(pendingPromises)
+}
+
+async function saveCurrent() { scheduleSave(); await flushPendingSaves() }
+async function saveMeta() {
+  if (!project.value) return
+  clearTimeout(metaTimer)
+  metaTimer = null
+  pendingMeta = null
+  const version = (saveVersions.get('__meta') || 0) + 1
+  saveVersions.set('__meta', version)
+  markDirty('__meta')
+  await enqueueMetaSave(clone(project.value.meta), version)
+}
+
+// ---------- 实时检查 ----------
+async function runCheckNow() {
+  if (!project.value || loading.value || checking.value) return
+  const generation = ++checkGeneration
+  try {
+    await flushPendingSaves()
+  } catch {
+    checkError.value = '内容尚未保存, 请先解决保存冲突'
+    return
+  }
+  checking.value = true
+  checkError.value = ''
+  try {
+    const result = await checkProject(projectId)
+    if (generation !== checkGeneration) return
+    checkResult.value = result
+    checkStale.value = false
   } catch (e) {
-    // 检查失败不打断写作, 静默忽略
-    console.warn('实时检查失败:', e.message)
+    if (generation === checkGeneration) checkError.value = e.message || '检查失败'
   } finally {
-    checking.value = false
+    if (generation === checkGeneration) checking.value = false
   }
 }
 
-function jumpTo(f) {
-  if (f.section_key) {
-    current.value = f.section_key
-  }
-}
-
+function jumpTo(f) { if (f.section_key) current.value = f.section_key }
 function sectionTitle(key) {
   const sec = project.value?.sections.find((s) => s.key === key)
   return sec ? sec.title || key : key
 }
 
-async function saveCurrent() {
-  const sec = currentSection.value
-  if (!sec || sec.type === 'cover') return
-  saving.value = true
-  try {
-    await updateProjectSection(projectId, sec.key, {
-      title: sec.title,
-      paragraphs: sec.paragraphs,
-    })
-    savedAt.value = new Date().toLocaleTimeString()
-  } catch (e) { error.value = e.message }
-  finally { saving.value = false }
-}
-
-async function saveMeta() {
-  saving.value = true
-  try {
-    await updateProjectMeta(projectId, project.value.meta)
-    savedAt.value = new Date().toLocaleTimeString()
-  } catch (e) { error.value = e.message }
-  finally { saving.value = false }
-}
-
 async function exportDocx(force = false) {
+  if (exporting.value) return
   exporting.value = true
   error.value = ''
-  try { await exportProject(projectId, force) }
-  catch (e) {
+  missing.value = []
+  try {
+    await flushPendingSaves()
+    await exportProject(projectId, force)
+  } catch (e) {
     if (e.missing && e.missing.length) missing.value = e.missing
-    else error.value = e.message
+    else error.value = e.message || '导出失败'
+  } finally {
+    exporting.value = false
   }
-  finally { exporting.value = false }
 }
 
-onBeforeUnmount(() => { clearTimeout(saveTimer); clearTimeout(checkTimer) })
+onBeforeRouteLeave(async () => {
+  try {
+    await flushPendingSaves()
+    return true
+  } catch {
+    return false
+  }
+})
+
+onBeforeUnmount(() => {
+  for (const timer of saveTimers.values()) clearTimeout(timer)
+  clearTimeout(metaTimer)
+  clearTimeout(scheduleCheck.timer)
+  if (beforeUnloadHandler) window.removeEventListener('beforeunload', beforeUnloadHandler)
+})
 </script>
 
 <style scoped>
@@ -426,5 +561,21 @@ button.tiny.danger { color: var(--error); }
 .progress-bar { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; margin-bottom: 10px; }
 .progress-fill { height: 100%; background: var(--primary); border-radius: 999px; transition: width .3s; }
 .stats-row { display: flex; justify-content: space-between; color: var(--muted); }
-.stats-row b { color: var(--text); }
+@media (max-width: 768px) {
+  .writer { flex-direction: column; gap: 14px; }
+  .sidebar { width: 100%; position: static; max-height: none; }
+  .tree-nav { max-height: 220px; }
+  .editor-head { align-items: flex-start; flex-wrap: wrap; }
+  .meta-row { align-items: stretch; flex-direction: column; gap: 4px; }
+  .meta-row label { width: auto; }
+}
+
+@media (max-width: 480px) {
+  .sidebar-head, .sidebar-foot { gap: 8px; flex-wrap: wrap; }
+  .check-head { align-items: flex-start; flex-wrap: wrap; }
+  .check-head .tiny { margin-left: 0; }
+  .check-sec { display: none; }
+  .caption-row { align-items: stretch; flex-direction: column; gap: 4px; }
+  .caption-num { width: max-content; }
+}
 </style>

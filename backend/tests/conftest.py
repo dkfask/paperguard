@@ -15,6 +15,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+os.environ.setdefault("PAPERGUARD_ADMIN_PASSWORD", "TestAdminPassword123")
 # API 测试使用独立临时数据库
 _TEST_DB_DIR = tempfile.mkdtemp(prefix="paperguard-test-db-")
 os.environ["PAPERGUARD_DB_PATH"] = str(Path(_TEST_DB_DIR) / "test.db")

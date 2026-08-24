@@ -25,7 +25,8 @@
       <p style="color: var(--muted); font-size: 13px">
         识别到 {{ importResult.style_names.length }} 个样式:{{ importResult.style_names.join('、') }}
       </p>
-      <table class="style-table">
+      <div class="style-table-wrap">
+        <table class="style-table">
         <thead>
           <tr><th>元素</th><th>中文字体</th><th>西文字体</th><th>字号</th><th>加粗</th><th>行距</th><th>段前</th><th>段后</th><th>缩进</th><th>对齐</th></tr>
         </thead>
@@ -43,7 +44,8 @@
             <td>{{ alignLabel(s.align) }}</td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
       <div class="form-row" style="margin-top: 12px">
         <button class="primary" :disabled="saving" @click="createFromImport">
           {{ saving ? '创建中…' : '✅ 识别正确, 创建为模板' }}
@@ -119,18 +121,49 @@ async function onImportPick(e) {
   }
 }
 
+function mergeImportedSections(imported, baseSections) {
+  if (!imported.length) return baseSections
+
+  const structural = baseSections.filter((section) => ['cover', 'toc'].includes(section.type))
+  const fallbackAbstract = baseSections.find((section) => section.type === 'abstract')
+  const fallbackTail = baseSections.filter((section) => ['references', 'acknowledgement', 'appendix'].includes(section.type))
+  const normalize = (section) => {
+    const title = String(section.title || '').replace(/\s+/g, '')
+    let normalized = section
+    if (title.includes('摘要')) normalized = { ...section, key: 'abstract', type: 'abstract', required: true }
+    else if (title.includes('目录')) normalized = { ...section, key: 'toc', type: 'toc', required: true }
+    else if (title.includes('参考文献')) normalized = { ...section, key: 'references', type: 'references', required: true }
+    else if (title.includes('致谢')) normalized = { ...section, key: 'acknowledgement', type: 'acknowledgement', required: false }
+    else if (title.includes('附录')) normalized = { ...section, key: 'appendix', type: 'appendix', required: false }
+    return { ...normalized, children: (normalized.children || []).map(normalize) }
+  }
+
+  const sections = [...structural, ...imported.map(normalize)]
+  const seen = new Set()
+  if (!sections.some((section) => section.type === 'abstract') && fallbackAbstract) sections.splice(1, 0, fallbackAbstract)
+  return sections.filter((section) => {
+    if (seen.has(section.key)) return false
+    seen.add(section.key)
+    return true
+  }).concat(fallbackTail.filter((section) => !seen.has(section.key)))
+}
+
+
 async function createFromImport() {
   saving.value = true
   error.value = ''
   try {
-    // 章节结构优先用识别的 Heading 树, 识别不到才沿用内置模板
+    // 章节结构优先使用识别结果, 未识别到时沿用内置模板
     const base = await fetchTemplate('default-gb7713')
     const tpl = {
       id: '',
       name: importResult.value.filename.replace(/\.docx$/i, '') + ' (导入)',
       description: '由 Word 模板自动识别生成: ' + importResult.value.style_names.join('、'),
-      sections: (importResult.value.sections && importResult.value.sections.length)
-        ? importResult.value.sections : base.sections,
+      sections: mergeImportedSections(
+        importResult.value.sections && importResult.value.sections.length
+          ? importResult.value.sections : [],
+        base.sections,
+      ),
       meta_fields: base.meta_fields,
       styles: importResult.value.styles,
     }
@@ -164,7 +197,8 @@ function alignLabel(a) { return ALIGN_LABELS[a] || a }
   padding: 16px;
   margin-bottom: 20px;
 }
-.style-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; background: #fff; }
+.style-table-wrap { overflow-x: auto; max-width: 100%; }
+.style-table { min-width: 760px; width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; background: #fff; }
 .style-table th, .style-table td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
 .style-table th { background: #f1f5f9; color: var(--muted); font-weight: 600; }
 .readonly-tag { font-size: 13px; color: var(--muted); }

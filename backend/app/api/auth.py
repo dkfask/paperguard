@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from app.auth import (
+    public_user,
+    change_password,
     current_user,
     login_user,
     logout_user,
-    public_user,
     register_user,
     seed_admin,
 )
@@ -48,10 +49,23 @@ def login(req: LoginRequest, store: Store = Depends(get_store)) -> dict:
 
 
 @router.post("/logout")
-def logout(authorization: str | None = None, store: Store = Depends(get_store)) -> dict:
+def logout(authorization: str | None = Header(default=None), store: Store = Depends(get_store)) -> dict:
     if authorization and authorization.startswith("Bearer "):
         logout_user(store, authorization.removeprefix("Bearer ").strip())
     return {"status": "ok"}
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+def change_user_password(req: ChangePasswordRequest,
+                         user: dict = Depends(current_user),
+                         store: Store = Depends(get_store)) -> dict:
+    change_password(store, user, req.current_password, req.new_password)
+    return {"status": "ok", "message": "密码已更新, 请重新登录"}
 
 
 @router.get("/me")

@@ -19,8 +19,8 @@
       <button style="color: var(--error)" @click="$emit('remove')">✖</button>
     </div>
     <div v-if="node.children && node.children.length" class="children">
-      <section-node v-for="(child, i) in node.children" :key="i" :node="child"
-                    @remove="node.children.splice(i, 1)" />
+      <section-node v-for="child in node.children" :key="child.key" :node="child"
+                    @remove="removeChild(child.key)" />
     </div>
   </div>
 </template>
@@ -38,13 +38,29 @@ const TYPE_KEYS = {
   references: 'references', acknowledgement: 'acknowledgement', appendix: 'appendix',
 }
 
+function removeChild(key) {
+  const index = props.node.children.findIndex((child) => child.key === key)
+  if (index >= 0) props.node.children.splice(index, 1)
+}
+
 function addChild() {
   const parent = props.node
   const type = parent.type === 'heading1' ? 'heading2'
     : parent.type === 'heading2' ? 'heading3' : 'body'
   if (!parent.children) parent.children = []
+  const used = new Set()
+  function collect(nodes) {
+    for (const item of nodes || []) {
+      if (item.key) used.add(item.key)
+      collect(item.children)
+    }
+  }
+  collect(parent.children)
+  let n = parent.children.length + 1
+  let key = `${parent.key || 'sec'}_${n}`
+  while (used.has(key) || key === parent.key) key = `${parent.key || 'sec'}_${++n}`
   parent.children.push({
-    key: genKey(parent.key || 'sec', parent.children.length + 1),
+    key,
     type: TYPE_KEYS[type] || 'body',
     title: type === 'body' ? '正文' : '小节',
     required: true,
@@ -66,5 +82,11 @@ function genKey(prefix, n) {
 .title-input { padding: 6px; border: 1px solid var(--border); border-radius: 6px; flex: 1; font-size: 14px; }
 .chk { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
 .children { margin-left: 32px; padding-left: 12px; border-left: 2px solid var(--border); }
-button { font-size: 13px; padding: 4px 10px; }
+@media (max-width: 600px) {
+  .node-row { align-items: stretch; flex-wrap: wrap; }
+  .type-select { flex: 1 1 130px; min-width: 0; }
+  .title-input { flex: 1 1 180px; min-width: 0; }
+  .chk { flex: 0 0 auto; }
+  .children { margin-left: 12px; padding-left: 8px; }
+}
 </style>

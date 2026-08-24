@@ -13,6 +13,7 @@ from app.core.engine import validate_docx
 from app.core.loaders.docx_loader import load_docx
 from app.core.writers.docx_writer import write_ir_to_docx
 from app.core.writers.fix_applier import apply_all_fixes
+from app.services.docx_package_fixer import patch_docx_package
 from app.cli._fix_then_check import fix_then_check
 
 
@@ -34,8 +35,7 @@ def fix(paper: str, pack: str, output: str, skip_verify: bool, no_verify: bool) 
         if not findings:
             click.echo("No issues found. Nothing to fix.")
             sys.exit(0)
-        fixed_ir, remaining = apply_all_fixes(ir, findings)
-        write_ir_to_docx(fixed_ir, output)
+        remaining = patch_docx_package(paper, output, findings)
         click.echo(f"Fixed and written to {output}")
         verify_remaining = remaining
         if not (skip_verify or no_verify):

@@ -22,8 +22,11 @@ router.beforeEach((to) => {
   if (!auth.token && to.path !== '/login') {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
-  if (auth.token && to.path === '/login') {
+  if (auth.token && to.path === '/login' && to.query.forceChange !== '1') {
     return { path: '/' }
+  }
+  if (auth.token && auth.user?.must_change_password && to.path !== '/login') {
+    return { path: '/login', query: { forceChange: '1', redirect: to.fullPath } }
   }
 })
 

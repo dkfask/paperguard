@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel
 
 from app.api.templates import get_store
@@ -16,9 +17,11 @@ from app.auth import can_manage, current_user
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
 from app.models.project import ParagraphBlock, WritingProject
-from app.services.image_cleanup import remove_project_images, remove_removed_images
+from app.models.template import PaperTemplate
+from app.services.image_cleanup import cleanup_orphan_images, remove_project_images
 from app.services.project_validation import validate_project_completeness
 from app.services.projects import create_project_from_template
+from app.services.upload_security import IMAGE_MAX_BYTES, validate_image
 
 router = APIRouter(prefix="/api/projects")
 
@@ -53,7 +56,9 @@ def _ensure_access(proj: WritingProject, user: dict) -> None:
     """管理员/教师可访问全部; 学生仅自己的项目。"""
     if can_manage(user):
         return
-    if proj.owner_id and proj.owner_id != user["id"]:
+    if not proj.owner_id:
+        raise HTTPException(status_code=403, detail="项目归属信息缺失, 请联系管理员迁移")
+    if proj.owner_id != user["id"]:
         raise HTTPException(status_code=403, detail="无权访问该项目")
 
 
@@ -84,39 +89,55 @@ def create_project(req: CreateProjectRequest, store: Store = Depends(get_store),
 class UpdateSectionRequest(BaseModel):
     title: str | None = None
     paragraphs: list[dict] | None = None   # [{id, text, bold, italic, underline}]
+    base_revision: int | None = None
 
 
 @router.put("/{proj_id}/section/{section_key}")
 def update_section(proj_id: str, section_key: str, req: UpdateSectionRequest,
                    store: Store = Depends(get_store),
                    user: dict = Depends(current_user)) -> WritingProject:
-    """保存单个章节的内容。"""
+    """保存单个章节的内容，并以 revision 防止旧快照覆盖新内容。"""
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
+    expected_revision = proj.revision if req.base_revision is None else req.base_revision
+    if req.base_revision is not None and req.base_revision != proj.revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "项目内容已被更新, 请刷新后重试", "revision": proj.revision},
+        )
     for sec in proj.sections:
         if sec.key == section_key:
             if req.title is not None:
                 sec.title = req.title
             if req.paragraphs is not None:
-                new_pars = [_parse_par(p) for p in req.paragraphs]
-                # 删除从段落中移除的图片文件
-                remove_removed_images(proj, new_pars)
-                sec.paragraphs = new_pars
-            return store.save_project(proj)
+                parsed = [_parse_par(p, proj.id) for p in req.paragraphs]
+                sec.paragraphs = parsed
+            saved = store.update_project_if_revision(proj, expected_revision)
+            if saved is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"message": "项目内容已被更新, 请刷新后重试"},
+                )
+            return saved
     raise HTTPException(status_code=404, detail="章节不存在")
 
 
-def _parse_par(data: dict):
-    """把前端传来的内容块 dict 解析为 ParagraphBlock (兼容旧格式纯文本)。"""
+def _parse_par(data: dict, project_id: str = ""):
+    """把前端传来的内容块解析为 ParagraphBlock, 并限制图片 URL 属于当前项目。"""
     block_type = data.get("type", "paragraph")
     if block_type == "image":
+        image = data.get("image", {})
+        url = str(image.get("url", ""))
+        filename = Path(url).name
+        if url and (not url.startswith("/media/uploads/") or not filename.startswith(project_id + "-")):
+            raise HTTPException(status_code=400, detail="图片不属于当前项目")
         return ParagraphBlock(
             id=str(data.get("id", "")),
             type="image",
-            image={"url": str(data.get("image", {}).get("url", "")),
-                   "caption": str(data.get("image", {}).get("caption", ""))},
+            image={"url": url,
+                   "caption": str(image.get("caption", ""))},
         )
     if block_type == "table":
         t = data.get("table", {})
@@ -148,45 +169,76 @@ async def upload_image(proj_id: str, file: UploadFile = File(...),
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="只支持图片文件")
-
-    ext = Path(file.filename or "image.png").suffix.lower() or ".png"
+    data = file.file.read(IMAGE_MAX_BYTES + 1)
+    kind = validate_image(data, file.filename)
+    ext = {"jpeg": ".jpg", "png": ".png", "gif": ".gif", "webp": ".webp"}[kind]
     fname = f"{proj_id}-{uuid.uuid4().hex[:8]}{ext}"
     dest = _UPLOAD_DIR / fname
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        dest.write_bytes(data)
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="图片保存失败")
     return {"url": f"/media/uploads/{fname}"}
 
 
 class UpdateMetaRequest(BaseModel):
     meta: dict[str, str]
+    base_revision: int | None = None
 
 
 @router.put("/{proj_id}/meta")
 def update_meta(proj_id: str, req: UpdateMetaRequest,
                 store: Store = Depends(get_store),
                 user: dict = Depends(current_user)) -> WritingProject:
-    """保存封面元信息。"""
+    """保存封面元信息，并以 revision 防止旧快照覆盖新内容。"""
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
+    expected_revision = proj.revision if req.base_revision is None else req.base_revision
+    if req.base_revision is not None and req.base_revision != proj.revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "项目内容已被更新, 请刷新后重试", "revision": proj.revision},
+        )
     proj.meta.update(req.meta)
-    return store.save_project(proj)
+    saved = store.update_project_if_revision(proj, expected_revision)
+    if saved is None:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "项目内容已被更新, 请刷新后重试"},
+        )
+    return saved
+
+
+class UpdateProjectRequest(BaseModel):
+    title: str | None = None
+    base_revision: int | None = None
 
 
 @router.put("/{proj_id}")
-def update_project(proj_id: str, proj: WritingProject,
+def update_project(proj_id: str, req: UpdateProjectRequest,
                    store: Store = Depends(get_store),
                    user: dict = Depends(current_user)) -> WritingProject:
+    """只允许更新项目标题, 不接受客户端篡改归属或模板绑定。"""
     old = store.get_project(proj_id)
     if old is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(old, user)
-    proj.id = proj_id
-    return store.save_project(proj)
+    expected_revision = old.revision if req.base_revision is None else req.base_revision
+    if req.base_revision is not None and req.base_revision != old.revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "项目内容已被更新, 请刷新后重试", "revision": old.revision},
+        )
+    if req.title is not None:
+        old.title = req.title
+    saved = store.update_project_if_revision(old, expected_revision)
+    if saved is None:
+        raise HTTPException(status_code=409, detail={"message": "项目内容已被更新"})
+    return saved
 
 
 @router.delete("/{proj_id}", status_code=204)
@@ -196,9 +248,22 @@ def delete_project(proj_id: str, store: Store = Depends(get_store),
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
-    # 先删除项目图片文件, 再删数据库记录
-    remove_project_images(proj)
+    # 删除数据库记录后按全库引用回收, 避免误删其他项目仍使用的图片。
     store.delete_project(proj_id)
+    cleanup_orphan_images(store)
+
+
+
+def _project_template(proj: WritingProject, store: Store) -> PaperTemplate:
+    """优先使用项目创建时冻结的模板快照, 兼容旧项目回退到当前模板。"""
+    if proj.template_snapshot:
+        return PaperTemplate.model_validate(proj.template_snapshot)
+    tpl = store.get_template(proj.template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail="项目绑定的模板不存在, 请联系管理员迁移")
+    proj.template_snapshot = tpl.model_dump(mode="json")
+    store.save_project(proj)
+    return tpl
 
 
 @router.get("/{proj_id}/check")
@@ -210,11 +275,13 @@ def check_project(proj_id: str, pack: str = "GB-T-7713-1-2006",
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
-    tpl = store.get_template(proj.template_id)
-    if tpl is None:
-        raise HTTPException(status_code=404, detail="模板不存在")
+    tpl = _project_template(proj, store)
     from app.services.project_check import check_project as run_check
     return run_check(proj, tpl, pack=pack)
+
+
+def _cleanup_export(path: Path) -> None:
+    shutil.rmtree(path.parent, ignore_errors=True)
 
 
 @router.post("/{proj_id}/export")
@@ -230,9 +297,7 @@ def export_docx(proj_id: str, force: bool = False,
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
-    tpl = store.get_template(proj.template_id)
-    if tpl is None:
-        raise HTTPException(status_code=404, detail="模板不存在")
+    tpl = _project_template(proj, store)
 
     if not force:
         missing = validate_project_completeness(proj, tpl)
@@ -242,8 +307,13 @@ def export_docx(proj_id: str, force: bool = False,
                 detail={"message": "以下必填项未完成, 无法导出", "missing": missing},
             )
 
-    out = Path(tempfile.mkdtemp(prefix="paperguard-export-")) / "paper.docx"
-    export_project_to_docx(proj, tpl, str(out))
+    out_dir = Path(tempfile.mkdtemp(prefix="paperguard-export-"))
+    out = out_dir / "paper.docx"
+    try:
+        export_project_to_docx(proj, tpl, str(out))
+    except Exception:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise
     safe_title = (proj.title or "paper").replace("/", "_").replace("\\", "_")
     # 中文文件名用 RFC 5987 filename* 编码, 避免 header 编码错误
     from urllib.parse import quote
@@ -255,4 +325,5 @@ def export_docx(proj_id: str, force: bool = False,
             "Content-Disposition":
                 f'attachment; filename="{filename_ascii}"; filename*=UTF-8\'\'{quote(f"{safe_title}.docx")}'
         },
+        background=BackgroundTask(_cleanup_export, out),
     )

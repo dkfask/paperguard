@@ -7,8 +7,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-# 数据目录由 compose volume 挂载 (paperguard_data -> /app/data)
-RUN mkdir -p /app/data/uploads
+RUN addgroup --system paperguard && adduser --system --ingroup paperguard paperguard
+RUN mkdir -p /app/data/uploads && chown -R paperguard:paperguard /app
+USER paperguard
 
 EXPOSE 8000
 

@@ -3,12 +3,14 @@
     <div class="head-row">
       <h2>{{ isNew ? '新建模板' : '编辑模板' }}</h2>
       <div class="form-row" style="margin-top: 0">
-        <button class="primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '💾 保存模板' }}</button>
+        <button class="primary" :disabled="saving || loading || !!loadError" @click="save">{{ saving ? '保存中…' : '💾 保存模板' }}</button>
         <button @click="$router.push('/templates')">返回</button>
       </div>
     </div>
-    <div v-if="error" class="error-banner">⚠ {{ error }}</div>
-    <div v-if="saved" style="color: #15803d; margin-bottom: 12px">✅ 已保存</div>
+    <div v-if="loadError" class="error-banner" role="alert">⚠ {{ loadError }}</div>
+    <div v-else-if="loading" style="color: var(--muted); margin-bottom: 12px">正在加载模板…</div>
+    <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}</div>
+    <div v-if="saved" class="saved-banner" role="status" aria-live="polite">✅ 模板已保存{{ savedAt ? ` · ${savedAt}` : '' }}</div>
 
     <!-- 基本信息 -->
     <div class="form-row">
@@ -38,8 +40,8 @@
     <!-- 章节结构 -->
     <h3 style="margin: 24px 0 12px">📑 章节结构</h3>
     <div class="tree">
-      <section-node v-for="(node, i) in tpl.sections" :key="i" :node="node"
-                    :styles-keys="stylesKeys" @remove="tpl.sections.splice(i, 1)" />
+      <section-node v-for="node in tpl.sections" :key="node.key" :node="node"
+                    @remove="removeTopLevel(node.key)" />
     </div>
     <button style="margin-top: 8px" @click="addSection()">➕ 添加顶层章节</button>
 
@@ -85,14 +87,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { fetchTemplate, saveTemplate } from '../api'
 import SectionNode from '../components/SectionNode.vue'
 
 const route = useRoute()
-const tplId = route.params.id
-const isNew = tplId === 'new'
+const router = useRouter()
+const tplId = computed(() => String(route.params.id || ''))
+const isNew = computed(() => tplId.value === 'new')
 
 const STYLE_LABELS = {
   cover_title: '封面标题', cover_meta: '封面信息',
@@ -117,10 +120,15 @@ const stylesKeys = ref([])
 const collapsed = ref({})
 const error = ref('')
 const saved = ref(false)
+const savedAt = ref('')
 const saving = ref(false)
+const loadError = ref('')
+const loading = ref(false)
 
 onMounted(async () => {
-  if (isNew) {
+  loading.value = true
+  loadError.value = ''
+  if (isNew.value) {
     // 新模板: 以默认样式为起点, 一个空结构
     tpl.value.id = ''
     tpl.value.name = ''
@@ -139,15 +147,34 @@ onMounted(async () => {
     }
   } else {
     try {
-      tpl.value = await fetchTemplate(tplId)
-    } catch (e) { error.value = e.message }
+      tpl.value = await fetchTemplate(tplId.value)
+    } catch (e) {
+      loadError.value = e.message || '模板加载失败'
+    }
   }
   stylesKeys.value = Object.keys(tpl.value.styles)
   for (const k of stylesKeys.value) collapsed.value[k] = true
+  loading.value = false
 })
 
 function addSection() {
-  tpl.value.sections.push({ key: 'ch' + (tpl.value.sections.length + 1), type: 'heading1', title: '新章节', required: true, children: [] })
+  const used = new Set()
+  function collect(nodes) {
+    for (const node of nodes || []) {
+      if (node.key) used.add(node.key)
+      collect(node.children)
+    }
+  }
+  collect(tpl.value.sections)
+  let n = tpl.value.sections.length + 1
+  let key = 'ch' + n
+  while (used.has(key)) key = 'ch' + (++n)
+  tpl.value.sections.push({ key, type: 'heading1', title: '新章节', required: true, children: [] })
+}
+
+function removeTopLevel(key) {
+  const index = tpl.value.sections.findIndex((node) => node.key === key)
+  if (index >= 0) tpl.value.sections.splice(index, 1)
 }
 
 function toggleStyle(k) { collapsed.value[k] = !collapsed.value[k] }
@@ -169,19 +196,53 @@ function previewStyle(s) {
   }
 }
 
+function validateTemplate() {
+  if (!isNew.value && !tpl.value.id.trim()) return '模板 ID 不能为空'
+  if (!tpl.value.name.trim()) return '模板名称不能为空'
+  const keys = new Set()
+  let invalid = ''
+  function walk(nodes) {
+    for (const node of nodes || []) {
+      if (!node.key?.trim()) { invalid = '章节 key 不能为空'; return }
+      if (keys.has(node.key)) { invalid = `章节 key 重复: ${node.key}`; return }
+      if (!node.title?.trim()) { invalid = `章节标题不能为空: ${node.key}`; return }
+      keys.add(node.key)
+      walk(node.children)
+      if (invalid) return
+    }
+  }
+  walk(tpl.value.sections)
+  if (invalid) return invalid
+  const metaKeys = new Set()
+  for (const field of tpl.value.meta_fields) {
+    if (!field.key?.trim() || !field.label?.trim()) return '封面字段的 key 和显示名不能为空'
+    if (metaKeys.has(field.key)) return `封面字段 key 重复: ${field.key}`
+    metaKeys.add(field.key)
+  }
+  return ''
+}
+
 async function save() {
   saving.value = true; error.value = ''; saved.value = false
+  const validationError = validateTemplate()
+  if (validationError) {
+    error.value = validationError
+    saving.value = false
+    return
+  }
   try {
-    const result = await saveTemplate(tpl.value, isNew)
+    const result = await saveTemplate(tpl.value, isNew.value)
     tpl.value = result
     saved.value = true
+    savedAt.value = new Date().toLocaleTimeString()
+    if (isNew.value) router.replace('/templates/' + result.id + '/edit')
   } catch (e) { error.value = e.message }
   finally { saving.value = false }
 }
 </script>
 
 <style scoped>
-.tree { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: #fafbfc; }
+.saved-banner { color: #15803d; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
 .style-block { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
 .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; padding: 12px 0; }
 .style-grid label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }

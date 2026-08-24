@@ -4,7 +4,7 @@
 
 - **模板约束写作**:教师在线配置论文模板(章节结构 + 每类元素的字体/字号/行距/缩进/分页规则 + 封面字段),学生从零开始写作时,结构由模板生成、排版样式自动应用且不可修改,只需填写内容
 - **一键导出 docx**:写作内容按模板生成符合规范的 `.docx`,可直接提交
-- **上传检查兜底**:对已有 `.docx` 按 YAML 规则包(GB/T 7713、GB/T 7714、校规)检查并自动修复,原文件永不被修改,服务器不保存论文内容
+- **上传检查兜底**:对已有 `.docx` 按 YAML 规则包(GB/T 7713、GB/T 7714、校规)检查并自动修复,原文件永不被修改,上传文件仅在处理期间使用
 
 ## 架构
 
@@ -26,7 +26,8 @@
 ## 快速开始(本地开发)
 
 ```bash
-# 后端 (Python 3.10+)
+# 后端管理员 bootstrap 密码(至少 12 位, 含字母和数字)
+export PAPERGUARD_ADMIN_PASSWORD='请替换为强密码'
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -55,12 +56,14 @@ docker compose up -d --build
 
 # 2. 访问
 #    前端:  http://服务器IP:8080
-#    后端:  http://服务器IP:8000/api/health
+#    后端不直接暴露, 由前端 Nginx 代理 /api
 ```
 
 - 数据(论文项目 SQLite + 上传图片)持久化在 Docker volume `paperguard_data`,重建/升级容器不丢数据
-- 首次启动自动创建内置管理员 `admin / admin123`(上线后请立即修改)
-- 端口如需更改,编辑 `docker-compose.yml` 的 `8080:80` / `8000:8000` 映射
+- 首次部署前必须设置强密码环境变量 `PAPERGUARD_ADMIN_PASSWORD`(至少 12 位, 含字母和数字), 不再提供固定默认密码
+- 上传检查和自动修复需要登录; 项目与图片按用户权限隔离
+- 上传检查文件只在处理期间使用; 写作项目和图片会持久化到 Docker volume, 删除项目后按引用回收图片
+- 导出和自动修复生成的临时文件在响应完成后清理
 
 ### 反向代理(可选,HTTPS/域名)
 
@@ -108,7 +111,7 @@ paperguard fix paper.docx -o fixed.docx --pack GB-T-7713-1-2006
 
 ```bash
 cd backend
-pytest -q        # 396+ 测试: 引擎 / docx 读写 / 模板/项目 API / 导出验证
+pytest -q        # 423 个测试: 引擎 / docx 读写 / 模板/项目 API / 导出验证 / 安全回归
 ```
 
 ## 模板与规则

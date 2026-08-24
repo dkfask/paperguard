@@ -21,38 +21,32 @@ docker compose version >/dev/null 2>&1 || { echo "错误: docker compose 不可�
 
 echo "==> [2/5] 拉取最新代码"
 if [[ "${1:-}" != "--no-pull" ]]; then
-  git pull --ff-only || echo "警告: git pull 失败, 继续使用当前代码"
+  git pull --ff-only
 fi
 
 echo "==> [3/5] 构建镜像"
-if [[ "${1:-}" == "--rebuild" ]]; then
-  docker compose up -d --build
-else
-  docker compose up -d
-fi
+docker compose up -d --build
 
-echo "==> [4/5] 等待后端就绪"
-BACKEND_PORT=$(docker compose port backend 8000 2>/dev/null | sed 's/.*://' || echo 8000)
+echo "==> [4/5] 等待服务就绪"
+FRONTEND_PORT=$(docker compose port frontend 80 2>/dev/null | sed 's/.*://' || echo 8080)
 for i in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/health" >/dev/null 2>&1; then
-    echo "    后端健康检查通过 (${i}s)"
+  if curl -fsS "http://127.0.0.1:${FRONTEND_PORT}/api/health" >/dev/null 2>&1; then
+    echo "    服务健康检查通过 (${i}s)"
     break
   fi
   if [ "$i" -eq 30 ]; then
-    echo "错误: 后端 30s 内未就绪, 查看日志: docker compose logs backend"
+    echo "错误: 服务 30s 内未就绪, 查看日志: docker compose logs"
     exit 1
   fi
   sleep 1
 done
 
 echo "==> [5/5] 部署完成"
-FRONTEND_PORT=$(docker compose port frontend 80 2>/dev/null | sed 's/.*://' || echo 8080)
 IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "服务器IP")
 echo ""
 echo "  前端: http://${IP}:${FRONTEND_PORT}"
-echo "  后端: http://${IP}:${BACKEND_PORT}/api/health"
-echo "  默认管理员: admin / admin123 (上线后请立即修改)"
-echo ""
+echo "  后端通过前端反向代理提供, 不直接暴露端口"
+echo "  管理员密码由 PAPERGUARD_ADMIN_PASSWORD 配置"
 echo "  常用命令:"
 echo "    查看日志   docker compose logs -f"
 echo "    停止服务   docker compose down"

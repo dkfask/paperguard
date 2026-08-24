@@ -18,15 +18,24 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
+from app.auth import current_user
 from app.core.engine import validate_docx
 from app.core.engine.loader import load_pack, list_packs
 from app.core.loaders.docx_loader import load_docx
 from app.core.reporters.json_reporter import JSONReporter
 from app.core.writers.docx_writer import write_ir_to_docx
 from app.core.writers.fix_applier import apply_all_fixes
+from app.services.docx_package_fixer import patch_docx_package
+from app.services.upload_security import (
+    DOCX_MAX_BYTES,
+    read_limited,
+    safe_docx_filename,
+    validate_docx_bytes,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -41,14 +50,15 @@ def _load_pack_or_404(pack_id: str):
 
 
 async def _save_upload(upload: UploadFile, suffix: str = ".docx") -> Path:
-    """把上传文件写入临时目录, 返回临时路径。"""
+    """限制大小并验证 DOCX 后写入临时目录。"""
     if not upload.filename or not upload.filename.lower().endswith(suffix):
         raise HTTPException(status_code=400, detail="只支持 .docx 文件")
+    data = read_limited(upload, DOCX_MAX_BYTES)
+    validate_docx_bytes(data)
     tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-"))
     target = tmp_dir / f"upload{suffix}"
     try:
-        with target.open("wb") as f:
-            shutil.copyfileobj(upload.file, f)
+        target.write_bytes(data)
     except Exception as exc:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=400, detail=f"文件保存失败: {exc}") from exc
@@ -96,6 +106,7 @@ def pack_detail(pack_id: str) -> dict:
 async def check(
     file: UploadFile = File(...),
     pack: str = Form("GB-T-7713-1-2006"),
+    _: dict = Depends(current_user),
 ) -> dict:
     """上传 .docx, 用指定规则包检查, 返回结构化报告 (含可修复项)。"""
     _load_pack_or_404(pack)
@@ -115,20 +126,26 @@ async def fix(
     file: UploadFile = File(...),
     pack: str = Form("GB-T-7713-1-2006"),
     filename: str = Form("fixed.docx"),
+    _: dict = Depends(current_user),
 ):
     """上传 .docx, 自动修复可修复项, 返回修复后的新 .docx (原文件不受影响)。"""
     _load_pack_or_404(pack)
+    filename = safe_docx_filename(filename)
     tmp = await _save_upload(file)
     out = tmp.parent / "fixed.docx"
     try:
         ir = load_docx(str(tmp))
         findings = validate_docx(ir, pack=pack)
-        fixed_ir, _remaining = apply_all_fixes(ir, findings)
-        write_ir_to_docx(fixed_ir, str(out))
+        _remaining = patch_docx_package(tmp, out, findings)
         return StreamingResponse(
             out.open("rb"),
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "X-PaperGuard-Remaining-Fixes": str(len(_remaining)),
+            },
+            background=BackgroundTask(_cleanup, tmp),
         )
     except Exception as exc:
+        _cleanup(tmp)
         raise HTTPException(status_code=422, detail=f"修复失败: {exc}") from exc

@@ -47,12 +47,21 @@ def project_to_ir(project: WritingProject, template: PaperTemplate
             if sec.title and sec.title.strip():
                 paragraphs.append(_heading_par(sec.title, stype, template))
                 index_to_section.append(sec.key)
-            stype = "body"  # 标题下的正文段落按正文处理
+            stype = "body"
+
+        body_style = template.styles.get(stype) or template.styles.get("body")
+        style_id = {
+            "abstract": "AbstractBody",
+            "references": "Bibliography",
+            "body": "Body Text",
+            "acknowledgement": "Body Text",
+            "appendix": "Body Text",
+        }.get(stype, "Body Text")
 
         # 内容块
         for par in sec.paragraphs:
             if par.type.value == "paragraph" and par.text.strip():
-                paragraphs.append(_body_par(par.text, par, template))
+                paragraphs.append(_body_par(par.text, par, template, body_style, style_id))
                 index_to_section.append(sec.key)
             elif par.type.value == "table" and par.table:
                 for r, row in enumerate(par.table.cells):
@@ -138,10 +147,10 @@ def _heading_par(title: str, stype: str, template: PaperTemplate) -> Paragraph:
     )
 
 
-def _body_par(text: str, par, template: PaperTemplate) -> Paragraph:
-    style = template.styles.get("body") or template.styles["body"]
+def _body_par(text: str, par, template: PaperTemplate, style=None, style_id: str = "Body Text") -> Paragraph:
+    style = style or template.styles.get("body") or template.styles["body"]
     return Paragraph(
-        style_id="Body Text",
+        style_id=style_id,
         text=text,
         level=None,
         runs=(Run(
@@ -158,8 +167,8 @@ def _body_par(text: str, par, template: PaperTemplate) -> Paragraph:
         line_spacing=style.line_spacing,
         space_before_pt=style.space_before_pt,
         space_after_pt=style.space_after_pt,
-        first_line_indent_cm=0.74,
-        alignment="justify",
+        first_line_indent_cm=style.first_line_indent_chars * 0.37,
+        alignment=style.align.value,
     )
 
 

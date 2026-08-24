@@ -8,12 +8,14 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from app.db import Store
 from app.models.project import WritingProject
 
 _UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "uploads"
+_ORPHAN_GRACE_SECONDS = 24 * 60 * 60
 
 
 def _url_to_path(url: str) -> Path | None:
@@ -72,8 +74,8 @@ def remove_project_images(proj: WritingProject) -> int:
     return removed
 
 
-def cleanup_orphan_images(store: Store) -> int:
-    """删除 uploads 目录中未被任何项目引用的图片文件, 返回删除数量。"""
+def cleanup_orphan_images(store: Store, grace_seconds: int = 0) -> int:
+    """删除未被项目引用的图片; 启动清理可传入宽限期。"""
     if not _UPLOAD_DIR.exists():
         return 0
 
@@ -88,6 +90,8 @@ def cleanup_orphan_images(store: Store) -> int:
         url = f"/media/uploads/{path.name}"
         if url not in referenced:
             try:
+                if grace_seconds and time.time() - path.stat().st_mtime < grace_seconds:
+                    continue
                 path.unlink()
                 removed += 1
             except OSError:

@@ -14,6 +14,7 @@ from app.db import Store, new_id
 from app.models.template import PaperTemplate
 from app.services.import_template import extract_section_tree, import_template_styles
 from app.services.projects import default_template, seed_default_template
+from app.services.upload_security import IMPORT_MAX_BYTES, read_limited, validate_docx_bytes
 
 router = APIRouter(prefix="/api/templates")
 
@@ -47,15 +48,42 @@ def get_template(tpl_id: str, store: Store = Depends(get_store)) -> PaperTemplat
     return tpl
 
 
+def _validate_template_structure(payload: PaperTemplate) -> None:
+    keys: set[str] = set()
+    def walk(nodes) -> None:
+        for node in nodes:
+            if node.key in keys:
+                raise HTTPException(status_code=422, detail=f"章节 key 重复: {node.key}")
+            if not node.title.strip():
+                raise HTTPException(status_code=422, detail=f"章节标题不能为空: {node.key}")
+            keys.add(node.key)
+            walk(node.children)
+    walk(payload.sections)
+    fields: set[str] = set()
+    for field in payload.meta_fields:
+        if not field.key.strip() or not field.label.strip():
+            raise HTTPException(status_code=422, detail="封面字段 key 和显示名不能为空")
+        if field.key in fields:
+            raise HTTPException(status_code=422, detail=f"封面字段 key 重复: {field.key}")
+        fields.add(field.key)
+
+
+
 @router.post("", status_code=201)
-def create_template(payload: PaperTemplate, store: Store = Depends(get_store),
+def create_template(payload: dict, store: Store = Depends(get_store),
                   _: dict = Depends(require_manager)) -> PaperTemplate:
-    """创建模板。id 未指定时自动生成。"""
-    if not payload.id:
-        payload.id = new_id("tpl")
-    if store.get_template(payload.id):
+    """创建模板。id 未指定时由服务端生成。"""
+    data = dict(payload)
+    if not str(data.get("id") or "").strip():
+        data["id"] = new_id("tpl")
+    try:
+        template = PaperTemplate.model_validate(data)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"模板数据无效: {exc}") from exc
+    _validate_template_structure(template)
+    if store.get_template(template.id):
         raise HTTPException(status_code=409, detail="模板 id 已存在")
-    return store.save_template(payload)
+    return store.save_template(template)
 
 
 @router.post("/default")
@@ -76,8 +104,9 @@ async def import_docx_template(file: UploadFile = File(...),
     tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-import-"))
     path = tmp_dir / "template.docx"
     try:
-        with path.open("wb") as f:
-            shutil.copyfileobj(file.file, f)
+        data = read_limited(file, IMPORT_MAX_BYTES)
+        validate_docx_bytes(data)
+        path.write_bytes(data)
         result = import_template_styles(path)
         # 识别结果合并默认样式: 未识别到的键保留默认值, 保证返回完整样式集
         merged = {k: v.model_dump() for k, v in default_template().styles.items()}
@@ -90,6 +119,8 @@ async def import_docx_template(file: UploadFile = File(...),
             "styles": merged,
             "sections": sections,
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"模板识别失败: {exc}") from exc
     finally:
@@ -100,6 +131,7 @@ async def import_docx_template(file: UploadFile = File(...),
 def update_template(tpl_id: str, payload: PaperTemplate,
                     store: Store = Depends(get_store),
                     _: dict = Depends(require_manager)) -> PaperTemplate:
+    _validate_template_structure(payload)
     if store.get_template(tpl_id) is None:
         raise HTTPException(status_code=404, detail="模板不存在")
     payload.id = tpl_id
@@ -109,6 +141,10 @@ def update_template(tpl_id: str, payload: PaperTemplate,
 @router.delete("/{tpl_id}", status_code=204)
 def delete_template(tpl_id: str, store: Store = Depends(get_store),
                   _: dict = Depends(require_manager)) -> None:
+    if store.get_template(tpl_id) is None:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    if any(project.template_id == tpl_id for project in store.list_projects()):
+        raise HTTPException(status_code=409, detail="模板仍被论文项目使用, 无法删除")
     if not store.delete_template(tpl_id):
         raise HTTPException(status_code=404, detail="模板不存在")
 
