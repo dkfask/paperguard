@@ -13,10 +13,11 @@ from app.models.template import Align, TextStyle
 
 # Word 内置样式名 → 模板样式键
 _STYLE_KEY_MAP: dict[str, str] = {
-    "Heading 1": "heading1", "Heading1": "heading1", "heading 1": "heading1",
-    "Heading 2": "heading2", "Heading2": "heading2", "heading 2": "heading2",
-    "Heading 3": "heading3", "Heading3": "heading3", "heading 3": "heading3",
-    "Normal": "body", "正文": "body",
+    "Heading 1": "heading1", "Heading1": "heading1", "heading 1": "heading1", "1": "heading1", "标题1": "heading1", "标题 1": "heading1",
+    "Heading 2": "heading2", "Heading2": "heading2", "heading 2": "heading2", "2": "heading2", "标题2": "heading2", "标题 2": "heading2",
+    "Heading 3": "heading3", "Heading3": "heading3", "heading 3": "heading3", "3": "heading3", "标题3": "heading3", "标题 3": "heading3",
+    "Normal": "body", "正文": "body", "a": "body",
+    "Body Text First Indent": "body", "ae": "body",
     "Title": "cover_title", "BookTitle": "cover_title",
     "Abstract": "abstract", "摘要": "abstract",
     "TOCHeading": "toc",
@@ -151,9 +152,9 @@ def _attrs_to_text_style(attrs: dict[str, str]) -> TextStyle | None:
 # ---------------------------------------------------------------------------
 
 _HEADING_STYLE_IDS = {
-    "Heading1", "Heading 1", "标题1", "标题 1",
-    "Heading2", "Heading 2", "标题2", "标题 2",
-    "Heading3", "Heading 3", "标题3", "标题 3",
+    "Heading1", "Heading 1", "标题1", "标题 1", "1",
+    "Heading2", "Heading 2", "标题2", "标题 2", "2",
+    "Heading3", "Heading 3", "标题3", "标题 3", "3",
 }
 
 
@@ -164,6 +165,7 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
         TemplateSection dict 列表: [{key, type, title, required, children}, ...]
         识别不到标题段落时返回空列表。
     """
+    import re
     import zipfile
 
     import lxml.etree as etree
@@ -179,8 +181,9 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
     if body is None:
         return []
 
-    # 收集 (style_id, text)
+    # 收集 (style_id, text), 同时支持正文中的中文/数字章节标题。
     items: list[tuple[str, str]] = []
+    toc_style_ids = {"TOC1", "TOC2", "TOC3", "TOC4", "TOC5", "TOC6", "TOC7", "TOC8", "TOC9", "toc 1", "toc 2", "toc 3"}
     for p in body.iter(f"{{{W}}}p"):
         style_id = None
         ppr = p.find(f"{{{W}}}pPr")
@@ -188,11 +191,26 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
             pstyle = ppr.find(f"{{{W}}}pStyle")
             if pstyle is not None:
                 style_id = pstyle.get(f"{{{W}}}val")
-        if style_id not in _HEADING_STYLE_IDS:
+        if style_id in toc_style_ids:
             continue
         text = "".join(t.text or "" for t in p.iter(f"{{{W}}}t")).strip()
-        if text:
+        if not text:
+            continue
+        compact = re.sub(r"\s+", "", text)
+        if compact in {"摘要", "abstract"}:
+            items.append(("special-abstract", text))
+        elif compact in {"目录", "toc"}:
+            items.append(("special-toc", text))
+        elif compact == "参考文献":
+            items.append(("special-references", text))
+        elif compact == "致谢":
+            items.append(("special-acknowledgement", text))
+        elif compact == "附录":
+            items.append(("special-appendix", text))
+        elif style_id in _HEADING_STYLE_IDS:
             items.append((style_id, text))
+        elif re.match(r"^(第\s*[0-9一二三四五六七八九十百]+\s*[章节]|\d+(?:\.\d+){1,2}\s*\S+)", text, re.I):
+            items.append(("text-heading", text))
 
     if not items:
         return []
@@ -204,26 +222,45 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
     ch_counter = {"1": 0, "2": 0, "3": 0}
 
     for style_id, text in items:
-        for n, lv in level_map.items():
-            if style_id.replace(" ", "").endswith(n) or f"标题{n}" in style_id:
-                level = lv
-                break
+        if style_id.startswith("special-"):
+            special_type = {
+                "special-abstract": ("abstract", True),
+                "special-toc": ("toc", True),
+                "special-references": ("references", True),
+                "special-acknowledgement": ("acknowledgement", False),
+                "special-appendix": ("appendix", False),
+            }[style_id]
+            roots.append({
+                "key": special_type[0],
+                "type": special_type[0],
+                "title": text,
+                "required": special_type[1],
+                "children": [],
+            })
+            continue
+
+        normalized = style_id.replace(" ", "")
+        if normalized in {"1", "Heading1", "标题1"}:
+            level = 1
+        elif normalized in {"2", "Heading2", "标题2"}:
+            level = 2
+        elif normalized in {"3", "Heading3", "标题3"}:
+            level = 3
+        elif style_id == "text-heading":
+            level = 1 if re.match(r"^第\s*[0-9一二三四五六七八九十百]+\s*[章节]", text) else 2
         else:
             continue
 
         node = {
-            "key": "",   # 下面按层级生成
+            "key": "",
             "type": f"heading{level}",
             "title": text,
             "required": level == 1,
             "children": [],
         }
-
-        # 弹出比自己层级深的栈元素
         while stack and stack[-1][0] >= level:
             stack.pop()
         ch_counter[str(level)] += 1
-        # 子级计数器清零
         for n in range(level + 1, 4):
             ch_counter[str(n)] = 0
 

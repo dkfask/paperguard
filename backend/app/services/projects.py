@@ -97,6 +97,7 @@ def create_project_from_template(store: Store, template: PaperTemplate) -> Writi
         id=new_id("proj"),
         template_id=template.id,
         template_name=template.name,
+        template_snapshot=template.model_dump(mode="json"),
         title=template.name,
         meta={f.key: "" for f in template.meta_fields},
         sections=sections,

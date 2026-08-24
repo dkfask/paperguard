@@ -1,5 +1,6 @@
 <template>
   <div>
+    <div v-if="uploadError" class="error-banner" role="alert">⚠ {{ uploadError }}</div>
     <div v-for="(par, i) in paragraphs" :key="par.id" class="para-block">
       <div class="para-toolbar">
         <span class="para-no">第 {{ i + 1 }} 块</span>
@@ -25,7 +26,7 @@
       <!-- 图片块 -->
       <div v-else-if="par.type === 'image'" class="image-block">
         <div v-if="par.image && par.image.url" class="image-preview">
-          <img :src="par.image.url" alt="图片" />
+          <img :src="imageSrc(par.image.url)" alt="图片" />
           <button class="tiny" @click="replaceImage(par)">🔄 更换图片</button>
         </div>
         <div v-else class="image-upload" @click="uploadFor(par)">
@@ -72,8 +73,8 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { uploadProjectImage } from '../api'
+import { ref, reactive, onBeforeUnmount } from 'vue'
+import { getPrivateImageUrl, uploadProjectImage } from '../api'
 
 const props = defineProps({
   paragraphs: { type: Array, required: true },
@@ -85,7 +86,20 @@ const props = defineProps({
 const emit = defineEmits(['change'])
 
 const imgInput = ref(null)
+const imageUrls = reactive(new Map())
+const uploadError = ref('')
 let pendingTarget = null
+
+function imageSrc(path) {
+  if (!path || !path.startsWith('/media/')) return path
+  if (!imageUrls.has(path)) {
+    imageUrls.set(path, '')
+    getPrivateImageUrl(path).then((url) => imageUrls.set(path, url)).catch((err) => {
+      uploadError.value = err.message
+    })
+  }
+  return imageUrls.get(path) || ''
+}
 
 /** 该块在本章中的图序号(第几个图) */
 function figureIndex(i) {
@@ -173,15 +187,24 @@ function replaceImage(par) {
 async function onImagePicked(e) {
   const f = e.target.files?.[0]
   e.target.value = ''
-  if (!f || !pendingTarget) return
+  const target = pendingTarget
+  pendingTarget = null
+  if (!f || !target) return
+  uploadError.value = ''
   try {
     const { url } = await uploadProjectImage(props.projectId, f)
-    pendingTarget.image.url = url
+    target.image.url = url
     emit('change')
   } catch (err) {
-    alert('图片上传失败: ' + err.message)
+    uploadError.value = '图片上传失败: ' + err.message
   }
 }
+
+onBeforeUnmount(() => {
+  for (const url of imageUrls.values()) {
+    if (url) URL.revokeObjectURL(url)
+  }
+})
 </script>
 
 <style scoped>
@@ -218,5 +241,12 @@ button.tiny.danger { color: var(--error); }
 .cell-grid input { width: 100%; border: none; padding: 6px 8px; font-size: 13px; text-align: center; }
 .cell-grid input:focus { outline: 1px solid var(--primary); }
 
-.insert-row { display: flex; gap: 10px; margin-top: 4px; }
+.insert-row { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .para-toolbar { flex-wrap: wrap; }
+  .para-no { flex-basis: 100%; }
+  .table-size { flex-wrap: wrap; gap: 8px; }
+  .cell-grid { min-width: 520px; }
+  .table-block { overflow-x: auto; }
+}
 </style>

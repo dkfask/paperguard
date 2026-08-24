@@ -1,6 +1,6 @@
 <template>
   <div>
-    <header>
+    <header v-if="auth.token">
       <div class="brand">
         <RouterLink to="/" class="logo">📄 PaperGuard</RouterLink>
         <span class="tagline">论文格式规范约束与检查</span>
@@ -24,6 +24,7 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { auth, clearAuth } from './auth'
+import { logoutApi } from './api'
 
 const router = useRouter()
 function setTab(tab) {
@@ -35,9 +36,7 @@ function roleLabel(role) {
 }
 
 async function logout() {
-  try {
-    await fetch('/api/auth/logout', { method: 'POST' })
-  } catch { /* 忽略 */ }
+  try { await logoutApi() } catch { /* 本地会话仍需清理 */ }
   clearAuth()
   router.push('/login')
 }

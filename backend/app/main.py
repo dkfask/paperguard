@@ -5,13 +5,17 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.auth import can_manage, current_user
+from app.db import Store
+from app.services.image_cleanup import project_image_urls
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.routes import router
@@ -23,12 +27,16 @@ app = FastAPI(
     version=__version__,
 )
 
-# 开发阶段放开跨域, 允许 Vite dev server 直接调用
+_allowed_origins = [
+    origin.strip() for origin in os.environ.get(
+        "PAPERGUARD_CORS_ORIGINS", "http://localhost:5173"
+    ).split(",") if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_allowed_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(router)
@@ -36,10 +44,29 @@ app.include_router(auth_router)
 app.include_router(templates_router)
 app.include_router(projects_router)
 
-# 上传的图片等静态资源
+# 通过 API 鉴权读取项目图片, 不再公开挂载整个 uploads 目录。
 _uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
 _uploads_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/media/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+
+
+@app.get("/media/uploads/{filename}")
+def download_image(filename: str, user: dict = Depends(current_user)):
+    if Path(filename).name != filename or ".." in filename:
+        raise HTTPException(status_code=404, detail="图片不存在")
+    url = f"/media/uploads/{filename}"
+    store = Store()
+    permitted = False
+    for project in store.list_projects():
+        if url not in project_image_urls(project) and not filename.startswith(project.id + "-"):
+            continue
+        if can_manage(user) or project.owner_id == user["id"]:
+            permitted = True
+            break
+    path = _uploads_dir / filename
+    if not permitted or not path.is_file():
+        raise HTTPException(status_code=404, detail="图片不存在")
+    return FileResponse(path, headers={"X-Content-Type-Options": "nosniff"})
+
 
 
 @app.on_event("startup")
@@ -54,7 +81,7 @@ def _startup_init() -> None:
         store = Store()
         seed_admin(store)
         seed_default_template(store)
-        cleanup_orphan_images(store)
-    except Exception:
-        # 初始化失败不影响服务启动
-        pass
+        cleanup_orphan_images(store, grace_seconds=24 * 60 * 60)
+    except Exception as exc:
+        import logging
+        logging.getLogger("paperguard.startup").exception("启动初始化失败: %s", exc)

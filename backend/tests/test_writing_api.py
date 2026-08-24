@@ -20,7 +20,7 @@ FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 client = TestClient(app)
 
 # 登录内置管理员, 所有 API 请求带 token (TestClient 创建时触发 startup seed)
-_login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+_login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
 assert _login.status_code == 200, _login.text
 client.headers.update({"Authorization": f"Bearer {_login.json()['token']}"})
 
@@ -75,6 +75,16 @@ def test_create_and_update_template():
     assert client.delete("/api/templates/test-tpl").status_code == 204
 
 
+def test_create_template_generates_id_when_omitted():
+    resp = client.post("/api/templates", json={
+        "id": "",
+        "name": "导入模板测试",
+        "styles": {},
+        "sections": [{"key": "cover", "type": "cover", "title": "封面"}],
+        "meta_fields": [],
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["id"].startswith("tpl-")
 def test_create_project_instantiates_sections():
     resp = client.post("/api/projects", json={
         "template_id": "default-gb7713",
@@ -84,13 +94,10 @@ def test_create_project_instantiates_sections():
     proj = resp.json()
     assert proj["title"] == "我的论文"
     keys = [s["key"] for s in proj["sections"]]
-    # 封面由 meta 管理, 不在章节列表; 其余结构应实例化
     assert "cover" not in keys
     assert "abstract" in keys and "ch1" in keys and "ch1_1" in keys
-    # 摘要应有段落占位
     abstract = next(s for s in proj["sections"] if s["key"] == "abstract")
     assert abstract["paragraphs"]
-    # 元信息字段已初始化
     assert "author" in proj["meta"]
     return proj["id"]
 
@@ -111,6 +118,50 @@ def test_update_section_content():
     abstract = next(s for s in resp.json()["sections"] if s["key"] == "abstract")
     assert len(abstract["paragraphs"]) == 2
     assert abstract["paragraphs"][1]["bold"] is True
+
+
+def test_section_revision_conflict_does_not_overwrite():
+    """旧编辑器快照不能覆盖已经保存的新内容。"""
+    proj_id = test_create_project_instantiates_sections()
+    initial = client.get(f"/api/projects/{proj_id}").json()
+    assert initial["revision"] == 0
+
+    first = client.put(f"/api/projects/{proj_id}/section/abstract", json={
+        "base_revision": 0,
+        "title": "第一版摘要",
+        "paragraphs": [{"id": "p1", "text": "第一版内容"}],
+    })
+    assert first.status_code == 200
+    assert first.json()["revision"] == 1
+
+    stale = client.put(f"/api/projects/{proj_id}/section/abstract", json={
+        "base_revision": 0,
+        "title": "过期版本",
+        "paragraphs": [{"id": "p1", "text": "不应覆盖"}],
+    })
+    assert stale.status_code == 409
+    current = client.get(f"/api/projects/{proj_id}").json()
+    abstract = next(s for s in current["sections"] if s["key"] == "abstract")
+    assert abstract["title"] == "第一版摘要"
+    assert abstract["paragraphs"][0]["text"] == "第一版内容"
+
+
+def test_project_update_cannot_change_owner_or_template():
+    """项目更新 DTO 不允许客户端篡改归属和模板绑定。"""
+    proj_id = test_create_project_instantiates_sections()
+    before = client.get(f"/api/projects/{proj_id}").json()
+    resp = client.put(f"/api/projects/{proj_id}", json={
+        "title": "新标题",
+        "owner_id": "other-user",
+        "template_id": "other-template",
+        "sections": [],
+    })
+    assert resp.status_code == 200
+    after = resp.json()
+    assert after["title"] == "新标题"
+    assert after["owner_id"] == before["owner_id"]
+    assert after["template_id"] == before["template_id"]
+    assert after["sections"] == before["sections"]
 
 
 def test_update_meta():
@@ -175,7 +226,16 @@ def _make_image_png() -> bytes:
     )
 
 
-def test_upload_image():
+def test_upload_rejects_fake_image():
+    proj_id = test_create_project_instantiates_sections()
+    resp = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("fake.png", b"<html>not image</html>", "image/png")},
+    )
+    assert resp.status_code == 400
+
+
+
     proj_id = test_create_project_instantiates_sections()
     resp = client.post(
         f"/api/projects/{proj_id}/images",
@@ -185,7 +245,7 @@ def test_upload_image():
     url = resp.json()["url"]
     assert url.startswith("/media/uploads/")
     # 静态资源可访问
-    resp2 = client.get(url)
+    resp2 = client.get(url, headers={"Authorization": client.headers["Authorization"]})
     assert resp2.status_code == 200
     assert resp2.content[:8] == b"\x89PNG\r\n\x1a\n"
 
@@ -251,9 +311,8 @@ def test_export_docx_with_image_and_table():
     assert len(d.inline_shapes) == 1
 
 
-def test_removed_image_block_deletes_file():
-    """删除图片块后, 对应上传文件应从磁盘移除。"""
-    import os
+def test_removed_image_block_waits_for_orphan_cleanup():
+    """删除图片块后先保留文件, 由孤儿回收统一清理。"""
     from pathlib import Path
 
     proj_id = test_create_project_instantiates_sections()
@@ -263,7 +322,6 @@ def test_removed_image_block_deletes_file():
     ).json()["url"]
     fname = img.rsplit("/", 1)[-1]
 
-    # 保存含图片的章节
     client.put(f"/api/projects/{proj_id}/section/ch1", json={
         "title": "第一章", "paragraphs": [
             {"id": "img1", "type": "image", "image": {"url": img, "caption": "图 1"}},
@@ -272,13 +330,16 @@ def test_removed_image_block_deletes_file():
     uploads = Path(__file__).resolve().parents[1] / "data" / "uploads"
     assert (uploads / fname).exists(), "图片文件应已上传"
 
-    # 移除图片块再保存
     client.put(f"/api/projects/{proj_id}/section/ch1", json={
         "title": "第一章", "paragraphs": [
-            {"id": "p1", "type": "paragraph", "text": "删掉图片后的正文"},
+            {"id": "p1", "text": "删掉图片后的正文"},
         ],
     })
-    assert not (uploads / fname).exists(), "删除图片块后文件应被清理"
+    assert (uploads / fname).exists(), "章节保存不应立即删除图片"
+
+    from app.services.image_cleanup import cleanup_orphan_images
+    cleanup_orphan_images(Store())
+    assert not (uploads / fname).exists(), "孤儿回收后应清理无引用图片"
 
 
 def test_delete_project_removes_images():
@@ -431,9 +492,9 @@ def test_captions_auto_numbered():
 def test_check_project_realtime():
     """写作项目实时检查: 正文加粗违规应被检出并定位到章节。"""
     proj_id = test_create_project_instantiates_sections()
-    # 摘要节写违规内容: 正文段落加粗 (规则要求正文不加粗)
-    client.put(f"/api/projects/{proj_id}/section/abstract", json={
-        "title": "摘要",
+    # 正文段落加粗 (规则要求正文不加粗)
+    client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章 绪论",
         "paragraphs": [{"id": "p1", "type": "paragraph", "text": "不应加粗的正文。",
                         "bold": True, "italic": False, "underline": False}],
     })
@@ -443,8 +504,20 @@ def test_check_project_realtime():
     assert "summary" in data and "findings" in data
     ids = {f["rule_id"] for f in data["findings"]}
     assert ids, "应检出至少一条问题"
-    # finding 应带章节定位, 且能定位到摘要
-    assert any(f["section_key"] == "abstract" for f in data["findings"]), data["findings"]
+    assert any(f["section_key"] == "ch1" for f in data["findings"]), data["findings"]
+
+
+def test_check_project_abstract_does_not_use_body_rules():
+    """摘要不应被 GB/T 正文样式规则误报。"""
+    proj_id = test_create_project_instantiates_sections()
+    client.put(f"/api/projects/{proj_id}/section/abstract", json={
+        "title": "摘要",
+        "paragraphs": [{"id": "p1", "type": "paragraph", "text": "摘要内容。",
+                        "bold": True, "italic": False, "underline": False}],
+    })
+    resp = client.get(f"/api/projects/{proj_id}/check?pack=GB-T-7713-1-2006")
+    assert resp.status_code == 200
+    assert not any(f["section_key"] == "abstract" for f in resp.json()["findings"])
 
 
 def test_check_empty_project_ok():
@@ -467,18 +540,36 @@ def test_import_detects_section_tree():
     data = resp.json()
     sections = data["sections"]
     assert sections, "应识别出章节结构"
-    # 一级标题 required, 二级选填
-    assert sections[0]["type"] == "heading1"
-    assert sections[0]["required"] is True
-    assert sections[0]["title"].strip()
-    has_child = any(s["children"] for s in sections)
+    # 导入结果保留摘要等前置结构, 同时包含一级标题和二级标题
+    assert any(section["type"] == "abstract" for section in sections)
+    heading = next(section for section in sections if section["type"] == "heading1")
+    assert heading["required"] is True
+    assert heading["title"].strip()
+    has_child = any(s["children"] for s in sections if s["type"] == "heading1")
     if has_child:
-        child = next(s for s in sections if s["children"])["children"][0]
+        parent = next(s for s in sections if s["type"] == "heading1" and s["children"])
+        child = parent["children"][0]
         assert child["type"] == "heading2"
         assert child["required"] is False
 
 
-def test_auth_login_and_me():
+def test_import_detects_numeric_heading_style_ids():
+    """Word 自定义样式 ID 为 1/2/3 时仍应识别章节树。"""
+    fixture = FIXTURES / "templates" / "gb7713-official.docx"
+    with fixture.open("rb") as f:
+        resp = client.post(
+            "/api/templates/import",
+            files={"file": ("gb7713-official.docx", f, "application/octet-stream")},
+        )
+    assert resp.status_code == 200
+    sections = resp.json()["sections"]
+    assert sections
+    assert sections[0]["type"] == "abstract"
+    assert any(section["type"] == "heading1" for section in sections)
+    assert any(section["type"] == "references" for section in sections)
+
+
+
     """登录返回 token, /me 返回用户信息。"""
     resp = client.get("/api/auth/me")
     assert resp.status_code == 200
@@ -490,13 +581,13 @@ def test_register_and_student_isolation():
     """学生注册后: 只能看到自己的项目, 不能管理模板。"""
     # 注册学生
     resp = client.post("/api/auth/register", json={
-        "username": "stu001", "password": "pass123", "display_name": "学生一",
+        "username": "stu001", "password": "StudentPass123", "display_name": "学生一",
     })
     assert resp.status_code == 201
 
     # 学生登录
     login = client.post("/api/auth/login", json={
-        "username": "stu001", "password": "pass123",
+        "username": "stu001", "password": "StudentPass123",
     })
     assert login.status_code == 200
     student_headers = {"Authorization": f"Bearer {login.json()['token']}"}
