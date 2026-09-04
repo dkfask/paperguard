@@ -99,7 +99,7 @@ const isNew = computed(() => tplId.value === 'new')
 
 const STYLE_LABELS = {
   cover_title: '封面标题', cover_meta: '封面信息',
-  abstract: '摘要', toc: '目录', heading1: '一级标题(章)',
+  abstract: '中文摘要', english_abstract: '英文摘要', keywords: '中文关键词', english_keywords: '英文关键词', toc: '目录', heading1: '一级标题(章)',
   heading2: '二级标题(节)', heading3: '三级标题(小节)',
   body: '正文', references: '参考文献',
   acknowledgement: '致谢', appendix: '附录',

@@ -49,7 +49,19 @@ export async function checkDocx(file, pack) {
   return resp.json()
 }
 
-/** 上传 docx 并修复, 触发浏览器下载修复后的文件 */
+export async function checkDocxWithTemplate(file, template) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('template', template)
+  const resp = await api(`${API_BASE}/check-template`, { method: 'POST', body: form })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `模板检查失败 (${resp.status})`))
+  }
+  return resp.json()
+}
+
+
 export async function fixDocx(file, pack, filename) {
   const form = new FormData()
   form.append('file', file)
@@ -204,7 +216,16 @@ export async function exportProject(projectId, force = false) {
   await downloadBlob(resp, 'paper.docx')
 }
 
-/** 对写作项目实时跑格式检查 */
+export async function checkProjectTemplate(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/template-check`)
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '模板检查失败'))
+  }
+  return resp.json()
+}
+
+
 export async function checkProject(projectId, pack = 'GB-T-7713-1-2006') {
   const resp = await api(`${API_BASE}/projects/${projectId}/check?pack=${encodeURIComponent(pack)}`)
   if (!resp.ok) throw new Error('检查失败')
@@ -216,7 +237,22 @@ export async function deleteProject(projectId) {
   if (!resp.ok) throw new Error('删除项目失败')
 }
 
-/** 上传 Word 模板, 识别其中的字体/字号/行距等样式 */
+export async function stripTemplateComments(file) {
+  const form = new FormData()
+  form.append('file', file)
+  const resp = await api(`${API_BASE}/templates/strip-comments`, { method: 'POST', body: form })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '批注清理失败'))
+  }
+  await downloadBlob(resp, `${file.name.replace(/\.docx$/i, '')}-no-comments.docx`)
+  return {
+    parts: Number(resp.headers.get('x-paperguard-removed-comment-parts')) || 0,
+    anchors: Number(resp.headers.get('x-paperguard-removed-comment-anchors')) || 0,
+  }
+}
+
+
 export async function importDocxTemplate(file) {
   const form = new FormData()
   form.append('file', file)

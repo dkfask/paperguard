@@ -123,6 +123,13 @@ def _style_for(tpl: PaperTemplate | None, section_type: str,
 
 def _add_toc_field(doc: Document) -> None:
     """目录节: 插入 TOC 域, Word 打开后右键 → 更新域 生成目录。"""
+    settings = doc.settings._element
+    update_fields = settings.find(qn("w:updateFields"))
+    if update_fields is None:
+        update_fields = OxmlElement("w:updateFields")
+        settings.append(update_fields)
+    update_fields.set(qn("w:val"), "true")
+
     par = doc.add_paragraph()
     run = par.add_run()
     r = run._r
@@ -203,12 +210,13 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             _add_toc_field(doc)
             return
 
-        if node.type is SectionType.ABSTRACT:
+        if node.type in (SectionType.ABSTRACT, SectionType.ENGLISH_ABSTRACT,
+                         SectionType.KEYWORDS, SectionType.ENGLISH_KEYWORDS):
             title_style = _style_for(template, stype, node_style)
             if title_style.page_break_before:
                 doc.add_page_break()
             _add_text_paragraph(doc, node.title, title_style)
-            body_style = _style_for(template, "body", None)
+            body_style = _style_for(template, stype, node_style)
             for par in (proj_sec.paragraphs if proj_sec else []):
                 _export_paragraph(doc, par, body_style, template, numbering)
             for child in node.children:

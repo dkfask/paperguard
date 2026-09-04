@@ -55,8 +55,8 @@
           <span v-if="checking">⏳ 检查中…</span>
           <span v-else-if="checkError">⚠ 检查失败: {{ checkError }}</span>
           <span v-else-if="checkStale">⚠ 内容已变化, 检查结果可能过期</span>
-          <span v-else-if="checkResult.summary.total === 0">✅ 格式检查通过</span>
-          <span v-else>⚠ {{ checkResult.summary.total }} 个格式问题({{ checkResult.summary.error }} 错 / {{ checkResult.summary.warning }} 警)</span>
+          <span v-else-if="checkResult.context && checkResult.summary.total === 0">✅ 按模板「{{ checkResult.context.template_name }}」检查通过</span>
+          <span v-else>⚠ {{ checkResult.summary.total }} 个模板格式问题({{ checkResult.summary.error }} 错 / {{ checkResult.summary.warning }} 警)</span>
           <button class="tiny" :disabled="checking" @click.stop="runCheckNow">🔄 重新检查</button>
         </div>
         <div v-if="checkOpen && checkResult && checkResult.findings.length" class="check-list">
@@ -64,7 +64,7 @@
                :class="'severity-' + f.severity" @click="jumpTo(f)">
             <span class="badge" :class="f.severity">{{ { error: '错', warning: '警', info: '提' }[f.severity] }}</span>
             <span class="check-msg">{{ f.message }}</span>
-            <span class="check-sec" v-if="f.section_key">{{ sectionTitle(f.section_key) }} →</span>
+            <span class="check-sec" v-if="f.section_key || f.location?.section_key">{{ sectionTitle(f.section_key || f.location.section_key) }} →</span>
           </div>
         </div>
       </div>
@@ -126,7 +126,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import {
-  fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject, checkProject,
+  fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject, checkProjectTemplate,
 } from '../api'
 import BlockList from '../components/BlockList.vue'
 
@@ -162,7 +162,7 @@ let checkGeneration = 0
 let beforeUnloadHandler = null
 
 const chapterMap = ref({})
-const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract']
+const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract', 'english_abstract', 'keywords', 'english_keywords']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
 
 const currentSection = computed(() => {
@@ -279,7 +279,7 @@ function isDone(node) {
 }
 function typeLabel(type) {
   return {
-    cover: '封面', abstract: '摘要', toc: '目录', heading1: '一级标题', heading2: '二级标题',
+    cover: '封面', abstract: '中文摘要', english_abstract: '英文摘要', keywords: '中文关键词', english_keywords: '英文关键词', toc: '目录', heading1: '一级标题', heading2: '二级标题',
     heading3: '三级标题', body: '正文', references: '参考文献', acknowledgement: '致谢', appendix: '附录',
   }[type] || type
 }
@@ -432,7 +432,7 @@ async function runCheckNow() {
   checking.value = true
   checkError.value = ''
   try {
-    const result = await checkProject(projectId)
+    const result = await checkProjectTemplate(projectId)
     if (generation !== checkGeneration) return
     checkResult.value = result
     checkStale.value = false

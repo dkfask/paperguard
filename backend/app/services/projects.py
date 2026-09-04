@@ -32,6 +32,9 @@ def default_template() -> PaperTemplate:
         sections=[
             TemplateSection(key="cover", type=SectionType.COVER, title="封面", required=True),
             TemplateSection(key="abstract", type=SectionType.ABSTRACT, title="摘要", required=True),
+            TemplateSection(key="english_abstract", type=SectionType.ENGLISH_ABSTRACT, title="Abstract", required=True),
+            TemplateSection(key="keywords", type=SectionType.KEYWORDS, title="关键词", required=True),
+            TemplateSection(key="english_keywords", type=SectionType.ENGLISH_KEYWORDS, title="Key Words", required=True),
             TemplateSection(key="toc", type=SectionType.TOC, title="目录", required=True),
             TemplateSection(
                 key="ch1", type=SectionType.HEADING1, title="第一章 绪论", required=True,

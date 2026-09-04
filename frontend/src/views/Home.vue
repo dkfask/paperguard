@@ -10,21 +10,34 @@
     <section v-if="tab === 'check'">
       <div class="card">
         <h2>上传论文并检查</h2>
-        <div class="upload-zone" :class="{ dragging, disabled: checking || fixing }" @click="pickFile"
-             @dragover.prevent="dragging = true" @dragleave="dragging = false"
-             @drop.prevent="onDrop">
-          <div class="icon">📁</div>
-          <div v-if="file">{{ file.name }}</div>
-          <div v-else>点击选择或拖入 .docx 文件</div>
-          <div class="hint">仅支持 .docx;文件仅在服务器临时处理,不保存论文内容</div>
+        <div class="mode-switch" role="group" aria-label="检查模式">
+          <button :class="{ active: checkMode === 'pack' }" @click="switchCheckMode('pack')">规则包检查</button>
+          <button :class="{ active: checkMode === 'template' }" @click="switchCheckMode('template')">按上传模板检查</button>
         </div>
-        <input ref="fileInput" type="file" accept=".docx" hidden @change="onPick" />
+        <div v-if="checkMode === 'template'" class="template-check-files">
+          <div class="file-summary">规范模板: {{ templateFile?.name || '未选择' }}</div>
+          <label for="template-file" class="upload-zone compact" :class="{ disabled: checking || fixing }">
+            <div v-if="templateFile">{{ templateFile.name }}</div>
+            <div v-else>选择规范模板 .docx</div>
+          </label>
+          <input id="template-file" ref="templateInput" class="file-input-hidden" type="file" accept=".docx" :disabled="checking || fixing" @change="onTemplatePick" />
+        </div>
+        <label for="paper-file" class="upload-zone" :class="{ dragging, disabled: checking || fixing }"
+               @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="onDrop">
+          <div class="icon">📁</div>
+          <div v-if="file">论文: {{ file.name }}</div>
+          <div v-else>点击选择或拖入待检查 .docx 文件</div>
+          <div class="hint">仅支持 .docx; 文件仅在服务器临时处理, 不保存论文内容</div>
+        </label>
+        <input id="paper-file" ref="fileInput" class="file-input-hidden" type="file" accept=".docx" :disabled="checking || fixing" @change="onPick" />
         <div class="form-row">
-          <label for="pack">规则包</label>
-          <select id="pack" v-model="pack" :disabled="checking || fixing">
-            <option v-for="p in packs" :key="p" :value="p">{{ p }}</option>
-          </select>
-          <button class="primary" :disabled="!file || checking || fixing || initializing" @click="runCheck">
+          <template v-if="checkMode === 'pack'">
+            <label for="pack">规则包</label>
+            <select id="pack" v-model="pack" :disabled="checking || fixing">
+              <option v-for="p in packs" :key="p" :value="p">{{ p }}</option>
+            </select>
+          </template>
+          <button class="primary" :disabled="!file || (checkMode === 'template' && !templateFile) || checking || fixing || initializing" @click="runCheck">
             {{ checking ? '检查中…' : '开始检查' }}
           </button>
         </div>
@@ -35,14 +48,14 @@
       <div v-if="initializing" class="hint" style="margin-bottom: 16px">正在加载规则包、模板和论文项目…</div>
       <section v-if="report" class="card">
         <h2>检查结果</h2>
-        <div class="meta">文件: {{ file.name }} · 规则包: {{ pack }}</div>
+        <div class="meta">论文: {{ file.name }}<span v-if="report.context"> · 模板: {{ report.context.template_filename }} · 模板章节 {{ report.context.template_section_count }}</span><span v-else> · 规则包: {{ pack }}</span></div>
         <div class="summary-cards">
           <div class="summary-card total"><div class="num">{{ report.summary.total }}</div><div class="label">问题总数</div></div>
           <div class="summary-card error"><div class="num">{{ report.summary.error }}</div><div class="label">错误</div></div>
           <div class="summary-card warning"><div class="num">{{ report.summary.warning }}</div><div class="label">警告</div></div>
           <div class="summary-card info"><div class="num">{{ report.summary.info }}</div><div class="label">提示</div></div>
         </div>
-        <div v-if="hasFixableFindings" class="form-row fix-actions">
+        <div v-if="hasFixableFindings && checkMode === 'pack'" class="form-row fix-actions">
           <button class="fix-btn" :disabled="checking || fixing || initializing" @click="runFix" aria-live="polite">
             {{ fixing ? '修复中…' : '自动修复并下载' }}
           </button>
@@ -60,6 +73,7 @@
             </span>
           </div>
           <div class="message">{{ f.message }}</div>
+          <div class="meta" v-if="f.actual !== null || f.expected !== null">实际: {{ f.actual ?? '未设置' }} · 模板要求: {{ f.expected ?? '未设置' }}</div>
           <div class="meta" v-if="f.location.paragraph_index !== null">段落 #{{ f.location.paragraph_index }}</div>
           <span class="snippet" v-if="f.location.text_snippet">"{{ f.location.text_snippet }}"</span>
         </div>
@@ -102,13 +116,15 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import VueOfficeDocx from '@vue-office/docx'
 import '@vue-office/docx/lib/index.css'
-import { fetchPacks, checkDocx, fixDocx, fetchTemplates, fetchProjects, createProject as apiCreateProject, exportProject as apiExportProject, deleteProject as apiDeleteProject } from "../api"
+import { fetchPacks, checkDocx, checkDocxWithTemplate, fixDocx, fetchTemplates, fetchProjects, createProject as apiCreateProject, exportProject as apiExportProject, deleteProject as apiDeleteProject } from "../api"
 
 const route = useRoute()
 const router = useRouter()
 const tab = ref(route.query.tab === 'projects' ? 'projects' : 'check')
 
 const file = ref(null)
+const templateFile = ref(null)
+const checkMode = ref('pack')
 const packs = ref([])
 const pack = ref('GB-T-7713-1-2006')
 const checking = ref(false)
@@ -117,6 +133,7 @@ const report = ref(null)
 const error = ref('')
 const dragging = ref(false)
 const fileInput = ref(null)
+const templateInput = ref(null)
 
 const templates = ref([])
 const projects = ref([])
@@ -149,6 +166,25 @@ onMounted(async () => {
 
 watch(() => route.query.tab, (v) => { tab.value = v === 'projects' ? 'projects' : 'check' })
 
+function switchCheckMode(mode) {
+  checkMode.value = mode
+  report.value = null
+  error.value = ''
+  lastFixRemaining.value = null
+  if (mode === 'pack') templateFile.value = null
+}
+
+function onTemplatePick(e) {
+  const f = e.target.files?.[0]
+  e.target.value = ''
+  if (!f) return
+  if (!f.name.toLowerCase().endsWith('.docx')) { error.value = '模板只支持 .docx 文件'; return }
+  templateFile.value = f
+  error.value = ''
+  report.value = null
+}
+
+
 function pickFile() { if (!checking.value && !fixing.value) fileInput.value?.click() }
 function onPick(e) {
   const f = e.target.files?.[0]
@@ -174,10 +210,13 @@ function fixedFilename() {
 }
 
 async function runCheck() {
-  if (!file.value || checking.value || fixing.value) return
+  if (!file.value || (checkMode.value === 'template' && !templateFile.value) || checking.value || fixing.value) return
   checking.value = true; error.value = ''; report.value = null
-  try { report.value = await checkDocx(file.value, pack.value) }
-  catch (e) { error.value = e.message }
+  try {
+    report.value = checkMode.value === 'template'
+      ? await checkDocxWithTemplate(file.value, templateFile.value)
+      : await checkDocx(file.value, pack.value)
+  } catch (e) { error.value = e.message }
   finally { checking.value = false }
 }
 

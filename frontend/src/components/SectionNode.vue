@@ -3,7 +3,10 @@
     <div class="node-row">
       <select v-model="node.type" class="type-select">
         <option value="cover">封面</option>
-        <option value="abstract">摘要</option>
+        <option value="abstract">中文摘要</option>
+        <option value="english_abstract">英文摘要</option>
+        <option value="keywords">中文关键词</option>
+        <option value="english_keywords">英文关键词</option>
         <option value="toc">目录</option>
         <option value="heading1">一级标题(章)</option>
         <option value="heading2">二级标题(节)</option>
@@ -33,7 +36,7 @@ const props = defineProps({
 defineEmits(['remove'])
 
 const TYPE_KEYS = {
-  cover: 'cover', abstract: 'abstract', toc: 'toc', heading1: 'heading1',
+  cover: 'cover', abstract: 'abstract', english_abstract: 'english_abstract', keywords: 'keywords', english_keywords: 'english_keywords', toc: 'toc', heading1: 'heading1',
   heading2: 'heading2', heading3: 'heading3', body: 'body',
   references: 'references', acknowledgement: 'acknowledgement', appendix: 'appendix',
 }

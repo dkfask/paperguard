@@ -129,7 +129,15 @@ main {
 }
 
 /* 上传区 */
+.file-input-hidden { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.mode-switch button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.template-check-files { margin-bottom: 12px; }
+.upload-zone.compact { padding: 16px; margin-top: 8px; }
+.file-summary { color: var(--muted); font-size: 13px; }
+
 .upload-zone {
+  display: block;
+  width: 100%;
   border: 2px dashed var(--border);
   border-radius: 12px;
   padding: 40px 24px;
