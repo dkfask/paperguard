@@ -14,7 +14,7 @@ from click.testing import CliRunner
 from app.cli import cli
 
 
-FIXTURE = Path("tests/fixtures/sample_paper.docx")
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "sample_paper.docx"
 
 
 class TestFixLoop(unittest.TestCase):
