@@ -183,8 +183,6 @@ function onTemplatePick(e) {
   error.value = ''
   report.value = null
 }
-
-
 function pickFile() { if (!checking.value && !fixing.value) fileInput.value?.click() }
 function onPick(e) {
   const f = e.target.files?.[0]

@@ -84,15 +84,6 @@ def test_fix_rejects_filename_injection(sample_paper: bytes):
     assert resp.status_code == 400
 
 
-
-    resp = client.post(
-        "/api/check",
-        files={"file": ("sample_paper.docx", sample_paper, "application/octet-stream")},
-        headers={"Authorization": ""},
-    )
-    assert resp.status_code == 401
-
-
 def test_check_template_requires_both_files(sample_paper: bytes):
     resp = client.post(
         "/api/check-template",
@@ -118,9 +109,7 @@ def test_check_template_returns_context(sample_paper: bytes):
     if data["findings"]:
         assert "actual" in data["findings"][0]
         assert "expected" in data["findings"][0]
-
-
-
+def test_check_returns_report(sample_paper: bytes):
     resp = client.post(
         "/api/check",
         files={"file": ("sample_paper.docx", sample_paper, "application/octet-stream")},

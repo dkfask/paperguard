@@ -215,7 +215,6 @@ def _is_story_xml(name: str) -> bool:
     lower = name.lower()
     return lower == "word/document.xml" or lower.startswith("word/header") or lower.startswith("word/footer") or lower in {"word/footnotes.xml", "word/endnotes.xml"}
 
-
 def patch_docx_package(source: str | Path, output: str | Path, findings: list[Finding]) -> list[Finding]:
     """复制原始 ZIP 包，仅修改 word/document.xml，返回无法安全应用的 finding。"""
     source = Path(source)
@@ -231,6 +230,5 @@ def patch_docx_package(source: str | Path, output: str | Path, findings: list[Fi
                 data = changed_xml if info.filename == "word/document.xml" else zin.read(info.filename)
                 zout.writestr(info, data)
     return remaining
-
 
 __all__ = ["patch_docx_package", "strip_comments_from_docx"]

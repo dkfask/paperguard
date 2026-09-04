@@ -543,6 +543,7 @@ def test_project_template_check_uses_snapshot_and_context():
 def test_check_project_realtime():
     """写作项目实时检查: 正文加粗违规应被检出并定位到章节。"""
     proj_id = test_create_project_instantiates_sections()
+    # 正文段落加粗 (规则要求正文不加粗)
     client.put(f"/api/projects/{proj_id}/section/ch1", json={
         "title": "第一章 绪论",
         "paragraphs": [{"id": "p1", "type": "paragraph", "text": "不应加粗的正文。",

@@ -142,7 +142,6 @@ async function downloadWithoutComments() {
   }
 }
 
-
 function mergeImportedSections(imported, baseSections) {
   if (!imported.length) return baseSections
 

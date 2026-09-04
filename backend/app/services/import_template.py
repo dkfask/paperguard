@@ -22,6 +22,8 @@ _STYLE_KEY_MAP: dict[str, str] = {
     "AbstractHeader": "abstract", "AbstractBody": "abstract", "AbstractContent": "abstract", "摘要": "abstract",
     "Keywords": "english_keywords", "KeyWords": "english_keywords", "Key Words": "english_keywords", "英文关键词": "english_keywords",
     "关键词": "keywords",
+    "Title": "cover_title", "BookTitle": "cover_title",
+    "Abstract": "abstract", "摘要": "abstract",
     "TOCHeading": "toc",
     "References": "references", "Bibliography": "references", "参考文献": "references",
     "Acknowledgement": "acknowledgement", "致谢": "acknowledgement",
@@ -30,7 +32,7 @@ _STYLE_KEY_MAP: dict[str, str] = {
 # 只识别这些模板键, 其余 Word 样式(页眉页脚/代码等)不进入模板
 _KEEP_KEYS = {
     "heading1", "heading2", "heading3",
-    "body", "cover_title", "abstract", "toc",
+    "body", "cover_title", "abstract", "english_abstract", "keywords", "english_keywords", "toc",
     "references", "acknowledgement",
 }
 
