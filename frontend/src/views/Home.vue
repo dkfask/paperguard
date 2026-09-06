@@ -43,8 +43,6 @@
         </div>
       </div>
 
-        <div v-if="error" class="error-banner" role="alert" aria-live="polite">⚠ {{ error }}</div>
-
       <div v-if="initializing" class="hint" style="margin-bottom: 16px">正在加载规则包、模板和论文项目…</div>
       <section v-if="report" class="card">
         <h2>检查结果</h2>
@@ -156,7 +154,12 @@ onMounted(async () => {
   } else { error.value = packsResult.reason?.message || '获取规则包失败' }
   if (templatesResult.status === 'fulfilled') {
     templates.value = templatesResult.value
-    if (templates.value.length) newProjectTemplate.value = templates.value[0].id
+    if (templates.value.length) {
+      // 默认选内置模板; 其次保留用户已选项; 最后取列表第一项
+      const preferred = templates.value.find(t => t.id === 'default-gb7713')
+        || templates.value.find(t => t.id === newProjectTemplate.value)
+      newProjectTemplate.value = (preferred || templates.value[0]).id
+    }
   } else if (!error.value) { error.value = templatesResult.reason?.message || '获取模板失败' }
   if (projectsResult.status === 'fulfilled') {
     projects.value = projectsResult.value

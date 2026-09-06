@@ -284,3 +284,58 @@ export async function uploadProjectImage(projectId, file) {
   }
   return resp.json()
 }
+
+// ---------- AI 写作助手 ----------
+
+export async function aiStatus() {
+  const resp = await api(`${API_BASE}/ai/status`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '获取 AI 状态失败'))
+  return resp.json()
+}
+
+export async function getAiConfig() {
+  const resp = await api(`${API_BASE}/ai/config`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '获取 AI 配置失败'))
+  return resp.json()
+}
+
+export async function saveAiConfig(config) {
+  const resp = await api(`${API_BASE}/ai/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `保存 AI 配置失败 (${resp.status})`))
+  }
+  return resp.json()
+}
+
+export async function clearAiConfig() {
+  const resp = await api(`${API_BASE}/ai/config`, { method: 'DELETE' })
+  if (!resp.ok && resp.status !== 204) throw new Error('清除 AI 配置失败')
+}
+
+export async function testAiConfig(config) {
+  const resp = await api(`${API_BASE}/ai/config/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  })
+  if (!resp.ok) throw new Error(`测试请求失败 (${resp.status})`)
+  return resp.json()
+}
+
+export async function aiAssist(payload) {
+  const resp = await api(`${API_BASE}/ai/assist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `AI 调用失败 (${resp.status})`))
+  }
+  return resp.json()
+}

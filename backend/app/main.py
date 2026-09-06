@@ -16,10 +16,36 @@ from app import __version__
 from app.auth import can_manage, current_user
 from app.db import Store
 from app.services.image_cleanup import project_image_urls
+from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.routes import router
 from app.api.templates import router as templates_router
+
+
+def _load_dotenv() -> None:
+    """加载仓库根目录 / backend 目录下的 .env(本地 secrets, 已 gitignore)。
+
+    只填充未设置的环境变量, 已显式设置的不覆盖(测试与 CI 优先)。
+    """
+    for base in (Path(__file__).resolve().parents[2], Path(__file__).resolve().parents[1]):
+        env_file = base / ".env"
+        if not env_file.is_file():
+            continue
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and value:
+                os.environ.setdefault(key, value)
+        break
+
+
+_load_dotenv()
+
 
 app = FastAPI(
     title="PaperGuard API",
@@ -43,6 +69,7 @@ app.include_router(router)
 app.include_router(auth_router)
 app.include_router(templates_router)
 app.include_router(projects_router)
+app.include_router(ai_router)
 
 # 通过 API 鉴权读取项目图片, 不再公开挂载整个 uploads 目录。
 _uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
