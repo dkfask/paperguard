@@ -4,7 +4,9 @@
       <div class="login-logo">📄 PaperGuard</div>
       <p class="login-sub">{{ forceChange ? '首次登录请设置新密码' : (mode === 'login' ? '论文格式全流程约束系统' : '注册学生账号') }}</p>
 
-      <div v-if="error" class="error-banner">⚠ {{ error }}</div>
+      <div v-if="error" :class="noticeType === 'success' ? 'notice-banner' : 'error-banner'">
+        {{ noticeType === 'success' ? '✅' : '⚠' }} {{ error }}
+      </div>
 
       <form @submit.prevent="submit">
         <label class="field">
@@ -13,7 +15,7 @@
         </label>
         <label class="field">
           <span>密码</span>
-          <input v-model="password" type="password" autocomplete="current-password" :placeholder="mode === 'login' ? '密码' : '至少 6 位'" />
+          <input v-model="password" type="password" autocomplete="current-password" :placeholder="mode === 'login' ? '密码' : '至少 8 位'" />
         </label>
         <label v-if="forceChange" class="field">
           <span>新密码</span>
@@ -31,11 +33,11 @@
       <div v-if="!forceChange" class="login-switch">
         <template v-if="mode === 'login'">
           还没有账号?
-          <a href="#" @click.prevent="mode = 'register'">注册学生账号</a>
+          <a href="#" @click.prevent="switchMode('register')">注册学生账号</a>
         </template>
         <template v-else>
           已有账号?
-          <a href="#" @click.prevent="mode = 'login'">去登录</a>
+          <a href="#" @click.prevent="switchMode('login')">去登录</a>
         </template>
       </div>
 
@@ -59,7 +61,19 @@ const newPassword = ref('')
 const confirmPassword = ref('')
 const displayName = ref('')
 const error = ref('')
+const noticeType = ref('error')
 const loading = ref(false)
+
+function switchMode(m) {
+  mode.value = m
+  error.value = ''
+  noticeType.value = 'error'
+}
+
+function setNotice(message, type = 'error') {
+  error.value = message
+  noticeType.value = type
+}
 
 async function submit() {
   error.value = ''
@@ -70,7 +84,7 @@ async function submit() {
       await changePassword(password.value, newPassword.value)
       clearAuth()
       router.replace('/login')
-      error.value = '密码已更新, 请使用新密码重新登录'
+      setNotice('密码已更新, 请使用新密码重新登录', 'success')
       return
     }
     if (mode.value === 'login') {
@@ -105,10 +119,10 @@ async function submit() {
         throw new Error(d.detail || '注册失败')
       }
       mode.value = 'login'
-      error.value = '注册成功, 请登录'
+      setNotice('注册成功, 请登录', 'success')
     }
   } catch (e) {
-    error.value = e.message
+    setNotice(e.message)
   } finally {
     loading.value = false
   }
@@ -126,7 +140,16 @@ async function submit() {
   width: 100%; padding: 10px 12px; border: 1px solid var(--border);
   border-radius: 8px; font-size: 14px;
 }
+.notice-banner {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
 .login-switch { margin-top: 16px; font-size: 14px; color: var(--muted); }
+
 .login-switch a { color: var(--primary); text-decoration: none; }
 .login-hint { margin-top: 14px; font-size: 12px; color: #94a3b8; }
 </style>

@@ -70,6 +70,7 @@ class Store:
                     display_name TEXT NOT NULL DEFAULT '',
                     token TEXT,
                     must_change_password INTEGER NOT NULL DEFAULT 0,
+                    ai_config TEXT,
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -92,22 +93,21 @@ class Store:
                 conn.execute(
                     "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
                 )
+            if "ai_config" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN ai_config TEXT")
 
     # ------------------------------ users --------------------------------
 
     def save_user(self, user: dict) -> dict:
-        """保存用户, 兼容旧数据库中不存在的 must_change_password 字段。"""
+        """保存用户, 兼容旧数据库中不存在的 must_change_password / ai_config 字段。"""
+        sql = "INSERT OR REPLACE INTO users (id, username, password_hash, salt, role, display_name, token, must_change_password, ai_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        params = (
+            user["id"], user["username"], user["password_hash"], user["salt"],
+            user["role"], user["display_name"], user.get("token"),
+            int(user.get("must_change_password", 0)), user.get("ai_config"), user["created_at"],
+        )
         with self._connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO users "
-                "(id, username, password_hash, salt, role, display_name, token, must_change_password, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    user["id"], user["username"], user["password_hash"], user["salt"],
-                    user["role"], user["display_name"], user.get("token"),
-                    int(user.get("must_change_password", 0)), user["created_at"],
-                ),
-            )
+            conn.execute(sql, params)
         return user
 
     def get_user_by_username(self, username: str) -> dict | None:
@@ -181,6 +181,23 @@ class Store:
             conn.execute(
                 "UPDATE users SET must_change_password = ? WHERE id = ?",
                 (int(value), user_id),
+            )
+
+    def get_user_ai_config(self, user_id: str) -> dict | None:
+        user = self.get_user(user_id)
+        if not user or not user.get("ai_config"):
+            return None
+        try:
+            return json.loads(user["ai_config"])
+        except (TypeError, ValueError):
+            return None
+
+    def set_user_ai_config(self, user_id: str, cfg: dict | None) -> None:
+        payload = json.dumps(cfg, ensure_ascii=False) if cfg else None
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET ai_config = ? WHERE id = ?",
+                (payload, user_id),
             )
 
     # ---------------------------- templates ----------------------------

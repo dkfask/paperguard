@@ -27,6 +27,7 @@ from app.core.engine import validate_docx
 from app.core.engine.loader import load_pack, list_packs
 from app.core.loaders.docx_loader import load_docx
 from app.core.reporters.json_reporter import JSONReporter
+from app.services.template_compare import compare_document_to_template
 from app.core.writers.docx_writer import write_ir_to_docx
 from app.core.writers.fix_applier import apply_all_fixes
 from app.services.docx_package_fixer import patch_docx_package
@@ -100,6 +101,53 @@ def pack_detail(pack_id: str) -> dict:
             for r in pack.rules
         ],
     }
+
+
+@router.post("/check-template")
+async def check_template(
+    file: UploadFile = File(...),
+    template: UploadFile = File(...),
+    _: dict = Depends(current_user),
+) -> dict:
+    """用本次上传的 Word 模板规范检查论文 DOCX。"""
+    if not file.filename or not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="论文只支持 .docx 文件")
+    if not template.filename or not template.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="模板只支持 .docx 文件")
+    tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-template-check-"))
+    paper_path = tmp_dir / "paper.docx"
+    template_path = tmp_dir / "template.docx"
+    try:
+        paper_data = read_limited(file, DOCX_MAX_BYTES)
+        template_data = read_limited(template, DOCX_MAX_BYTES)
+        validate_docx_bytes(paper_data)
+        validate_docx_bytes(template_data)
+        paper_path.write_bytes(paper_data)
+        template_path.write_bytes(template_data)
+        from app.services.import_template import extract_section_tree, import_template_styles
+        from app.models.template import PaperTemplate
+        from app.services.projects import default_template
+        template_config = default_template().model_dump(mode="json")
+        imported_styles = import_template_styles(template_path)["styles"]
+        template_config["id"] = "uploaded-template"
+        template_config["name"] = template.filename
+        template_config["styles"].update({key: value.model_dump(mode="json") for key, value in imported_styles.items()})
+        template_config["sections"] = extract_section_tree(template_path) or template_config["sections"]
+        template_model = PaperTemplate.model_validate(template_config)
+        findings, context = compare_document_to_template(load_docx(str(paper_path)), template_model)
+        return _JSON_REPORTER._build_payload(findings, {
+            "mode": "template",
+            "paper_filename": file.filename,
+            "template_filename": template.filename,
+            "template_section_count": context.section_count,
+            "template_style_count": context.style_count,
+        })
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"模板规范检查失败: {exc}") from exc
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @router.post("/check")

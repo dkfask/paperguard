@@ -6,6 +6,9 @@ services:
       - UVICORN_HOST=0.0.0.0
       - PAPERGUARD_ADMIN_PASSWORD=${PAPERGUARD_ADMIN_PASSWORD:?请设置管理员密码}
       - PAPERGUARD_CORS_ORIGINS=${PAPERGUARD_CORS_ORIGINS:-http://localhost:8080}
+    env_file:
+      - path: .env
+        required: false
     volumes:
       # 数据持久化: 论文项目(SQLite) + 上传图片
       - paperguard_data:/app/data

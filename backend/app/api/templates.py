@@ -7,11 +7,14 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 from app.auth import require_manager
 
 from app.db import Store, new_id
 from app.models.template import PaperTemplate
+from app.services.docx_package_fixer import strip_comments_from_docx
 from app.services.import_template import extract_section_tree, import_template_styles
 from app.services.projects import default_template, seed_default_template
 from app.services.upload_security import IMPORT_MAX_BYTES, read_limited, validate_docx_bytes
@@ -93,6 +96,40 @@ def create_default_template(store: Store = Depends(get_store),
     tpl = default_template()
     store.save_template(tpl)
     return tpl
+
+
+@router.post("/strip-comments")
+async def strip_template_comments(file: UploadFile = File(...),
+                                  _: dict = Depends(require_manager)):
+    """生成删除批注后的模板副本，不修改上传原文件。"""
+    if not file.filename or not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="只支持 .docx 文件")
+    tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-strip-comments-"))
+    source = tmp_dir / "template.docx"
+    output = tmp_dir / "template-no-comments.docx"
+    try:
+        data = read_limited(file, IMPORT_MAX_BYTES)
+        validate_docx_bytes(data)
+        source.write_bytes(data)
+        counters = strip_comments_from_docx(source, output)
+        stem = Path(file.filename).stem
+        filename = f"{stem}-no-comments.docx"
+        return StreamingResponse(
+            output.open("rb"),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "X-PaperGuard-Removed-Comment-Parts": str(counters["parts"]),
+                "X-PaperGuard-Removed-Comment-Anchors": str(counters["anchors"]),
+            },
+            background=BackgroundTask(shutil.rmtree, tmp_dir, True),
+        )
+    except HTTPException:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=f"批注清理失败: {exc}") from exc
 
 
 @router.post("/import")

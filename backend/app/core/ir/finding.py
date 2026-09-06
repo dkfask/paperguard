@@ -25,6 +25,7 @@ class Location:
     section: str | None = None
     paragraph_index: int | None = None
     text_snippet: str | None = None
+    section_key: str | None = None
 
 
 @dataclass(frozen=True)

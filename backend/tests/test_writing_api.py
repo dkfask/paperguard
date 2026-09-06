@@ -85,10 +85,37 @@ def test_create_template_generates_id_when_omitted():
     })
     assert resp.status_code == 201, resp.text
     assert resp.json()["id"].startswith("tpl-")
+def test_bilingual_abstract_keywords_project_sections():
+    payload = {
+        "id": "bilingual-tpl",
+        "name": "双语模板",
+        "styles": {},
+        "sections": [
+            {"key": "cover", "type": "cover", "title": "封面"},
+            {"key": "abstract", "type": "abstract", "title": "摘 要"},
+            {"key": "english_abstract", "type": "english_abstract", "title": "Abstract"},
+            {"key": "keywords", "type": "keywords", "title": "关键词"},
+            {"key": "english_keywords", "type": "english_keywords", "title": "Key Words"},
+            {"key": "toc", "type": "toc", "title": "目录"},
+            {"key": "ch1", "type": "heading1", "title": "第一章"},
+        ],
+        "meta_fields": [],
+    }
+    created = client.post("/api/templates", json=payload)
+    assert created.status_code == 201, created.text
+    project = client.post("/api/projects", json={"template_id": "bilingual-tpl", "title": "双语论文"})
+    assert project.status_code == 201, project.text
+    keys = [section["key"] for section in project.json()["sections"]]
+    assert "abstract" in keys
+    assert "english_abstract" in keys
+    assert "keywords" in keys
+    assert "english_keywords" in keys
+    assert "toc" not in keys
+
+
 def test_create_project_instantiates_sections():
     resp = client.post("/api/projects", json={
-        "template_id": "default-gb7713",
-        "title": "我的论文",
+        "template_id": "default-gb7713", "title": "我的论文",
     })
     assert resp.status_code == 201
     proj = resp.json()
@@ -200,7 +227,19 @@ def test_export_missing_project_404():
     assert client.post("/api/projects/nonexist/export").status_code == 404
 
 
-def test_import_docx_template_detects_styles():
+def test_strip_template_comments_returns_docx():
+    fixture = FIXTURES / "templates" / "gb7713-official.docx"
+    with fixture.open("rb") as f:
+        resp = client.post(
+            "/api/templates/strip-comments",
+            files={"file": ("template.docx", f, "application/octet-stream")},
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.content[:2] == b"PK"
+    assert "template-no-comments.docx" in resp.headers["content-disposition"]
+
+
+
     """上传 docx 应识别出标题/正文的字体字号等样式。"""
     fixture = FIXTURES / "templates" / "gb7713-official.docx"
     with fixture.open("rb") as f:
@@ -436,9 +475,10 @@ def test_export_docx_has_toc_field_and_page_footer():
     assert resp.status_code == 200
     d = docx_lib.Document(io.BytesIO(resp.content))
 
-    # TOC 域存在
+    # TOC 域存在，并请求 Word 打开时自动更新
     xml = d.element.xml
     assert "TOC" in xml and "fldChar" in xml
+    assert "updateFields" in d.settings.element.xml
 
     # 标题使用 Heading 1 样式 (导航/目录可用)
     heading_paras = [p for p in d.paragraphs if p.style and "Heading 1" in (p.style.name or "")]
@@ -487,6 +527,17 @@ def test_captions_auto_numbered():
     assert "图 1.1 系统架构" in texts, texts
     assert "表 1.1 对比结果" in texts, texts   # 手填 9.9 被替换为 1.1
     assert "图 2.1 架构图" in texts, texts      # 第二章重新计数
+
+
+def test_project_template_check_uses_snapshot_and_context():
+    proj_id = test_create_project_instantiates_sections()
+    resp = client.get(f"/api/projects/{proj_id}/template-check")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["context"]["mode"] == "project-template"
+    assert data["context"]["template_name"]
+    assert "summary" in data and "findings" in data
+    assert not any(".section.cover." in finding["rule_id"] or ".section.toc." in finding["rule_id"] for finding in data["findings"])
 
 
 def test_check_project_realtime():

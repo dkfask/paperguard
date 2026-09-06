@@ -10,6 +10,14 @@
           <button class="tiny" :class="{ on: par.bold }" @click="toggle(par, 'bold')"><b>B</b></button>
           <button class="tiny" :class="{ on: par.italic }" @click="toggle(par, 'italic')"><i>I</i></button>
           <button class="tiny" :class="{ on: par.underline }" @click="toggle(par, 'underline')"><u>U</u></button>
+          <template v-if="aiEnabled">
+            <button class="tiny ai" :disabled="aiBusy" @click="emit('ai', { action: 'polish', index: i })">
+              {{ aiBusy && aiBusy.index === i && aiBusy.action === 'polish' ? '✨润色中…' : '✨润色' }}
+            </button>
+            <button class="tiny ai" :disabled="aiBusy" @click="emit('ai', { action: 'continue', index: i })">
+              {{ aiBusy && aiBusy.index === i && aiBusy.action === 'continue' ? '▶续写中…' : '▶续写' }}
+            </button>
+          </template>
         </template>
         <span v-else class="block-tag">{{ par.type === 'image' ? '🖼 图片' : '📊 表格' }}</span>
 
@@ -82,8 +90,10 @@ const props = defineProps({
   styleClass: { type: String, default: '' },
   sectionTitle: { type: String, default: '' },
   chapter: { type: Number, default: 0 },   // 所属章号(题注自动编号用)
+  aiEnabled: { type: Boolean, default: false },
+  aiBusy: { type: Object, default: null }, // { index, action } 当前 AI 处理中的块
 })
-const emit = defineEmits(['change'])
+const emit = defineEmits(['change', 'ai'])
 
 const imgInput = ref(null)
 const imageUrls = reactive(new Map())
@@ -215,6 +225,8 @@ onBeforeUnmount(() => {
 button.tiny { font-size: 12px; padding: 2px 8px; }
 button.tiny.on { background: var(--primary); color: #fff; border-color: var(--primary); }
 button.tiny.danger { color: var(--error); }
+button.tiny.ai { color: var(--primary); }
+button.tiny.ai:disabled { opacity: .55; }
 .para-text { width: 100%; border: none; padding: 10px 12px; font-size: 14px; resize: vertical; line-height: 1.6; font-family: inherit; }
 .para-text:focus { outline: none; }
 

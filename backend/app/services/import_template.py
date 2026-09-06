@@ -18,6 +18,10 @@ _STYLE_KEY_MAP: dict[str, str] = {
     "Heading 3": "heading3", "Heading3": "heading3", "heading 3": "heading3", "3": "heading3", "标题3": "heading3", "标题 3": "heading3",
     "Normal": "body", "正文": "body", "a": "body",
     "Body Text First Indent": "body", "ae": "body",
+    "Abstract": "english_abstract", "EnglishAbstract": "english_abstract", "EnglishAbstractBody": "english_abstract", "英文摘要": "english_abstract",
+    "AbstractHeader": "abstract", "AbstractBody": "abstract", "AbstractContent": "abstract", "摘要": "abstract",
+    "Keywords": "english_keywords", "KeyWords": "english_keywords", "Key Words": "english_keywords", "英文关键词": "english_keywords",
+    "关键词": "keywords",
     "Title": "cover_title", "BookTitle": "cover_title",
     "Abstract": "abstract", "摘要": "abstract",
     "TOCHeading": "toc",
@@ -28,7 +32,7 @@ _STYLE_KEY_MAP: dict[str, str] = {
 # 只识别这些模板键, 其余 Word 样式(页眉页脚/代码等)不进入模板
 _KEEP_KEYS = {
     "heading1", "heading2", "heading3",
-    "body", "cover_title", "abstract", "toc",
+    "body", "cover_title", "abstract", "english_abstract", "keywords", "english_keywords", "toc",
     "references", "acknowledgement",
 }
 
@@ -197,9 +201,15 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
         if not text:
             continue
         compact = re.sub(r"\s+", "", text)
-        if compact in {"摘要", "abstract"}:
+        if compact in {"摘要", "中文摘要"}:
             items.append(("special-abstract", text))
-        elif compact in {"目录", "toc"}:
+        elif compact in {"abstract", "englishabstract", "英文摘要", "abstractenglish"}:
+            items.append(("special-english-abstract", text))
+        elif compact.startswith("关键词"):
+            items.append(("special-keywords", text))
+        elif compact.startswith(("keywords", "keyword", "keyterms", "indexterms")):
+            items.append(("special-english-keywords", text))
+        elif compact in {"目录", "toc", "contents", "tableofcontents"} or style_id == "TOCHeading":
             items.append(("special-toc", text))
         elif compact == "参考文献":
             items.append(("special-references", text))
@@ -225,6 +235,9 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
         if style_id.startswith("special-"):
             special_type = {
                 "special-abstract": ("abstract", True),
+                "special-english-abstract": ("english_abstract", True),
+                "special-keywords": ("keywords", True),
+                "special-english-keywords": ("english_keywords", True),
                 "special-toc": ("toc", True),
                 "special-references": ("references", True),
                 "special-acknowledgement": ("acknowledgement", False),

@@ -14,7 +14,10 @@ from pydantic import BaseModel, Field
 class SectionType(str, Enum):
     """章节类型。"""
     COVER = "cover"                 # 封面
-    ABSTRACT = "abstract"           # 摘要
+    ABSTRACT = "abstract"           # 中文摘要
+    ENGLISH_ABSTRACT = "english_abstract"  # 英文摘要
+    KEYWORDS = "keywords"            # 中文关键词
+    ENGLISH_KEYWORDS = "english_keywords"  # 英文关键词
     TOC = "toc"                     # 目录(自动生成)
     HEADING1 = "heading1"           # 一级标题(章)
     HEADING2 = "heading2"           # 二级标题(节)
@@ -89,6 +92,12 @@ DEFAULT_STYLES: dict[str, TextStyle] = {
     "abstract": TextStyle(font_zh="黑体", size_pt=18.0, bold=True, align=Align.CENTER,
                           space_before_pt=24.0, space_after_pt=18.0,
                           page_break_before=True),
+    "english_abstract": TextStyle(font_zh="Times New Roman", font_en="Times New Roman", size_pt=12.0,
+                                   align=Align.JUSTIFY, line_spacing=1.5, first_line_indent_chars=2.0),
+    "keywords": TextStyle(font_zh="宋体", font_en="Times New Roman", size_pt=10.5,
+                          align=Align.JUSTIFY, line_spacing=1.5),
+    "english_keywords": TextStyle(font_zh="Times New Roman", font_en="Times New Roman", size_pt=10.5,
+                                  align=Align.LEFT, line_spacing=1.5),
     "toc": TextStyle(font_zh="黑体", size_pt=18.0, bold=True, align=Align.CENTER,
                      space_before_pt=24.0, space_after_pt=18.0, page_break_before=True),
     "heading1": TextStyle(font_zh="黑体", size_pt=18.0, bold=True, align=Align.CENTER,

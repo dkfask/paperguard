@@ -25,8 +25,8 @@ class JSONReporter:
         """把 Finding[] 序列化为结构化 JSON string."""
         return json.dumps(self._build_payload(findings), ensure_ascii=False, indent=2)
 
-    def _build_payload(self, findings: list[Finding]) -> dict:
-        return {
+    def _build_payload(self, findings: list[Finding], context: dict | None = None) -> dict:
+        payload = {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "version": "1.0",
             "tool": "PaperGuard",
@@ -38,6 +38,9 @@ class JSONReporter:
             },
             "findings": [self._finding_to_dict(f) for f in findings],
         }
+        if context:
+            payload["context"] = context
+        return payload
 
     def _finding_to_dict(self, f: Finding) -> dict:
         return {
@@ -47,7 +50,11 @@ class JSONReporter:
             "location": {
                 "paragraph_index": f.location.paragraph_index,
                 "text_snippet": f.location.text_snippet,
+                "section": f.location.section,
+                "section_key": f.location.section_key,
             },
+            "actual": f.actual,
+            "expected": f.expected,
             "fix": {
                 "action": f.fix.action,
                 "target": f.fix.target,

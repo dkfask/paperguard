@@ -20,6 +20,7 @@ from app.models.project import ParagraphBlock, WritingProject
 from app.models.template import PaperTemplate
 from app.services.image_cleanup import cleanup_orphan_images, remove_project_images
 from app.services.project_validation import validate_project_completeness
+from app.services.template_compare import compare_project_to_template
 from app.services.projects import create_project_from_template
 from app.services.upload_security import IMAGE_MAX_BYTES, validate_image
 
@@ -264,6 +265,27 @@ def _project_template(proj: WritingProject, store: Store) -> PaperTemplate:
     proj.template_snapshot = tpl.model_dump(mode="json")
     store.save_project(proj)
     return tpl
+
+
+@router.get("/{proj_id}/template-check")
+def check_project_template(proj_id: str,
+                           store: Store = Depends(get_store),
+                           user: dict = Depends(current_user)) -> dict:
+    """按项目绑定的模板快照检查写作内容。"""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    tpl = _project_template(proj, store)
+    findings, context = compare_project_to_template(proj, tpl)
+    from app.core.reporters.json_reporter import JSONReporter
+    return JSONReporter()._build_payload(findings, {
+        "mode": "project-template",
+        "project_title": proj.title,
+        "template_name": tpl.name,
+        "template_section_count": context.section_count,
+        "template_style_count": context.style_count,
+    })
 
 
 @router.get("/{proj_id}/check")

@@ -10,7 +10,10 @@
     <aside class="sidebar">
       <div class="sidebar-head">
         <span class="proj-title">{{ project.title || '未命名论文' }}</span>
-        <button class="small" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">⬇️ 导出</button>
+        <span class="head-actions">
+          <button class="small" @click="openAiSettings" title="AI 设置">✨AI</button>
+          <button class="small" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">⬇️ 导出</button>
+        </span>
       </div>
       <nav class="tree-nav">
         <div v-for="node in flatTemplateSections" :key="node.key"
@@ -55,8 +58,8 @@
           <span v-if="checking">⏳ 检查中…</span>
           <span v-else-if="checkError">⚠ 检查失败: {{ checkError }}</span>
           <span v-else-if="checkStale">⚠ 内容已变化, 检查结果可能过期</span>
-          <span v-else-if="checkResult.summary.total === 0">✅ 格式检查通过</span>
-          <span v-else>⚠ {{ checkResult.summary.total }} 个格式问题({{ checkResult.summary.error }} 错 / {{ checkResult.summary.warning }} 警)</span>
+          <span v-else-if="checkResult.context && checkResult.summary.total === 0">✅ 按模板「{{ checkResult.context.template_name }}」检查通过</span>
+          <span v-else>⚠ {{ checkResult.summary.total }} 个模板格式问题({{ checkResult.summary.error }} 错 / {{ checkResult.summary.warning }} 警)</span>
           <button class="tiny" :disabled="checking" @click.stop="runCheckNow">🔄 重新检查</button>
         </div>
         <div v-if="checkOpen && checkResult && checkResult.findings.length" class="check-list">
@@ -64,7 +67,7 @@
                :class="'severity-' + f.severity" @click="jumpTo(f)">
             <span class="badge" :class="f.severity">{{ { error: '错', warning: '警', info: '提' }[f.severity] }}</span>
             <span class="check-msg">{{ f.message }}</span>
-            <span class="check-sec" v-if="f.section_key">{{ sectionTitle(f.section_key) }} →</span>
+            <span class="check-sec" v-if="f.section_key || f.location?.section_key">{{ sectionTitle(f.section_key || f.location.section_key) }} →</span>
           </div>
         </div>
       </div>
@@ -103,7 +106,8 @@
                :class="'type-' + currentSection.type" @input="scheduleSave" />
         <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
-                    :chapter="chapterOf(currentSection.key)" @change="scheduleSave" />
+                    :chapter="chapterOf(currentSection.key)"
+                    :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
       </div>
 
       <!-- 正文节: 内容块编辑器 -->
@@ -111,12 +115,94 @@
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
           <span class="hint">字体/字号/行距/缩进由模板自动控制, 可插图片/表格</span>
+          <button v-if="aiEnabled && isAiSection(currentSection.type)" class="small ai-gen"
+                  :disabled="!!aiBusy || aiGenerating" @click="aiGenerate">
+            {{ aiGenerating ? '✨ AI 生成中…' : '✨ AI 生成' }}
+          </button>
         </div>
         <input v-model="currentSection.title" class="heading-input" :class="'type-' + currentSection.type"
                @input="scheduleSave" />
         <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
-                    :chapter="chapterOf(currentSection.key)" @change="scheduleSave" />
+                    :chapter="chapterOf(currentSection.key)"
+                    :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
+      </div>
+
+      <!-- AI 对照选择弹窗 -->
+      <div v-if="aiDiff" class="modal-mask" @click.self="cancelAiDiff">
+        <div class="modal card diff-modal">
+          <h3 style="margin-top:0; display:flex; align-items:center; gap:8px">
+            <span>{{ aiDiff.action === 'continue' ? '▶ AI 续写对照' : '✨ AI 润色对照' }}</span>
+            <span class="type-tag" style="font-size:12px; font-weight:normal">
+              第 {{ aiDiff.index + 1 }} 块
+            </span>
+          </h3>
+          <p class="hint" style="margin-top:0">
+            请审阅 AI 生成的结果。确认满意后可点击替换或追加，不满意可直接放弃保持原状。
+          </p>
+
+          <div class="diff-grid">
+            <div class="diff-pane">
+              <div class="diff-label">【原段落内容】</div>
+              <div class="diff-box original">{{ aiDiff.original }}</div>
+            </div>
+            <div class="diff-pane">
+              <div class="diff-label">
+                {{ aiDiff.action === 'continue' ? '【AI 续写新内容】' : '【AI 润色后内容】' }}
+              </div>
+              <div class="diff-box generated">{{ aiDiff.generated }}</div>
+            </div>
+          </div>
+
+          <div v-if="aiDiff.action === 'continue'" class="diff-preview-pane">
+            <div class="diff-label">【合并预览效果】</div>
+            <div class="diff-box preview">{{ aiDiff.preview }}</div>
+          </div>
+
+          <div class="form-row" style="margin-top:16px; justify-content:flex-end">
+            <button class="primary" @click="applyAiDiff">
+              {{ aiDiff.action === 'continue' ? '✔ 采纳并追加' : '✔ 采纳并替换' }}
+            </button>
+            <button @click="cancelAiDiff">✖ 放弃 (保留原样)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI 设置弹窗 -->
+      <div v-if="showAiSettings" class="modal-mask" @click.self="showAiSettings = false">
+        <div class="modal card">
+          <h3 style="margin-top:0">✨ AI 设置</h3>
+          <p class="hint" style="font-size: 13px; margin-top: 0">
+            配置自己的 OpenAI 兼容模型, 仅对本账号生效, 优先于系统默认。
+            <template v-if="aiEnabled">
+              当前: {{ aiSource === 'user' ? '自有模型' : '系统默认模型' }} ({{ aiModel }})
+            </template>
+            <template v-else>当前 AI 功能未启用</template>
+          </p>
+          <label class="field">Base URL
+            <input v-model="aiCfgForm.base_url" placeholder="如 https://api.openai.com/v1" />
+          </label>
+          <label class="field">API Key
+            <input v-model="aiCfgForm.api_key" type="password" autocomplete="new-password"
+                   :placeholder="aiCfgInfo.configured ? '已保存 ' + aiCfgInfo.api_key_masked + ' (重填可覆盖)' : '必填, 如 sk-xxx'" />
+          </label>
+          <label class="field">模型
+            <input v-model="aiCfgForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
+          </label>
+          <p v-if="aiCfgInfo.message" :class="aiCfgInfo.ok ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
+            {{ aiCfgInfo.ok ? '✅' : '⚠' }} {{ aiCfgInfo.message }}
+          </p>
+          <div class="form-row">
+            <button class="primary" :disabled="aiCfgInfo.saving" @click="saveAiCfg">
+              {{ aiCfgInfo.saving ? '保存中…' : '保存' }}
+            </button>
+            <button :disabled="aiCfgInfo.testing" @click="testAiConnection">
+              {{ aiCfgInfo.testing ? '测试中…' : '测试连接' }}
+            </button>
+            <button v-if="aiCfgInfo.configured" @click="clearAiCfg">清除自有配置</button>
+            <button @click="showAiSettings = false">关闭</button>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -126,7 +212,8 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import {
-  fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject, checkProject,
+  fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject, checkProjectTemplate,
+  aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
 } from '../api'
 import BlockList from '../components/BlockList.vue'
 
@@ -162,7 +249,7 @@ let checkGeneration = 0
 let beforeUnloadHandler = null
 
 const chapterMap = ref({})
-const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract']
+const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract', 'english_abstract', 'keywords', 'english_keywords']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
 
 const currentSection = computed(() => {
@@ -186,6 +273,208 @@ const flatTemplateSections = computed(() => {
 const dirtyCount = computed(() => dirtyKeys.size)
 
 onMounted(loadProject)
+
+// ---------- AI 写作助手 ----------
+const AI_GEN_TYPES = ['abstract', 'english_abstract', 'keywords', 'english_keywords']
+const aiEnabled = ref(false)
+const aiSource = ref(null)
+const aiModel = ref('')
+const aiBusy = ref(null)          // { index, action } 块级 AI 处理中
+const aiDiff = ref(null)          // { index, action, original, generated, preview } 差异对照选择
+const aiGenerating = ref(false)   // 章节级 AI 生成中
+const showAiSettings = ref(false)
+const aiCfgForm = reactive({ base_url: '', api_key: '', model: '' })
+const aiCfgInfo = reactive({
+  configured: false, api_key_masked: '', testing: false, saving: false, message: '', ok: null,
+})
+
+onMounted(loadAiStatus)
+
+async function loadAiStatus() {
+  try {
+    const s = await aiStatus()
+    aiEnabled.value = s.enabled
+    aiSource.value = s.source
+    aiModel.value = s.model || ''
+  } catch { aiEnabled.value = false }
+}
+
+function isAiSection(type) { return AI_GEN_TYPES.includes(type) }
+
+/** 块级 AI: 润色/续写当前块, 获得结果后展示对比确认面板 */
+async function onBlockAi({ action, index }) {
+  const sec = currentSection.value
+  if (!sec || aiBusy.value) return
+  const par = sec.paragraphs[index]
+  if (!par || par.type !== 'paragraph') return
+  const text = (par.text || '').trim()
+  if (!text) {
+    error.value = '当前块为空, 请先输入一些内容再使用 AI'
+    return
+  }
+  aiBusy.value = { index, action }
+  error.value = ''
+  try {
+    const result = await aiAssist({
+      action, text, section_title: sec.title, section_type: sec.type,
+    })
+    const generated = result.text || ''
+    const original = par.text || ''
+    aiDiff.value = {
+      index,
+      action,
+      original,
+      generated,
+      preview: action === 'continue' ? (original + (original ? '\n' : '') + generated) : generated,
+    }
+  } catch (e) {
+    error.value = e.message || 'AI 调用失败'
+  } finally {
+    aiBusy.value = null
+  }
+}
+
+/** 用户在对比面板选择采纳结果 */
+function applyAiDiff() {
+  if (!aiDiff.value) return
+  const { index, action, generated, original } = aiDiff.value
+  const sec = currentSection.value
+  if (sec && sec.paragraphs[index]) {
+    const par = sec.paragraphs[index]
+    if (action === 'continue') {
+      par.text = original + (original ? '\n' : '') + generated
+    } else {
+      par.text = generated
+    }
+    scheduleSave()
+  }
+  aiDiff.value = null
+}
+
+/** 用户放弃本次 AI 生成结果 */
+function cancelAiDiff() {
+  aiDiff.value = null
+}
+
+/** 拼接正文上下文: 除封面/目录/四个 AI 目标章节外的所有章节段落 */
+function bodyContext() {
+  const exclude = new Set([...AI_GEN_TYPES, 'cover', 'toc'])
+  const parts = []
+  for (const s of project.value?.sections || []) {
+    if (exclude.has(s.type)) continue
+    for (const p of s.paragraphs || []) {
+      if (p.type === 'paragraph' && (p.text || '').trim()) parts.push(p.text.trim())
+    }
+  }
+  return parts.join('\n')
+}
+
+/** 章节级 AI: 按正文生成 摘要/Abstract/关键词 */
+async function aiGenerate() {
+  const sec = currentSection.value
+  if (!sec || aiGenerating.value || aiBusy.value) return
+  const body = bodyContext()
+  if (body.length < 50) {
+    error.value = '正文内容太少, 请先撰写正文章节, 再回到本页生成'
+    return
+  }
+  aiGenerating.value = true
+  error.value = ''
+  try {
+    const result = await aiAssist({
+      action: sec.type === 'english_keywords' ? 'keywords' : sec.type,
+      text: body.slice(0, 11000),
+      section_title: sec.title, section_type: sec.type,
+    })
+    let first = sec.paragraphs.find((p) => p.type === 'paragraph')
+    if (!first) {
+      first = { id: `p${Date.now()}`, type: 'paragraph', text: '', bold: false, italic: false, underline: false }
+      sec.paragraphs.unshift(first)
+    }
+    first.text = result.text
+    scheduleSave()
+  } catch (e) {
+    error.value = e.message || 'AI 生成失败'
+  } finally {
+    aiGenerating.value = false
+  }
+}
+
+async function openAiSettings() {
+  showAiSettings.value = true
+  aiCfgInfo.message = ''
+  aiCfgInfo.ok = null
+  try {
+    const cfg = await getAiConfig()
+    aiCfgInfo.configured = cfg.configured
+    aiCfgInfo.api_key_masked = cfg.api_key_masked || ''
+    aiCfgForm.base_url = cfg.base_url || ''
+    aiCfgForm.model = cfg.model || ''
+    aiCfgForm.api_key = ''
+  } catch (e) {
+    aiCfgInfo.message = e.message || '读取 AI 配置失败'
+  }
+}
+
+function aiCfgFilled() { return !!(aiCfgForm.base_url && aiCfgForm.api_key && aiCfgForm.model) }
+
+async function testAiConnection() {
+  if (!aiCfgFilled()) {
+    aiCfgInfo.ok = false
+    aiCfgInfo.message = '请先填写完整 Base URL / API Key / 模型'
+    return
+  }
+  aiCfgInfo.testing = true
+  aiCfgInfo.message = ''
+  try {
+    const r = await testAiConfig({ ...aiCfgForm })
+    aiCfgInfo.ok = r.ok
+    aiCfgInfo.message = r.ok ? `连接成功 (模型: ${r.model})` : (r.error || '连接失败')
+  } catch (e) {
+    aiCfgInfo.ok = false
+    aiCfgInfo.message = e.message || '测试失败'
+  } finally {
+    aiCfgInfo.testing = false
+  }
+}
+
+async function saveAiCfg() {
+  if (!aiCfgFilled()) {
+    aiCfgInfo.ok = false
+    aiCfgInfo.message = '请填写完整 Base URL / API Key / 模型'
+    return
+  }
+  aiCfgInfo.saving = true
+  aiCfgInfo.message = ''
+  try {
+    await saveAiConfig({ ...aiCfgForm })
+    aiCfgInfo.configured = true
+    aiCfgInfo.ok = true
+    aiCfgInfo.message = '已保存, 现在使用你自己的模型'
+    await loadAiStatus()
+  } catch (e) {
+    aiCfgInfo.ok = false
+    aiCfgInfo.message = e.message || '保存失败'
+  } finally {
+    aiCfgInfo.saving = false
+  }
+}
+
+async function clearAiCfg() {
+  try {
+    await clearAiConfig()
+    await loadAiStatus()
+    aiCfgInfo.configured = false
+    aiCfgForm.base_url = ''
+    aiCfgForm.model = ''
+    aiCfgForm.api_key = ''
+    aiCfgInfo.ok = true
+    aiCfgInfo.message = '已清除自有配置, 恢复使用系统默认模型(若已配置)'
+  } catch (e) {
+    aiCfgInfo.ok = false
+    aiCfgInfo.message = e.message || '清除失败'
+  }
+}
 
 async function loadProject() {
   loading.value = true
@@ -279,7 +568,7 @@ function isDone(node) {
 }
 function typeLabel(type) {
   return {
-    cover: '封面', abstract: '摘要', toc: '目录', heading1: '一级标题', heading2: '二级标题',
+    cover: '封面', abstract: '中文摘要', english_abstract: '英文摘要', keywords: '中文关键词', english_keywords: '英文关键词', toc: '目录', heading1: '一级标题', heading2: '二级标题',
     heading3: '三级标题', body: '正文', references: '参考文献', acknowledgement: '致谢', appendix: '附录',
   }[type] || type
 }
@@ -432,7 +721,7 @@ async function runCheckNow() {
   checking.value = true
   checkError.value = ''
   try {
-    const result = await checkProject(projectId)
+    const result = await checkProjectTemplate(projectId)
     if (generation !== checkGeneration) return
     checkResult.value = result
     checkStale.value = false
@@ -490,6 +779,28 @@ onBeforeUnmount(() => {
   display: flex; flex-direction: column;
 }
 .sidebar-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.head-actions { display: flex; gap: 6px; }
+.ai-gen { margin-left: auto; }
+
+/* AI 设置与对比弹窗 */
+.modal-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.modal { width: min(480px, 92vw); text-align: left; max-height: 88vh; overflow-y: auto; }
+.modal.diff-modal { width: min(720px, 94vw); }
+.diff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.diff-pane { display: flex; flex-direction: column; gap: 6px; }
+.diff-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.diff-box {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  font-size: 13px; line-height: 1.6; max-height: 240px; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-word; font-family: inherit;
+}
+.diff-box.original { background: #f8fafc; color: #475569; }
+.diff-box.generated { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+.diff-preview-pane { margin-top: 12px; }
+.diff-box.preview { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; max-height: 180px; }
+.modal .field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+.modal .field input { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+.ok-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .proj-title { font-weight: 600; font-size: 14px; }
 .tree-nav { flex: 1; overflow-y: auto; }
 .nav-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }

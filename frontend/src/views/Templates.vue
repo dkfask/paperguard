@@ -50,7 +50,10 @@
         <button class="primary" :disabled="saving" @click="createFromImport">
           {{ saving ? '创建中…' : '✅ 识别正确, 创建为模板' }}
         </button>
-        <button @click="importResult = null">取消</button>
+        <button :disabled="strippingComments" @click="downloadWithoutComments">
+          {{ strippingComments ? '正在清理批注…' : '🧹 清理批注并下载' }}
+        </button>
+        <span v-if="stripResult" class="strip-result">已移除 {{ stripResult.parts }} 个批注部件、{{ stripResult.anchors }} 个批注标记</span>
       </div>
     </div>
 
@@ -75,7 +78,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { fetchTemplates, deleteTemplateApi, importDocxTemplate, saveTemplate, fetchTemplate } from '../api'
+import { fetchTemplates, deleteTemplateApi, importDocxTemplate, stripTemplateComments, saveTemplate, fetchTemplate } from '../api'
 import { isManager } from '../auth'
 
 const router = useRouter()
@@ -85,6 +88,9 @@ const error = ref('')
 const importing = ref(false)
 const saving = ref(false)
 const importResult = ref(null)
+const importFile = ref(null)
+const strippingComments = ref(false)
+const stripResult = ref(null)
 const importInput = ref(null)
 
 const STYLE_LABELS = {
@@ -112,12 +118,27 @@ async function onImportPick(e) {
   if (!f) return
   importing.value = true
   error.value = ''
+  stripResult.value = null
+  importFile.value = f
   try {
     importResult.value = await importDocxTemplate(f)
   } catch (err) {
     error.value = err.message
   } finally {
     importing.value = false
+  }
+}
+
+async function downloadWithoutComments() {
+  if (!importFile.value || strippingComments.value) return
+  strippingComments.value = true
+  error.value = ''
+  try {
+    stripResult.value = await stripTemplateComments(importFile.value)
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    strippingComments.value = false
   }
 }
 
@@ -130,8 +151,11 @@ function mergeImportedSections(imported, baseSections) {
   const normalize = (section) => {
     const title = String(section.title || '').replace(/\s+/g, '')
     let normalized = section
-    if (title.includes('摘要')) normalized = { ...section, key: 'abstract', type: 'abstract', required: true }
-    else if (title.includes('目录')) normalized = { ...section, key: 'toc', type: 'toc', required: true }
+    if (title.includes('英文摘要') || title.includes('englishabstract') || title === 'abstract') normalized = { ...section, key: 'english_abstract', type: 'english_abstract', required: true }
+    else if (title.includes('摘要')) normalized = { ...section, key: 'abstract', type: 'abstract', required: true }
+    else if (title.includes('关键词')) normalized = { ...section, key: 'keywords', type: 'keywords', required: true }
+    else if (title.includes('keywords') || title.includes('key words')) normalized = { ...section, key: 'english_keywords', type: 'english_keywords', required: true }
+    else if (title.includes('目录') || title.includes('contents') || title.includes('tableofcontents')) normalized = { ...section, key: 'toc', type: 'toc', required: true }
     else if (title.includes('参考文献')) normalized = { ...section, key: 'references', type: 'references', required: true }
     else if (title.includes('致谢')) normalized = { ...section, key: 'acknowledgement', type: 'acknowledgement', required: false }
     else if (title.includes('附录')) normalized = { ...section, key: 'appendix', type: 'appendix', required: false }
@@ -169,6 +193,8 @@ async function createFromImport() {
     }
     const saved = await saveTemplate(tpl, true)
     importResult.value = null
+    importFile.value = null
+    stripResult.value = null
     templates.value = await fetchTemplates()
     router.push('/templates/' + saved.id + '/edit')
   } catch (err) {
@@ -201,5 +227,5 @@ function alignLabel(a) { return ALIGN_LABELS[a] || a }
 .style-table { min-width: 760px; width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; background: #fff; }
 .style-table th, .style-table td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
 .style-table th { background: #f1f5f9; color: var(--muted); font-weight: 600; }
-.readonly-tag { font-size: 13px; color: var(--muted); }
+.strip-result { color: #15803d; font-size: 13px; }
 </style>

@@ -45,6 +45,26 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
 2. **我的论文** — 选择模板新建论文,进入结构化写作(左侧章节树,右侧锁定样式编辑器)
 3. **导出 docx** — 写作页右上角一键导出
 4. **上传检查** — 对已有 docx 做格式检查/修复
+5. **AI 写作助手** — 写作页内润色/续写段落,按正文一键生成 摘要/Abstract/关键词
+
+## AI 写作助手
+
+两级模型配置,用户配置优先于系统默认,均走 OpenAI 兼容 `/chat/completions` 协议:
+
+- **系统默认**(管理员配置,全体用户可用):
+
+  ```bash
+  export PAPERGUARD_AI_BASE_URL='https://api.openai.com/v1'  # OpenAI/智谱/DeepSeek/中转站均可
+  export PAPERGUARD_AI_API_KEY='sk-xxx'
+  export PAPERGUARD_AI_MODEL='gpt-4o-mini'
+  # 可选: PAPERGUARD_AI_TIMEOUT(秒, 默认 60)
+  ```
+
+  本地开发也可以把这三行写进仓库根目录的 `.env`(参考 `.env.example`, 已被 gitignore), 后端与 docker-compose 会自动加载; 已显式设置的环境变量优先于 `.env`。
+
+- **用户自带**:写作页左上角「✨AI」→ 填自己的 Base URL / API Key / 模型,可先「测试连接」再保存。仅对本账号生效,优先于系统默认。
+
+说明:用户 API Key 以明文存储在本机 SQLite(与服务器环境变量同信任域,请勿把数据库文件外传);两者都未配置时 AI 按钮自动隐藏。
 
 ## Docker 部署(服务器)
 

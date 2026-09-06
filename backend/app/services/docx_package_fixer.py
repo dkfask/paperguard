@@ -14,11 +14,21 @@ from app.core.ir import Finding
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _NS = {"w": _W}
 _WP = f"{{{_W}}}"
-_SUPPORTED_PREFIXES = (
-    "paragraph.",
-    "run.",
-    "runs.*.",
-)
+_COMMENT_ANCHOR_TAGS = {
+    f"{{{_W}}}commentRangeStart",
+    f"{{{_W}}}commentRangeEnd",
+    f"{{{_W}}}commentReference",
+}
+_COMMENT_PART_NAMES = {
+    "word/comments.xml",
+    "word/commentsExtended.xml",
+    "word/commentsIds.xml",
+    "word/people.xml",
+    "word/persons.xml",
+    "word/threadedComments.xml",
+}
+_COMMENT_RELATIONSHIP_MARKER = "/comments"
+_COMMENT_CONTENT_MARKER = "/comments"
 
 
 def _child(parent, local_name: str):
@@ -142,6 +152,69 @@ def _apply_finding(root, finding: Finding) -> bool:
     return False
 
 
+def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str, int]:
+    """Write a comment-free DOCX copy while preserving all non-comment parts."""
+    source = Path(source)
+    output = Path(output)
+    parser = etree.XMLParser(remove_blank_text=False, resolve_entities=False, no_network=True)
+    counters = {"parts": 0, "anchors": 0, "relationships": 0, "content_types": 0}
+
+    with zipfile.ZipFile(source, "r") as zin:
+        names = set(zin.namelist())
+        comment_parts = {name for name in names if _is_comment_part(name)}
+        rewritten: dict[str, bytes] = {}
+
+        for name in names:
+            if name in comment_parts:
+                counters["parts"] += 1
+                continue
+            data = zin.read(name)
+            if _is_story_xml(name):
+                root = etree.fromstring(data, parser)
+                for element in list(root.iter()):
+                    if element.tag in _COMMENT_ANCHOR_TAGS:
+                        parent = element.getparent()
+                        if parent is not None:
+                            parent.remove(element)
+                            counters["anchors"] += 1
+                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+            elif name.endswith(".rels"):
+                root = etree.fromstring(data, parser)
+                for relationship in list(root):
+                    rel_type = relationship.get("Type", "").lower()
+                    target = relationship.get("Target", "").lower()
+                    if _COMMENT_RELATIONSHIP_MARKER in rel_type or _COMMENT_RELATIONSHIP_MARKER in target:
+                        root.remove(relationship)
+                        counters["relationships"] += 1
+                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+            elif name == "[Content_Types].xml":
+                root = etree.fromstring(data, parser)
+                for override in list(root):
+                    part_name = override.get("PartName", "").lower()
+                    content_type = override.get("ContentType", "").lower()
+                    if _COMMENT_CONTENT_MARKER in part_name or _COMMENT_CONTENT_MARKER in content_type:
+                        root.remove(override)
+                        counters["content_types"] += 1
+                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+            rewritten[name] = data
+
+        with zipfile.ZipFile(output, "w") as zout:
+            for info in zin.infolist():
+                if info.filename in comment_parts:
+                    continue
+                zout.writestr(info, rewritten[info.filename])
+    return counters
+
+
+def _is_comment_part(name: str) -> bool:
+    lower = name.lower()
+    return lower in _COMMENT_PART_NAMES or "/comments" in lower or "threadedcomments" in lower
+
+
+def _is_story_xml(name: str) -> bool:
+    lower = name.lower()
+    return lower == "word/document.xml" or lower.startswith("word/header") or lower.startswith("word/footer") or lower in {"word/footnotes.xml", "word/endnotes.xml"}
+
 def patch_docx_package(source: str | Path, output: str | Path, findings: list[Finding]) -> list[Finding]:
     """复制原始 ZIP 包，仅修改 word/document.xml，返回无法安全应用的 finding。"""
     source = Path(source)
@@ -158,5 +231,4 @@ def patch_docx_package(source: str | Path, output: str | Path, findings: list[Fi
                 zout.writestr(info, data)
     return remaining
 
-
-__all__ = ["patch_docx_package"]
+__all__ = ["patch_docx_package", "strip_comments_from_docx"]
