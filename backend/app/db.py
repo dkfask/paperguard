@@ -83,6 +83,11 @@ class Store:
                     last_seen_at TEXT NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS system_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 UPDATE projects
                 SET data = json_set(data, '$.revision', 0)
                 WHERE json_extract(data, '$.revision') IS NULL;
@@ -199,6 +204,41 @@ class Store:
                 "UPDATE users SET ai_config = ? WHERE id = ?",
                 (payload, user_id),
             )
+
+    # ----------------------- system settings -----------------------
+
+    def get_system_setting(self, key: str) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM system_settings WHERE key = ?", (key,)
+            ).fetchone()
+        return row["value"] if row else None
+
+    def set_system_setting(self, key: str, value: str | None) -> None:
+        with self._connect() as conn:
+            if value is None:
+                conn.execute("DELETE FROM system_settings WHERE key = ?", (key,))
+            else:
+                conn.execute(
+                    "INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                    (key, value, _now()),
+                )
+
+    def get_system_ai_config(self) -> dict | None:
+        raw = self.get_system_setting("ai_default_config")
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        except (TypeError, ValueError):
+            pass
+        return None
+
+    def set_system_ai_config(self, cfg: dict | None) -> None:
+        payload = json.dumps(cfg, ensure_ascii=False) if cfg else None
+        self.set_system_setting("ai_default_config", payload)
 
     # ---------------------------- templates ----------------------------
 

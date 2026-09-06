@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api import ai as ai_module
+from app.db import Store
 from app.main import app
 
 client = TestClient(app)
@@ -238,3 +239,81 @@ def test_base_url_fallback_and_error_parsing(monkeypatch):
         "https://api.test.com/chat/completions",
         "https://api.test.com/v1/chat/completions"
     ]
+
+
+def test_admin_ai_config_crud_and_permissions(monkeypatch):
+    """测试管理员配置系统默认模型的权限、CRUD、三级回退与学生继承。"""
+    student_client = _new_student("student_adm_test")
+
+    # 1. 学生/非管理员访问管理员配置接口被拒绝 403
+    assert student_client.get("/api/ai/admin/config").status_code == 403
+    assert student_client.put("/api/ai/admin/config", json={"base_url": "u", "api_key": "k", "model": "m"}).status_code == 403
+    assert student_client.delete("/api/ai/admin/config").status_code == 403
+    assert student_client.post("/api/ai/admin/config/test", json={"base_url": "u", "api_key": "k", "model": "m"}).status_code == 403
+
+    # 2. 清理环境变量以确保完全受控
+    monkeypatch.delenv("PAPERGUARD_AI_BASE_URL", raising=False)
+    monkeypatch.delenv("PAPERGUARD_AI_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERGUARD_AI_MODEL", raising=False)
+
+    admin_client = client
+
+    # 初始状态未配置
+    get_res = admin_client.get("/api/ai/admin/config")
+    assert get_res.status_code == 200
+    assert get_res.json()["configured"] is False
+
+    # 3. 管理员保存默认模型
+    save_res = admin_client.put(
+        "/api/ai/admin/config",
+        json={"base_url": "https://sys-ai.test.com/v1", "api_key": "sk-sys-secret-1234", "model": "sys-model-pro"},
+    )
+    assert save_res.status_code == 200
+    assert save_res.json() == {"configured": True, "source": "database"}
+
+    # 4. 管理员再次获取，检查脱敏与来源
+    cur = admin_client.get("/api/ai/admin/config").json()
+    assert cur["configured"] is True
+    assert cur["source"] == "database"
+    assert cur["base_url"] == "https://sys-ai.test.com/v1"
+    assert cur["model"] == "sys-model-pro"
+    assert cur["api_key_masked"] == "***1234"
+
+    # 5. 学生在未配置个人 Key 的情况下，状态显示继承系统默认模型
+    st_status = student_client.get("/api/ai/status").json()
+    assert st_status["enabled"] is True
+    assert st_status["source"] == "system"
+    assert st_status["model"] == "sys-model-pro"
+
+    # 6. 学生发起调用，实际走管理员配置的系统默认模型
+    calls = []
+    def mock_chat(cfg, messages, temperature):
+        calls.append(cfg)
+        return "管理员默认模型润色结果"
+
+    monkeypatch.setattr(ai_module, "_chat_completion", mock_chat)
+    assist_res = student_client.post(
+        "/api/ai/assist",
+        json={"action": "polish", "text": "待润色段落"},
+    )
+    assert assist_res.status_code == 200
+    assert assist_res.json() == {"text": "管理员默认模型润色结果"}
+    assert len(calls) == 1
+    assert calls[0]["model"] == "sys-model-pro"
+    assert calls[0]["api_key"] == "sk-sys-secret-1234"
+
+    # 7. 若学生配置了个人模型，学生优先走个人模型
+    student_client.put(
+        "/api/ai/config",
+        json={"base_url": "https://user-ai.com/v1", "api_key": "sk-user-key", "model": "user-model"},
+    )
+    student_client.post("/api/ai/assist", json={"action": "polish", "text": "再次润色"})
+    assert calls[-1]["model"] == "user-model"
+
+    # 8. 管理员删除数据库配置，系统默认回退
+    del_res = admin_client.delete("/api/ai/admin/config")
+    assert del_res.status_code == 204
+
+    after_del = admin_client.get("/api/ai/admin/config").json()
+    assert after_del["configured"] is False
+

@@ -172,36 +172,86 @@
       <div v-if="showAiSettings" class="modal-mask" @click.self="showAiSettings = false">
         <div class="modal card">
           <h3 style="margin-top:0">✨ AI 设置</h3>
-          <p class="hint" style="font-size: 13px; margin-top: 0">
-            配置自己的 OpenAI 兼容模型, 仅对本账号生效, 优先于系统默认。
-            <template v-if="aiEnabled">
-              当前: {{ aiSource === 'user' ? '自有模型' : '系统默认模型' }} ({{ aiModel }})
-            </template>
-            <template v-else>当前 AI 功能未启用</template>
-          </p>
-          <label class="field">Base URL
-            <input v-model="aiCfgForm.base_url" placeholder="如 https://api.openai.com/v1" />
-          </label>
-          <label class="field">API Key
-            <input v-model="aiCfgForm.api_key" type="password" autocomplete="new-password"
-                   :placeholder="aiCfgInfo.configured ? '已保存 ' + aiCfgInfo.api_key_masked + ' (重填可覆盖)' : '必填, 如 sk-xxx'" />
-          </label>
-          <label class="field">模型
-            <input v-model="aiCfgForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
-          </label>
-          <p v-if="aiCfgInfo.message" :class="aiCfgInfo.ok ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
-            {{ aiCfgInfo.ok ? '✅' : '⚠' }} {{ aiCfgInfo.message }}
-          </p>
-          <div class="form-row">
-            <button class="primary" :disabled="aiCfgInfo.saving" @click="saveAiCfg">
-              {{ aiCfgInfo.saving ? '保存中…' : '保存' }}
+          <div v-if="isAdmin" class="ai-tab-row">
+            <button class="ai-tab-btn" :class="{ active: aiTab === 'user' }" @click="switchAiTab('user')">
+              个人模型 (仅本人生效)
             </button>
-            <button :disabled="aiCfgInfo.testing" @click="testAiConnection">
-              {{ aiCfgInfo.testing ? '测试中…' : '测试连接' }}
+            <button class="ai-tab-btn" :class="{ active: aiTab === 'admin' }" @click="switchAiTab('admin')">
+              ⚙️ 全站默认模型 (管理员)
             </button>
-            <button v-if="aiCfgInfo.configured" @click="clearAiCfg">清除自有配置</button>
-            <button @click="showAiSettings = false">关闭</button>
           </div>
+          <p class="hint" style="font-size: 13px; margin-top: 4px">
+            <template v-if="aiTab === 'user'">
+              配置自己的 OpenAI 兼容模型, 仅对本账号生效, 优先于系统默认。
+              <br />
+              <template v-if="aiEnabled">
+                当前: {{ aiSource === 'user' ? '自有模型' : '系统默认模型' }} ({{ aiModel }})
+              </template>
+              <template v-else>当前 AI 功能未启用</template>
+            </template>
+            <template v-else>
+              配置全站默认 OpenAI 兼容模型, 全体未自带 Key 的用户将默认使用该配置。
+              <br />
+              <template v-if="adminAiInfo.configured">
+                当前默认来源: {{ adminAiInfo.source === 'database' ? '数据库 (管理员自定义)' : '环境变量 (PAPERGUARD_AI_*)' }}
+              </template>
+              <template v-else>当前全站未配置默认模型</template>
+            </template>
+          </p>
+
+          <!-- 个人模型表单 -->
+          <template v-if="aiTab === 'user'">
+            <label class="field">Base URL
+              <input v-model="aiCfgForm.base_url" placeholder="如 https://api.openai.com/v1" />
+            </label>
+            <label class="field">API Key
+              <input v-model="aiCfgForm.api_key" type="password" autocomplete="new-password"
+                     :placeholder="aiCfgInfo.configured ? '已保存 ' + aiCfgInfo.api_key_masked + ' (重填可覆盖)' : '必填, 如 sk-xxx'" />
+            </label>
+            <label class="field">模型
+              <input v-model="aiCfgForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
+            </label>
+            <p v-if="aiCfgInfo.message" :class="aiCfgInfo.ok ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
+              {{ aiCfgInfo.ok ? '✅' : '⚠' }} {{ aiCfgInfo.message }}
+            </p>
+            <div class="form-row">
+              <button class="primary" :disabled="aiCfgInfo.saving" @click="saveAiCfg">
+                {{ aiCfgInfo.saving ? '保存中…' : '保存自有配置' }}
+              </button>
+              <button :disabled="aiCfgInfo.testing" @click="testAiConnection">
+                {{ aiCfgInfo.testing ? '测试中…' : '测试连接' }}
+              </button>
+              <button v-if="aiCfgInfo.configured" @click="clearAiCfg">清除自有配置</button>
+              <button @click="showAiSettings = false">关闭</button>
+            </div>
+          </template>
+
+          <!-- 管理员全站默认模型表单 -->
+          <template v-else>
+            <label class="field">Base URL
+              <input v-model="adminAiForm.base_url" placeholder="如 https://api.openai.com/v1" />
+            </label>
+            <label class="field">API Key
+              <input v-model="adminAiForm.api_key" type="password" autocomplete="new-password"
+                     :placeholder="adminAiInfo.configured ? '已配置 ' + adminAiInfo.api_key_masked + ' (输入新Key覆盖)' : '必填, 如 sk-xxx'" />
+            </label>
+            <label class="field">模型
+              <input v-model="adminAiForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
+            </label>
+            <p v-if="adminAiInfo.message" :class="adminAiInfo.ok ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
+              {{ adminAiInfo.ok ? '✅' : '⚠' }} {{ adminAiInfo.message }}
+            </p>
+            <div class="form-row">
+              <button class="primary" :disabled="adminAiInfo.saving" @click="saveAdminAiCfg">
+                {{ adminAiInfo.saving ? '保存中…' : '保存全站默认' }}
+              </button>
+              <button :disabled="adminAiInfo.testing" @click="testAdminAiConnection">
+                {{ adminAiInfo.testing ? '测试中…' : '测试连接' }}
+              </button>
+              <button v-if="adminAiInfo.source === 'database'" @click="clearAdminAiCfg">恢复环境变量默认值</button>
+              <button @click="showAiSettings = false">关闭</button>
+            </div>
+          </template>
         </div>
       </div>
     </section>
@@ -211,9 +261,11 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { auth } from '../auth'
 import {
   fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject, checkProjectTemplate,
   aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
+  getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
 } from '../api'
 import BlockList from '../components/BlockList.vue'
 
@@ -283,10 +335,26 @@ const aiBusy = ref(null)          // { index, action } 块级 AI 处理中
 const aiDiff = ref(null)          // { index, action, original, generated, preview } 差异对照选择
 const aiGenerating = ref(false)   // 章节级 AI 生成中
 const showAiSettings = ref(false)
+const isAdmin = computed(() => auth.user?.role === 'admin')
+const aiTab = ref('user') // 'user' | 'admin'
 const aiCfgForm = reactive({ base_url: '', api_key: '', model: '' })
 const aiCfgInfo = reactive({
   configured: false, api_key_masked: '', testing: false, saving: false, message: '', ok: null,
 })
+const adminAiForm = reactive({ base_url: '', api_key: '', model: '' })
+const adminAiInfo = reactive({
+  configured: false, source: null, api_key_masked: '', has_env_fallback: false,
+  testing: false, saving: false, message: '', ok: null,
+})
+
+function switchAiTab(tab) {
+  aiTab.value = tab
+  if (tab === 'admin') {
+    void loadAdminAiCfg()
+  } else {
+    void loadUserAiCfg()
+  }
+}
 
 onMounted(loadAiStatus)
 
@@ -297,6 +365,108 @@ async function loadAiStatus() {
     aiSource.value = s.source
     aiModel.value = s.model || ''
   } catch { aiEnabled.value = false }
+}
+
+async function loadUserAiCfg() {
+  aiCfgInfo.message = ''
+  aiCfgInfo.ok = null
+  try {
+    const cfg = await getAiConfig()
+    aiCfgInfo.configured = cfg.configured
+    aiCfgInfo.api_key_masked = cfg.api_key_masked || ''
+    aiCfgForm.base_url = cfg.base_url || ''
+    aiCfgForm.model = cfg.model || ''
+    aiCfgForm.api_key = ''
+  } catch (e) {
+    aiCfgInfo.message = e.message || '读取个人 AI 配置失败'
+  }
+}
+
+async function loadAdminAiCfg() {
+  adminAiInfo.message = ''
+  adminAiInfo.ok = null
+  try {
+    const cfg = await getAdminAiConfig()
+    adminAiInfo.configured = cfg.configured
+    adminAiInfo.source = cfg.source
+    adminAiInfo.api_key_masked = cfg.api_key_masked || ''
+    adminAiInfo.has_env_fallback = cfg.has_env_fallback
+    adminAiForm.base_url = cfg.base_url || ''
+    adminAiForm.model = cfg.model || ''
+    adminAiForm.api_key = ''
+  } catch (e) {
+    adminAiInfo.message = e.message || '读取全站 AI 配置失败'
+  }
+}
+
+async function openAiSettings() {
+  showAiSettings.value = true
+  aiTab.value = 'user'
+  await loadUserAiCfg()
+  if (isAdmin.value) {
+    await loadAdminAiCfg()
+  }
+}
+
+function adminAiFilled() {
+  return !!(adminAiForm.base_url && adminAiForm.api_key && adminAiForm.model)
+}
+
+async function testAdminAiConnection() {
+  if (!adminAiFilled()) {
+    adminAiInfo.ok = false
+    adminAiInfo.message = '请先完整填写 Base URL / API Key / 模型'
+    return
+  }
+  adminAiInfo.testing = true
+  adminAiInfo.message = ''
+  try {
+    const res = await testAdminAiConfig({ ...adminAiForm })
+    adminAiInfo.ok = res.ok
+    adminAiInfo.message = res.ok ? `测试成功 (模型: ${res.model})` : (res.error || '测试失败')
+  } catch (e) {
+    adminAiInfo.ok = false
+    adminAiInfo.message = e.message || '测试失败'
+  } finally {
+    adminAiInfo.testing = false
+  }
+}
+
+async function saveAdminAiCfg() {
+  if (!adminAiFilled()) {
+    adminAiInfo.ok = false
+    adminAiInfo.message = '请先完整填写 Base URL / API Key / 模型'
+    return
+  }
+  adminAiInfo.saving = true
+  adminAiInfo.message = ''
+  try {
+    await saveAdminAiConfig({ ...adminAiForm })
+    adminAiInfo.configured = true
+    adminAiInfo.source = 'database'
+    adminAiInfo.ok = true
+    adminAiInfo.message = '已保存为全站默认模型！'
+    await loadAiStatus()
+    await loadAdminAiCfg()
+  } catch (e) {
+    adminAiInfo.ok = false
+    adminAiInfo.message = e.message || '保存全站配置失败'
+  } finally {
+    adminAiInfo.saving = false
+  }
+}
+
+async function clearAdminAiCfg() {
+  try {
+    await clearAdminAiConfig()
+    adminAiInfo.ok = true
+    adminAiInfo.message = '已恢复系统默认设置'
+    await loadAiStatus()
+    await loadAdminAiCfg()
+  } catch (e) {
+    adminAiInfo.ok = false
+    adminAiInfo.message = e.message || '清除失败'
+  }
 }
 
 function isAiSection(type) { return AI_GEN_TYPES.includes(type) }
@@ -397,22 +567,6 @@ async function aiGenerate() {
     error.value = e.message || 'AI 生成失败'
   } finally {
     aiGenerating.value = false
-  }
-}
-
-async function openAiSettings() {
-  showAiSettings.value = true
-  aiCfgInfo.message = ''
-  aiCfgInfo.ok = null
-  try {
-    const cfg = await getAiConfig()
-    aiCfgInfo.configured = cfg.configured
-    aiCfgInfo.api_key_masked = cfg.api_key_masked || ''
-    aiCfgForm.base_url = cfg.base_url || ''
-    aiCfgForm.model = cfg.model || ''
-    aiCfgForm.api_key = ''
-  } catch (e) {
-    aiCfgInfo.message = e.message || '读取 AI 配置失败'
   }
 }
 
@@ -801,6 +955,10 @@ onBeforeUnmount(() => {
 .modal .field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .modal .field input { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
 .ok-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.error-banner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.ai-tab-row { display: flex; gap: 8px; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.ai-tab-btn { background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: var(--muted); }
+.ai-tab-btn.active { background: #eff6ff; border-color: var(--primary); color: var(--primary); font-weight: 600; }
 .proj-title { font-weight: 600; font-size: 14px; }
 .tree-nav { flex: 1; overflow-y: auto; }
 .nav-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }

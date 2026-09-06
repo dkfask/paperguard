@@ -1,8 +1,9 @@
 """AI 写作助手 API。
 
-两级模型配置, 用户配置优先:
-- 系统自带: 环境变量 PAPERGUARD_AI_BASE_URL / PAPERGUARD_AI_API_KEY / PAPERGUARD_AI_MODEL
-- 用户自带: 写作页「AI 设置」保存到 users.ai_config (SQLite), 仅本人生效
+支持三级模型配置, 用户配置优先:
+1. 用户自带: 写作页「AI 设置」保存到 users.ai_config (SQLite), 仅本人生效
+2. 管理员默认: 管理员通过 Web UI 设置的系统默认模型 (system_settings 表), 全体用户共享
+3. 环境变量兜底: 环境变量 PAPERGUARD_AI_BASE_URL / PAPERGUARD_AI_API_KEY / PAPERGUARD_AI_MODEL
 
 所有补全请求走 OpenAI 兼容 /chat/completions 协议。
 """
@@ -15,7 +16,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.auth import current_user
+from app.auth import current_user, require_admin
 from app.db import Store
 
 router = APIRouter(prefix="/api/ai")
@@ -38,7 +39,7 @@ class AiConfigRequest(BaseModel):
     model: str = Field(min_length=1)
 
 
-def _system_cfg() -> dict | None:
+def _system_env_cfg() -> dict | None:
     base_url = os.environ.get("PAPERGUARD_AI_BASE_URL", "").strip().rstrip("/")
     api_key = os.environ.get("PAPERGUARD_AI_API_KEY", "").strip()
     model = os.environ.get("PAPERGUARD_AI_MODEL", "").strip()
@@ -47,8 +48,24 @@ def _system_cfg() -> dict | None:
     return {"base_url": base_url, "api_key": api_key, "model": model}
 
 
+def _system_cfg(store: Store | None = None) -> tuple[dict, str] | None:
+    """获取系统级默认模型配置: 优先数据库中的管理员设置, 其次环境变量。"""
+    if store is not None:
+        db_cfg = store.get_system_ai_config()
+        if db_cfg and all(db_cfg.get(k) for k in ("base_url", "api_key", "model")):
+            return {
+                "base_url": str(db_cfg["base_url"]).strip().rstrip("/"),
+                "api_key": str(db_cfg["api_key"]).strip(),
+                "model": str(db_cfg["model"]).strip(),
+            }, "system_db"
+    env_cfg = _system_env_cfg()
+    if env_cfg:
+        return env_cfg, "system_env"
+    return None
+
+
 def _resolve_cfg(store: Store, user: dict) -> tuple[dict, str] | None:
-    """返回 (cfg, source); 用户配置优先, 其次系统配置, 都无则 None。"""
+    """返回 (cfg, source); 用户配置优先, 其次系统配置 (数据库 > 环境变量), 都无则 None。"""
     user_cfg = store.get_user_ai_config(user["id"])
     if user_cfg and all(user_cfg.get(k) for k in ("base_url", "api_key", "model")):
         return {
@@ -56,9 +73,11 @@ def _resolve_cfg(store: Store, user: dict) -> tuple[dict, str] | None:
             "api_key": str(user_cfg["api_key"]).strip(),
             "model": str(user_cfg["model"]).strip(),
         }, "user"
-    sys_cfg = _system_cfg()
-    if sys_cfg:
-        return sys_cfg, "system"
+    sys = _system_cfg(store)
+    if sys:
+        cfg, sub_source = sys
+        # 统一对外归属为 "system" (或在状态中返回更具体的来源)
+        return cfg, "system"
     return None
 
 
@@ -238,6 +257,76 @@ def clear_ai_config(user: dict = Depends(current_user), store: Store = Depends(l
 
 @router.post("/config/test")
 def test_ai_config(req: AiConfigRequest, user: dict = Depends(current_user)) -> dict:
+    cfg = {
+        "base_url": req.base_url.strip().rstrip("/"),
+        "api_key": req.api_key.strip(),
+        "model": req.model.strip(),
+    }
+    try:
+        _chat_completion(cfg, [{"role": "user", "content": "回复「ok」两个字"}], 0.0)
+    except HTTPException as exc:
+        return {"ok": False, "error": exc.detail}
+    return {"ok": True, "model": cfg["model"]}
+
+
+# ------------------- 管理员设置系统默认模型 -------------------
+
+@router.get("/admin/config")
+def get_admin_ai_config(admin: dict = Depends(require_admin),
+                        store: Store = Depends(lambda: Store())) -> dict:
+    """获取系统当前默认配置, 标明来自数据库还是环境变量。"""
+    db_cfg = store.get_system_ai_config()
+    env_cfg = _system_env_cfg()
+    if db_cfg and all(db_cfg.get(k) for k in ("base_url", "api_key", "model")):
+        return {
+            "configured": True,
+            "source": "database",
+            "base_url": db_cfg.get("base_url"),
+            "model": db_cfg.get("model"),
+            "api_key_masked": _mask_key(str(db_cfg.get("api_key", ""))),
+            "has_env_fallback": env_cfg is not None,
+        }
+    if env_cfg:
+        return {
+            "configured": True,
+            "source": "environment",
+            "base_url": env_cfg.get("base_url"),
+            "model": env_cfg.get("model"),
+            "api_key_masked": _mask_key(str(env_cfg.get("api_key", ""))),
+            "has_env_fallback": True,
+        }
+    return {
+        "configured": False,
+        "source": None,
+        "base_url": None,
+        "model": None,
+        "api_key_masked": None,
+        "has_env_fallback": False,
+    }
+
+
+@router.put("/admin/config")
+def save_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_admin),
+                         store: Store = Depends(lambda: Store())) -> dict:
+    """管理员保存系统默认模型到数据库。"""
+    store.set_system_ai_config({
+        "base_url": req.base_url.strip().rstrip("/"),
+        "api_key": req.api_key.strip(),
+        "model": req.model.strip(),
+    })
+    return {"configured": True, "source": "database"}
+
+
+@router.delete("/admin/config", status_code=204)
+def clear_admin_ai_config(admin: dict = Depends(require_admin),
+                          store: Store = Depends(lambda: Store())) -> None:
+    """管理员清除数据库中的默认配置, 自动回退至环境变量或未配置。"""
+    store.set_system_ai_config(None)
+
+
+@router.post("/admin/config/test")
+def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_admin)) -> dict:
+    """管理员测试准备配置的系统默认模型。"""
     cfg = {
         "base_url": req.base_url.strip().rstrip("/"),
         "api_key": req.api_key.strip(),

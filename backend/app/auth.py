@@ -187,5 +187,12 @@ def require_manager(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+def require_admin(user: dict = Depends(current_user)) -> dict:
+    """系统级设置权限: 仅限 admin。"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="仅系统管理员可执行此操作")
+    return user
+
+
 def can_manage(user: dict) -> bool:
     return user["role"] in MANAGE_ROLES
