@@ -75,6 +75,87 @@ def test_logout_revokes_token():
     assert client.get("/api/auth/me", headers={"Authorization": token}).status_code == 401
 
 
+def test_user_registration_roles_and_admin_management():
+    # 1. 学生注册：默认为 student 且 active
+    st_res = client.post(
+        "/api/auth/register",
+        json={"username": "student_alice", "password": "AlicePassword123", "display_name": "爱丽丝同学", "role": "student"},
+    )
+    assert st_res.status_code == 201
+    st_data = st_res.json()
+    assert st_data["role"] == "student"
+    assert st_data["status"] == "active"
+
+    # 2. 教师注册：申请为 teacher，初始状态为 pending
+    tc_res = client.post(
+        "/api/auth/register",
+        json={"username": "teacher_bob", "password": "BobPassword123", "display_name": "鲍勃老师", "role": "teacher"},
+    )
+    assert tc_res.status_code == 201
+    tc_data = tc_res.json()
+    assert tc_data["role"] == "teacher"
+    assert tc_data["status"] == "pending"
+
+    # 待认证教师登录
+    tc_login = client.post(
+        "/api/auth/login",
+        json={"username": "teacher_bob", "password": "BobPassword123"},
+    )
+    assert tc_login.status_code == 200
+    tc_token = "Bearer " + tc_login.json()["token"]
+    tc_me = client.get("/api/auth/me", headers={"Authorization": tc_token}).json()
+    assert tc_me["status"] == "pending"
+
+    # 未认证的教师尝试创建模板应被拦截 (403)
+    blocked_tpl = client.post(
+        "/api/templates",
+        headers={"Authorization": tc_token},
+        json={"id": "tpl-blocked", "name": "未认证拦截测试", "styles": {}, "sections": []},
+    )
+    assert blocked_tpl.status_code == 403
+    assert "认证审核中" in blocked_tpl.json()["detail"]
+
+    # 非管理员无法访问管理用户列表与审核
+    assert client.get("/api/auth/admin/users", headers={"Authorization": tc_token}).status_code == 403
+
+    # 3. 管理员列出全站用户并完成审核
+    admin_users = client.get("/api/auth/admin/users").json()
+    bob_record = next(u for u in admin_users if u["username"] == "teacher_bob")
+    assert bob_record["status"] == "pending"
+
+    # 管理员通过鲍勃老师的认证
+    approve_res = client.put(
+        f"/api/auth/admin/users/{bob_record['id']}/role-status",
+        json={"status": "active"},
+    )
+    assert approve_res.status_code == 200
+    assert approve_res.json()["status"] == "active"
+
+    # 鲍勃老师此时已获得管理权限，可以创建/管理模板
+    ok_tpl = client.post(
+        "/api/templates",
+        headers={"Authorization": tc_token},
+        json={
+            "id": "tpl-bob-approved",
+            "name": "鲍勃老师专属模板",
+            "styles": {},
+            "sections": [{"key": "cover", "type": "cover", "title": "封面"}],
+        },
+    )
+    assert ok_tpl.status_code == 201
+
+    # 4. 管理员也可以直接将教师提升为管理员角色 (实现管理员可以是教师)
+    promote_res = client.put(
+        f"/api/auth/admin/users/{bob_record['id']}/role-status",
+        json={"role": "admin"},
+    )
+    assert promote_res.status_code == 200
+    assert promote_res.json()["role"] == "admin"
+
+    # 鲍勃老师现在具备系统管理员权限，可以查询全站用户
+    assert client.get("/api/auth/admin/users", headers={"Authorization": tc_token}).status_code == 200
+
+
 def test_fix_rejects_filename_injection(sample_paper: bytes):
     resp = client.post(
         "/api/fix",

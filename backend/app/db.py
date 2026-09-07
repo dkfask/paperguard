@@ -70,6 +70,7 @@ class Store:
                     display_name TEXT NOT NULL DEFAULT '',
                     token TEXT,
                     must_change_password INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'active',
                     ai_config TEXT,
                     created_at TEXT NOT NULL
                 );
@@ -98,18 +99,24 @@ class Store:
                 conn.execute(
                     "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
                 )
+            if "status" not in columns:
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+                )
             if "ai_config" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN ai_config TEXT")
 
     # ------------------------------ users --------------------------------
 
     def save_user(self, user: dict) -> dict:
-        """保存用户, 兼容旧数据库中不存在的 must_change_password / ai_config 字段。"""
-        sql = "INSERT OR REPLACE INTO users (id, username, password_hash, salt, role, display_name, token, must_change_password, ai_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        """保存用户, 兼容旧数据库中不存在的 must_change_password / status / ai_config 字段。"""
+        sql = "INSERT OR REPLACE INTO users (id, username, password_hash, salt, role, display_name, token, must_change_password, status, ai_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         params = (
             user["id"], user["username"], user["password_hash"], user["salt"],
             user["role"], user["display_name"], user.get("token"),
-            int(user.get("must_change_password", 0)), user.get("ai_config"), user["created_at"],
+            int(user.get("must_change_password", 0)),
+            user.get("status", "active"),
+            user.get("ai_config"), user["created_at"],
         )
         with self._connect() as conn:
             conn.execute(sql, params)
@@ -179,6 +186,20 @@ class Store:
             conn.execute(
                 "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
                 (revoked_at, user_id),
+            )
+
+    def update_user_status(self, user_id: str, status: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET status = ? WHERE id = ?",
+                (status, user_id),
+            )
+
+    def update_user_role_and_status(self, user_id: str, role: str, status: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE users SET role = ?, status = ? WHERE id = ?",
+                (role, status, user_id),
             )
 
     def set_must_change_password(self, user_id: str, value: bool) -> None:

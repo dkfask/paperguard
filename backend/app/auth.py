@@ -94,7 +94,9 @@ def _password_error(password: str) -> str | None:
 
 def register_user(store: Store, username: str, password: str,
                   display_name: str = "", role: str = "student") -> dict:
-    """注册新用户, 返回用户 dict(不含敏感字段)。"""
+    """注册新用户, 返回用户 dict(不含敏感字段)。
+    学生直接 active; 教师默认 pending 待管理员认证。
+    """
     username = username.strip()
     if len(username) < 3:
         raise HTTPException(status_code=400, detail="用户名至少 3 个字符")
@@ -103,16 +105,21 @@ def register_user(store: Store, username: str, password: str,
         raise HTTPException(status_code=400, detail=password_error)
     if store.get_user_by_username(username):
         raise HTTPException(status_code=409, detail="用户名已存在")
+
+    target_role = "teacher" if role == "teacher" else "student"
+    status = "pending" if target_role == "teacher" else "active"
+
     ph, salt = hash_password(password)
     user = store.save_user({
         "id": new_id("user"),
         "username": username,
         "password_hash": ph,
         "salt": salt,
-        "role": role,
+        "role": target_role,
         "display_name": display_name.strip() or username,
         "token": None,
         "must_change_password": 0,
+        "status": status,
         "created_at": _now(),
     })
     return public_user(user)
@@ -164,6 +171,7 @@ def public_user(user: dict) -> dict:
         "username": user["username"],
         "role": user["role"],
         "display_name": user["display_name"],
+        "status": user.get("status", "active"),
         "must_change_password": bool(user.get("must_change_password", 0)),
     }
 
@@ -181,9 +189,11 @@ def current_user(authorization: str | None = Header(default=None),
 
 
 def require_manager(user: dict = Depends(current_user)) -> dict:
-    """模板管理权限: admin / teacher。"""
+    """模板管理权限: admin / 已认证 teacher。"""
     if user["role"] not in MANAGE_ROLES:
         raise HTTPException(status_code=403, detail="仅教师/管理员可管理模板")
+    if user["role"] == "teacher" and user.get("status") != "active":
+        raise HTTPException(status_code=403, detail="教师账号正在认证审核中，暂无管理权限")
     return user
 
 
@@ -195,4 +205,8 @@ def require_admin(user: dict = Depends(current_user)) -> dict:
 
 
 def can_manage(user: dict) -> bool:
-    return user["role"] in MANAGE_ROLES
+    if user["role"] == "admin":
+        return True
+    if user["role"] == "teacher" and user.get("status") == "active":
+        return True
+    return False

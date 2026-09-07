@@ -375,3 +375,28 @@ export async function aiAssist(payload) {
   }
   return resp.json()
 }
+
+// ---------- 用户管理与教师认证 (管理员) ----------
+
+export async function getAdminUsers() {
+  const resp = await api(`${API_BASE}/auth/admin/users`)
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `获取用户列表失败 (${resp.status})`))
+  }
+  return resp.json()
+}
+
+export async function updateAdminUserRoleStatus(userId, { role, status }) {
+  const resp = await api(`${API_BASE}/auth/admin/users/${userId}/role-status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role, status }),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `更新用户权限状态失败 (${resp.status})`))
+  }
+  return resp.json()
+}
+

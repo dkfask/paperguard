@@ -9,15 +9,24 @@
         <RouterLink to="/" class="nav-link" @click="setTab('check')">上传检查</RouterLink>
         <RouterLink to="/" class="nav-link" @click="setTab('projects')">我的论文</RouterLink>
         <RouterLink to="/templates" class="nav-link">模板管理</RouterLink>
+        <button v-if="auth.user?.role === 'admin'" class="nav-btn admin-ai-btn" @click="openUserAdminModal">
+          👥 用户与认证
+        </button>
         <button v-if="auth.user?.role === 'admin'" class="nav-btn admin-ai-btn" @click="openAdminAiModal">
           ⚙️ 默认模型
         </button>
         <span v-if="auth.user" class="user-chip" :title="'角色: ' + roleLabel(auth.user.role)">
           {{ auth.user.display_name || auth.user.username }}
+          <span v-if="auth.user.role === 'teacher' && auth.user.status === 'pending'" class="status-badge pending">
+            待认证
+          </span>
         </span>
         <button class="logout-btn" @click="logout">退出</button>
       </nav>
     </header>
+    <div v-if="auth.user?.role === 'teacher' && auth.user.status === 'pending'" class="pending-bar">
+      <span>📢 您的教师账号正在等待管理员认证审核中，通过后将开通模板管理等教师权限。</span>
+    </div>
     <main>
       <RouterView />
     </main>
@@ -63,6 +72,88 @@
         </div>
       </div>
     </div>
+
+    <!-- 管理员用户与教师认证管理弹窗 -->
+    <div v-if="showUserAdminModal" class="modal-mask" @click.self="showUserAdminModal = false">
+      <div class="modal card user-admin-modal">
+        <div class="modal-head">
+          <h3 style="margin: 0">👥 用户与教师认证管理</h3>
+          <button class="small" @click="fetchUsers">刷新列表</button>
+        </div>
+        <p class="hint" style="font-size: 13px; margin: 8px 0 14px">
+          审核教师账号注册认证、升级教师为管理员（实现管理员可以是教师），或调整全站用户角色。
+        </p>
+
+        <p v-if="userAdminMsg" :class="userAdminOk ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
+          {{ userAdminOk ? '✅' : '⚠' }} {{ userAdminMsg }}
+        </p>
+
+        <div v-if="loadingUsers" style="padding: 20px; text-align: center; color: var(--muted)">
+          正在读取全站用户列表…
+        </div>
+
+        <div v-else class="user-table-wrap">
+          <table class="user-table">
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>姓名/昵称</th>
+                <th>当前角色</th>
+                <th>认证状态</th>
+                <th>快捷管理与操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="u in userList" :key="u.id" :class="{ 'pending-row': u.role === 'teacher' && u.status === 'pending' }">
+                <td>
+                  <strong>{{ u.username }}</strong>
+                  <span v-if="u.username === 'admin'" class="tag-admin">内置主管理员</span>
+                </td>
+                <td>{{ u.display_name || '-' }}</td>
+                <td>
+                  <span class="role-tag" :class="u.role">{{ roleLabel(u.role) }}</span>
+                </td>
+                <td>
+                  <span v-if="u.role === 'teacher'" class="status-tag" :class="u.status">
+                    {{ u.status === 'active' ? '已认证' : (u.status === 'pending' ? '待审核' : '已驳回') }}
+                  </span>
+                  <span v-else class="status-tag active">正常</span>
+                </td>
+                <td class="action-cell">
+                  <!-- 待认证教师快捷审核 -->
+                  <template v-if="u.role === 'teacher' && u.status === 'pending'">
+                    <button class="tiny primary" @click="changeRoleStatus(u.id, 'teacher', 'active')">
+                      ✓ 通过认证
+                    </button>
+                    <button class="tiny danger" @click="changeRoleStatus(u.id, 'teacher', 'rejected')">
+                      ✕ 驳回
+                    </button>
+                  </template>
+
+                  <!-- 角色调整 (管理员/教师/学生互转) -->
+                  <template v-if="u.username !== 'admin'">
+                    <button v-if="u.role !== 'admin'" class="tiny" title="赋予系统最高管理权限(管理员可以是教师)" @click="changeRoleStatus(u.id, 'admin', 'active')">
+                      设为管理员
+                    </button>
+                    <button v-if="u.role !== 'teacher'" class="tiny" @click="changeRoleStatus(u.id, 'teacher', 'active')">
+                      设为教师
+                    </button>
+                    <button v-if="u.role !== 'student'" class="tiny" @click="changeRoleStatus(u.id, 'student', 'active')">
+                      设为学生
+                    </button>
+                  </template>
+                  <span v-else style="color: var(--muted); font-size: 12px">系统基准</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="form-row" style="margin-top: 16px; justify-content: flex-end">
+          <button @click="showUserAdminModal = false">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -72,6 +163,7 @@ import { useRouter } from 'vue-router'
 import { auth, clearAuth } from './auth'
 import {
   logoutApi, getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
+  getAdminUsers, updateAdminUserRoleStatus,
 } from './api'
 
 const router = useRouter()
@@ -87,6 +179,46 @@ async function logout() {
   try { await logoutApi() } catch { /* 本地会话仍需清理 */ }
   clearAuth()
   router.push('/login')
+}
+
+// ---------- 管理员用户与教师认证审核 ----------
+const showUserAdminModal = ref(false)
+const userList = ref([])
+const loadingUsers = ref(false)
+const userAdminMsg = ref('')
+const userAdminOk = ref(null)
+
+async function fetchUsers() {
+  loadingUsers.value = true
+  userAdminMsg.value = ''
+  try {
+    userList.value = await getAdminUsers()
+  } catch (e) {
+    userAdminOk.value = false
+    userAdminMsg.value = e.message || '获取用户列表失败'
+  } finally {
+    loadingUsers.value = false
+  }
+}
+
+async function openUserAdminModal() {
+  showUserAdminModal.value = true
+  userAdminMsg.value = ''
+  userAdminOk.value = null
+  await fetchUsers()
+}
+
+async function changeRoleStatus(userId, role, status) {
+  userAdminMsg.value = ''
+  try {
+    await updateAdminUserRoleStatus(userId, { role, status })
+    userAdminOk.value = true
+    userAdminMsg.value = '更新成功！'
+    await fetchUsers()
+  } catch (e) {
+    userAdminOk.value = false
+    userAdminMsg.value = e.message || '操作失败'
+  }
 }
 
 // ---------- 管理员设置系统默认模型 ----------
@@ -202,4 +334,104 @@ async function clearAdminAi() {
 .modal .field input { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
 .ok-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .error-banner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+
+.status-badge.pending {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 1px 6px;
+  margin-left: 6px;
+}
+.pending-bar {
+  background: #fffbeb;
+  border-bottom: 1px solid #fef3c7;
+  color: #92400e;
+  font-size: 13px;
+  padding: 8px 24px;
+  text-align: center;
+}
+
+.user-admin-modal {
+  width: min(720px, 94vw);
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.user-table-wrap {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.user-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.user-table th, .user-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.user-table th {
+  background: #f8fafc;
+  color: var(--muted);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.pending-row {
+  background: #fffdf5;
+}
+.role-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.role-tag.admin { background: #fee2e2; color: #991b1b; }
+.role-tag.teacher { background: #e0e7ff; color: #3730a3; }
+.role-tag.student { background: #f1f5f9; color: #475569; }
+
+.status-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.status-tag.active { background: #dcfce7; color: #166534; }
+.status-tag.pending { background: #fef3c7; color: #b45309; font-weight: 600; }
+.status-tag.rejected { background: #fee2e2; color: #991b1b; }
+
+.tag-admin {
+  background: #f1f5f9;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+.action-cell {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+button.tiny {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+button.tiny.danger {
+  color: var(--error);
+  border-color: #fecaca;
+}
+button.tiny.danger:hover {
+  background: #fee2e2;
+}
 </style>

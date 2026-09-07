@@ -2,20 +2,35 @@
   <div class="login-wrap">
     <div class="card login-card">
       <div class="login-logo">📄 PaperGuard</div>
-      <p class="login-sub">{{ forceChange ? '首次登录请设置新密码' : (mode === 'login' ? '论文格式全流程约束系统' : '注册学生账号') }}</p>
+      <p class="login-sub">{{ forceChange ? '首次登录请设置新密码' : (mode === 'login' ? '论文格式全流程约束系统' : '创建新账号') }}</p>
 
       <div v-if="error" :class="noticeType === 'success' ? 'notice-banner' : 'error-banner'">
         {{ noticeType === 'success' ? '✅' : '⚠' }} {{ error }}
       </div>
 
       <form @submit.prevent="submit">
+        <div v-if="mode === 'register'" class="role-selector">
+          <label class="role-pill" :class="{ active: role === 'student' }">
+            <input type="radio" v-model="role" value="student" />
+            <span>👨‍🎓 学生账号</span>
+          </label>
+          <label class="role-pill" :class="{ active: role === 'teacher' }">
+            <input type="radio" v-model="role" value="teacher" />
+            <span>👨‍🏫 教师账号 (需认证)</span>
+          </label>
+        </div>
+
         <label class="field">
           <span>用户名</span>
           <input v-model="username" autocomplete="username" placeholder="至少 3 个字符" />
         </label>
+        <label v-if="mode === 'register'" class="field">
+          <span>姓名 / 昵称</span>
+          <input v-model="displayName" placeholder="例如：李老师 / 张三同学" />
+        </label>
         <label class="field">
           <span>密码</span>
-          <input v-model="password" type="password" autocomplete="current-password" :placeholder="mode === 'login' ? '密码' : '至少 8 位'" />
+          <input v-model="password" type="password" autocomplete="current-password" :placeholder="mode === 'login' ? '密码' : '至少 8 位，含字母和数字'" />
         </label>
         <label v-if="forceChange" class="field">
           <span>新密码</span>
@@ -26,14 +41,14 @@
           <input v-model="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" />
         </label>
         <button class="primary" type="submit" :disabled="loading" style="width: 100%; margin-top: 8px">
-          {{ loading ? '请稍候…' : (mode === 'login' ? '登 录' : '注 册') }}
+          {{ loading ? '请稍候…' : (mode === 'login' ? '登 录' : (role === 'teacher' ? '注册教师账号 (提交认证)' : '注 册 学 生 账 号')) }}
         </button>
       </form>
 
       <div v-if="!forceChange" class="login-switch">
         <template v-if="mode === 'login'">
           还没有账号?
-          <a href="#" @click.prevent="switchMode('register')">注册学生账号</a>
+          <a href="#" @click.prevent="switchMode('register')">立即注册</a>
         </template>
         <template v-else>
           已有账号?
@@ -54,6 +69,7 @@ import { changePassword } from '../api'
 const route = useRoute()
 const router = useRouter()
 const mode = ref('login')
+const role = ref('student')
 const forceChange = computed(() => route.query.forceChange === '1' && !!auth.token)
 const username = ref('')
 const password = ref('')
@@ -111,7 +127,10 @@ async function submit() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: username.value, password: password.value, display_name: displayName.value,
+          username: username.value,
+          password: password.value,
+          display_name: displayName.value,
+          role: role.value,
         }),
       })
       if (!resp.ok) {
@@ -119,7 +138,11 @@ async function submit() {
         throw new Error(d.detail || '注册失败')
       }
       mode.value = 'login'
-      setNotice('注册成功, 请登录', 'success')
+      if (role.value === 'teacher') {
+        setNotice('教师账号注册成功！需管理员认证后开通教师管理权限，您可先登录体验。', 'success')
+      } else {
+        setNotice('注册成功, 请登录', 'success')
+      }
     }
   } catch (e) {
     setNotice(e.message)
@@ -152,4 +175,36 @@ async function submit() {
 
 .login-switch a { color: var(--primary); text-decoration: none; }
 .login-hint { margin-top: 14px; font-size: 12px; color: #94a3b8; }
+
+.role-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 10px;
+}
+.role-pill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.role-pill input {
+  display: none;
+}
+.role-pill.active {
+  background: #fff;
+  color: var(--primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  font-weight: 600;
+}
 </style>
