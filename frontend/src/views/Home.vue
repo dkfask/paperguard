@@ -141,10 +141,19 @@
               </span>
             </div>
             <div class="message">{{ f.message }}</div>
-            <div class="meta-row" v-if="f.actual !== null || f.expected !== null">
-              <span class="param-tag actual">当前值: {{ f.actual ?? '未设置' }}</span>
-              <span class="param-tag expected">规范要求: {{ f.expected ?? '未设置' }}</span>
+
+            <!-- Stitch 风格精致实际值与规范要求双栏对比卡 -->
+            <div class="diff-card-grid" v-if="f.actual !== null || f.expected !== null">
+              <div class="diff-col actual-col">
+                <span class="diff-label">检测到的实际值 (ACTUAL)</span>
+                <div class="diff-value actual-value">{{ f.actual ?? '未设置' }}</div>
+              </div>
+              <div class="diff-col expected-col">
+                <span class="diff-label">模板与国标规范 (EXPECTED)</span>
+                <div class="diff-value expected-value">{{ f.expected ?? '未设置' }}</div>
+              </div>
             </div>
+
             <div class="meta" v-if="f.location.paragraph_index !== null">
               定位：段落 #{{ f.location.paragraph_index }}
             </div>
@@ -348,7 +357,7 @@ async function createProject() {
   creating.value = true
   error.value = ""
   try {
-    const p = await apiCreateProject(newProjectTitle.value || "未命名毕业论文", newProjectTemplate.value)
+    const p = await apiCreateProject(newProjectTemplate.value, newProjectTitle.value || "未命名毕业论文")
     projects.value = await fetchProjects()
     newProjectTitle.value = ""
     router.push('/write/' + p.id)
@@ -532,28 +541,55 @@ function shortDate(s) { return s ? s.slice(0, 10) : '' }
   color: var(--slate-600);
 }
 
-.meta-row {
-  display: flex;
-  gap: 10px;
-  margin-top: 8px;
-  font-size: 12px;
+.diff-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-top: 10px;
 }
 
-.param-tag {
-  padding: 3px 8px;
+.diff-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diff-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--slate-500);
+}
+
+.diff-value {
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
+  font-size: 13px;
   font-family: ui-monospace, monospace;
 }
 
-.param-tag.actual {
-  background: var(--slate-100);
+.diff-value.actual-value {
+  background: #fff;
+  border: 1px solid var(--slate-200);
   color: var(--slate-700);
 }
 
-.param-tag.expected {
+.diff-value.expected-value {
   background: var(--primary-50);
+  border: 1px solid var(--primary-200);
   color: var(--primary);
-  font-weight: 500;
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .diff-card-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 我的论文网格 (Grid Cards) */
