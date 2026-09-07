@@ -15,14 +15,24 @@
           <button class="small" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">⬇️ 导出</button>
         </span>
       </div>
+      <div class="tree-nav-header" style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; margin-bottom: 6px;">
+        <span style="font-size: 12px; font-weight: 600; color: var(--muted)">章节大纲</span>
+        <button v-if="canEditStructure" class="tiny" @click="showAddSectionModal = true" title="添加新章节">
+          ➕ 添加章节
+        </button>
+        <span v-else class="tiny" style="font-size: 11px; color: var(--muted); opacity: 0.8;" title="导师已锁定论文框架">
+          🔒 框架锁定
+        </span>
+      </div>
       <nav class="tree-nav">
-        <div v-for="node in flatTemplateSections" :key="node.key"
+        <div v-for="node in displaySections" :key="node.key"
              class="nav-row" :class="{ active: current === node.key }"
-             :style="{ paddingLeft: (8 + node.depth * 16) + 'px' }" @click="select(node)">
+             :style="{ paddingLeft: (8 + node.depth * 14) + 'px' }" @click="select(node)">
           <span v-if="isContentType(node.type) && node.key !== 'cover'">✍️</span>
           <span v-else-if="node.type === 'cover'">📋</span>
           <span class="nav-title">{{ label(node) }}</span>
           <span v-if="isRequired(node) && !isDone(node)" class="dot" title="未完成">●</span>
+          <span v-if="canEditStructure && isCustomSection(node)" class="nav-action-del" @click.stop="removeSection(node)" title="删除此章节">×</span>
         </div>
       </nav>
       <div class="sidebar-foot">
@@ -254,6 +264,32 @@
           </template>
         </div>
       </div>
+
+      <!-- 添加章节弹窗 -->
+      <div v-if="showAddSectionModal" class="modal-mask" @click.self="showAddSectionModal = false">
+        <div class="modal card">
+          <h3 style="margin-top: 0">➕ 添加新章节</h3>
+          <p class="hint" style="margin-top: 0">导师已允许自定义增删章节框架。请选择添加的章节类型与名称：</p>
+          <label class="field">章节标题
+            <input v-model="newSectionForm.title" placeholder="如 第六章 结论与建议 或 1.4 本章小结" />
+          </label>
+          <label class="field">章节类型
+            <select v-model="newSectionForm.type" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px;">
+              <option value="heading1">一级标题 (章)</option>
+              <option value="heading2">二级标题 (节)</option>
+              <option value="heading3">三级标题 (小节)</option>
+              <option value="body">正文容器</option>
+              <option value="appendix">附录</option>
+            </select>
+          </label>
+          <div class="form-row" style="margin-top: 16px;">
+            <button class="primary" :disabled="!newSectionForm.title.trim() || addingSection" @click="confirmAddSection">
+              {{ addingSection ? '添加中…' : '确认添加' }}
+            </button>
+            <button @click="showAddSectionModal = false">取消</button>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 </template>
@@ -264,6 +300,7 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth } from '../auth'
 import {
   fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject, checkProjectTemplate,
+  updateProjectSectionsStructure,
   aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
   getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
 } from '../api'
@@ -303,6 +340,113 @@ let beforeUnloadHandler = null
 const chapterMap = ref({})
 const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract', 'english_abstract', 'keywords', 'english_keywords']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
+
+// 架构与权限：是否允许修改章节框架
+const canEditStructure = computed(() => {
+  if (isAdmin.value || auth.user?.role === 'teacher') return true
+  if (project.value && project.value.allow_structure_edit !== undefined) {
+    return !!project.value.allow_structure_edit
+  }
+  if (template.value && template.value.allow_structure_edit !== undefined) {
+    return !!template.value.allow_structure_edit
+  }
+  return true
+})
+
+// 展示的章节列表（以项目实际 sections 为准，若未初始化则以模板为准）
+const displaySections = computed(() => {
+  if (!project.value || !project.value.sections) return flatTemplateSections.value
+  const tplMap = new Map()
+  for (const item of flatTemplateSections.value) {
+    tplMap.set(item.key, item)
+  }
+  return project.value.sections.map((sec) => {
+    const tplItem = tplMap.get(sec.key)
+    let depth = tplItem?.depth || 0
+    if (sec.type === 'heading2') depth = 1
+    if (sec.type === 'heading3') depth = 2
+    return {
+      key: sec.key,
+      type: sec.type,
+      title: sec.title,
+      required: sec.required,
+      depth,
+    }
+  })
+})
+
+const showAddSectionModal = ref(false)
+const addingSection = ref(false)
+const newSectionForm = reactive({ title: '', type: 'heading2' })
+
+function isCustomSection(node) {
+  // 保护核心段落不被删除
+  const protectedKeys = new Set(['cover', 'abstract', 'english_abstract', 'toc', 'references'])
+  return !protectedKeys.has(node.key)
+}
+
+async function confirmAddSection() {
+  if (!newSectionForm.title.trim() || addingSection.value) return
+  addingSection.value = true
+  error.value = ''
+  try {
+    await flushPendingSaves()
+    const newKey = `sec_${Date.now()}`
+    const currentList = project.value.sections.map((s) => ({
+      key: s.key,
+      type: s.type,
+      title: s.title,
+      required: s.required,
+    }))
+    // 找到合适插入位置（默认插入到参考文献之前，或在当前选中的章节后）
+    let insertIdx = currentList.length
+    const refIdx = currentList.findIndex((s) => s.type === 'references' || s.key === 'references')
+    if (refIdx !== -1) insertIdx = refIdx
+    currentList.splice(insertIdx, 0, {
+      key: newKey,
+      type: newSectionForm.type,
+      title: newSectionForm.title.trim(),
+      required: false,
+    })
+
+    const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
+    project.value = updated
+    current.value = newKey
+    computeChapterNumbers()
+    showAddSectionModal.value = false
+    newSectionForm.title = ''
+    void runCheckNow()
+  } catch (e) {
+    error.value = e.message || '添加章节失败'
+  } finally {
+    addingSection.value = false
+  }
+}
+
+async function removeSection(node) {
+  if (!confirm(`确定要删除章节「${node.title || node.key}」及其正文内容吗？`)) return
+  error.value = ''
+  try {
+    await flushPendingSaves()
+    const currentList = project.value.sections
+      .filter((s) => s.key !== node.key)
+      .map((s) => ({
+        key: s.key,
+        type: s.type,
+        title: s.title,
+        required: s.required,
+      }))
+    const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
+    project.value = updated
+    if (current.value === node.key) {
+      current.value = updated.sections[0]?.key || 'cover'
+    }
+    computeChapterNumbers()
+    void runCheckNow()
+  } catch (e) {
+    error.value = e.message || '删除章节失败'
+  }
+}
 
 const currentSection = computed(() => {
   if (!project.value) return null
@@ -967,6 +1111,21 @@ onBeforeUnmount(() => {
 .nav-row.child { padding-left: 24px; }
 .nav-row.grand { padding-left: 40px; }
 .nav-title { flex: 1; }
+.nav-action-del {
+  display: none;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.nav-row:hover .nav-action-del {
+  display: inline-block;
+}
+.nav-action-del:hover {
+  color: var(--error);
+  background: #fee2e2;
+}
 .dot { color: #f59e0b; font-size: 10px; }
 .sidebar-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 button.small { font-size: 13px; padding: 6px 12px; }

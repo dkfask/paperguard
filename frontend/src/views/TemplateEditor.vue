@@ -26,6 +26,15 @@
       <input v-model="tpl.description" placeholder="模板说明"
              style="padding: 8px; border: 1px solid var(--border); border-radius: 8px; width: 100%" />
     </div>
+    <div style="margin-top: 12px">
+      <label style="font-size: 14px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+        <input type="checkbox" v-model="tpl.allow_structure_edit" />
+        <span style="font-weight: 500;">允许学生自由增删和调整论文章节框架（如新增子节、调整章名）</span>
+      </label>
+      <p style="color: var(--muted); font-size: 12px; margin: 4px 0 0 24px;">
+        关闭时，学生仅能在固定的章节大纲内撰写正文与插入图表，不可擅自增删章节。
+      </p>
+    </div>
 
     <!-- 封面字段 -->
     <h3 style="margin: 24px 0 12px">📋 封面字段</h3>
@@ -114,6 +123,7 @@ const DEFAULT_STYLE = () => ({
 
 const tpl = ref({
   id: '', name: '', description: '',
+  allow_structure_edit: true,
   sections: [], styles: {}, meta_fields: [],
 })
 const stylesKeys = ref([])

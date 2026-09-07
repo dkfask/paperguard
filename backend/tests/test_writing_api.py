@@ -489,6 +489,27 @@ def test_export_docx_has_toc_field_and_page_footer():
     assert "PAGE" in footer_xml, "页脚应包含页码域"
 
 
+def test_update_project_sections_structure():
+    """测试在写作中增删和调整章节结构。"""
+    proj_id = test_create_project_instantiates_sections()
+    # 增加新章节并删除非必要章节
+    resp = client.put(f"/api/projects/{proj_id}/sections", json={
+        "sections": [
+            {"key": "abstract", "type": "abstract", "title": "摘要", "required": True},
+            {"key": "ch1", "type": "heading1", "title": "第一章 绪论", "required": True},
+            {"key": "ch1_1", "type": "heading2", "title": "1.1 背景", "required": False},
+            {"key": "ch1_new", "type": "heading2", "title": "1.2 新增研究方法", "required": False},
+            {"key": "references", "type": "references", "title": "参考文献", "required": True},
+        ]
+    })
+    assert resp.status_code == 200
+    updated_proj = resp.json()
+    keys = [s["key"] for s in updated_proj["sections"]]
+    assert "ch1_new" in keys
+    assert "ch1_1" in keys
+    assert "references" in keys
+
+
 def test_captions_auto_numbered():
     """图表题注自动编号: 图 1.1 / 表 1.1, 手填编号会被替换。"""
     import io

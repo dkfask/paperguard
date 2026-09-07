@@ -64,5 +64,6 @@ class WritingProject(BaseModel):
     template_snapshot: dict | None = None
     meta: dict[str, str] = {}          # 封面字段值 key -> value
     sections: list[ProjectSection] = []
+    allow_structure_edit: bool = True  # 是否允许学生修改整体论文的框架
     created_at: str = ""
     updated_at: str = ""

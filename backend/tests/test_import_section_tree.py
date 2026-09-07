@@ -9,7 +9,7 @@ import docx
 from app.services.import_template import extract_section_tree
 
 
-def test_extract_section_tree_recognizes_english_abstract_and_keywords():
+def test_extract_section_tree_recognizes_english_abstract_and_excludes_keywords_from_toc():
     doc = docx.Document()
     doc.add_paragraph("摘  要")
     doc.add_paragraph("这是中文摘要内容...")
@@ -33,8 +33,9 @@ def test_extract_section_tree_recognizes_english_abstract_and_keywords():
 
         assert "abstract" in types
         assert "english_abstract" in types
-        assert "keywords" in types
-        assert "english_keywords" in types
+        # 关键词是摘要正文元信息，不作为独立章节树节点进入目录
+        assert "keywords" not in types
+        assert "english_keywords" not in types
         assert "toc" in types
         assert "heading1" in types
 
@@ -44,8 +45,5 @@ def test_extract_section_tree_recognizes_english_abstract_and_keywords():
         en_abstract_sec = next(s for s in sections if s["type"] == "english_abstract")
         assert en_abstract_sec["key"] == "english_abstract"
         assert en_abstract_sec["title"] == "Abstract"
-
-        en_keywords_sec = next(s for s in sections if s["type"] == "english_keywords")
-        assert en_keywords_sec["key"] == "english_keywords"
     finally:
         Path(tmp_path).unlink(missing_ok=True)

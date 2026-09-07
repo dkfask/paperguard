@@ -210,8 +210,7 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             _add_toc_field(doc)
             return
 
-        if node.type in (SectionType.ABSTRACT, SectionType.ENGLISH_ABSTRACT,
-                         SectionType.KEYWORDS, SectionType.ENGLISH_KEYWORDS):
+        if node.type in (SectionType.ABSTRACT, SectionType.ENGLISH_ABSTRACT):
             title_style = _style_for(template, stype, node_style)
             if title_style.page_break_before:
                 doc.add_page_break()
@@ -219,6 +218,25 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             body_style = _style_for(template, stype, node_style)
             for par in (proj_sec.paragraphs if proj_sec else []):
                 _export_paragraph(doc, par, body_style, template, numbering)
+            for child in node.children:
+                walk(child)
+            return
+
+        if node.type in (SectionType.KEYWORDS, SectionType.ENGLISH_KEYWORDS):
+            # 关键词属于正文元信息段落，绝不使用标题样式进入目录，仅作为常规段落呈现
+            body_style = _style_for(template, stype, node_style)
+            prefix = "关键词：" if node.type is SectionType.KEYWORDS else "Key Words: "
+            # 检查是否有内容段落
+            has_content = False
+            for par in (proj_sec.paragraphs if proj_sec else []):
+                if par.text and par.text.strip():
+                    has_content = True
+                    text = par.text.strip()
+                    if not text.startswith(prefix) and not text.startswith("关键词") and not text.lower().startswith("key words"):
+                        text = f"{prefix}{text}"
+                    p_clone = ParagraphBlock(id=par.id, type=par.type, text=text,
+                                             bold=par.bold, italic=par.italic, underline=par.underline)
+                    _export_paragraph(doc, p_clone, body_style, template, numbering)
             for child in node.children:
                 walk(child)
             return

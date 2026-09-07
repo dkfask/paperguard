@@ -78,6 +78,7 @@ class PaperTemplate(BaseModel):
     sections: list[TemplateSection] = []
     styles: dict[str, TextStyle] = {}       # SectionType.value -> 默认样式
     meta_fields: list[MetaField] = []
+    allow_structure_edit: bool = True       # 允许学生在写作中调整/增删章节框架
 
 
 # ---------------------------------------------------------------------------

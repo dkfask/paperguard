@@ -167,7 +167,10 @@ export async function createProject(templateId, title = '') {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ template_id: templateId, title }),
   })
-  if (!resp.ok) throw new Error('创建项目失败')
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '创建项目失败'))
+  }
   return resp.json()
 }
 
@@ -202,6 +205,23 @@ export async function updateProjectMeta(projectId, meta, baseRevision = null) {
     const err = new Error(detail.detail?.message || detail.detail || '保存封面信息失败')
     err.status = resp.status
     err.revision = detail.detail?.revision
+    throw err
+  }
+  return resp.json()
+}
+
+export async function updateProjectSectionsStructure(projectId, sections, baseRevision = null) {
+  const body = { sections }
+  if (baseRevision !== null) body.base_revision = baseRevision
+  const resp = await api(`${API_BASE}/projects/${projectId}/sections`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    const err = new Error(detailMessage(detail, '修改章节结构失败'))
+    err.status = resp.status
     throw err
   }
   return resp.json()

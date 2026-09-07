@@ -206,10 +206,9 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
             items.append(("special-abstract", text))
         elif lower in {"abstract", "englishabstract", "英文摘要", "abstractenglish"}:
             items.append(("special-english-abstract", text))
-        elif compact.startswith("关键词"):
-            items.append(("special-keywords", text))
-        elif lower.startswith(("keywords", "keyword", "keyterms", "indexterms")):
-            items.append(("special-english-keywords", text))
+        elif compact.startswith("关键词") or lower.startswith(("keywords", "keyword", "keyterms", "indexterms")):
+            # 依据 GB/T 7713 规范，关键词是摘要下方的内嵌段落，不作为独立章节树节点进入目录
+            continue
         elif compact in {"目录", "toc", "contents", "tableofcontents"} or lower in {"toc", "contents", "tableofcontents"} or style_id == "TOCHeading":
             items.append(("special-toc", text))
         elif compact == "参考文献":

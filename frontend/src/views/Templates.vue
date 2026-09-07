@@ -153,12 +153,8 @@ function mergeImportedSections(imported, baseSections) {
     let normalized = section
     if (section.type === 'english_abstract' || title.includes('英文摘要') || title.includes('englishabstract') || title === 'abstract') {
       normalized = { ...section, key: 'english_abstract', type: 'english_abstract', required: true }
-    } else if (section.type === 'english_keywords' || title.includes('keywords') || title.includes('key words')) {
-      normalized = { ...section, key: 'english_keywords', type: 'english_keywords', required: true }
     } else if (section.type === 'abstract' || title.includes('摘要')) {
       normalized = { ...section, key: 'abstract', type: 'abstract', required: true }
-    } else if (section.type === 'keywords' || title.includes('关键词')) {
-      normalized = { ...section, key: 'keywords', type: 'keywords', required: true }
     } else if (section.type === 'toc' || title.includes('目录') || title.includes('contents') || title.includes('tableofcontents')) {
       normalized = { ...section, key: 'toc', type: 'toc', required: true }
     } else if (section.type === 'references' || title.includes('参考文献')) {

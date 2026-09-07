@@ -16,7 +16,7 @@ from app.api.templates import get_store
 from app.auth import can_manage, current_user
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
-from app.models.project import ParagraphBlock, WritingProject
+from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import PaperTemplate
 from app.services.image_cleanup import cleanup_orphan_images, remove_project_images
 from app.services.project_validation import validate_project_completeness
@@ -91,6 +91,78 @@ class UpdateSectionRequest(BaseModel):
     title: str | None = None
     paragraphs: list[dict] | None = None   # [{id, text, bold, italic, underline}]
     base_revision: int | None = None
+
+
+class SectionStructureItem(BaseModel):
+    key: str
+    type: str
+    title: str
+    required: bool = False
+
+
+class UpdateSectionsStructureRequest(BaseModel):
+    sections: list[SectionStructureItem]
+    base_revision: int | None = None
+
+
+@router.put("/{proj_id}/sections")
+def update_project_sections_structure(proj_id: str, req: UpdateSectionsStructureRequest,
+                                     store: Store = Depends(get_store),
+                                     user: dict = Depends(current_user)) -> WritingProject:
+    """更新项目的章节框架（增删、排序），由教师通过模板权限控制是否允许学生调整。"""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+
+    # 权限检查：如果非教师/管理员，且该项目或模板不允许编辑框架，则拦截
+    tpl = _project_template(proj, store)
+    is_allowed = getattr(proj, "allow_structure_edit", None)
+    if is_allowed is None:
+        is_allowed = getattr(tpl, "allow_structure_edit", True)
+
+    if not is_allowed and not can_manage(user):
+        raise HTTPException(status_code=403, detail="指导教师已锁定论文框架，不可增删章节")
+
+    expected_revision = proj.revision if req.base_revision is None else req.base_revision
+    if req.base_revision is not None and req.base_revision != proj.revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "项目内容已被更新, 请刷新后重试", "revision": proj.revision},
+        )
+
+    # 必填核心章节保护：cover/abstract/references 不能缺失
+    incoming_keys = [s.key for s in req.sections]
+    if len(incoming_keys) != len(set(incoming_keys)):
+        raise HTTPException(status_code=422, detail="章节 key 存在重复")
+
+    existing_sec_map = {s.key: s for s in proj.sections}
+    new_sections: list[ProjectSection] = []
+
+    for item in req.sections:
+        if not item.key.strip():
+            item.key = f"sec_{uuid.uuid4().hex[:8]}"
+        if item.key in existing_sec_map:
+            sec = existing_sec_map[item.key]
+            sec.title = item.title
+            sec.type = item.type
+            sec.required = item.required
+            new_sections.append(sec)
+        else:
+            # 新增章节
+            new_sections.append(ProjectSection(
+                key=item.key,
+                type=item.type,
+                title=item.title,
+                required=item.required,
+                paragraphs=[ParagraphBlock(id=f"{item.key}-p1", text="")],
+            ))
+
+    proj.sections = new_sections
+    saved = store.update_project_if_revision(proj, expected_revision)
+    if saved is None:
+        raise HTTPException(status_code=409, detail={"message": "项目内容已被更新, 请刷新后重试"})
+    return saved
 
 
 @router.put("/{proj_id}/section/{section_key}")

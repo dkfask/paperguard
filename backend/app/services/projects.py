@@ -104,6 +104,7 @@ def create_project_from_template(store: Store, template: PaperTemplate) -> Writi
         title=template.name,
         meta={f.key: "" for f in template.meta_fields},
         sections=sections,
+        allow_structure_edit=getattr(template, "allow_structure_edit", True),
     )
 
 
