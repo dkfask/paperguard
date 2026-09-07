@@ -5,7 +5,7 @@
         <!-- Stitch Brand Logo -->
         <div class="brand-section">
           <RouterLink to="/" class="brand-logo">
-            <img alt="PaperGuard Logo" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDql0yGL1_UN68HUwkaynIRDx8ioj_UnjbtZPq7DrYzntCwO0hGlpP3r1kPs1FliBzugPbxJeZ5285tEhVkW-z45Zj_nbfqlq17oN_RIAI7A2I_RaG0nkCcPBoV-O7zcEg04VSsWuY0-qlQertUcX-IABRfiFxfwTbwbCGaQDiU5f46xmbag_MRq2ouV7mFAIYiVLmjJmY8Md5HWZj1ru4mtz1lReRMvq1eB0VtgTNRcTeC1xlXBLgwlY6Ya_3v6yTKEkKC6Nl6tleJ" />
+            <img alt="PaperGuard Logo" src="/logo.png" />
             <span class="brand-title">PaperGuard</span>
           </RouterLink>
         </div>
@@ -43,7 +43,7 @@
           </button>
 
           <div class="user-avatar-btn" :title="auth.user?.display_name || auth.user?.username">
-            <img alt="User profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0wMEf8sOMZsI9UqG-vjToR-y29UMQA0stFOsuSCpfF_147cakqSnuDMlmfbWRji89D8HDAT0hg9NaTD7ofJj2PKuyiEwSNfG1cuWozoyE-ZZi8keBNQc5HWp9eAezPEHrBltaXRg1NCSO4xHSjE1loBGYhxaxDYmgye_x-kyW5JbV90xDbt6XRj63EzKZLMW1hjJk87WcSbgtlqvlj0EU9JQpSa2b9Tp_ACkLExFBGpZld8_ZyMC7zmOdzFuxDTWrRdCcMfIfnt8n" />
+            <img alt="User profile" src="/avatar.png" />
           </div>
           <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
             {{ auth.user?.display_name || auth.user?.username }}

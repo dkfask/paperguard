@@ -4,7 +4,7 @@
     <header class="stitch-auth-header">
       <div class="auth-header-inner">
         <div class="brand-box">
-          <img alt="PaperGuard Logo" class="brand-icon-img" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDql0yGL1_UN68HUwkaynIRDx8ioj_UnjbtZPq7DrYzntCwO0hGlpP3r1kPs1FliBzugPbxJeZ5285tEhVkW-z45Zj_nbfqlq17oN_RIAI7A2I_RaG0nkCcPBoV-O7zcEg04VSsWuY0-qlQertUcX-IABRfiFxfwTbwbCGaQDiU5f46xmbag_MRq2ouV7mFAIYiVLmjJmY8Md5HWZj1ru4mtz1lReRMvq1eB0VtgTNRcTeC1xlXBLgwlY6Ya_3v6yTKEkKC6Nl6tleJ" />
+          <img alt="PaperGuard Logo" class="brand-icon-img" src="/logo.png" />
           <span class="brand-name">PaperGuard</span>
         </div>
         <button class="auth-lang-btn" @click="toggleLang">
@@ -17,6 +17,9 @@
     <!-- Main Authentication Stage -->
     <main class="stitch-auth-main">
       <div class="auth-heading-box">
+        <div class="login-center-logo">
+          <img alt="PaperGuard Logo" src="/logo.png" />
+        </div>
         <h1 class="auth-title">
           {{ forceChange ? (lang === 'zh' ? '设置个人新密码' : 'Set New Password') : (mode === 'login' ? (lang === 'zh' ? '欢迎登录 PaperGuard' : 'Welcome to PaperGuard') : (lang === 'zh' ? '注册 PaperGuard 账号' : 'Create an Account')) }}
         </h1>
@@ -285,7 +288,19 @@ async function submit() {
 
 .auth-heading-box {
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+}
+
+.login-center-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.login-center-logo img {
+  height: 44px;
+  width: auto;
+  filter: drop-shadow(0 4px 10px rgba(37, 99, 235, 0.2));
 }
 
 .auth-title {
