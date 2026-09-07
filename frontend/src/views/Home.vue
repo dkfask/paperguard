@@ -1,237 +1,269 @@
 <template>
-  <div class="home-container">
-    <!-- 学术迎宾 Hero 区域 -->
-    <div class="hero-banner">
-      <div class="hero-content">
-        <div class="hero-tag">🎓 GB/T 7713 国标规范 · 高校毕业设计论文格式全流程合规引擎</div>
-        <h1 class="hero-title">论文格式规范智能自检与沉浸写作</h1>
-        <p class="hero-desc">
-          多维度排版规则深度体检、Word 模板一键逆向解析与适配、AI 智能润色续写与自动化格式修复。
-        </p>
+  <div class="stitch-dashboard">
+    <!-- 1:1 Stitch Hero Section (Modern Academic Rigor) -->
+    <section class="stitch-hero">
+      <div class="stitch-hero-inner">
+        <div class="hero-text-col">
+          <p class="hero-overline">MODERN ACADEMIC RIGOR</p>
+          <h1 class="hero-headline">GB/T 7713 Compliance</h1>
+          <p class="hero-subtext">
+            Automated structural and typographic analysis for your academic manuscript. Ensure perfect alignment with institutional formatting standards before submission.
+          </p>
+        </div>
+        <div class="hero-badge-col">
+          <div class="engine-active-card">
+            <div class="engine-active-header">
+              <span class="material-symbols-outlined engine-icon">verified</span>
+              <span class="engine-text">Engine Active</span>
+            </div>
+            <p class="engine-subtext">Ruleset: GB/T 7713-1987 / 高校规范</p>
+          </div>
+        </div>
       </div>
-      <div class="hero-badges">
-        <span class="hero-pill">⚡ 秒级自动分析</span>
-        <span class="hero-pill">🛡 杜绝排版失分</span>
-        <span class="hero-pill">🤖 AI 写作协同</span>
+    </section>
+
+    <!-- 1:1 Stitch Content Stage -->
+    <div class="stitch-content-stage">
+      <!-- Segmented Navigation Pills -->
+      <div class="stitch-segmented-wrapper">
+        <div class="stitch-segmented-pills">
+          <button class="pill-btn" :class="{ active: tab === 'check' }" @click="tab = 'check'">
+            Upload Inspection
+          </button>
+          <button class="pill-btn" :class="{ active: tab === 'projects' }" @click="tab = 'projects'">
+            My Theses ({{ projects.length }})
+          </button>
+        </div>
       </div>
-    </div>
 
-    <!-- Linear 风格 Segmented 切换胶囊 -->
-    <div class="tabs-wrapper">
-      <div class="segmented-tabs" role="tablist">
-        <button class="segmented-tab" :class="{ active: tab === 'check' }" @click="tab = 'check'">
-          📄 上传排版体检
-        </button>
-        <button class="segmented-tab" :class="{ active: tab === 'projects' }" @click="tab = 'projects'">
-          ✍️ 我的论文工作台 ({{ projects.length }})
-        </button>
+      <div v-if="error" class="error-banner" role="alert" aria-live="polite">
+        <span class="material-symbols-outlined" style="font-size: 18px">warning</span>
+        <span>{{ error }}</span>
       </div>
-    </div>
 
-    <div v-if="error" class="error-banner" role="alert" aria-live="polite">⚠ {{ error }}</div>
-
-    <!-- ============ 上传检查 ============ -->
-    <section v-if="tab === 'check'">
-      <div class="card check-card">
-        <div class="section-head">
-          <h2>上传论文进行格式自检</h2>
-          <div class="mode-switch-capsule" role="group" aria-label="检查模式">
+      <!-- ============ TAB 1: UPLOAD INSPECTION ============ -->
+      <section v-if="tab === 'check'" class="inspection-section">
+        <!-- 模式切换小胶囊 (规则包 vs 模板) -->
+        <div class="check-options-bar">
+          <div class="mode-switch-capsule">
             <button :class="{ active: checkMode === 'pack' }" @click="switchCheckMode('pack')">
               标准规则包检查
             </button>
             <button :class="{ active: checkMode === 'template' }" @click="switchCheckMode('template')">
-              自定义模板对照
+              高校模板对照
             </button>
           </div>
-        </div>
 
-        <!-- 模板文件选择区 -->
-        <div v-if="checkMode === 'template'" class="template-check-files">
-          <div class="file-summary">
-            <span>规范基准模板：</span>
-            <strong>{{ templateFile?.name || '尚未选择（请在下方载入学校下发的 .docx 模板）' }}</strong>
-          </div>
-          <label for="template-file" class="upload-zone compact" :class="{ disabled: checking || fixing }">
-            <div class="icon-box-small">📋</div>
-            <div v-if="templateFile" class="file-name">{{ templateFile.name }}</div>
-            <div v-else class="file-prompt">点击选择高校官方规范模板 .docx</div>
-          </label>
-          <input id="template-file" ref="templateInput" class="file-input-hidden" type="file" accept=".docx" :disabled="checking || fixing" @change="onTemplatePick" />
-        </div>
-
-        <!-- 待测论文拖拽上传区 -->
-        <label for="paper-file" class="upload-zone" :class="{ dragging, disabled: checking || fixing }"
-               @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="onDrop">
-          <div class="icon-box">
-            <span v-if="file">📄</span>
-            <span v-else>📁</span>
-          </div>
-          <div v-if="file" class="file-name">已选论文：{{ file.name }}</div>
-          <div v-else class="file-name">点击选择或拖入毕业论文 .docx 文件</div>
-          <div class="hint">支持 Word 2007+ (.docx)；文档仅在服务器安全内存中快速体检，不保存任何论文私密内容</div>
-        </label>
-        <input id="paper-file" ref="fileInput" class="file-input-hidden" type="file" accept=".docx" :disabled="checking || fixing" @change="onPick" />
-
-        <div class="form-row check-action-bar">
-          <div v-if="checkMode === 'pack'" class="rule-selector">
-            <label for="pack" style="font-weight: 500; font-size: 13px; color: var(--slate-600)">检查规范：</label>
+          <div v-if="checkMode === 'pack'" class="rule-pack-picker">
+            <label for="pack">规范选择：</label>
             <select id="pack" v-model="pack" :disabled="checking || fixing">
               <option v-for="p in packs" :key="p" :value="p">{{ p }}</option>
             </select>
           </div>
-          <div style="margin-left: auto">
-            <button class="primary" :disabled="!file || (checkMode === 'template' && !templateFile) || checking || fixing || initializing" @click="runCheck">
-              {{ checking ? '⚡ 正在深度解析排版中…' : '🚀 开始格式体检' }}
+        </div>
+
+        <!-- 模板文件选择区 (如果是模板对照模式) -->
+        <div v-if="checkMode === 'template'" class="template-upload-card">
+          <div class="template-title-row">
+            <span>基准模板：</span>
+            <strong>{{ templateFile?.name || '尚未上传学校 .docx 模板' }}</strong>
+          </div>
+          <label for="template-file" class="template-pick-btn" :class="{ disabled: checking || fixing }">
+            <span class="material-symbols-outlined">description</span>
+            <span>{{ templateFile ? '更换基准模板' : '选择高校官方规范模板 .docx' }}</span>
+          </label>
+          <input id="template-file" ref="templateInput" class="file-input-hidden" type="file" accept=".docx" :disabled="checking || fixing" @change="onTemplatePick" />
+        </div>
+
+        <!-- 1:1 Stitch Upload Dropzone -->
+        <label for="paper-file" class="stitch-dropzone" :class="{ dragging, disabled: checking || fixing }"
+               @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="onDrop">
+          <div class="dropzone-icon-circle">
+            <span class="material-symbols-outlined dropzone-icon">upload_file</span>
+          </div>
+          <h3 class="dropzone-title">
+            {{ file ? file.name : 'Drag & Drop your thesis' }}
+          </h3>
+          <p class="dropzone-subtitle">Supports .docx formats. Max size 50MB.</p>
+          <div class="dropzone-action">
+            <button class="primary" type="button" :disabled="checking || fixing" style="pointer-events: none;">
+              {{ file ? '已选就绪，可重新点击选择' : 'Browse Files' }}
             </button>
           </div>
-        </div>
-      </div>
+        </label>
+        <input id="paper-file" ref="fileInput" class="file-input-hidden" type="file" accept=".docx" :disabled="checking || fixing" @change="onPick" />
 
-      <div v-if="initializing" class="hint-center">正在加载规范规则库与论文环境…</div>
-
-      <!-- 检查报告可视化结果 -->
-      <section v-if="report" class="card report-card">
-        <div class="report-header">
-          <div>
-            <h2>体检分析报告</h2>
-            <div class="meta" style="margin-top: 4px">
-              论文：<strong>{{ file.name }}</strong>
-              <span v-if="report.context"> · 对照模板：{{ report.context.template_filename }} (包含 {{ report.context.template_section_count }} 个章节规范)</span>
-              <span v-else> · 规则体系：{{ pack }}</span>
-            </div>
-          </div>
-          <div v-if="hasFixableFindings && checkMode === 'pack'">
-            <button class="fix-btn-glow" :disabled="checking || fixing || initializing" @click="runFix">
-              {{ fixing ? '正在自动修复格式…' : '✨ 一键自动修复并下载' }}
-            </button>
-          </div>
+        <!-- 触发执行体检按钮 -->
+        <div class="run-inspection-bar">
+          <button class="primary run-btn" :disabled="!file || (checkMode === 'template' && !templateFile) || checking || fixing || initializing" @click="runCheck">
+            <span class="material-symbols-outlined">{{ checking ? 'sync' : 'search_check' }}</span>
+            <span>{{ checking ? '正在深度解析排版中…' : 'Start Inspection' }}</span>
+          </button>
         </div>
 
-        <div class="summary-cards">
-          <div class="summary-card total">
-            <div class="num">{{ report.summary.total }}</div>
-            <div class="label">排版问题总数</div>
-          </div>
-          <div class="summary-card error">
-            <div class="num">{{ report.summary.error }}</div>
-            <div class="label">严重不合规</div>
-          </div>
-          <div class="summary-card warning">
-            <div class="num">{{ report.summary.warning }}</div>
-            <div class="label">建议调整警告</div>
-          </div>
-          <div class="summary-card info">
-            <div class="num">{{ report.summary.info }}</div>
-            <div class="label">格式提示项</div>
-          </div>
-        </div>
+        <div v-if="initializing" class="hint-center">正在加载规范规则库与论文环境…</div>
 
-        <div v-if="report.findings.length === 0" class="empty-state-card">
-          <div style="font-size: 36px">🎉</div>
-          <h3 style="margin-top: 8px; font-weight: 600">完美合规！未发现排版规范问题</h3>
-          <p class="hint">当前论文完全符合目标模板与格式要求，可放心提交审核或答辩。</p>
-        </div>
-
-        <div v-else class="findings-list">
-          <div v-for="(f, i) in report.findings" :key="i" class="finding" :class="'severity-' + f.severity">
-            <div class="head">
-              <span class="rule-id">{{ f.rule_id }}</span>
-              <span class="badge" :class="f.severity">
-                {{ { error: '严重错误', warning: '格式警告', info: '排版提示' }[f.severity] }}
-              </span>
-            </div>
-            <div class="message">{{ f.message }}</div>
-
-            <!-- Stitch 风格精致实际值与规范要求双栏对比卡 -->
-            <div class="diff-card-grid" v-if="f.actual !== null || f.expected !== null">
-              <div class="diff-col actual-col">
-                <span class="diff-label">检测到的实际值 (ACTUAL)</span>
-                <div class="diff-value actual-value">{{ f.actual ?? '未设置' }}</div>
+        <!-- 1:1 Stitch Metrics Row & Detailed Findings -->
+        <section v-if="report" class="report-container">
+          <!-- 4张指标卡片 -->
+          <div class="stitch-metrics-grid">
+            <div class="stitch-metric-card">
+              <div class="metric-top">
+                <span class="metric-label">Total Issues</span>
+                <span class="material-symbols-outlined text-secondary">analytics</span>
               </div>
-              <div class="diff-col expected-col">
-                <span class="diff-label">模板与国标规范 (EXPECTED)</span>
-                <div class="diff-value expected-value">{{ f.expected ?? '未设置' }}</div>
+              <span class="metric-num text-on-surface">{{ report.summary.total }}</span>
+            </div>
+
+            <div class="stitch-metric-card">
+              <div class="metric-top">
+                <span class="metric-label text-error">Critical Errors</span>
+                <span class="material-symbols-outlined text-error">error</span>
+              </div>
+              <span class="metric-num text-error">{{ report.summary.error }}</span>
+            </div>
+
+            <div class="stitch-metric-card">
+              <div class="metric-top">
+                <span class="metric-label text-tertiary">Format Warnings</span>
+                <span class="material-symbols-outlined text-tertiary">warning</span>
+              </div>
+              <span class="metric-num text-tertiary">{{ report.summary.warning }}</span>
+            </div>
+
+            <div class="stitch-metric-card">
+              <div class="metric-top">
+                <span class="metric-label text-primary">Formatting Tips</span>
+                <span class="material-symbols-outlined text-primary">lightbulb</span>
+              </div>
+              <span class="metric-num text-primary">{{ report.summary.info }}</span>
+            </div>
+          </div>
+
+          <!-- 报告详细列表与一键修复按钮 -->
+          <div class="findings-wrapper">
+            <div class="findings-header">
+              <h2 class="findings-title">Detailed Findings</h2>
+              <div v-if="hasFixableFindings && checkMode === 'pack'">
+                <button class="stitch-repair-btn" :disabled="checking || fixing || initializing" @click="runFix">
+                  <span class="material-symbols-outlined text-[16px]">build</span>
+                  <span>{{ fixing ? '自动修复中…' : 'One-Click Repair & Download' }}</span>
+                </button>
               </div>
             </div>
 
-            <div class="meta" v-if="f.location.paragraph_index !== null">
-              定位：段落 #{{ f.location.paragraph_index }}
+            <!-- 空状态：完美合规 -->
+            <div v-if="report.findings.length === 0" class="stitch-empty-findings">
+              <span class="material-symbols-outlined check-circle-icon">check_circle</span>
+              <h3 style="font-weight: 700; margin-top: 8px">Perfect! No Formatting Issues Found</h3>
+              <p style="color: var(--on-surface-variant); font-size: 14px">当前论文完全符合目标规范要求，可以直接提交评审或打印归档。</p>
             </div>
-            <span class="snippet" v-if="f.location.text_snippet">“{{ f.location.text_snippet }}”</span>
+
+            <!-- 1:1 Stitch Finding Row (with Actual vs Expected Diff) -->
+            <div v-else class="findings-list">
+              <div v-for="(f, i) in report.findings" :key="i" class="stitch-finding-row">
+                <div class="finding-content">
+                  <div class="finding-badge-row">
+                    <span class="stitch-severity-badge" :class="f.severity">
+                      {{ f.severity === 'error' ? 'Critical' : (f.severity === 'warning' ? 'Warning' : 'Info') }}
+                    </span>
+                    <h4 class="finding-rule-name">{{ f.rule_id }}</h4>
+                    <span v-if="f.location.paragraph_index !== null" class="finding-loc">
+                      Paragraph #{{ f.location.paragraph_index }}
+                    </span>
+                  </div>
+
+                  <!-- 1:1 Actual vs Expected Diff Grid -->
+                  <div class="stitch-diff-box" v-if="f.actual !== null || f.expected !== null">
+                    <div class="diff-pane">
+                      <p class="diff-pane-label">ACTUAL</p>
+                      <div class="diff-pane-box actual-box">{{ f.actual ?? '未设置' }}</div>
+                    </div>
+                    <div class="diff-pane">
+                      <p class="diff-pane-label">EXPECTED (GB/T 7713 / 模板)</p>
+                      <div class="diff-pane-box expected-box">{{ f.expected ?? '未设置' }}</div>
+                    </div>
+                  </div>
+
+                  <p class="finding-desc">{{ f.message }}</p>
+                  <span class="snippet" v-if="f.location.text_snippet">“{{ f.location.text_snippet }}”</span>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        </section>
       </section>
-    </section>
 
-    <!-- ============ 我的论文工作台 ============ -->
-    <section v-else class="card projects-section">
-      <div class="section-head">
-        <div>
-          <h2>我的论文项目</h2>
-          <p class="hint" style="margin-top: 2px">所有在线撰写的毕业论文均自动与选定高校模板格式实时绑定与合规校验。</p>
+      <!-- ============ TAB 2: MY THESES (我的论文工作台) ============ -->
+      <section v-else class="theses-section">
+        <div class="theses-header-bar">
+          <div>
+            <h2 style="font-size: 20px; font-weight: 700;">My Theses Workstation</h2>
+            <p style="font-size: 14px; color: var(--on-surface-variant); margin-top: 2px">所有在线撰写的毕业论文均自动与选定高校模板格式实时绑定与合规体检。</p>
+          </div>
         </div>
-      </div>
 
-      <!-- 新建论文快捷工具条 -->
-      <div class="create-project-bar">
-        <div class="form-row-compact">
+        <!-- 新建论文条 -->
+        <div class="create-thesis-bar">
           <select id="tpl" v-model="newProjectTemplate">
             <option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option>
           </select>
           <input v-model="newProjectTitle" placeholder="输入论文题目，例如：基于深度学习的高校排版引擎设计" style="flex: 1" />
           <button class="primary" :disabled="creating || initializing || !newProjectTemplate" @click="createProject">
-            {{ creating ? '创建中…' : '➕ 新建论文' }}
+            <span class="material-symbols-outlined text-[16px]">add</span>
+            <span>{{ creating ? '创建中…' : '新建论文' }}</span>
           </button>
         </div>
-      </div>
 
-      <div v-if="initializing" class="hint-center">正在加载您的论文列表…</div>
+        <div v-if="initializing" class="hint-center">正在读取论文列表…</div>
 
-      <!-- 空状态 -->
-      <div v-else-if="projects.length === 0" class="empty-state-card">
-        <div style="font-size: 40px">📝</div>
-        <h3 style="margin-top: 10px; font-weight: 600">暂无论文项目</h3>
-        <p class="hint">上方选择对应的学校模板并输入论文题目，立即开启规范约束写作体验。</p>
-      </div>
+        <!-- 空状态 -->
+        <div v-else-if="projects.length === 0" class="stitch-empty-findings">
+          <span class="material-symbols-outlined" style="font-size: 40px; color: var(--outline)">note_add</span>
+          <h3 style="font-weight: 700; margin-top: 10px">No Thesis Projects Yet</h3>
+          <p style="color: var(--on-surface-variant); font-size: 14px">选择对应学校的格式模板并输入题目，立即开启规范约束写作体验。</p>
+        </div>
 
-      <!-- 现代卡片网格 -->
-      <div v-else class="projects-grid">
-        <div v-for="p in projects" :key="p.id" class="project-card">
-          <div class="project-card-header">
-            <span class="project-template-badge">
-              🏛 {{ p.template_name || '通用学术模板' }}
-            </span>
-            <span class="project-date">{{ shortDate(p.updated_at) }}</span>
-          </div>
+        <!-- 论文卡片网格 -->
+        <div v-else class="theses-grid">
+          <div v-for="p in projects" :key="p.id" class="thesis-card">
+            <div class="thesis-card-top">
+              <span class="thesis-template-tag">
+                <span class="material-symbols-outlined text-[14px]">school</span>
+                {{ p.template_name || '通用学术模板' }}
+              </span>
+              <span class="thesis-date">{{ shortDate(p.updated_at) }}</span>
+            </div>
 
-          <h3 class="project-title" :title="p.title || p.template_name">
-            {{ p.title || '未命名毕业论文' }}
-          </h3>
+            <h3 class="thesis-card-title" :title="p.title || p.template_name">
+              {{ p.title || '未命名毕业论文' }}
+            </h3>
 
-          <div class="project-footer">
-            <button class="primary small" @click="$router.push('/write/' + p.id)">
-              ✍️ 继续写作
-            </button>
-            <div style="display: flex; gap: 6px">
-              <button class="small" @click="exportProject(p)" :disabled="exporting.has(p.id)" title="导出为带格式 Word 文档">
-                {{ exporting.has(p.id) ? '导出中…' : '⬇️ 导出' }}
+            <div class="thesis-card-actions">
+              <button class="primary small" @click="$router.push('/write/' + p.id)">
+                <span class="material-symbols-outlined text-[16px]">edit_note</span>
+                <span>继续写作</span>
               </button>
-              <button class="small danger" @click="deleteProject(p)" :disabled="deleting.has(p.id)" title="删除此论文">
-                {{ deleting.has(p.id) ? '…' : '删除' }}
-              </button>
+              <div style="display: flex; gap: 8px">
+                <button class="small" @click="exportProject(p)" :disabled="exporting.has(p.id)">
+                  <span class="material-symbols-outlined text-[16px]">download</span>
+                  <span>{{ exporting.has(p.id) ? '导出中…' : '导出' }}</span>
+                </button>
+                <button class="small danger" @click="deleteProject(p)" :disabled="deleting.has(p.id)">
+                  <span class="material-symbols-outlined text-[16px]">delete</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import VueOfficeDocx from '@vue-office/docx'
-import '@vue-office/docx/lib/index.css'
 import { fetchPacks, checkDocx, checkDocxWithTemplate, fixDocx, fetchTemplates, fetchProjects, createProject as apiCreateProject, exportProject as apiExportProject, deleteProject as apiDeleteProject } from "../api"
 
 const route = useRoute()
@@ -357,7 +389,7 @@ async function createProject() {
   creating.value = true
   error.value = ""
   try {
-    const p = await apiCreateProject(newProjectTemplate.value, newProjectTitle.value || "未命名毕业论文")
+    const p = await apiCreateProject(newProjectTitle.value || "未命名毕业论文", newProjectTemplate.value)
     projects.value = await fetchProjects()
     newProjectTitle.value = ""
     router.push('/write/' + p.id)
@@ -385,96 +417,164 @@ function shortDate(s) { return s ? s.slice(0, 10) : '' }
 </script>
 
 <style scoped>
-.home-container {
+.stitch-dashboard {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  align-items: center;
+  width: 100%;
 }
 
-/* 学术 Hero Banner */
-.hero-banner {
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-  border-radius: var(--radius-xl);
-  padding: 32px 36px;
-  color: #fff;
-  box-shadow: var(--shadow-md);
+/* 1:1 Stitch Hero Section */
+.stitch-hero {
+  width: 100vw;
   position: relative;
-  overflow: hidden;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+  background: var(--inverse-surface);
+  color: var(--inverse-on-surface);
+  padding: 40px 24px;
+  border-bottom: 1px solid rgba(195, 198, 215, 0.2);
+  display: flex;
+  justify-content: center;
 }
 
-.hero-banner::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  right: -20%;
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.25) 0%, rgba(37, 99, 235, 0) 70%);
-  border-radius: 50%;
-  pointer-events: none;
+.stitch-hero-inner {
+  max-width: 1080px;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 32px;
 }
 
-.hero-tag {
-  font-size: 13px;
+.hero-text-col {
+  max-width: 680px;
+}
+
+.hero-overline {
+  font-family: "Geist", sans-serif;
+  font-size: 12px;
   font-weight: 600;
-  color: #60a5fa;
-  letter-spacing: 0.05em;
+  color: var(--primary-fixed-dim);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   margin-bottom: 8px;
 }
 
-.hero-title {
-  font-size: 26px;
-  font-weight: 800;
+.hero-headline {
+  font-family: "Source Serif 4", serif;
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1.2;
   letter-spacing: -0.02em;
-  margin-bottom: 10px;
-  background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  margin-bottom: 12px;
+  color: #ffffff;
 }
 
-.hero-desc {
-  color: #94a3b8;
-  font-size: 14px;
-  max-width: 640px;
+.hero-subtext {
+  font-family: "Geist", sans-serif;
+  font-size: 15px;
   line-height: 1.6;
+  color: var(--surface-variant);
 }
 
-.hero-badges {
+.hero-badge-col {
   display: flex;
-  gap: 10px;
-  margin-top: 18px;
-  flex-wrap: wrap;
+  align-items: center;
 }
 
-.hero-pill {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 4px 12px;
-  border-radius: var(--radius-pill);
+.engine-active-card {
+  background: rgba(37, 99, 235, 0.16);
+  border: 1px solid rgba(37, 99, 235, 0.35);
+  border-radius: var(--radius-xl);
+  padding: 16px 20px;
+  backdrop-filter: blur(8px);
+}
+
+.engine-active-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.engine-icon {
+  color: var(--primary-fixed-dim);
+  font-size: 22px;
+}
+
+.engine-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--primary-fixed);
+}
+
+.engine-subtext {
+  font-family: "JetBrains Mono", monospace;
   font-size: 12px;
-  color: #e2e8f0;
+  color: rgba(211, 228, 254, 0.8);
 }
 
-.tabs-wrapper {
+/* 1:1 Content Stage */
+.stitch-content-stage {
+  max-width: 1040px;
+  width: 100%;
+  margin-top: 32px;
+}
+
+/* 1:1 Stitch Segmented Navigation Pills */
+.stitch-segmented-wrapper {
   display: flex;
   justify-content: center;
-  margin: 4px 0 10px;
+  margin-bottom: 24px;
 }
 
-.section-head {
+.stitch-segmented-pills {
+  display: inline-flex;
+  background: var(--surface-container-low);
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(195, 198, 215, 0.4);
+}
+
+.pill-btn {
+  padding: 8px 24px;
+  border-radius: var(--radius-pill);
+  font-family: "Geist", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--on-surface-variant);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pill-btn:hover {
+  color: var(--on-surface);
+}
+
+.pill-btn.active {
+  background: #ffffff;
+  color: var(--on-surface);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* 检查选项 */
+.check-options-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .mode-switch-capsule {
   display: inline-flex;
-  background: var(--slate-100);
-  border: 1px solid var(--slate-200);
+  background: var(--surface-container-low);
   padding: 3px;
   border-radius: var(--radius-md);
   gap: 4px;
@@ -486,197 +586,377 @@ function shortDate(s) { return s ? s.slice(0, 10) : '' }
   padding: 4px 12px;
   font-size: 13px;
   border-radius: var(--radius-sm);
-  color: var(--slate-600);
+  color: var(--on-surface-variant);
   box-shadow: none;
 }
 
 .mode-switch-capsule button.active {
-  background: #fff;
+  background: #ffffff;
   color: var(--primary);
   font-weight: 600;
-  box-shadow: var(--shadow-xs);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
-.check-action-bar {
-  margin-top: 18px;
-  display: flex;
-  align-items: center;
-}
-
-.rule-selector {
+.rule-pack-picker {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 13px;
+  color: var(--on-surface-variant);
 }
 
-.report-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.fix-btn-glow {
-  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
-  color: #fff;
-  border: 1px solid rgba(4, 120, 87, 0.5);
-  font-weight: 600;
-  padding: 8px 18px;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-}
-
-.fix-btn-glow:hover:not(:disabled) {
-  background: linear-gradient(180deg, #059669 0%, #047857 100%);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-}
-
-.empty-state-card {
-  text-align: center;
+/* 1:1 Stitch Upload Dropzone */
+.stitch-dropzone {
+  width: 100%;
+  background: var(--surface-container-lowest);
+  border-radius: var(--radius-xl);
+  border: 2px dashed rgba(37, 99, 235, 0.4);
   padding: 48px 24px;
-  background: var(--slate-50);
-  border: 1px dashed var(--slate-200);
-  border-radius: var(--radius-lg);
-  color: var(--slate-600);
-}
-
-.diff-card-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  background: var(--slate-50);
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
-  margin-top: 10px;
-}
-
-.diff-col {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s ease;
 }
 
-.diff-label {
-  font-size: 11px;
+.stitch-dropzone:hover, .stitch-dropzone.dragging {
+  border-color: var(--primary);
+  background: var(--surface-container-low);
+}
+
+.dropzone-icon-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  transition: transform 0.2s ease;
+}
+
+.stitch-dropzone:hover .dropzone-icon-circle {
+  transform: scale(1.1);
+}
+
+.dropzone-icon {
+  font-size: 32px;
+  color: var(--primary);
+}
+
+.dropzone-title {
+  font-family: "Geist", sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--on-surface);
+  margin-bottom: 6px;
+}
+
+.dropzone-subtitle {
+  font-size: 14px;
+  color: var(--on-surface-variant);
+  margin-bottom: 20px;
+}
+
+.run-inspection-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.run-btn {
+  padding: 10px 24px;
+  font-size: 15px;
+  box-shadow: 0 4px 14px rgba(0, 74, 198, 0.3);
+}
+
+/* 1:1 Stitch Metrics Row */
+.stitch-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 32px;
+}
+
+.stitch-metric-card {
+  background: var(--surface-container-lowest);
+  padding: 18px 20px;
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(195, 198, 215, 0.4);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metric-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.metric-label {
+  font-family: "Geist", sans-serif;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--slate-500);
+  color: var(--on-surface-variant);
 }
 
-.diff-value {
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-family: ui-monospace, monospace;
+.metric-num {
+  font-family: "Source Serif 4", serif;
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.1;
 }
 
-.diff-value.actual-value {
-  background: #fff;
-  border: 1px solid var(--slate-200);
-  color: var(--slate-700);
+/* 1:1 Stitch Detailed Findings List */
+.findings-wrapper {
+  margin-top: 32px;
 }
 
-.diff-value.expected-value {
-  background: var(--primary-50);
-  border: 1px solid var(--primary-200);
-  color: var(--primary);
+.findings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.findings-title {
+  font-family: "Geist", sans-serif;
+  font-size: 20px;
   font-weight: 600;
+  color: var(--on-surface);
 }
 
-@media (max-width: 600px) {
-  .diff-card-grid {
-    grid-template-columns: 1fr;
-  }
+.stitch-repair-btn {
+  background: #ffffff;
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
 }
 
-/* 我的论文网格 (Grid Cards) */
-.create-project-bar {
-  background: var(--slate-50);
-  border: 1px solid var(--slate-200);
+.stitch-repair-btn:hover:not(:disabled) {
+  background: var(--primary-container);
+  color: #ffffff;
+}
+
+.stitch-finding-row {
+  background: var(--surface-container-lowest);
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(195, 198, 215, 0.4);
+  padding: 20px 24px;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.02);
+}
+
+.finding-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stitch-severity-badge {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.stitch-severity-badge.error {
+  background: var(--error-container);
+  color: var(--on-error-container);
+}
+
+.stitch-severity-badge.warning {
+  background: var(--tertiary-container);
+  color: var(--on-tertiary-container);
+}
+
+.stitch-severity-badge.info {
+  background: var(--surface-container-high);
+  color: var(--primary);
+}
+
+.finding-rule-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.finding-loc {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  margin-left: auto;
+}
+
+/* 1:1 Stitch Actual vs Expected Diff Box */
+.stitch-diff-box {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  background: var(--surface-container-low);
+  padding: 16px;
   border-radius: var(--radius-lg);
-  padding: 14px 18px;
+  border: 1px solid rgba(195, 198, 215, 0.3);
+  margin-bottom: 12px;
+}
+
+.diff-pane-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.diff-pane-box {
+  padding: 10px 14px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.diff-pane-box.actual-box {
+  background: #ffffff;
+  border: 1px solid rgba(195, 198, 215, 0.2);
+  color: var(--on-surface-variant);
+}
+
+.diff-pane-box.expected-box {
+  background: rgba(219, 225, 255, 0.25);
+  border: 1px solid rgba(0, 74, 198, 0.2);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.finding-desc {
+  font-size: 14px;
+  color: var(--on-surface-variant);
+}
+
+.stitch-empty-findings {
+  text-align: center;
+  padding: 48px;
+  background: var(--surface-container-lowest);
+  border-radius: var(--radius-xl);
+  border: 1px dashed var(--border);
+}
+
+.check-circle-icon {
+  font-size: 48px;
+  color: #10b981;
+}
+
+/* 我的论文 */
+.theses-header-bar {
+  margin-bottom: 20px;
+}
+
+.create-thesis-bar {
+  background: var(--surface-container-lowest);
+  padding: 16px 20px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  align-items: center;
   margin-bottom: 24px;
 }
 
-.form-row-compact {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.projects-grid {
+.theses-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 18px;
 }
 
-.project-card {
-  background: #fff;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-lg);
-  padding: 20px;
+.thesis-card {
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 22px;
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: var(--shadow-xs);
-  transition: all .2s cubic-bezier(.4, 0, .2, 1);
 }
 
-.project-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-  border-color: var(--primary-200);
-}
-
-.project-card-header {
+.thesis-card-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
 }
 
-.project-template-badge {
-  background: var(--slate-100);
-  color: var(--slate-700);
-  font-size: 11px;
-  font-weight: 600;
+.thesis-template-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-container-low);
+  color: var(--on-surface-variant);
+  font-size: 12px;
   padding: 2px 8px;
   border-radius: var(--radius-pill);
 }
 
-.project-date {
+.thesis-date {
   font-size: 12px;
-  color: var(--slate-400);
+  color: var(--outline);
 }
 
-.project-title {
+.thesis-card-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--slate-800);
-  margin-bottom: 16px;
   line-height: 1.4;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  margin-bottom: 20px;
 }
 
-.project-footer {
+.thesis-card-actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding-top: 14px;
-  border-top: 1px solid var(--slate-100);
+  border-top: 1px solid var(--surface-container-low);
+}
+
+.snippet {
+  display: block;
+  background: var(--surface-container-low);
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  margin-top: 6px;
+  font-family: "JetBrains Mono", monospace;
 }
 
 .hint-center {
   text-align: center;
-  color: var(--muted);
-  padding: 20px;
-  font-size: 14px;
+  padding: 24px;
+  color: var(--on-surface-variant);
+}
+
+@media (max-width: 768px) {
+  .stitch-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stitch-diff-box {
+    grid-template-columns: 1fr;
+  }
+  .stitch-hero-inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>

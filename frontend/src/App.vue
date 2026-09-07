@@ -1,36 +1,53 @@
 <template>
   <div>
     <header v-if="auth.token">
-      <div class="brand">
-        <RouterLink to="/" class="logo-wrapper">
-          <div class="logo-icon">📄</div>
-          <span class="logo-text">PaperGuard</span>
-        </RouterLink>
-        <span class="tagline">毕业论文格式合规引擎</span>
-      </div>
-      <nav class="nav">
-        <RouterLink to="/" class="nav-link" @click="setTab('check')">上传检查</RouterLink>
-        <RouterLink to="/" class="nav-link" @click="setTab('projects')">我的论文</RouterLink>
-        <RouterLink to="/templates" class="nav-link">模板管理</RouterLink>
-        <button v-if="auth.user?.role === 'admin' || (auth.user?.role === 'teacher' && auth.user?.status === 'active')"
-                class="nav-btn teacher-btn" @click="openTeacherModal">
-          👨‍🎓 指导学生
-        </button>
-        <button v-if="auth.user?.role === 'admin'" class="nav-btn admin-ai-btn" @click="openUserAdminModal">
-          👥 用户与认证
-        </button>
-        <button v-if="auth.user?.role === 'admin'" class="nav-btn admin-ai-btn" @click="openAdminAiModal">
-          ⚙️ 默认模型
-        </button>
-        <div v-if="auth.user" class="user-capsule" :title="'角色: ' + roleLabel(auth.user.role)">
-          <div class="user-avatar">{{ (auth.user.display_name || auth.user.username || 'U').slice(0, 1).toUpperCase() }}</div>
-          <span>{{ auth.user.display_name || auth.user.username }}</span>
-          <span v-if="auth.user.role === 'teacher' && auth.user.status === 'pending'" class="status-badge pending">
-            待认证
-          </span>
+      <div class="header-inner">
+        <!-- Stitch Brand Logo -->
+        <div class="brand-section">
+          <RouterLink to="/" class="brand-logo">
+            <img alt="PaperGuard Logo" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDql0yGL1_UN68HUwkaynIRDx8ioj_UnjbtZPq7DrYzntCwO0hGlpP3r1kPs1FliBzugPbxJeZ5285tEhVkW-z45Zj_nbfqlq17oN_RIAI7A2I_RaG0nkCcPBoV-O7zcEg04VSsWuY0-qlQertUcX-IABRfiFxfwTbwbCGaQDiU5f46xmbag_MRq2ouV7mFAIYiVLmjJmY8Md5HWZj1ru4mtz1lReRMvq1eB0VtgTNRcTeC1xlXBLgwlY6Ya_3v6yTKEkKC6Nl6tleJ" />
+            <span class="brand-title">PaperGuard</span>
+          </RouterLink>
         </div>
-        <button class="logout-btn" @click="logout">退出</button>
-      </nav>
+
+        <!-- Stitch Nav Links -->
+        <nav class="nav-links">
+          <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && (!$route.query.tab || $route.query.tab === 'check') }" @click="setTab('check')">
+            Dashboard
+          </RouterLink>
+          <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && $route.query.tab === 'projects' }" @click="setTab('projects')">
+            My Theses
+          </RouterLink>
+          <RouterLink to="/templates" class="stitch-nav-link" :class="{ active: $route.path.startsWith('/templates') }">
+            Standards
+          </RouterLink>
+          <button v-if="auth.user?.role === 'admin' || (auth.user?.role === 'teacher' && auth.user?.status === 'active')"
+                  class="small" style="font-size: 13px; padding: 4px 10px; background: var(--surface-container-low); border-color: var(--primary-fixed);"
+                  @click="openTeacherModal">
+            👨‍🎓 指导学生
+          </button>
+          <button v-if="auth.user?.role === 'admin'" class="small" style="font-size: 13px; padding: 4px 10px;" @click="openUserAdminModal">
+            👥 用户认证
+          </button>
+          <button v-if="auth.user?.role === 'admin'" class="small" style="font-size: 13px; padding: 4px 10px;" @click="openAdminAiModal">
+            ⚙️ 系统模型
+          </button>
+        </nav>
+
+        <!-- Stitch Trailing User Avatar -->
+        <div class="user-tray">
+          <div class="user-avatar-btn" :title="auth.user?.display_name || auth.user?.username">
+            <img alt="User profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0wMEf8sOMZsI9UqG-vjToR-y29UMQA0stFOsuSCpfF_147cakqSnuDMlmfbWRji89D8HDAT0hg9NaTD7ofJj2PKuyiEwSNfG1cuWozoyE-ZZi8keBNQc5HWp9eAezPEHrBltaXRg1NCSO4xHSjE1loBGYhxaxDYmgye_x-kyW5JbV90xDbt6XRj63EzKZLMW1hjJk87WcSbgtlqvlj0EU9JQpSa2b9Tp_ACkLExFBGpZld8_ZyMC7zmOdzFuxDTWrRdCcMfIfnt8n" />
+          </div>
+          <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
+            {{ auth.user?.display_name || auth.user?.username }}
+            <span v-if="auth.user?.role === 'teacher' && auth.user?.status === 'pending'" style="color: var(--tertiary); font-size: 11px; margin-left: 4px">
+              (待认证)
+            </span>
+          </span>
+          <button class="small" style="padding: 4px 10px; font-size: 12px;" @click="logout">退出</button>
+        </div>
+      </div>
     </header>
     <div v-if="auth.user?.role === 'teacher' && auth.user.status === 'pending'" class="pending-bar">
       <span>📢 您的教师账号正在等待管理员认证审核中，通过后将开通模板管理等教师权限。</span>
