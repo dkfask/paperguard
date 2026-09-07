@@ -2,8 +2,11 @@
   <div>
     <header v-if="auth.token">
       <div class="brand">
-        <RouterLink to="/" class="logo">📄 PaperGuard</RouterLink>
-        <span class="tagline">论文格式规范约束与检查</span>
+        <RouterLink to="/" class="logo-wrapper">
+          <div class="logo-icon">📄</div>
+          <span class="logo-text">PaperGuard</span>
+        </RouterLink>
+        <span class="tagline">毕业论文格式合规引擎</span>
       </div>
       <nav class="nav">
         <RouterLink to="/" class="nav-link" @click="setTab('check')">上传检查</RouterLink>
@@ -19,12 +22,13 @@
         <button v-if="auth.user?.role === 'admin'" class="nav-btn admin-ai-btn" @click="openAdminAiModal">
           ⚙️ 默认模型
         </button>
-        <span v-if="auth.user" class="user-chip" :title="'角色: ' + roleLabel(auth.user.role)">
-          {{ auth.user.display_name || auth.user.username }}
+        <div v-if="auth.user" class="user-capsule" :title="'角色: ' + roleLabel(auth.user.role)">
+          <div class="user-avatar">{{ (auth.user.display_name || auth.user.username || 'U').slice(0, 1).toUpperCase() }}</div>
+          <span>{{ auth.user.display_name || auth.user.username }}</span>
           <span v-if="auth.user.role === 'teacher' && auth.user.status === 'pending'" class="status-badge pending">
             待认证
           </span>
-        </span>
+        </div>
         <button class="logout-btn" @click="logout">退出</button>
       </nav>
     </header>
@@ -633,10 +637,25 @@ function copyCredentials() {
 }
 .modal-mask {
   position: fixed; inset: 0; background: rgba(15, 23, 42, .45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex; align-items: center; justify-content: center; z-index: 100;
+  animation: fadeIn .15s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .modal {
-  width: min(500px, 92vw); text-align: left; max-height: 88vh; overflow-y: auto;
+  width: min(520px, 92vw); text-align: left; max-height: 88vh; overflow-y: auto;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--slate-200);
+  animation: modalScale .2s cubic-bezier(.16, 1, .3, 1);
+}
+@keyframes modalScale {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 .modal .field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .modal .field input { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }

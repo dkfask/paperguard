@@ -153,10 +153,34 @@ async function submit() {
 </script>
 
 <style scoped>
-.login-wrap { display: flex; justify-content: center; padding-top: 8vh; }
-.login-card { width: min(380px, 100%); text-align: center; padding: 32px; }
-.login-logo { font-size: 24px; font-weight: 700; color: var(--primary); }
-.login-sub { color: var(--muted); font-size: 14px; margin: 8px 0 20px; }
+.login-wrap {
+  display: flex;
+  justify-content: center;
+  padding-top: 6vh;
+}
+.login-card {
+  width: min(420px, 100%);
+  text-align: center;
+  padding: 36px 32px;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--slate-200);
+}
+.login-logo {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.login-sub {
+  color: var(--slate-500);
+  font-size: 14px;
+  margin: 6px 0 24px;
+}
 .field { display: block; text-align: left; margin-bottom: 14px; }
 .field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 .field input {
