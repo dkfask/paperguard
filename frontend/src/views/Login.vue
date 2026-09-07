@@ -1,62 +1,111 @@
 <template>
-  <div class="login-wrap">
-    <div class="card login-card">
-      <div class="login-logo">📄 PaperGuard</div>
-      <p class="login-sub">{{ forceChange ? '首次登录请设置新密码' : (mode === 'login' ? '论文格式全流程约束系统' : '创建新账号') }}</p>
+  <div class="stitch-auth-page">
+    <!-- Top Bar with Logo and Language Switcher -->
+    <header class="stitch-auth-header">
+      <div class="auth-header-inner">
+        <div class="brand-box">
+          <img alt="PaperGuard Logo" class="brand-icon-img" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDql0yGL1_UN68HUwkaynIRDx8ioj_UnjbtZPq7DrYzntCwO0hGlpP3r1kPs1FliBzugPbxJeZ5285tEhVkW-z45Zj_nbfqlq17oN_RIAI7A2I_RaG0nkCcPBoV-O7zcEg04VSsWuY0-qlQertUcX-IABRfiFxfwTbwbCGaQDiU5f46xmbag_MRq2ouV7mFAIYiVLmjJmY8Md5HWZj1ru4mtz1lReRMvq1eB0VtgTNRcTeC1xlXBLgwlY6Ya_3v6yTKEkKC6Nl6tleJ" />
+          <span class="brand-name">PaperGuard</span>
+        </div>
+        <button class="auth-lang-btn" @click="toggleLang">
+          <span class="material-symbols-outlined text-[16px]">translate</span>
+          <span>{{ lang === 'zh' ? 'English' : '中文' }}</span>
+        </button>
+      </div>
+    </header>
 
-      <div v-if="error" :class="noticeType === 'success' ? 'notice-banner' : 'error-banner'">
-        {{ noticeType === 'success' ? '✅' : '⚠' }} {{ error }}
+    <!-- Main Authentication Stage -->
+    <main class="stitch-auth-main">
+      <div class="auth-heading-box">
+        <h1 class="auth-title">
+          {{ forceChange ? (lang === 'zh' ? '设置个人新密码' : 'Set New Password') : (mode === 'login' ? (lang === 'zh' ? '欢迎登录 PaperGuard' : 'Welcome to PaperGuard') : (lang === 'zh' ? '注册 PaperGuard 账号' : 'Create an Account')) }}
+        </h1>
+        <p class="auth-sub">
+          {{ forceChange ? (lang === 'zh' ? '首次登录需完成初始密码更新以保障学术成果安全' : 'Update your initial password to secure your thesis files') : (lang === 'zh' ? '毕业论文格式全流程合规引擎 · GB/T 7713 规范约束' : 'Academic Thesis Formatting Engine · Institutional Compliance') }}
+        </p>
       </div>
 
-      <form @submit.prevent="submit">
-        <div v-if="mode === 'register'" class="role-selector">
-          <label class="role-pill" :class="{ active: role === 'student' }">
-            <input type="radio" v-model="role" value="student" />
-            <span>👨‍🎓 学生账号</span>
-          </label>
-          <label class="role-pill" :class="{ active: role === 'teacher' }">
-            <input type="radio" v-model="role" value="teacher" />
-            <span>👨‍🏫 教师账号 (需认证)</span>
-          </label>
+      <!-- Stitch Glassmorphic Card -->
+      <div class="stitch-auth-card">
+        <!-- Role Selector Tabs (学生账号 vs 教师账号) -->
+        <div v-if="mode === 'register'" class="stitch-role-tabs">
+          <button type="button" class="role-tab-btn" :class="{ active: role === 'student' }" @click="role = 'student'">
+            <span class="material-symbols-outlined text-[16px]">school</span>
+            <span>{{ lang === 'zh' ? '学生账号' : 'Student Account' }}</span>
+          </button>
+          <button type="button" class="role-tab-btn" :class="{ active: role === 'teacher' }" @click="role = 'teacher'">
+            <span class="material-symbols-outlined text-[16px]">psychology</span>
+            <span>{{ lang === 'zh' ? '教师账号 (需认证)' : 'Faculty / Teacher' }}</span>
+          </button>
         </div>
 
-        <label class="field">
-          <span>用户名</span>
-          <input v-model="username" autocomplete="username" placeholder="至少 3 个字符" />
-        </label>
-        <label v-if="mode === 'register'" class="field">
-          <span>姓名 / 昵称</span>
-          <input v-model="displayName" placeholder="例如：李老师 / 张三同学" />
-        </label>
-        <label class="field">
-          <span>密码</span>
-          <input v-model="password" type="password" autocomplete="current-password" :placeholder="mode === 'login' ? '密码' : '至少 8 位，含字母和数字'" />
-        </label>
-        <label v-if="forceChange" class="field">
-          <span>新密码</span>
-          <input v-model="newPassword" type="password" autocomplete="new-password" placeholder="至少 12 位, 含字母和数字" />
-        </label>
-        <label v-if="forceChange" class="field">
-          <span>确认新密码</span>
-          <input v-model="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" />
-        </label>
-        <button class="primary" type="submit" :disabled="loading" style="width: 100%; margin-top: 8px">
-          {{ loading ? '请稍候…' : (mode === 'login' ? '登 录' : (role === 'teacher' ? '注册教师账号 (提交认证)' : '注 册 学 生 账 号')) }}
-        </button>
-      </form>
+        <div v-if="error" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'" style="margin-bottom: 16px">
+          <span class="material-symbols-outlined text-[16px]">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>
+          <span>{{ error }}</span>
+        </div>
 
-      <div v-if="!forceChange" class="login-switch">
-        <template v-if="mode === 'login'">
-          还没有账号?
-          <a href="#" @click.prevent="switchMode('register')">立即注册</a>
-        </template>
-        <template v-else>
-          已有账号?
-          <a href="#" @click.prevent="switchMode('login')">去登录</a>
-        </template>
+        <form class="auth-form" @submit.prevent="submit">
+          <div class="form-field">
+            <label for="username">{{ lang === 'zh' ? '学号 / 工号 / 用户名' : 'Username or Institutional ID' }}</label>
+            <input id="username" v-model="username" autocomplete="username" :placeholder="lang === 'zh' ? '请输入学号或用户名' : 'Enter your ID'" required />
+          </div>
+
+          <div v-if="mode === 'register'" class="form-field">
+            <label for="displayName">{{ lang === 'zh' ? '真实姓名 / 称呼' : 'Full Name' }}</label>
+            <input id="displayName" v-model="displayName" :placeholder="lang === 'zh' ? '例如：张三 / 王教授' : 'e.g. John Doe'" />
+          </div>
+
+          <div class="form-field">
+            <label for="password">{{ lang === 'zh' ? '登录密码' : 'Password' }}</label>
+            <input id="password" v-model="password" type="password" autocomplete="current-password" :placeholder="lang === 'zh' ? '请输入登录密码' : '••••••••'" required />
+          </div>
+
+          <div v-if="forceChange" class="form-field">
+            <label for="newPassword">{{ lang === 'zh' ? '新密码 (至少 12 位, 含字母与数字)' : 'New Password (min 12 chars)' }}</label>
+            <input id="newPassword" v-model="newPassword" type="password" autocomplete="new-password" placeholder="••••••••••••" required />
+          </div>
+
+          <div v-if="forceChange" class="form-field">
+            <label for="confirmPassword">{{ lang === 'zh' ? '确认新密码' : 'Confirm New Password' }}</label>
+            <input id="confirmPassword" v-model="confirmPassword" type="password" autocomplete="new-password" placeholder="••••••••••••" required />
+          </div>
+
+          <button class="primary auth-submit-btn" type="submit" :disabled="loading">
+            <span>{{ loading ? (lang === 'zh' ? '请稍候…' : 'Processing…') : (mode === 'login' ? (lang === 'zh' ? '登 录' : 'Sign In') : (role === 'teacher' ? (lang === 'zh' ? '注册教师账号 (提交认证)' : 'Register Faculty Account') : (lang === 'zh' ? '注册学生账号' : 'Register Student Account'))) }}</span>
+            <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+          </button>
+        </form>
+
+        <div v-if="!forceChange" class="auth-switch-footer">
+          <template v-if="mode === 'login'">
+            <span>{{ lang === 'zh' ? '还没有账号？' : 'New to PaperGuard?' }}</span>
+            <a href="#" @click.prevent="switchMode('register')">{{ lang === 'zh' ? '立即注册' : 'Create an account' }}</a>
+          </template>
+          <template v-else>
+            <span>{{ lang === 'zh' ? '已有账号？' : 'Already have an account?' }}</span>
+            <a href="#" @click.prevent="switchMode('login')">{{ lang === 'zh' ? '返回登录' : 'Sign In' }}</a>
+          </template>
+        </div>
       </div>
 
-    </div>
+      <!-- Stitch Compliance Reassurance Footer -->
+      <div class="stitch-compliance-footer">
+        <span class="material-symbols-outlined text-[20px] text-secondary">verified_user</span>
+        <p class="compliance-text">
+          {{ lang === 'zh' ? '高校安全可信访问 · 严格遵从 GB/T 7713 国标规范 · 论文内容内存隔离处理' : 'Secure Institutional Access · GB/T 7713 Compliant · Data encrypted in transit' }}
+        </p>
+      </div>
+    </main>
+
+    <!-- Global Subtle Footer -->
+    <footer class="stitch-auth-bottom-footer">
+      <div>PaperGuard © 2026. All rights reserved.</div>
+      <div class="footer-links">
+        <span>Academic Thesis Formatting Engine</span>
+        <span>·</span>
+        <span>GB/T 7713-1987 / 2006</span>
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -65,9 +114,16 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setAuth, clearAuth, auth } from '../auth'
 import { changePassword } from '../api'
+import { useI18n } from '../i18n'
 
 const route = useRoute()
 const router = useRouter()
+const { lang, setLang } = useI18n()
+
+function toggleLang() {
+  setLang(lang.value === 'zh' ? 'en' : 'zh')
+}
+
 const mode = ref('login')
 const role = ref('student')
 const forceChange = computed(() => route.query.forceChange === '1' && !!auth.token)
@@ -96,11 +152,11 @@ async function submit() {
   loading.value = true
   try {
     if (forceChange.value) {
-      if (newPassword.value !== confirmPassword.value) throw new Error('两次输入的新密码不一致')
+      if (newPassword.value !== confirmPassword.value) throw new Error(lang.value === 'zh' ? '两次输入的新密码不一致' : 'Passwords do not match')
       await changePassword(password.value, newPassword.value)
       clearAuth()
       router.replace('/login')
-      setNotice('密码已更新, 请使用新密码重新登录', 'success')
+      setNotice(lang.value === 'zh' ? '密码已更新, 请使用新密码重新登录' : 'Password updated, please sign in with your new password', 'success')
       return
     }
     if (mode.value === 'login') {
@@ -111,7 +167,7 @@ async function submit() {
       })
       if (!resp.ok) {
         const d = await resp.json().catch(() => ({}))
-        throw new Error(d.detail || '登录失败')
+        throw new Error(d.detail || (lang.value === 'zh' ? '登录失败，请检查账号密码' : 'Login failed, please verify your credentials'))
       }
       const data = await resp.json()
       setAuth(data.token, data.user)
@@ -135,13 +191,13 @@ async function submit() {
       })
       if (!resp.ok) {
         const d = await resp.json().catch(() => ({}))
-        throw new Error(d.detail || '注册失败')
+        throw new Error(d.detail || (lang.value === 'zh' ? '注册失败' : 'Registration failed'))
       }
       mode.value = 'login'
       if (role.value === 'teacher') {
-        setNotice('教师账号注册成功！需管理员认证后开通教师管理权限，您可先登录体验。', 'success')
+        setNotice(lang.value === 'zh' ? '教师账号注册成功！需管理员认证后开通教师管理权限，您可先登录体验。' : 'Teacher account registered! Administrator verification is required for full management features.', 'success')
       } else {
-        setNotice('注册成功, 请登录', 'success')
+        setNotice(lang.value === 'zh' ? '注册成功, 请登录' : 'Registration successful, please sign in', 'success')
       }
     }
   } catch (e) {
@@ -153,82 +209,243 @@ async function submit() {
 </script>
 
 <style scoped>
-.login-wrap {
+.stitch-auth-page {
+  min-height: 100vh;
   display: flex;
-  justify-content: center;
-  padding-top: 6vh;
+  flex-direction: column;
+  background: var(--background);
+  color: var(--on-surface);
 }
-.login-card {
-  width: min(420px, 100%);
-  text-align: center;
-  padding: 36px 32px;
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
-  border: 1px solid var(--slate-200);
-}
-.login-logo {
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--primary);
+
+/* 顶部轻量 Bar */
+.stitch-auth-header {
+  height: 60px;
+  padding: 0 32px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(248, 249, 255, 0.85);
+  backdrop-filter: blur(12px);
 }
-.login-sub {
-  color: var(--slate-500);
-  font-size: 14px;
-  margin: 6px 0 24px;
-}
-.field { display: block; text-align: left; margin-bottom: 14px; }
-.field span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-.field input {
-  width: 100%; padding: 10px 12px; border: 1px solid var(--border);
-  border-radius: 8px; font-size: 14px;
-}
-.notice-banner {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  color: #15803d;
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
-}
-.login-switch { margin-top: 16px; font-size: 14px; color: var(--muted); }
 
-.login-switch a { color: var(--primary); text-decoration: none; }
-.login-hint { margin-top: 14px; font-size: 12px; color: #94a3b8; }
-
-.role-selector {
+.auth-header-inner {
+  max-width: 1080px;
+  width: 100%;
+  margin: 0 auto;
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  background: #f1f5f9;
-  padding: 4px;
-  border-radius: 10px;
+  justify-content: space-between;
+  align-items: center;
 }
-.role-pill {
+
+.brand-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-icon-img {
+  height: 28px;
+  width: auto;
+}
+
+.brand-name {
+  font-family: "Geist", sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.auth-lang-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+
+.auth-lang-btn:hover {
+  background: var(--surface-container-low);
+  color: var(--primary);
+}
+
+/* 主画布 */
+.stitch-auth-main {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 40px 16px;
+  width: 100%;
+  max-width: 460px;
+  margin: 0 auto;
+}
+
+.auth-heading-box {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.auth-title {
+  font-family: "Source Serif 4", serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+  color: var(--on-surface);
+}
+
+.auth-sub {
+  font-family: "Geist", sans-serif;
+  font-size: 13px;
+  color: var(--secondary);
+  line-height: 1.5;
+}
+
+/* Stitch 玻璃卡片 */
+.stitch-auth-card {
+  width: 100%;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 28px 28px 24px;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.08);
+}
+
+/* 角色胶囊 */
+.stitch-role-tabs {
+  display: flex;
+  background: var(--surface-container-low);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+}
+
+.role-tab-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--secondary);
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+}
+
+.role-tab-btn.active {
+  background: #ffffff;
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* 表单字段 */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+}
+
+.form-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.form-field input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: #ffffff;
+  transition: all 0.15s ease;
+}
+
+.form-field input:focus {
+  border-color: var(--primary-container);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.auth-submit-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 10px;
-  border-radius: 8px;
+}
+
+.auth-switch-footer {
+  margin-top: 18px;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
-  cursor: pointer;
-  transition: all 0.2s;
+  color: var(--secondary);
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
 }
-.role-pill input {
-  display: none;
-}
-.role-pill.active {
-  background: #fff;
+
+.auth-switch-footer a {
   color: var(--primary);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  text-decoration: none;
   font-weight: 600;
+}
+
+.auth-switch-footer a:hover {
+  text-decoration: underline;
+}
+
+/* 底部合规背书 */
+.stitch-compliance-footer {
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.compliance-text {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--secondary);
+}
+
+.stitch-auth-bottom-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--secondary);
+  background: var(--surface-container-lowest);
+}
+
+.footer-links {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .stitch-auth-bottom-footer {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
 }
 </style>
