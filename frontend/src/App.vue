@@ -13,39 +13,45 @@
         <!-- Stitch Nav Links -->
         <nav class="nav-links">
           <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && (!$route.query.tab || $route.query.tab === 'check') }" @click="setTab('check')">
-            Dashboard
+            {{ t('navDashboard') }}
           </RouterLink>
           <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && $route.query.tab === 'projects' }" @click="setTab('projects')">
-            My Theses
+            {{ t('navProjects') }}
           </RouterLink>
           <RouterLink to="/templates" class="stitch-nav-link" :class="{ active: $route.path.startsWith('/templates') }">
-            Standards
+            {{ t('navStandards') }}
           </RouterLink>
           <button v-if="auth.user?.role === 'admin' || (auth.user?.role === 'teacher' && auth.user?.status === 'active')"
-                  class="small" style="font-size: 13px; padding: 4px 10px; background: var(--surface-container-low); border-color: var(--primary-fixed);"
+                  class="small" style="background: var(--surface-container-low); border-color: var(--primary-fixed);"
                   @click="openTeacherModal">
-            👨‍🎓 指导学生
+            {{ t('navTeacher') }}
           </button>
-          <button v-if="auth.user?.role === 'admin'" class="small" style="font-size: 13px; padding: 4px 10px;" @click="openUserAdminModal">
-            👥 用户认证
+          <button v-if="auth.user?.role === 'admin'" class="small" @click="openUserAdminModal">
+            {{ t('navUserAdmin') }}
           </button>
-          <button v-if="auth.user?.role === 'admin'" class="small" style="font-size: 13px; padding: 4px 10px;" @click="openAdminAiModal">
-            ⚙️ 系统模型
+          <button v-if="auth.user?.role === 'admin'" class="small" @click="openAdminAiModal">
+            {{ t('navAdminAi') }}
           </button>
         </nav>
 
-        <!-- Stitch Trailing User Avatar -->
+        <!-- Stitch Trailing User Avatar & Lang Switcher -->
         <div class="user-tray">
+          <!-- 中英文切换按钮 -->
+          <button class="lang-switch-btn" @click="toggleLang" title="切换语言 / Switch Language">
+            <span class="material-symbols-outlined" style="font-size: 15px">translate</span>
+            <span>{{ lang === 'zh' ? 'EN' : '中文' }}</span>
+          </button>
+
           <div class="user-avatar-btn" :title="auth.user?.display_name || auth.user?.username">
             <img alt="User profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0wMEf8sOMZsI9UqG-vjToR-y29UMQA0stFOsuSCpfF_147cakqSnuDMlmfbWRji89D8HDAT0hg9NaTD7ofJj2PKuyiEwSNfG1cuWozoyE-ZZi8keBNQc5HWp9eAezPEHrBltaXRg1NCSO4xHSjE1loBGYhxaxDYmgye_x-kyW5JbV90xDbt6XRj63EzKZLMW1hjJk87WcSbgtlqvlj0EU9JQpSa2b9Tp_ACkLExFBGpZld8_ZyMC7zmOdzFuxDTWrRdCcMfIfnt8n" />
           </div>
           <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
             {{ auth.user?.display_name || auth.user?.username }}
             <span v-if="auth.user?.role === 'teacher' && auth.user?.status === 'pending'" style="color: var(--tertiary); font-size: 11px; margin-left: 4px">
-              (待认证)
+              ({{ t('pendingAuth') }})
             </span>
           </span>
-          <button class="small" style="padding: 4px 10px; font-size: 12px;" @click="logout">退出</button>
+          <button class="small" @click="logout">{{ t('logout') }}</button>
         </div>
       </div>
     </header>
@@ -346,6 +352,7 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, clearAuth } from './auth'
+import { useI18n } from './i18n'
 import {
   logoutApi, getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
   getAdminUsers, updateAdminUserRoleStatus,
@@ -353,6 +360,11 @@ import {
 } from './api'
 
 const router = useRouter()
+const { lang, setLang, t } = useI18n()
+
+function toggleLang() {
+  setLang(lang.value === 'zh' ? 'en' : 'zh')
+}
 function setTab(tab) {
   router.push({ path: '/', query: { tab } })
 }
