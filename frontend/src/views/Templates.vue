@@ -215,8 +215,13 @@ async function createFromImport() {
 
 async function remove(t) {
   if (!confirm(`确定删除模板「${t.name}」?`)) return
-  try { await deleteTemplateApi(t.id); templates.value = await fetchTemplates() }
-  catch (e) { error.value = e.message }
+  error.value = ''
+  try {
+    await deleteTemplateApi(t.id)
+    templates.value = await fetchTemplates()
+  } catch (e) {
+    error.value = e.message
+  }
 }
 
 function shortDate(s) { return s ? s.slice(0, 10) : '' }

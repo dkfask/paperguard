@@ -143,7 +143,10 @@ export async function saveTemplate(tpl, isNew = false) {
 
 export async function deleteTemplateApi(id) {
   const resp = await api(`${API_BASE}/templates/${id}`, { method: 'DELETE' })
-  if (!resp.ok) throw new Error('删除模板失败')
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `删除模板失败 (${resp.status})`))
+  }
 }
 
 export async function fetchProjects() {
