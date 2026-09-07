@@ -149,16 +149,25 @@ function mergeImportedSections(imported, baseSections) {
   const fallbackAbstract = baseSections.find((section) => section.type === 'abstract')
   const fallbackTail = baseSections.filter((section) => ['references', 'acknowledgement', 'appendix'].includes(section.type))
   const normalize = (section) => {
-    const title = String(section.title || '').replace(/\s+/g, '')
+    const title = String(section.title || '').replace(/\s+/g, '').toLowerCase()
     let normalized = section
-    if (title.includes('英文摘要') || title.includes('englishabstract') || title === 'abstract') normalized = { ...section, key: 'english_abstract', type: 'english_abstract', required: true }
-    else if (title.includes('摘要')) normalized = { ...section, key: 'abstract', type: 'abstract', required: true }
-    else if (title.includes('关键词')) normalized = { ...section, key: 'keywords', type: 'keywords', required: true }
-    else if (title.includes('keywords') || title.includes('key words')) normalized = { ...section, key: 'english_keywords', type: 'english_keywords', required: true }
-    else if (title.includes('目录') || title.includes('contents') || title.includes('tableofcontents')) normalized = { ...section, key: 'toc', type: 'toc', required: true }
-    else if (title.includes('参考文献')) normalized = { ...section, key: 'references', type: 'references', required: true }
-    else if (title.includes('致谢')) normalized = { ...section, key: 'acknowledgement', type: 'acknowledgement', required: false }
-    else if (title.includes('附录')) normalized = { ...section, key: 'appendix', type: 'appendix', required: false }
+    if (section.type === 'english_abstract' || title.includes('英文摘要') || title.includes('englishabstract') || title === 'abstract') {
+      normalized = { ...section, key: 'english_abstract', type: 'english_abstract', required: true }
+    } else if (section.type === 'english_keywords' || title.includes('keywords') || title.includes('key words')) {
+      normalized = { ...section, key: 'english_keywords', type: 'english_keywords', required: true }
+    } else if (section.type === 'abstract' || title.includes('摘要')) {
+      normalized = { ...section, key: 'abstract', type: 'abstract', required: true }
+    } else if (section.type === 'keywords' || title.includes('关键词')) {
+      normalized = { ...section, key: 'keywords', type: 'keywords', required: true }
+    } else if (section.type === 'toc' || title.includes('目录') || title.includes('contents') || title.includes('tableofcontents')) {
+      normalized = { ...section, key: 'toc', type: 'toc', required: true }
+    } else if (section.type === 'references' || title.includes('参考文献')) {
+      normalized = { ...section, key: 'references', type: 'references', required: true }
+    } else if (section.type === 'acknowledgement' || title.includes('致谢') || title.includes('谢辞')) {
+      normalized = { ...section, key: 'acknowledgement', type: 'acknowledgement', required: false }
+    } else if (section.type === 'appendix' || title.includes('附录')) {
+      normalized = { ...section, key: 'appendix', type: 'appendix', required: false }
+    }
     return { ...normalized, children: (normalized.children || []).map(normalize) }
   }
 

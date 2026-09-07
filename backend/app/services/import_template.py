@@ -201,19 +201,20 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
         if not text:
             continue
         compact = re.sub(r"\s+", "", text)
+        lower = compact.lower()
         if compact in {"摘要", "中文摘要"}:
             items.append(("special-abstract", text))
-        elif compact in {"abstract", "englishabstract", "英文摘要", "abstractenglish"}:
+        elif lower in {"abstract", "englishabstract", "英文摘要", "abstractenglish"}:
             items.append(("special-english-abstract", text))
         elif compact.startswith("关键词"):
             items.append(("special-keywords", text))
-        elif compact.startswith(("keywords", "keyword", "keyterms", "indexterms")):
+        elif lower.startswith(("keywords", "keyword", "keyterms", "indexterms")):
             items.append(("special-english-keywords", text))
-        elif compact in {"目录", "toc", "contents", "tableofcontents"} or style_id == "TOCHeading":
+        elif compact in {"目录", "toc", "contents", "tableofcontents"} or lower in {"toc", "contents", "tableofcontents"} or style_id == "TOCHeading":
             items.append(("special-toc", text))
         elif compact == "参考文献":
             items.append(("special-references", text))
-        elif compact == "致谢":
+        elif compact in {"致谢", "谢辞"}:
             items.append(("special-acknowledgement", text))
         elif compact == "附录":
             items.append(("special-appendix", text))
