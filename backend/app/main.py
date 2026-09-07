@@ -20,6 +20,7 @@ from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.routes import router
+from app.api.teacher import router as teacher_router
 from app.api.templates import router as templates_router
 
 
@@ -70,6 +71,7 @@ app.include_router(auth_router)
 app.include_router(templates_router)
 app.include_router(projects_router)
 app.include_router(ai_router)
+app.include_router(teacher_router)
 
 # 通过 API 鉴权读取项目图片, 不再公开挂载整个 uploads 目录。
 _uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"

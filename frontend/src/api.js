@@ -400,3 +400,52 @@ export async function updateAdminUserRoleStatus(userId, { role, status }) {
   return resp.json()
 }
 
+// ---------- 教师指导学生与账号批量导入 ----------
+
+export async function getTeacherStudents() {
+  const resp = await api(`${API_BASE}/teacher/students`)
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `获取指导学生列表失败 (${resp.status})`))
+  }
+  return resp.json()
+}
+
+export async function bulkImportStudents(payload) {
+  const resp = await api(`${API_BASE}/teacher/students/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `批量导入学生账号失败 (${resp.status})`))
+  }
+  return resp.json()
+}
+
+export async function resetTeacherStudentPassword(studentId, payload) {
+  const resp = await api(`${API_BASE}/teacher/students/${studentId}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `重置学生密码失败 (${resp.status})`))
+  }
+  return resp.json()
+}
+
+export async function unbindTeacherStudent(studentId) {
+  const resp = await api(`${API_BASE}/teacher/students/${studentId}`, {
+    method: 'DELETE',
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, `解除指导关系失败 (${resp.status})`))
+  }
+  return resp.json()
+}
+
+

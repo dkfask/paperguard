@@ -71,6 +71,7 @@ class Store:
                     token TEXT,
                     must_change_password INTEGER NOT NULL DEFAULT 0,
                     status TEXT NOT NULL DEFAULT 'active',
+                    teacher_id TEXT,
                     ai_config TEXT,
                     created_at TEXT NOT NULL
                 );
@@ -103,19 +104,22 @@ class Store:
                 conn.execute(
                     "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
                 )
+            if "teacher_id" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN teacher_id TEXT")
             if "ai_config" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN ai_config TEXT")
 
     # ------------------------------ users --------------------------------
 
     def save_user(self, user: dict) -> dict:
-        """保存用户, 兼容旧数据库中不存在的 must_change_password / status / ai_config 字段。"""
-        sql = "INSERT OR REPLACE INTO users (id, username, password_hash, salt, role, display_name, token, must_change_password, status, ai_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        """保存用户, 兼容旧数据库中不存在的 must_change_password / status / teacher_id / ai_config 字段。"""
+        sql = "INSERT OR REPLACE INTO users (id, username, password_hash, salt, role, display_name, token, must_change_password, status, teacher_id, ai_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         params = (
             user["id"], user["username"], user["password_hash"], user["salt"],
             user["role"], user["display_name"], user.get("token"),
             int(user.get("must_change_password", 0)),
             user.get("status", "active"),
+            user.get("teacher_id"),
             user.get("ai_config"), user["created_at"],
         )
         with self._connect() as conn:
@@ -187,6 +191,22 @@ class Store:
                 "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
                 (revoked_at, user_id),
             )
+
+    def list_students_by_teacher(self, teacher_id: str) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM users WHERE teacher_id = ? ORDER BY created_at DESC",
+                (teacher_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def unbind_teacher_student(self, teacher_id: str, student_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE users SET teacher_id = NULL WHERE id = ? AND teacher_id = ?",
+                (student_id, teacher_id),
+            )
+            return cur.rowcount > 0
 
     def update_user_status(self, user_id: str, status: str) -> None:
         with self._connect() as conn:

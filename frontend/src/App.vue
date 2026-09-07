@@ -9,6 +9,10 @@
         <RouterLink to="/" class="nav-link" @click="setTab('check')">上传检查</RouterLink>
         <RouterLink to="/" class="nav-link" @click="setTab('projects')">我的论文</RouterLink>
         <RouterLink to="/templates" class="nav-link">模板管理</RouterLink>
+        <button v-if="auth.user?.role === 'admin' || (auth.user?.role === 'teacher' && auth.user?.status === 'active')"
+                class="nav-btn teacher-btn" @click="openTeacherModal">
+          👨‍🎓 指导学生
+        </button>
         <button v-if="auth.user?.role === 'admin'" class="nav-btn admin-ai-btn" @click="openUserAdminModal">
           👥 用户与认证
         </button>
@@ -154,6 +158,166 @@
         </div>
       </div>
     </div>
+
+    <!-- 教师指导学生与账号导入管理弹窗 -->
+    <div v-if="showTeacherModal" class="modal-mask" @click.self="showTeacherModal = false">
+      <div class="modal card teacher-students-modal">
+        <div class="modal-head">
+          <h3 style="margin: 0">👨‍🎓 指导学生管理与账号批量导入</h3>
+          <div style="display: flex; gap: 8px">
+            <button class="small" :class="{ primary: teacherTab === 'list' }" @click="teacherTab = 'list'">
+              学生名单 ({{ myStudents.length }})
+            </button>
+            <button class="small" :class="{ primary: teacherTab === 'import' }" @click="teacherTab = 'import'">
+              ➕ 批量导入学生
+            </button>
+          </div>
+        </div>
+
+        <p v-if="teacherMsg" :class="teacherOk ? 'ok-banner' : 'error-banner'" style="font-size: 13px; margin: 10px 0">
+          {{ teacherOk ? '✅' : '⚠' }} {{ teacherMsg }}
+        </p>
+
+        <!-- Tab 1: 学生名单与进度监控 -->
+        <div v-if="teacherTab === 'list'">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin: 8px 0 12px">
+            <p class="hint" style="margin: 0; font-size: 13px">
+              查看您名下指导学生的毕业论文撰写动态，支持一键重置初始密码或解除指导。
+            </p>
+            <button class="tiny" @click="fetchTeacherStudents">刷新名单</button>
+          </div>
+
+          <div v-if="loadingStudents" style="padding: 24px; text-align: center; color: var(--muted)">
+            正在读取指导学生数据…
+          </div>
+
+          <div v-else-if="myStudents.length === 0" style="padding: 32px; text-align: center; color: var(--muted)">
+            <p style="font-size: 15px; margin-bottom: 8px">暂无关联的指导学生</p>
+            <p style="font-size: 13px">可点击上方「➕ 批量导入学生」快速录入学号生成初始账号</p>
+          </div>
+
+          <div v-else class="user-table-wrap">
+            <table class="user-table">
+              <thead>
+                <tr>
+                  <th>学号 / 账号</th>
+                  <th>姓名</th>
+                  <th>论文题目</th>
+                  <th>正文字数</th>
+                  <th>最后保存</th>
+                  <th>管理操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="s in myStudents" :key="s.id">
+                  <td><strong>{{ s.username }}</strong></td>
+                  <td>{{ s.display_name }}</td>
+                  <td>
+                    <span v-if="s.latest_project_title" style="color: var(--primary); font-weight: 500">
+                      {{ s.latest_project_title }}
+                    </span>
+                    <span v-else style="color: var(--muted)">尚未创建论文</span>
+                  </td>
+                  <td>
+                    <span v-if="s.total_words > 0" class="badge-count">{{ s.total_words }} 字</span>
+                    <span v-else style="color: var(--muted)">0</span>
+                  </td>
+                  <td style="font-size: 12px; color: var(--muted)">
+                    {{ s.last_updated ? s.last_updated.slice(0, 16).replace('T', ' ') : '-' }}
+                  </td>
+                  <td class="action-cell">
+                    <button class="tiny" title="重置为默认初始密码并强制下次改密" @click="resetStudentPw(s)">
+                      重置密码
+                    </button>
+                    <button class="tiny danger" title="解除指导关系" @click="unbindStudent(s)">
+                      解绑
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab 2: 批量导入学生模态表单 -->
+        <div v-else-if="teacherTab === 'import'">
+          <p class="hint" style="font-size: 13px; margin: 8px 0 10px">
+            支持直接从 Excel / WPS 复制两列（<strong>学号</strong> 和 <strong>姓名</strong>）直接粘贴，系统将批量生成账号。
+          </p>
+
+          <label class="field">学生名单 (每行一个：学号 姓名，可用空格/制表符/逗号分隔)
+            <textarea v-model="importRawText" rows="6" style="width:100%; font-family: monospace; font-size: 13px; padding: 8px; border: 1px solid var(--border); border-radius: 8px;"
+                      placeholder="例如:&#10;20240101 张三&#10;20240102 李四&#10;20240103 王五"></textarea>
+          </label>
+
+          <div style="display: flex; gap: 16px; margin-top: 10px">
+            <label class="field" style="flex: 1">统一初始密码
+              <input v-model="importDefaultPw" placeholder="默认: Student123456" />
+            </label>
+            <label class="field" style="flex: 1; display: flex; align-items: center; margin-top: 22px; cursor: pointer">
+              <input v-model="importForceChange" type="checkbox" style="width: auto; margin-right: 6px;" />
+              首次登录强制修改密码
+            </label>
+          </div>
+
+          <div style="margin-top: 12px; display: flex; gap: 10px">
+            <button class="primary" :disabled="importingStudents" @click="handleBulkImport">
+              {{ importingStudents ? '正在生成账号…' : '🚀 开始批量导入并生成账号' }}
+            </button>
+          </div>
+
+          <!-- 导入结果与凭据一键复制面板 -->
+          <div v-if="importResult" style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px">
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <span style="font-size: 14px; font-weight: 600">
+                🎉 导入结果：成功 {{ importResult.success_count }} 人，失败 {{ importResult.fail_count }} 人
+              </span>
+              <button v-if="importResult.created && importResult.created.length" class="small primary" @click="copyCredentials">
+                📋 一键复制学生账号密码清单
+              </button>
+            </div>
+
+            <div v-if="importResult.created && importResult.created.length" class="user-table-wrap" style="margin-top: 10px; max-height: 180px">
+              <table class="user-table">
+                <thead>
+                  <tr>
+                    <th>学号/账号</th>
+                    <th>姓名</th>
+                    <th>初始登录密码</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in importResult.created" :key="c.username">
+                    <td><strong>{{ c.username }}</strong></td>
+                    <td>{{ c.display_name }}</td>
+                    <td><code>{{ c.initial_password }}</code></td>
+                    <td>
+                      <span class="status-tag active">
+                        {{ c.action === 'created' ? '新建成功' : '已绑定现有账号' }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-if="importResult.failed && importResult.failed.length" style="margin-top: 10px">
+              <span style="color: var(--error); font-size: 13px; font-weight: 500">以下条目导入失败：</span>
+              <ul style="font-size: 12px; color: var(--error); margin: 4px 0 0 18px; padding: 0">
+                <li v-for="f in importResult.failed" :key="f.username">
+                  {{ f.username }} ({{ f.display_name }}): {{ f.reason }}
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top: 16px; justify-content: flex-end">
+          <button @click="showTeacherModal = false">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -164,6 +328,7 @@ import { auth, clearAuth } from './auth'
 import {
   logoutApi, getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
   getAdminUsers, updateAdminUserRoleStatus,
+  getTeacherStudents, bulkImportStudents, resetTeacherStudentPassword, unbindTeacherStudent,
 } from './api'
 
 const router = useRouter()
@@ -307,6 +472,136 @@ async function clearAdminAi() {
     adminAiInfo.message = e.message || '清除失败'
   }
 }
+
+// ---------- 教师指导学生与批量导入 ----------
+const showTeacherModal = ref(false)
+const teacherTab = ref('list') // 'list' | 'import'
+const myStudents = ref([])
+const loadingStudents = ref(false)
+const teacherMsg = ref('')
+const teacherOk = ref(null)
+
+const importRawText = ref('')
+const importDefaultPw = ref('Student123456')
+const importForceChange = ref(true)
+const importingStudents = ref(false)
+const importResult = ref(null)
+
+async function fetchTeacherStudents() {
+  loadingStudents.value = true
+  teacherMsg.value = ''
+  try {
+    const res = await getTeacherStudents()
+    myStudents.value = res.students || []
+  } catch (e) {
+    teacherOk.value = false
+    teacherMsg.value = e.message || '获取学生名单失败'
+  } finally {
+    loadingStudents.value = false
+  }
+}
+
+async function openTeacherModal() {
+  showTeacherModal.value = true
+  teacherTab.value = 'list'
+  teacherMsg.value = ''
+  teacherOk.value = null
+  importResult.value = null
+  await fetchTeacherStudents()
+}
+
+async function resetStudentPw(student) {
+  if (!confirm(`确定要为学生 ${student.display_name}（${student.username}）重置密码为 Student123456 吗？`)) return
+  teacherMsg.value = ''
+  try {
+    await resetTeacherStudentPassword(student.id, {
+      new_password: 'Student123456',
+      force_change_password: true,
+    })
+    teacherOk.value = true
+    teacherMsg.value = `已为学生 ${student.display_name} 重置密码为 Student123456（首次登录强制改密）`
+  } catch (e) {
+    teacherOk.value = false
+    teacherMsg.value = e.message || '重置密码失败'
+  }
+}
+
+async function unbindStudent(student) {
+  if (!confirm(`确定解除对学生 ${student.display_name}（${student.username}）的指导关系吗？`)) return
+  teacherMsg.value = ''
+  try {
+    await unbindTeacherStudent(student.id)
+    teacherOk.value = true
+    teacherMsg.value = `已解除与学生 ${student.display_name} 的指导关系`
+    await fetchTeacherStudents()
+  } catch (e) {
+    teacherOk.value = false
+    teacherMsg.value = e.message || '解绑失败'
+  }
+}
+
+async function handleBulkImport() {
+  const text = importRawText.value.trim()
+  if (!text) {
+    teacherOk.value = false
+    teacherMsg.value = '请先粘贴或输入学生名单'
+    return
+  }
+
+  // 解析多行: 支持 制表符(Excel复制)、逗号、空格 分隔
+  const lines = text.split('\n')
+  const parsedStudents = []
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) continue
+    const parts = line.split(/[\t,，\s]+/)
+    if (parts.length >= 2) {
+      parsedStudents.push({ username: parts[0].trim(), display_name: parts[1].trim() })
+    } else if (parts.length === 1) {
+      parsedStudents.push({ username: parts[0].trim(), display_name: parts[0].trim() })
+    }
+  }
+
+  if (parsedStudents.length === 0) {
+    teacherOk.value = false
+    teacherMsg.value = '未能解析出有效学生数据，请检查格式'
+    return
+  }
+
+  importingStudents.value = true
+  teacherMsg.value = ''
+  try {
+    const res = await bulkImportStudents({
+      students: parsedStudents,
+      default_password: importDefaultPw.value.trim() || 'Student123456',
+      force_change_password: importForceChange.value,
+    })
+    importResult.value = res
+    teacherOk.value = true
+    teacherMsg.value = `导入完成！成功生成 ${res.success_count} 个账号`
+    await fetchTeacherStudents()
+  } catch (e) {
+    teacherOk.value = false
+    teacherMsg.value = e.message || '导入失败'
+  } finally {
+    importingStudents.value = false
+  }
+}
+
+function copyCredentials() {
+  if (!importResult.value || !importResult.value.created) return
+  const lines = ['【PaperGuard 毕业设计论文学生账号名单】']
+  for (const item of importResult.value.created) {
+    lines.push(`学号/账号: ${item.username} | 姓名: ${item.display_name} | 初始密码: ${item.initial_password}`)
+  }
+  lines.push('登录地址: https://paper.thunderuni.com')
+  const content = lines.join('\n')
+  navigator.clipboard.writeText(content).then(() => {
+    alert('✅ 学生账号密码清单已成功复制到剪贴板，可直接发送至班级群！')
+  }).catch(() => {
+    alert('复制失败，请手动在下方表格中复制')
+  })
+}
 </script>
 
 <style scoped>
@@ -322,6 +617,19 @@ async function clearAdminAi() {
 }
 .admin-ai-btn:hover {
   background: #eff6ff;
+}
+.teacher-btn {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  font-size: 13px;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.teacher-btn:hover {
+  background: #dcfce7;
 }
 .modal-mask {
   position: fixed; inset: 0; background: rgba(15, 23, 42, .45);
@@ -433,5 +741,17 @@ button.tiny.danger {
 }
 button.tiny.danger:hover {
   background: #fee2e2;
+}
+
+.teacher-students-modal {
+  width: min(840px, 95vw);
+}
+.badge-count {
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
 }
 </style>

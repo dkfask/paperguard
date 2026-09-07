@@ -172,6 +172,7 @@ def public_user(user: dict) -> dict:
         "role": user["role"],
         "display_name": user["display_name"],
         "status": user.get("status", "active"),
+        "teacher_id": user.get("teacher_id"),
         "must_change_password": bool(user.get("must_change_password", 0)),
     }
 
