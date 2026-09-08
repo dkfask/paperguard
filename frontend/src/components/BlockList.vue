@@ -1,6 +1,7 @@
 <template>
   <div>
     <div v-if="uploadError" class="error-banner" role="alert">⚠ {{ uploadError }}</div>
+    <input ref="imgInput" type="file" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp" hidden @change="onImagePicked" />
     <div v-for="(par, i) in paragraphs" :key="par.id" class="para-block">
       <div class="para-toolbar">
         <span class="para-no">第 {{ i + 1 }} 块</span>
@@ -29,19 +30,18 @@
       <!-- 文本段落 -->
       <textarea v-if="par.type !== 'image' && par.type !== 'table'"
                 v-model="par.text" rows="4" class="para-text" :class="styleClass"
-                :placeholder="'第 ' + (i + 1) + ' 段正文…'" @input="emitChange" />
+                :placeholder="'第 ' + (i + 1) + ' 段正文…'" @input="emitChange" @paste="onTextPaste($event, i)" />
 
       <!-- 图片块 -->
       <div v-else-if="par.type === 'image'" class="image-block">
         <div v-if="par.image && par.image.url" class="image-preview">
           <img :src="imageSrc(par.image.url)" alt="图片" />
-          <button class="tiny" @click="replaceImage(par)">🔄 更换图片</button>
+          <button class="tiny" :disabled="uploading" @click="replaceImage(par)">🔄 {{ uploading ? '上传中…' : '更换图片' }}</button>
         </div>
-        <div v-else class="image-upload" @click="uploadFor(par)">
+        <div v-else class="image-upload" :class="{ disabled: uploading }" @click="uploadFor(par)">
           <div class="icon">🖼</div>
-          <div>点击上传图片 (png/jpg)</div>
+          <div>{{ uploading ? '图片上传中…' : '点击上传图片 (png/jpg/gif/webp)' }}</div>
         </div>
-        <input ref="imgInput" type="file" accept="image/*" hidden @change="onImagePicked" />
         <div class="caption-row">
           <span class="caption-num">图 {{ chapter }}.{{ figureIndex(i) }}</span>
           <input v-model="par.image.caption" class="caption-input"
@@ -98,6 +98,7 @@ const emit = defineEmits(['change', 'ai'])
 const imgInput = ref(null)
 const imageUrls = reactive(new Map())
 const uploadError = ref('')
+const uploading = ref(false)
 let pendingTarget = null
 
 function imageSrc(path) {
@@ -152,10 +153,7 @@ function addParagraph() {
 }
 
 function addImage() {
-  props.paragraphs.push({
-    id: `img${Date.now()}`, type: 'image',
-    image: { url: '', caption: '' },
-  })
+  props.paragraphs.push(imageBlock())
   emit('change')
 }
 
@@ -185,13 +183,30 @@ function resize(par) {
 }
 
 function uploadFor(par) {
+  if (uploading.value) return
   pendingTarget = par
   imgInput.value?.click()
 }
 
 function replaceImage(par) {
-  pendingTarget = par
-  imgInput.value?.click()
+  uploadFor(par)
+}
+
+async function uploadImage(file, target) {
+  if (!file || !target) return false
+  uploadError.value = ''
+  uploading.value = true
+  try {
+    const { url } = await uploadProjectImage(props.projectId, file)
+    target.image.url = url
+    emit('change')
+    return true
+  } catch (err) {
+    uploadError.value = '图片上传失败: ' + err.message
+    return false
+  } finally {
+    uploading.value = false
+  }
 }
 
 async function onImagePicked(e) {
@@ -199,14 +214,36 @@ async function onImagePicked(e) {
   e.target.value = ''
   const target = pendingTarget
   pendingTarget = null
-  if (!f || !target) return
-  uploadError.value = ''
-  try {
-    const { url } = await uploadProjectImage(props.projectId, f)
-    target.image.url = url
-    emit('change')
-  } catch (err) {
-    uploadError.value = '图片上传失败: ' + err.message
+  await uploadImage(f, target)
+}
+
+function imageBlock() {
+  return {
+    id: `img${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    type: 'image',
+    image: { url: '', caption: '' },
+  }
+}
+
+async function onTextPaste(e, index) {
+  const items = Array.from(e.clipboardData?.items || [])
+  const files = items
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter(Boolean)
+  if (!files.length) return
+
+  e.preventDefault()
+  const blocks = files.map(() => imageBlock())
+  props.paragraphs.splice(index + 1, 0, ...blocks)
+  emitChange()
+  for (let i = 0; i < files.length; i += 1) {
+    const uploaded = await uploadImage(files[i], blocks[i])
+    if (!uploaded) {
+      const blockIndex = props.paragraphs.indexOf(blocks[i])
+      if (blockIndex !== -1) props.paragraphs.splice(blockIndex, 1)
+      emitChange()
+    }
   }
 }
 
@@ -239,6 +276,7 @@ button.tiny.ai:disabled { opacity: .55; }
   cursor: pointer; color: var(--muted);
 }
 .image-upload:hover { border-color: var(--primary); color: var(--primary); }
+.image-upload.disabled { opacity: .6; cursor: wait; pointer-events: none; }
 .image-upload .icon { font-size: 28px; }
 .caption-input { width: 100%; margin-top: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
 .caption-row { display: flex; align-items: center; gap: 10px; }

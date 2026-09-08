@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test:paragraphs": "node --input-type=module -e \"import assert from 'node:assert/strict'; import { splitSectionText, createTextBlocks } from './src/utils/paragraphSplitter.js'; assert.deepEqual(splitSectionText('  第一段\\r\\n\\r\\n第二段\\n\\n\\n第三段  '), ['第一段', '第二段', '第三段']); assert.deepEqual(splitSectionText('第一行\\n第二行'), ['第一行\\n第二行']); assert.deepEqual(createTextBlocks('A\\n\\nB', 'ch1').map((p) => p.text), ['A', 'B']); console.log('paragraph splitter tests passed')\"",
     "preview": "vite preview"
   },
   "dependencies": {

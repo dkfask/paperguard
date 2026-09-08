@@ -6,8 +6,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // 开发时把 /api 转发到 FastAPI 后端
+      // 开发时把 /api 和私有图片转发到 FastAPI 后端
       '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/media': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },

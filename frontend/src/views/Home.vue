@@ -391,7 +391,7 @@ async function createProject() {
   creating.value = true
   error.value = ""
   try {
-    const p = await apiCreateProject(newProjectTitle.value || "未命名毕业论文", newProjectTemplate.value)
+    const p = await apiCreateProject(newProjectTemplate.value, newProjectTitle.value || "未命名毕业论文")
     projects.value = await fetchProjects()
     newProjectTitle.value = ""
     router.push('/write/' + p.id)

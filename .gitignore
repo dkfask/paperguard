@@ -82,3 +82,7 @@ CODEGRAPH.md
 gui-test-screenshots/
 uv.lock
 
+# 本地设计/需求文档（不入库）
+商业产品设计方案.md
+需求模型.md
+

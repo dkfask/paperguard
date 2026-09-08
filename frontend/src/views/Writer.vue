@@ -17,7 +17,7 @@
       </div>
       <div class="tree-nav-header" style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; margin-bottom: 6px;">
         <span style="font-size: 12px; font-weight: 600; color: var(--muted)">章节大纲</span>
-        <button v-if="canEditStructure" class="tiny" @click="showAddSectionModal = true" title="添加新章节">
+        <button v-if="canEditStructure" class="tiny" @click="openAddSectionModal" title="添加新章节">
           ➕ 添加章节
         </button>
         <span v-else class="tiny" style="font-size: 11px; color: var(--muted); opacity: 0.8;" title="导师已锁定论文框架">
@@ -32,6 +32,10 @@
           <span v-else-if="node.type === 'cover'">📋</span>
           <span class="nav-title">{{ label(node) }}</span>
           <span v-if="isRequired(node) && !isDone(node)" class="dot" title="未完成">●</span>
+          <span v-if="canEditStructure" class="nav-action-move">
+            <button class="nav-move-btn" :disabled="structureBusy || isFirstSection(node)" @click.stop="moveSection(node, -1)" title="上移章节" :aria-label="`上移章节「${label(node)}」`">↑</button>
+            <button class="nav-move-btn" :disabled="structureBusy || isLastSection(node)" @click.stop="moveSection(node, 1)" title="下移章节" :aria-label="`下移章节「${label(node)}」`">↓</button>
+          </span>
           <span v-if="canEditStructure && isCustomSection(node)" class="nav-action-del" @click.stop="removeSection(node)" title="删除此章节">×</span>
         </div>
       </nav>
@@ -111,10 +115,15 @@
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
           <span class="hint">标题排版由模板锁定, 下方为本章正文(可插图片/表格)</span>
+          <button class="small" @click="toggleSectionInputMode">
+            {{ sectionInputMode === 'blocks' ? '整节输入' : '逐段编辑' }}
+          </button>
         </div>
         <input v-model="currentSection.title" class="heading-input"
                :class="'type-' + currentSection.type" @input="scheduleSave" />
-        <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
+        <section-text-editor v-if="sectionInputMode === 'section'" v-model="sectionText"
+                             :reset-key="currentSection.key" @apply="applySectionText" />
+        <block-list v-else :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
                     :chapter="chapterOf(currentSection.key)"
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
@@ -125,6 +134,9 @@
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
           <span class="hint">字体/字号/行距/缩进由模板自动控制, 可插图片/表格</span>
+          <button class="small" @click="toggleSectionInputMode">
+            {{ sectionInputMode === 'blocks' ? '整节输入' : '逐段编辑' }}
+          </button>
           <button v-if="aiEnabled && isAiSection(currentSection.type)" class="small ai-gen"
                   :disabled="!!aiBusy || aiGenerating" @click="aiGenerate">
             {{ aiGenerating ? '✨ AI 生成中…' : '✨ AI 生成' }}
@@ -132,7 +144,9 @@
         </div>
         <input v-model="currentSection.title" class="heading-input" :class="'type-' + currentSection.type"
                @input="scheduleSave" />
-        <block-list :paragraphs="currentSection.paragraphs" :project-id="projectId"
+        <section-text-editor v-if="sectionInputMode === 'section'" v-model="sectionText"
+                             :reset-key="currentSection.key" @apply="applySectionText" />
+        <block-list v-else :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
                     :chapter="chapterOf(currentSection.key)"
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
@@ -269,7 +283,7 @@
       <div v-if="showAddSectionModal" class="modal-mask" @click.self="showAddSectionModal = false">
         <div class="modal card">
           <h3 style="margin-top: 0">➕ 添加新章节</h3>
-          <p class="hint" style="margin-top: 0">导师已允许自定义增删章节框架。请选择添加的章节类型与名称：</p>
+          <p class="hint" style="margin-top: 0">导师已允许自定义增删章节框架。请选择章节名称、类型和插入位置：</p>
           <label class="field">章节标题
             <input v-model="newSectionForm.title" placeholder="如 第六章 结论与建议 或 1.4 本章小结" />
           </label>
@@ -282,9 +296,21 @@
               <option value="appendix">附录</option>
             </select>
           </label>
+          <label class="field">插入位置
+            <select v-model="newSectionForm.position" class="structure-select">
+              <option value="start">目录开头</option>
+              <option v-for="node in displaySections" :key="`before-${node.key}`" :value="`before:${node.key}`">
+                在「{{ label(node) }}」之前
+              </option>
+              <option v-for="node in displaySections" :key="`after-${node.key}`" :value="`after:${node.key}`">
+                在「{{ label(node) }}」之后
+              </option>
+              <option value="end">目录末尾</option>
+            </select>
+          </label>
           <div class="form-row" style="margin-top: 16px;">
-            <button class="primary" :disabled="!newSectionForm.title.trim() || addingSection" @click="confirmAddSection">
-              {{ addingSection ? '添加中…' : '确认添加' }}
+            <button class="primary" :disabled="!newSectionForm.title.trim() || structureBusy" @click="confirmAddSection">
+              {{ structureBusy ? '保存中…' : '确认添加' }}
             </button>
             <button @click="showAddSectionModal = false">取消</button>
           </div>
@@ -295,7 +321,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth } from '../auth'
 import {
@@ -305,6 +331,8 @@ import {
   getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
 } from '../api'
 import BlockList from '../components/BlockList.vue'
+import SectionTextEditor from '../components/SectionTextEditor.vue'
+import { createTextBlocks, mergeTextBlocksWithMedia, textBlocksToSectionText } from '../utils/paragraphSplitter.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -338,6 +366,8 @@ let checkGeneration = 0
 let beforeUnloadHandler = null
 
 const chapterMap = ref({})
+const sectionInputMode = ref('blocks')
+const sectionText = ref('')
 const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract', 'english_abstract', 'keywords', 'english_keywords']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
 
@@ -376,32 +406,69 @@ const displaySections = computed(() => {
 })
 
 const showAddSectionModal = ref(false)
-const addingSection = ref(false)
-const newSectionForm = reactive({ title: '', type: 'heading2' })
+const structureBusy = ref(false)
+const newSectionForm = reactive({ title: '', type: 'heading2', position: 'end' })
+const protectedSectionKeys = new Set(['cover', 'abstract', 'english_abstract', 'toc', 'references'])
+
+function openAddSectionModal() {
+  const sections = project.value?.sections || []
+  const currentIndex = sections.findIndex((section) => section.key === current.value)
+  const refIndex = sections.findIndex((section) => section.type === 'references' || section.key === 'references')
+  const currentSectionItem = currentIndex >= 0 ? sections[currentIndex] : null
+  if (currentIndex >= 0 && currentSectionItem.type !== 'references') {
+    newSectionForm.position = `after:${sections[currentIndex].key}`
+  } else if (refIndex >= 0) {
+    newSectionForm.position = `before:${sections[refIndex].key}`
+  } else {
+    newSectionForm.position = 'end'
+  }
+  showAddSectionModal.value = true
+}
 
 function isCustomSection(node) {
   // 保护核心段落不被删除
-  const protectedKeys = new Set(['cover', 'abstract', 'english_abstract', 'toc', 'references'])
-  return !protectedKeys.has(node.key)
+  return !protectedSectionKeys.has(node.key)
+}
+
+function structureItem(section) {
+  return {
+    key: section.key,
+    type: section.type,
+    title: section.title,
+    required: section.required,
+  }
+}
+
+function sectionIndex(node) {
+  return project.value?.sections?.findIndex((section) => section.key === node.key) ?? -1
+}
+
+function isFirstSection(node) { return sectionIndex(node) <= 0 }
+function isLastSection(node) {
+  const index = sectionIndex(node)
+  return index < 0 || index >= (project.value?.sections?.length || 0) - 1
+}
+
+function insertIndexForPosition(sections, position) {
+  if (position === 'start') return 0
+  if (position === 'end') return sections.length
+  const separator = position.indexOf(':')
+  const direction = separator === -1 ? '' : position.slice(0, separator)
+  const key = separator === -1 ? '' : position.slice(separator + 1)
+  const index = sections.findIndex((section) => section.key === key)
+  if (index === -1) return sections.length
+  return direction === 'before' ? index : index + 1
 }
 
 async function confirmAddSection() {
-  if (!newSectionForm.title.trim() || addingSection.value) return
-  addingSection.value = true
+  if (!newSectionForm.title.trim() || structureBusy.value) return
+  structureBusy.value = true
   error.value = ''
   try {
     await flushPendingSaves()
-    const newKey = `sec_${Date.now()}`
-    const currentList = project.value.sections.map((s) => ({
-      key: s.key,
-      type: s.type,
-      title: s.title,
-      required: s.required,
-    }))
-    // 找到合适插入位置（默认插入到参考文献之前，或在当前选中的章节后）
-    let insertIdx = currentList.length
-    const refIdx = currentList.findIndex((s) => s.type === 'references' || s.key === 'references')
-    if (refIdx !== -1) insertIdx = refIdx
+    const currentList = project.value.sections.map(structureItem)
+    const newKey = `sec_${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+    const insertIdx = insertIndexForPosition(currentList, newSectionForm.position)
     currentList.splice(insertIdx, 0, {
       key: newKey,
       type: newSectionForm.type,
@@ -419,32 +486,54 @@ async function confirmAddSection() {
   } catch (e) {
     error.value = e.message || '添加章节失败'
   } finally {
-    addingSection.value = false
+    structureBusy.value = false
+  }
+}
+
+async function moveSection(node, delta) {
+  if (structureBusy.value) return
+  const index = sectionIndex(node)
+  const targetIndex = index + delta
+  if (index < 0 || targetIndex < 0 || targetIndex >= project.value.sections.length) return
+  structureBusy.value = true
+  error.value = ''
+  try {
+    await flushPendingSaves()
+    const currentList = project.value.sections.map(structureItem)
+    ;[currentList[index], currentList[targetIndex]] = [currentList[targetIndex], currentList[index]]
+    const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
+    project.value = updated
+    computeChapterNumbers()
+    void runCheckNow()
+  } catch (e) {
+    error.value = e.message || '调整章节位置失败'
+  } finally {
+    structureBusy.value = false
   }
 }
 
 async function removeSection(node) {
   if (!confirm(`确定要删除章节「${node.title || node.key}」及其正文内容吗？`)) return
+  if (structureBusy.value) return
+  structureBusy.value = true
   error.value = ''
   try {
     await flushPendingSaves()
+    const deletedIndex = sectionIndex(node)
     const currentList = project.value.sections
       .filter((s) => s.key !== node.key)
-      .map((s) => ({
-        key: s.key,
-        type: s.type,
-        title: s.title,
-        required: s.required,
-      }))
+      .map(structureItem)
     const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
     project.value = updated
     if (current.value === node.key) {
-      current.value = updated.sections[0]?.key || 'cover'
+      current.value = updated.sections[Math.min(deletedIndex, updated.sections.length - 1)]?.key || 'cover'
     }
     computeChapterNumbers()
     void runCheckNow()
   } catch (e) {
     error.value = e.message || '删除章节失败'
+  } finally {
+    structureBusy.value = false
   }
 }
 
@@ -453,6 +542,30 @@ const currentSection = computed(() => {
   if (current.value === 'cover') return { type: 'cover', key: 'cover', title: '封面' }
   return project.value.sections.find((s) => s.key === current.value) || null
 })
+
+watch(currentSection, (section) => {
+  sectionInputMode.value = 'blocks'
+  sectionText.value = section ? textBlocksToSectionText(section.paragraphs) : ''
+}, { immediate: true })
+
+function toggleSectionInputMode() {
+  if (sectionInputMode.value === 'blocks') {
+    sectionText.value = textBlocksToSectionText(currentSection.value?.paragraphs)
+    sectionInputMode.value = 'section'
+  } else {
+    sectionInputMode.value = 'blocks'
+  }
+}
+
+function applySectionText(text) {
+  const sec = currentSection.value
+  if (!sec) return
+  const textBlocks = createTextBlocks(text, sec.key)
+  sec.paragraphs = mergeTextBlocksWithMedia(textBlocks, sec.paragraphs)
+  sectionText.value = textBlocksToSectionText(sec.paragraphs)
+  scheduleSave()
+  sectionInputMode.value = 'blocks'
+}
 
 const metaFields = computed(() => template.value?.meta_fields || [])
 const flatTemplateSections = computed(() => {
@@ -804,6 +917,14 @@ async function loadProject() {
 function computeChapterNumbers() {
   const map = {}
   let chapter = 0
+  if (project.value?.sections?.length) {
+    for (const node of project.value.sections) {
+      if (node.type === 'heading1' || node.type === 'references') chapter += 1
+      map[node.key] = chapter
+    }
+    chapterMap.value = map
+    return
+  }
   function walk(nodes) {
     for (const node of nodes || []) {
       if (node.type === 'heading1' || node.type === 'references') chapter += 1
@@ -1098,6 +1219,7 @@ onBeforeUnmount(() => {
 .diff-box.preview { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; max-height: 180px; }
 .modal .field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .modal .field input { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+.structure-select { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--card); color: var(--text); }
 .ok-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .error-banner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .ai-tab-row { display: flex; gap: 8px; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
@@ -1111,6 +1233,14 @@ onBeforeUnmount(() => {
 .nav-row.child { padding-left: 24px; }
 .nav-row.grand { padding-left: 40px; }
 .nav-title { flex: 1; }
+.nav-action-move { display: none; gap: 2px; }
+.nav-row:hover .nav-action-move, .nav-row.active .nav-action-move { display: inline-flex; }
+.nav-move-btn {
+  width: 22px; height: 22px; padding: 0; border: 1px solid transparent; border-radius: 4px;
+  background: transparent; color: var(--muted); cursor: pointer; line-height: 1;
+}
+.nav-move-btn:hover:not(:disabled) { border-color: var(--border); background: var(--card); color: var(--primary); }
+.nav-move-btn:disabled { opacity: .3; cursor: not-allowed; }
 .nav-action-del {
   display: none;
   font-size: 16px;
