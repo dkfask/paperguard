@@ -9,6 +9,7 @@ from pathlib import Path
 
 from lxml import etree
 
+from app.core.extract.xml_utils import parse_xml
 from app.core.ir import Finding
 
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -158,7 +159,6 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
     """Write a comment-free DOCX copy while preserving all non-comment parts."""
     source = Path(source)
     output = Path(output)
-    parser = etree.XMLParser(remove_blank_text=False, resolve_entities=False, no_network=True)
     counters = {"parts": 0, "anchors": 0, "relationships": 0, "content_types": 0}
 
     with zipfile.ZipFile(source, "r") as zin:
@@ -172,7 +172,7 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
                 continue
             data = zin.read(name)
             if _is_story_xml(name):
-                root = etree.fromstring(data, parser)
+                root = parse_xml(data)
                 for element in list(root.iter()):
                     if element.tag in _COMMENT_ANCHOR_TAGS:
                         parent = element.getparent()
@@ -181,7 +181,7 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
                             counters["anchors"] += 1
                 data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
             elif name.endswith(".rels"):
-                root = etree.fromstring(data, parser)
+                root = parse_xml(data)
                 for relationship in list(root):
                     rel_type = relationship.get("Type", "").lower()
                     target = relationship.get("Target", "").lower()
@@ -190,7 +190,7 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
                         counters["relationships"] += 1
                 data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
             elif name == "[Content_Types].xml":
-                root = etree.fromstring(data, parser)
+                root = parse_xml(data)
                 for override in list(root):
                     part_name = override.get("PartName", "").lower()
                     content_type = override.get("ContentType", "").lower()
@@ -231,8 +231,7 @@ def patch_docx_package(source: str | Path, output: str | Path, findings: list[Fi
     output = Path(output)
     with zipfile.ZipFile(source, "r") as zin:
         document_xml = zin.read("word/document.xml")
-        parser = etree.XMLParser(remove_blank_text=False, resolve_entities=False, no_network=True)
-        root = etree.fromstring(document_xml, parser)
+        root = parse_xml(document_xml)
         remaining = [finding for finding in findings if not _apply_finding(root, finding)]
         changed_xml = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
         with zipfile.ZipFile(output, "w") as zout:

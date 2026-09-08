@@ -99,6 +99,37 @@ class TestLoadPart(unittest.TestCase):
         with zipfile.ZipFile(BytesIO(data)) as zf:
             self.assertIsNone(load_part(zf, "word/numbering.xml"))
 
+    def test_load_part_does_not_expand_entities(self):
+        """上传的 docx 部件带实体膨胀时不得展开(防内存/CPU 耗尽)。"""
+        bomb = (
+            '<?xml version="1.0"?>'
+            '<!DOCTYPE w:document ['
+            '<!ENTITY a "aaaaaaaaaa">'
+            '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">'
+            '<!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">'
+            '<!ENTITY d "&c;&c;&c;&c;&c;&c;&c;&c;&c;&c;">]>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            '<w:body><w:p><w:r><w:t>&d;</w:t></w:r></w:p></w:body></w:document>'
+        )
+        data = self._make_docx({"word/document.xml": bomb})
+        with zipfile.ZipFile(BytesIO(data)) as zf:
+            el = load_part(zf, "word/document.xml")
+        text = "".join(t.text or "" for t in el.iter(qn("w:t")))
+        self.assertLess(len(text), 100, "实体被展开了: %d 字符" % len(text))
+
+    def test_load_part_keeps_predefined_entities(self):
+        """加固解析器不得影响 &amp; 等预定义实体与数字字符引用。"""
+        xml = (
+            '<?xml version="1.0"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            '<w:body><w:p><w:r><w:t>a &amp; b &#23435;</w:t></w:r></w:p></w:body></w:document>'
+        )
+        data = self._make_docx({"word/document.xml": xml})
+        with zipfile.ZipFile(BytesIO(data)) as zf:
+            el = load_part(zf, "word/document.xml")
+        text = "".join(t.text or "" for t in el.iter(qn("w:t")))
+        self.assertEqual(text, "a & b 宋")
+
 
 if __name__ == "__main__":
     unittest.main()

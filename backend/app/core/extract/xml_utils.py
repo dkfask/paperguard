@@ -51,6 +51,21 @@ def attr(el: etree._Element | None, name: str) -> str | None:
     return el.get(qn(name))
 
 
+def safe_xml_parser() -> etree.XMLParser:
+    """加固的 XML 解析器：禁用实体解析与网络访问。
+
+    解析用户上传的 docx 部件必须用它 —— lxml 默认解析器会展开内部实体
+    (可构造实体膨胀耗尽内存/CPU)。预定义实体(&amp; 等)与数字字符引用不受影响。
+    每次返回新实例：lxml 解析器不适合跨线程共享。
+    """
+    return etree.XMLParser(remove_blank_text=False, resolve_entities=False, no_network=True)
+
+
+def parse_xml(data: bytes) -> etree._Element:
+    """用加固解析器解析字节流 (resolve_entities=False, no_network=True)。"""
+    return etree.fromstring(data, safe_xml_parser())  # noqa: S320 - 解析器已禁用实体与网络
+
+
 def load_part(zf: zipfile.ZipFile, part_name: str) -> etree._Element | None:
     """Load OOXML part from zipfile as lxml Element; return None if part missing.
 
@@ -59,9 +74,9 @@ def load_part(zf: zipfile.ZipFile, part_name: str) -> etree._Element | None:
     """
     try:
         with zf.open(part_name) as f:
-            return etree.fromstring(f.read())
+            return parse_xml(f.read())
     except KeyError:
         return None
 
 
-__all__ = ["NS", "qn", "attr", "load_part"]
+__all__ = ["NS", "attr", "load_part", "parse_xml", "qn", "safe_xml_parser"]

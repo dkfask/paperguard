@@ -30,7 +30,7 @@ from app.core.extract.para_samples import (
     style_id_to_name,
 )
 from app.core.extract.run_props import run_props
-from app.core.extract.xml_utils import load_part, qn
+from app.core.extract.xml_utils import load_part, parse_xml, qn
 from app.models.template import (
     DEFAULT_STYLES,
     Align,
@@ -659,7 +659,7 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
     with zipfile.ZipFile(docx_path) as zf:
         if "word/document.xml" not in zf.namelist():
             return []
-        root = etree.fromstring(zf.read("word/document.xml"))
+        root = parse_xml(zf.read("word/document.xml"))
 
     body = root.find(f"{{{W}}}body")
     if body is None:
