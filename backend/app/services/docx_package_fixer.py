@@ -29,6 +29,8 @@ _COMMENT_PART_NAMES = {
 }
 _COMMENT_RELATIONSHIP_MARKER = "/comments"
 _COMMENT_CONTENT_MARKER = "/comments"
+# 批注相关的 relationship type 片段 (people/persons 也要清, 否则留下悬空引用)
+_COMMENT_RELATIONSHIP_MARKERS = ("/comments", "/people", "/persons", "/threadedcomments")
 
 
 def _child(parent, local_name: str):
@@ -183,7 +185,7 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
                 for relationship in list(root):
                     rel_type = relationship.get("Type", "").lower()
                     target = relationship.get("Target", "").lower()
-                    if _COMMENT_RELATIONSHIP_MARKER in rel_type or _COMMENT_RELATIONSHIP_MARKER in target:
+                    if _is_comment_relationship(rel_type, target):
                         root.remove(relationship)
                         counters["relationships"] += 1
                 data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
@@ -209,6 +211,14 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
 def _is_comment_part(name: str) -> bool:
     lower = name.lower()
     return lower in _COMMENT_PART_NAMES or "/comments" in lower or "threadedcomments" in lower
+
+
+def _is_comment_relationship(rel_type: str, target: str) -> bool:
+    """批注部件的关系(含 people/persons)都要删, 否则留下悬空引用打不开。"""
+    if any(marker in rel_type for marker in _COMMENT_RELATIONSHIP_MARKERS):
+        return True
+    target_name = target.rsplit("/", 1)[-1]
+    return target_name in {Path(name).name.lower() for name in _COMMENT_PART_NAMES}
 
 
 def _is_story_xml(name: str) -> bool:

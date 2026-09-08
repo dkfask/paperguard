@@ -9,9 +9,11 @@
     <!-- 左侧章节导航 -->
     <aside class="sidebar">
       <div class="sidebar-head">
-        <span class="proj-title">{{ project.title || '未命名论文' }}</span>
+        <span class="proj-title" :title="project.title || '未命名论文'">{{ project.title || '未命名论文' }}</span>
         <span class="head-actions">
           <button class="small" @click="openAiSettings" title="AI 设置">✨AI</button>
+          <button v-if="isManager()" class="small" @click="openTemplateModal"
+                  :disabled="saving" title="把本项目换成其它模板的排版规范">🔀 换模板</button>
           <button class="small" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">⬇️ 导出</button>
         </span>
       </div>
@@ -65,6 +67,7 @@
     <!-- 右侧编辑区 -->
     <section class="editor-pane">
       <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}</div>
+      <div v-if="templateNotice" class="notice-banner">✅ {{ templateNotice }}</div>
 
       <!-- 实时格式检查面板 -->
       <div v-if="checking || checkResult || checkError" class="check-panel" :class="{ clean: checkResult && checkResult.summary.total === 0 }">
@@ -279,6 +282,36 @@
         </div>
       </div>
 
+      <!-- 更换模板弹窗 -->
+      <div v-if="showTemplateModal" class="modal-mask" @click.self="showTemplateModal = false">
+        <div class="modal card">
+          <h3 style="margin-top: 0">🔀 更换模板</h3>
+          <p class="hint" style="margin-top: 0">
+            换模板只改字体/行距/封面等排版规范，已写内容按章节保留。
+          </p>
+          <div v-if="templateError" class="error-banner">⚠ {{ templateError }}</div>
+          <div v-if="templateLoading" style="color: var(--muted)">⏳ 正在加载模板…</div>
+          <div v-else-if="!templateList.length" style="color: var(--muted)">暂无可用模板</div>
+          <div v-for="t in templateList" :key="t.id" class="template-row"
+               :class="{ current: t.id === project.template_id }">
+            <div class="template-meta">
+              <b>{{ t.name }}</b>
+              <span v-if="t.id === project.template_id" class="tag">当前</span>
+              <div class="template-desc">
+                {{ t.description || '无描述' }} · {{ t.section_count }} 个章节
+              </div>
+            </div>
+            <button class="small primary" :disabled="!!templateBusy"
+                    @click="applyTemplate(t.id)">
+              {{ templateBusy === t.id ? '应用中…' : (t.id === project.template_id ? '重新套用' : '套用') }}
+            </button>
+          </div>
+          <div class="form-row" style="margin-top: 14px">
+            <button @click="showTemplateModal = false">关闭</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 添加章节弹窗 -->
       <div v-if="showAddSectionModal" class="modal-mask" @click.self="showAddSectionModal = false">
         <div class="modal card">
@@ -323,10 +356,10 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { auth } from '../auth'
+import { auth, isManager } from '../auth'
 import {
-  fetchProject, fetchTemplate, updateProjectSection, updateProjectMeta, exportProject, checkProjectTemplate,
-  updateProjectSectionsStructure,
+  fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, exportProject,
+  checkProjectTemplate, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
   aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
   getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
 } from '../api'
@@ -347,6 +380,12 @@ const loading = ref(true)
 const saving = ref(false)
 const savedAt = ref('')
 const exporting = ref(false)
+const showTemplateModal = ref(false)
+const templateList = ref([])
+const templateLoading = ref(false)
+const templateBusy = ref('')
+const templateError = ref('')
+const templateNotice = ref('')
 const checkResult = ref(null)
 const checking = ref(false)
 const checkError = ref('')
@@ -1173,6 +1212,50 @@ async function exportDocx(force = false) {
   }
 }
 
+async function refreshTemplate() {
+  if (!confirm('把本项目的排版规范换成当前模板的最新版本? 已写内容不受影响。')) return
+  error.value = ''
+  try {
+    const updated = await refreshProjectTemplate(projectId)
+    project.value = updated
+    template.value = updated.template_snapshot || template.value
+  } catch (e) {
+    error.value = e.message || '重新套用模板失败'
+  }
+}
+
+async function openTemplateModal() {
+  showTemplateModal.value = true
+  templateError.value = ''
+  templateLoading.value = true
+  try {
+    templateList.value = await fetchTemplates()
+  } catch (e) {
+    templateError.value = e.message || '加载模板列表失败'
+  } finally {
+    templateLoading.value = false
+  }
+}
+
+async function applyTemplate(templateId) {
+  if (templateBusy.value) return
+  templateBusy.value = templateId
+  templateError.value = ''
+  try {
+    await flushPendingSaves()
+    const updated = await switchProjectTemplate(projectId, templateId)
+    project.value = updated
+    template.value = updated.template_snapshot || template.value
+    showTemplateModal.value = false
+    templateNotice.value = `已套用模板「${updated.template_name}」，导出即按该模板排版`
+    setTimeout(() => { templateNotice.value = '' }, 5000)
+  } catch (e) {
+    templateError.value = e.message || '更换模板失败'
+  } finally {
+    templateBusy.value = ''
+  }
+}
+
 onBeforeRouteLeave(async () => {
   try {
     await flushPendingSaves()
@@ -1197,8 +1280,8 @@ onBeforeUnmount(() => {
   border-radius: 12px; padding: 16px; position: sticky; top: 16px; max-height: calc(100vh - 120px);
   display: flex; flex-direction: column;
 }
-.sidebar-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.head-actions { display: flex; gap: 6px; }
+.sidebar-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.head-actions { display: flex; gap: 6px; margin-left: auto; }
 .ai-gen { margin-left: auto; }
 
 /* AI 设置与对比弹窗 */
@@ -1222,10 +1305,16 @@ onBeforeUnmount(() => {
 .structure-select { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--card); color: var(--text); }
 .ok-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .error-banner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.notice-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.template-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+.template-row.current { border-color: var(--primary); background: #f8fafc; }
+.template-meta { min-width: 0; }
+.template-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.template-row .tag { display: inline-block; margin-left: 8px; padding: 1px 6px; font-size: 11px; border-radius: 999px; background: var(--primary); color: #fff; }
 .ai-tab-row { display: flex; gap: 8px; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
 .ai-tab-btn { background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: var(--muted); }
 .ai-tab-btn.active { background: #eff6ff; border-color: var(--primary); color: var(--primary); font-weight: 600; }
-.proj-title { font-weight: 600; font-size: 14px; }
+.proj-title { font-weight: 600; font-size: 14px; flex: 1 1 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tree-nav { flex: 1; overflow-y: auto; }
 .nav-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .nav-row:hover { background: #f1f5f9; }
@@ -1258,7 +1347,7 @@ onBeforeUnmount(() => {
 }
 .dot { color: #f59e0b; font-size: 10px; }
 .sidebar-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-button.small { font-size: 13px; padding: 6px 12px; }
+button.small { font-size: 13px; padding: 6px 12px; white-space: nowrap; }
 
 .editor-pane { flex: 1; min-width: 0; }
 .editor-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }

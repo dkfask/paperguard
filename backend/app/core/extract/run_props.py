@@ -21,6 +21,18 @@ SZ = f"{{{W_NS}}}sz"
 B = f"{{{W_NS}}}b"
 I = f"{{{W_NS}}}i"
 U = f"{{{W_NS}}}u"
+COLOR = f"{{{W_NS}}}color"
+
+_OFF_VALUES = {"0", "false", "off"}
+
+
+def _toggle(rpr: etree._Element, tag: str) -> str:
+    """布尔型开关: <w:b/> = 开, <w:b w:val="0"/> = 显式关(覆盖样式里的加粗)。"""
+    el = rpr.find(tag)
+    if el is None:
+        return ""
+    val = el.get(f"{{{W_NS}}}val")
+    return "false" if val is not None and val.lower() in _OFF_VALUES else "true"
 
 
 def _w(name: str) -> str:
@@ -59,12 +71,14 @@ def run_props(rpr: etree._Element | None) -> dict[str, str]:
             result["font.size_half_points"] = v
 
     # 加粗
-    if rpr.find(B) is not None:
-        result["font.bold"] = "true"
+    v = _toggle(rpr, B)
+    if v:
+        result["font.bold"] = v
 
     # 斜体
-    if rpr.find(I) is not None:
-        result["font.italic"] = "true"
+    v = _toggle(rpr, I)
+    if v:
+        result["font.italic"] = v
 
     # 下划线
     u = rpr.find(U)
@@ -72,6 +86,13 @@ def run_props(rpr: etree._Element | None) -> dict[str, str]:
         v = u.get(_w("val"))
         if v:
             result["font.underline"] = v
+
+    # 颜色 (跳过 auto, 它表示跟随主题/自动色)
+    color = rpr.find(COLOR)
+    if color is not None:
+        v = color.get(_w("val"))
+        if v and v.lower() != "auto":
+            result["font.color"] = v.upper()
 
     return result
 

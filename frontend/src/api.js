@@ -248,6 +248,28 @@ export async function checkProjectTemplate(projectId) {
   return resp.json()
 }
 
+export async function refreshProjectTemplate(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/refresh-template`, { method: 'POST' })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '重新套用模板失败'))
+  }
+  return resp.json()
+}
+
+export async function switchProjectTemplate(projectId, templateId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/template`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template_id: templateId }),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '更换模板失败'))
+  }
+  return resp.json()
+}
+
 
 export async function checkProject(projectId, pack = 'GB-T-7713-1-2006') {
   const resp = await api(`${API_BASE}/projects/${projectId}/check?pack=${encodeURIComponent(pack)}`)

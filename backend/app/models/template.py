@@ -45,9 +45,11 @@ class TextStyle(BaseModel):
     underline: bool = False
     align: Align = Align.JUSTIFY
     line_spacing: float = 1.5
+    line_spacing_rule: str = "auto"        # auto=倍数(exact/atLeast 时 line_spacing 为磅值)
     space_before_pt: float = 0.0
     space_after_pt: float = 0.0
     first_line_indent_chars: float = 0.0   # 首行缩进(字符)
+    color: str = ""                        # RRGGBB, 空=不指定(继承模板样式)
     page_break_before: bool = False        # 该元素前分页
 
 
@@ -68,6 +70,24 @@ class MetaField(BaseModel):
     required: bool = True
 
 
+class CoverField(BaseModel):
+    """封面上的一个信息项: 标签 + 取值来源。"""
+    label: str = ""                    # 标签文本(含全角冒号, 如 "题目：")
+    key: str = ""                      # 元信息 key; 空表示静态文本
+    value: str = ""                    # key 为空时使用的静态值
+    label_style: TextStyle | None = None
+    value_style: TextStyle | None = None
+
+
+class CoverBlock(BaseModel):
+    """封面版式元素, 按顺序渲染(标题行/字段行/信息表/空行)。"""
+    kind: str = "text"                 # text | field | table | spacer
+    text: str = ""                     # kind=text 的静态文本
+    style: TextStyle | None = None     # kind=text / spacer 的段落样式
+    fields: list[CoverField] = []      # kind=field(1 项) / kind=table(多行)
+    column_widths_cm: list[float] = [] # kind=table 的列宽
+
+
 class PaperTemplate(BaseModel):
     """论文模板: 结构 + 样式 + 封面字段。"""
     id: str = Field(min_length=1)
@@ -78,6 +98,8 @@ class PaperTemplate(BaseModel):
     sections: list[TemplateSection] = []
     styles: dict[str, TextStyle] = {}       # SectionType.value -> 默认样式
     meta_fields: list[MetaField] = []
+    cover_blocks: list[CoverBlock] = []     # 封面版式(为空时按 meta_fields 逐行渲染)
+    source_docx: str = ""                   # 导入时的模板 docx 文件名(导出以此为基底)
     allow_structure_edit: bool = True       # 允许学生在写作中调整/增删章节框架
 
 
@@ -113,9 +135,11 @@ DEFAULT_STYLES: dict[str, TextStyle] = {
     "references": TextStyle(font_zh="宋体", size_pt=12.0, align=Align.JUSTIFY,
                             line_spacing=1.5, page_break_before=True),
     "acknowledgement": TextStyle(font_zh="宋体", size_pt=12.0, align=Align.JUSTIFY,
-                                 line_spacing=1.5, page_break_before=True),
+                                 line_spacing=1.5, first_line_indent_chars=2.0,
+                                 page_break_before=True),
     "appendix": TextStyle(font_zh="宋体", size_pt=12.0, align=Align.JUSTIFY,
-                          line_spacing=1.5, page_break_before=True),
+                          line_spacing=1.5, first_line_indent_chars=2.0,
+                          page_break_before=True),
     # 图表规范
     "figure_caption": TextStyle(font_zh="宋体", size_pt=10.5, align=Align.CENTER,
                                 space_before_pt=6.0, space_after_pt=12.0),

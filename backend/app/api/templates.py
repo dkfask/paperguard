@@ -15,8 +15,18 @@ from app.auth import require_manager
 from app.db import Store, new_id
 from app.models.template import PaperTemplate
 from app.services.docx_package_fixer import strip_comments_from_docx
-from app.services.import_template import extract_section_tree, import_template_styles
+from app.services.import_template import (
+    extract_cover_blocks,
+    extract_meta_fields,
+    extract_section_tree,
+    import_template_styles,
+)
 from app.services.projects import default_template, seed_default_template
+from app.services.template_source import (
+    delete_template_source,
+    resolve_template_source,
+    save_template_source,
+)
 from app.services.upload_security import IMPORT_MAX_BYTES, read_limited, validate_docx_bytes
 
 router = APIRouter(prefix="/api/templates")
@@ -69,6 +79,8 @@ def _validate_template_structure(payload: PaperTemplate) -> None:
         if field.key in fields:
             raise HTTPException(status_code=422, detail=f"封面字段 key 重复: {field.key}")
         fields.add(field.key)
+    if payload.source_docx and resolve_template_source(payload.source_docx) is None:
+        raise HTTPException(status_code=422, detail="模板源文件不存在或已失效, 请重新导入 Word 模板")
 
 
 
@@ -150,11 +162,16 @@ async def import_docx_template(file: UploadFile = File(...),
         merged.update({k: v.model_dump() for k, v in result["styles"].items()})
         # 识别章节结构 (Heading 段落 → 章节树)
         sections = extract_section_tree(path)
+        # 留档模板源文件: 导出时以它为排版基底, 完整继承 styles/页眉页脚/页边距
+        source_docx = save_template_source(data)
         return {
             "filename": file.filename,
             **result,
             "styles": merged,
             "sections": sections,
+            "meta_fields": [f.model_dump() for f in extract_meta_fields(path)],
+            "cover_blocks": [b.model_dump() for b in extract_cover_blocks(path)],
+            "source_docx": source_docx,
         }
     except HTTPException:
         raise
@@ -177,13 +194,15 @@ def update_template(tpl_id: str, payload: PaperTemplate,
 
 @router.delete("/{tpl_id}", status_code=204)
 def delete_template(tpl_id: str, store: Store = Depends(get_store),
-                  _: dict = Depends(require_manager)) -> None:
-    if store.get_template(tpl_id) is None:
+                    _: dict = Depends(require_manager)) -> None:
+    tpl = store.get_template(tpl_id)
+    if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")
     if any(project.template_id == tpl_id for project in store.list_projects()):
         raise HTTPException(status_code=409, detail="模板仍被论文项目使用, 无法删除")
     if not store.delete_template(tpl_id):
         raise HTTPException(status_code=404, detail="模板不存在")
+    delete_template_source(tpl.source_docx)
 
 
 def _count_sections(nodes) -> int:

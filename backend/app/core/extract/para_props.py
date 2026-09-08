@@ -60,6 +60,18 @@ def para_props(ppr: etree._Element | None) -> dict[str, str]:
             v = spacing.get(_w(sub))
             if v:
                 result[dotted] = v
+        # 行距规则: auto=倍数, exact=固定值, atLeast=最小值
+        v = spacing.get(_w("lineRule"))
+        if v:
+            result["paragraph.spacing.line_rule"] = v
+        # 中文"段前/段后 N 行" (单位 1/100 行)
+        for sub, dotted in (
+            ("beforeLines", "paragraph.spacing.before_lines"),
+            ("afterLines", "paragraph.spacing.after_lines"),
+        ):
+            v = spacing.get(_w(sub))
+            if v:
+                result[dotted] = v
 
     # 缩进: <w:ind w:left/right/firstLine/hanging w:val="..."/>
     ind = ppr.find(_w("ind"))
@@ -69,6 +81,8 @@ def para_props(ppr: etree._Element | None) -> dict[str, str]:
             ("right", "paragraph.indent.right"),
             ("firstLine", "paragraph.indent.first_line"),
             ("hanging", "paragraph.indent.hanging"),
+            # 首行缩进按字符数 (中文模板最常用)
+            ("firstLineChars", "paragraph.indent.first_line_chars"),
         ):
             v = ind.get(_w(sub))
             if v:

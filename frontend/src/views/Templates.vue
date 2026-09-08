@@ -145,8 +145,10 @@ async function downloadWithoutComments() {
 function mergeImportedSections(imported, baseSections) {
   if (!imported.length) return baseSections
 
-  const structural = baseSections.filter((section) => ['cover', 'toc'].includes(section.type))
+  // 只把"封面"提到最前(封面不在 Word 正文里), 其余保持模板文档里的真实顺序
+  const structural = baseSections.filter((section) => section.type === 'cover')
   const fallbackAbstract = baseSections.find((section) => section.type === 'abstract')
+  const fallbackToc = baseSections.find((section) => section.type === 'toc')
   const fallbackTail = baseSections.filter((section) => ['references', 'acknowledgement', 'appendix'].includes(section.type))
   const normalize = (section) => {
     const title = String(section.title || '').replace(/\s+/g, '').toLowerCase()
@@ -170,6 +172,11 @@ function mergeImportedSections(imported, baseSections) {
   const sections = [...structural, ...imported.map(normalize)]
   const seen = new Set()
   if (!sections.some((section) => section.type === 'abstract') && fallbackAbstract) sections.splice(1, 0, fallbackAbstract)
+  // 模板文档里没有目录节点时, 在摘要之后补一个内置目录
+  if (!sections.some((section) => section.type === 'toc') && fallbackToc) {
+    const abstractIndex = sections.findIndex((section) => section.type === 'abstract')
+    sections.splice(abstractIndex >= 0 ? abstractIndex + 1 : 1, 0, fallbackToc)
+  }
   return sections.filter((section) => {
     if (seen.has(section.key)) return false
     seen.add(section.key)
@@ -184,6 +191,7 @@ async function createFromImport() {
   try {
     // 章节结构优先使用识别结果, 未识别到时沿用内置模板
     const base = await fetchTemplate('default-gb7713')
+    const importedMeta = importResult.value.meta_fields || []
     const tpl = {
       id: '',
       name: importResult.value.filename.replace(/\.docx$/i, '') + ' (导入)',
@@ -193,7 +201,12 @@ async function createFromImport() {
           ? importResult.value.sections : [],
         base.sections,
       ),
-      meta_fields: base.meta_fields,
+      // 封面字段优先用模板识别结果(学院/班级等), 识别不到时沿用内置模板
+      meta_fields: importedMeta.length ? importedMeta : base.meta_fields,
+      // 封面版式(校名/报告类型/信息表): 有则按模板版式渲染封面
+      cover_blocks: importResult.value.cover_blocks || [],
+      // 模板源文件: 导出时以它为排版基底, 完整继承模板的样式/页眉页脚/页边距
+      source_docx: importResult.value.source_docx || '',
       styles: importResult.value.styles,
     }
     const saved = await saveTemplate(tpl, true)

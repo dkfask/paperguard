@@ -17,11 +17,12 @@ from app.auth import can_manage, current_user
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
-from app.models.template import PaperTemplate
+from app.models.template import PaperTemplate, SectionType
 from app.services.image_cleanup import cleanup_orphan_images, remove_project_images
 from app.services.project_validation import validate_project_completeness
 from app.services.template_compare import compare_project_to_template
 from app.services.projects import create_project_from_template
+from app.services.template_source import resolve_template_source
 from app.services.upload_security import IMAGE_MAX_BYTES, validate_image
 
 router = APIRouter(prefix="/api/projects")
@@ -339,6 +340,95 @@ def _project_template(proj: WritingProject, store: Store) -> PaperTemplate:
     return tpl
 
 
+class SwitchTemplateRequest(BaseModel):
+    template_id: str
+
+
+def _flatten_template_nodes(nodes) -> list:
+    out = []
+    for node in nodes:
+        out.append(node)
+        out.extend(_flatten_template_nodes(node.children))
+    return out
+
+
+def _rebind_template(proj: WritingProject, tpl: PaperTemplate) -> WritingProject:
+    """把项目换成 tpl: 只换排版规范与封面定义。
+
+    学生已有的章节结构、顺序、标题原样保留(写作界面看到的顺序就是导出顺序);
+    新模板里有、项目里还没有的章节, 按模板中的位置插到相邻章节之后。
+    封面与目录不建项目章节(封面来自 meta, 目录由导出自动生成)。
+    """
+    result = list(proj.sections)
+    present = {s.key for s in result}
+    flat = _flatten_template_nodes(tpl.sections)
+
+    for index, node in enumerate(flat):
+        if node.type in (SectionType.COVER, SectionType.TOC) or node.key in present:
+            continue
+        # 插到模板中该节点之前、最近一个已存在章节的后面
+        insert_at = len(result)
+        for previous in reversed(flat[:index]):
+            position = next((i for i, s in enumerate(result) if s.key == previous.key), None)
+            if position is not None:
+                insert_at = position + 1
+                break
+        result.insert(insert_at, ProjectSection(
+            key=node.key, type=node.type.value, title=node.title,
+            required=node.required,
+            paragraphs=[ParagraphBlock(id=f"{node.key}-p1", text="")],
+        ))
+        present.add(node.key)
+
+    proj.sections = result
+    proj.template_id = tpl.id
+    proj.template_name = tpl.name
+    proj.template_snapshot = tpl.model_dump(mode="json")
+    # 补齐新模板的封面字段, 已填写的值保留
+    for field in tpl.meta_fields:
+        proj.meta.setdefault(field.key, "")
+    return proj
+
+
+@router.post("/{proj_id}/template")
+def switch_project_template(proj_id: str, req: SwitchTemplateRequest,
+                            store: Store = Depends(get_store),
+                            user: dict = Depends(current_user)) -> WritingProject:
+    """把项目换成指定模板(模板重新导入/修订后使用)。
+
+    只换排版规范与封面字段定义, 已写内容按章节 key 保留。
+    """
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="只有管理员/教师可以更换模板")
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    tpl = store.get_template(req.template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail="目标模板不存在")
+    store.save_project(_rebind_template(proj, tpl))
+    return proj
+
+
+@router.post("/{proj_id}/refresh-template")
+def refresh_project_template(proj_id: str,
+                             store: Store = Depends(get_store),
+                             user: dict = Depends(current_user)) -> WritingProject:
+    """重新套用项目当前绑定的模板(等价于换成同一个模板)。"""
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="只有管理员/教师可以重新套用模板")
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    tpl = store.get_template(proj.template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail="项目绑定的模板不存在")
+    store.save_project(_rebind_template(proj, tpl))
+    return proj
+
+
 @router.get("/{proj_id}/template-check")
 def check_project_template(proj_id: str,
                            store: Store = Depends(get_store),
@@ -404,7 +494,8 @@ def export_docx(proj_id: str, force: bool = False,
     out_dir = Path(tempfile.mkdtemp(prefix="paperguard-export-"))
     out = out_dir / "paper.docx"
     try:
-        export_project_to_docx(proj, tpl, str(out))
+        export_project_to_docx(proj, tpl, str(out),
+                               template_path=resolve_template_source(tpl.source_docx))
     except Exception:
         shutil.rmtree(out_dir, ignore_errors=True)
         raise

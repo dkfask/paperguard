@@ -239,8 +239,12 @@ def test_strip_template_comments_returns_docx():
     assert "template-no-comments.docx" in resp.headers["content-disposition"]
 
 
+def test_import_detects_styles():
+    """上传 docx 应识别出标题/正文的字体字号等样式。
 
-    """上传 docx 应识别出标题/正文的字体字号等样式。"""
+    标题段落带直接格式(18pt)时以直接格式为准 —— 它才是 Word 实际渲染的值;
+    样式表里的 heading 1 (14pt) 只作兜底。
+    """
     fixture = FIXTURES / "templates" / "gb7713-official.docx"
     with fixture.open("rb") as f:
         resp = client.post(
@@ -251,10 +255,234 @@ def test_strip_template_comments_returns_docx():
     data = resp.json()
     assert "heading1" in data["styles"], data
     h1 = data["styles"]["heading1"]
-    assert h1["size_pt"] == 14.0          # 28 half-points / 2
+    assert h1["size_pt"] == 18.0          # 段落直接格式 36 half-points
     assert h1["bold"] is True
     assert "body" in data["styles"]
+    assert data["styles"]["body"]["size_pt"] == 12.0
     assert data["style_names"], "应识别到至少一个 Word 样式"
+
+
+def test_import_keeps_source_docx_and_meta_fields():
+    """导入应留档模板源文件(供导出作排版基底)并识别封面字段。"""
+    from app.services.template_source import resolve_template_source
+
+    fixture = FIXTURES / "templates" / "gb7713-official.docx"
+    with fixture.open("rb") as f:
+        resp = client.post(
+            "/api/templates/import",
+            files={"file": ("gb7713-official.docx", f, "application/octet-stream")},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["source_docx"].endswith(".docx")
+    assert resolve_template_source(data["source_docx"]) is not None
+    labels = {m["label"] for m in data["meta_fields"]}
+    assert "学号" in labels, data["meta_fields"]
+    assert "日期" in labels, data["meta_fields"]
+
+
+def test_export_uses_template_docx_as_base():
+    """导出以模板 docx 为基底: 页面设置与样式表来自模板, 而非 python-docx 默认值。"""
+    import io
+
+    import docx as docx_lib
+
+    fixture = FIXTURES / "templates" / "gb7713-official.docx"
+    with fixture.open("rb") as f:
+        cfg = client.post(
+            "/api/templates/import",
+            files={"file": ("gb7713-official.docx", f, "application/octet-stream")},
+        ).json()
+    created = client.post("/api/templates", json={
+        "id": "", "name": "模板基底测试",
+        "sections": cfg["sections"], "styles": cfg["styles"],
+        "meta_fields": cfg["meta_fields"], "source_docx": cfg["source_docx"],
+    })
+    assert created.status_code == 201, created.text
+    proj = client.post("/api/projects", json={
+        "template_id": created.json()["id"], "title": "基底测试",
+    })
+    proj_id = proj.json()["id"]
+    client.put(f"/api/projects/{proj_id}/section/abstract", json={
+        "title": "摘要", "paragraphs": [{"id": "p1", "text": "正文内容。"}],
+    })
+
+    resp = client.post(f"/api/projects/{proj_id}/export?force=true")
+    assert resp.status_code == 200, resp.text
+    d = docx_lib.Document(io.BytesIO(resp.content))
+    section = d.sections[0]
+    # 模板是 Letter (12240x15840) + 1797 左右边距; 回退的空白文档是 A4 + 1797/1440
+    assert abs(section.page_width.twips - 12240) <= 2, section.page_width.twips
+    assert abs(section.page_height.twips - 15840) <= 2, section.page_height.twips
+    assert abs(section.left_margin.twips - 1797) <= 2
+    # 样式表来自模板 (python-docx 默认样式表里没有 Heading1 这个 styleId)
+    style_ids = {s.style_id for s in d.styles}
+    assert "Heading1" in style_ids, sorted(style_ids)[:20]
+
+
+def test_import_detects_cover_layout_and_export_renders_it():
+    """封面版式(静态标题行 + 字段行)应被识别, 导出按版式渲染而非逐行 meta。"""
+    import io
+
+    import docx as docx_lib
+
+    fixture = FIXTURES / "templates" / "gb7713-official.docx"
+    with fixture.open("rb") as f:
+        cfg = client.post(
+            "/api/templates/import",
+            files={"file": ("gb7713-official.docx", f, "application/octet-stream")},
+        ).json()
+    kinds = [b["kind"] for b in cfg["cover_blocks"]]
+    assert "text" in kinds, cfg["cover_blocks"]
+    assert kinds.count("field") >= 2, cfg["cover_blocks"]
+
+    created = client.post("/api/templates", json={
+        "id": "", "name": "封面版式测试",
+        "sections": cfg["sections"], "styles": cfg["styles"],
+        "meta_fields": cfg["meta_fields"], "cover_blocks": cfg["cover_blocks"],
+        "source_docx": cfg["source_docx"],
+    })
+    proj_id = client.post("/api/projects", json={
+        "template_id": created.json()["id"], "title": "封面测试",
+    }).json()["id"]
+
+    resp = client.post(f"/api/projects/{proj_id}/export?force=true")
+    assert resp.status_code == 200, resp.text
+    d = docx_lib.Document(io.BytesIO(resp.content))
+    texts = [p.text for p in d.paragraphs]
+    # 静态标题行按模板原样渲染
+    assert "学位论文（GB/T 7713.1-2006）" in texts, texts[:8]
+    # 字段行按"标签："渲染(值为空)
+    assert any(t.startswith("学号：") for t in texts), texts[:8]
+    # 封面/前置/正文分节
+    assert len(d.sections) >= 2
+
+
+def test_switch_project_template_keeps_content():
+    """换成另一个模板: 排版/封面换成新模板, 已写内容按章节 key 保留并补全新章节。"""
+    import io
+
+    import docx as docx_lib
+
+    base = client.get("/api/templates/default-gb7713").json()
+    tpl_a = client.post("/api/templates", json={**base, "id": "", "name": "模板A"}).json()
+
+    styles_b = {k: dict(v) for k, v in tpl_a["styles"].items()}
+    styles_b["body"]["size_pt"] = 14.0
+    sections_b = [dict(s) for s in tpl_a["sections"]] + [
+        {"key": "ch9", "type": "heading1", "title": "第九章 新增章节",
+         "required": False, "children": []},
+    ]
+    tpl_b = client.post("/api/templates", json={
+        **base, "id": "", "name": "模板B", "styles": styles_b, "sections": sections_b,
+    }).json()
+
+    proj_id = client.post("/api/projects", json={
+        "template_id": tpl_a["id"], "title": "换模板测试",
+    }).json()["id"]
+    client.put(f"/api/projects/{proj_id}/section/abstract", json={
+        "title": "摘要", "paragraphs": [{"id": "p1", "text": "已写内容。"}],
+    })
+
+    resp = client.post(f"/api/projects/{proj_id}/template", json={"template_id": tpl_b["id"]})
+    assert resp.status_code == 200, resp.text
+    updated = resp.json()
+    assert updated["template_id"] == tpl_b["id"]
+    assert updated["template_name"] == "模板B"
+    assert updated["template_snapshot"]["styles"]["body"]["size_pt"] == 14.0
+    keys = [s["key"] for s in updated["sections"]]
+    assert "ch9" in keys, keys                      # 新模板新增的章节被补上
+    abstract = next(s for s in updated["sections"] if s["key"] == "abstract")
+    assert abstract["paragraphs"][0]["text"] == "已写内容。"   # 已写内容保留
+
+    # 导出按新模板排版
+    exported = client.post(f"/api/projects/{proj_id}/export?force=true")
+    assert exported.status_code == 200, exported.text
+    d = docx_lib.Document(io.BytesIO(exported.content))
+    body_para = next(p for p in d.paragraphs if p.text == "已写内容。")
+    assert body_para.runs[0].font.size.pt == 14.0
+
+
+def test_import_extracts_acknowledgement_style(tmp_path):
+    """致谢正文要按 acknowledgement 样式解析(含首行缩进), 且红字说明不参与统计。"""
+    import docx as docx_lib
+    from docx.shared import Pt, RGBColor
+
+    from app.services.import_template import import_template_styles
+
+    doc = docx_lib.Document()
+    doc.add_paragraph("致  谢")
+    body = doc.add_paragraph()
+    body.add_run("衷心感谢导师在毕业设计期间给予的悉心指导。").font.size = Pt(12)
+    body.paragraph_format.first_line_indent = Pt(24)      # 2 字符 @ 12pt
+    note = doc.add_paragraph("说明：此处填写致谢内容, 字体三号宋体")
+    note.runs[0].font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+    path = tmp_path / "ack.docx"
+    doc.save(path)
+
+    styles = import_template_styles(path)["styles"]
+    assert "acknowledgement" in styles, styles.keys()
+    assert styles["acknowledgement"].first_line_indent_chars == 2.0
+
+
+def test_switch_template_keeps_section_order():
+    """换模板不得打乱学生已有的章节顺序(含手动新增的章节)。"""
+    base = client.get("/api/templates/default-gb7713").json()
+    tpl_a = client.post("/api/templates", json={**base, "id": "", "name": "顺序A"}).json()
+    tpl_b = client.post("/api/templates", json={**base, "id": "", "name": "顺序B"}).json()
+
+    proj_id = client.post("/api/projects", json={
+        "template_id": tpl_a["id"], "title": "顺序测试",
+    }).json()["id"]
+
+    current = client.get(f"/api/projects/{proj_id}").json()
+    sections = [{"key": s["key"], "type": s["type"], "title": s["title"],
+                 "required": s["required"]} for s in current["sections"]]
+    index = next(i for i, s in enumerate(sections) if s["key"] == "ch1") + 1
+    sections.insert(index, {"key": "", "type": "heading2",
+                            "title": "1.1.1 手动新增", "required": False})
+    assert client.put(f"/api/projects/{proj_id}/sections",
+                      json={"sections": sections}).status_code == 200
+
+    before = [s["title"] for s in client.get(f"/api/projects/{proj_id}").json()["sections"]]
+    assert "1.1.1 手动新增" in before
+
+    resp = client.post(f"/api/projects/{proj_id}/template", json={"template_id": tpl_b["id"]})
+    assert resp.status_code == 200, resp.text
+    after = [s["title"] for s in resp.json()["sections"]]
+    assert after[:len(before)] == before, after          # 顺序原样保留
+    assert resp.json()["template_id"] == tpl_b["id"]
+
+
+def test_refresh_project_template_updates_snapshot():
+    """「重新套用模板」把项目冻结的快照换成当前模板, 不动已写内容。"""
+    base = client.get("/api/templates/default-gb7713").json()
+    created = client.post("/api/templates", json={
+        **base, "id": "", "name": "刷新测试模板",
+    }).json()
+    proj_id = client.post("/api/projects", json={
+        "template_id": created["id"], "title": "刷新测试",
+    }).json()["id"]
+    client.put(f"/api/projects/{proj_id}/section/abstract", json={
+        "title": "摘要", "paragraphs": [{"id": "p1", "text": "已写内容。"}],
+    })
+
+    updated_styles = {k: dict(v) for k, v in created["styles"].items()}
+    updated_styles["body"]["size_pt"] = 13.0
+    assert client.put(f"/api/templates/{created['id']}", json={
+        **created,
+        "styles": updated_styles,
+        "meta_fields": created["meta_fields"] + [
+            {"key": "college", "label": "学院", "required": False}],
+    }).status_code == 200
+
+    resp = client.post(f"/api/projects/{proj_id}/refresh-template")
+    assert resp.status_code == 200, resp.text
+    updated = resp.json()
+    assert updated["template_snapshot"]["styles"]["body"]["size_pt"] == 13.0
+    assert any(f["key"] == "college" for f in updated["template_snapshot"]["meta_fields"])
+    assert "college" in updated["meta"]          # 新字段补空值
+    assert updated["sections"][0]["paragraphs"][0]["text"] == "已写内容。"
 
 
 def _make_image_png() -> bytes:
@@ -484,9 +712,9 @@ def test_export_docx_has_toc_field_and_page_footer():
     heading_paras = [p for p in d.paragraphs if p.style and "Heading 1" in (p.style.name or "")]
     assert heading_paras, "第一章标题应使用 Heading 1 样式"
 
-    # 页脚页码域存在
-    footer_xml = d.sections[0].footer._element.xml if d.sections[0].footer else ""
-    assert "PAGE" in footer_xml, "页脚应包含页码域"
+    # 页码页脚存在 (封面节不编号, 正文节带 PAGE 域)
+    footers = [s.footer._element.xml for s in d.sections if s.footer]
+    assert any("PAGE" in footer for footer in footers), "页脚应包含页码域"
 
 
 def test_update_project_sections_structure():
