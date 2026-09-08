@@ -23,12 +23,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from lxml import etree
 
 from app.core.extract.para_props import para_props
-from app.core.extract.xml_utils import NS
+from app.core.extract.xml_utils import NS, parse_xml
 
 
 class TestParaProps(unittest.TestCase):
     def _el(self, xml: str):
-        return etree.fromstring(xml.encode("utf-8"))
+        return parse_xml(xml.encode("utf-8"))
 
     def test_style_id_from_pStyle(self):
         xml = (

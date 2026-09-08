@@ -23,7 +23,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from lxml import etree
 
 from app.core.extract.run_props import run_props
-from app.core.extract.xml_utils import NS
+from app.core.extract.xml_utils import NS, parse_xml
 
 
 def _w(tag: str) -> str:
@@ -32,7 +32,7 @@ def _w(tag: str) -> str:
 
 class TestRunProps(unittest.TestCase):
     def _el(self, xml: str):
-        return etree.fromstring(xml.encode("utf-8"))
+        return parse_xml(xml.encode("utf-8"))
 
     def test_fonts_eastasia(self):
         """中文字体（关键）：w:rFonts w:eastAsia='宋体'"""

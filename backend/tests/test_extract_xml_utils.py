@@ -23,7 +23,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from lxml import etree
 
-from app.core.extract.xml_utils import NS, attr, load_part, qn
+from app.core.extract.xml_utils import NS, attr, load_part, parse_xml, qn
 
 
 class TestNamespaceDict(unittest.TestCase):
@@ -64,12 +64,12 @@ class TestQN(unittest.TestCase):
 class TestAttr(unittest.TestCase):
     def test_attr_existing(self):
         xml = '<w:rFonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:ascii="Times"/>'
-        el = etree.fromstring(xml.encode("utf-8"))
+        el = parse_xml(xml.encode("utf-8"))
         self.assertEqual(attr(el, "w:ascii"), "Times")
 
     def test_attr_missing_attribute_returns_none(self):
         xml = '<w:rFonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'
-        el = etree.fromstring(xml.encode("utf-8"))
+        el = parse_xml(xml.encode("utf-8"))
         self.assertIsNone(attr(el, "w:ascii"))
 
     def test_attr_none_element_safe(self):

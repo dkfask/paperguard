@@ -19,12 +19,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from lxml import etree
 
 from app.core.extract.section_props import section_props
-from app.core.extract.xml_utils import NS
+from app.core.extract.xml_utils import NS, parse_xml
 
 
 class TestSectionProps(unittest.TestCase):
     def _el(self, xml: str):
-        return etree.fromstring(xml.encode("utf-8"))
+        return parse_xml(xml.encode("utf-8"))
 
     def test_page_size_width(self):
         """页宽 11906 twips = A4 横向"""
