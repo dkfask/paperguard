@@ -76,13 +76,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchTemplates, deleteTemplateApi, importDocxTemplate, stripTemplateComments, saveTemplate, fetchTemplate } from '../api'
-import { isManager } from '../auth'
+import { auth } from '../auth'
 
 const router = useRouter()
-const canManage = isManager()
+const canManage = computed(() => auth.user?.role === 'admin'
+  || (auth.user?.role === 'teacher' && auth.user?.status === 'active'))
 const templates = ref([])
 const error = ref('')
 const importing = ref(false)

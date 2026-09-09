@@ -5,7 +5,40 @@
     <button @click="loadProject">重新加载</button>
     <button @click="$router.push('/')">返回论文列表</button>
   </div>
-  <div v-else-if="project && template" class="writer">
+  <div v-else-if="project && template" class="writer-shell">
+    <header class="writer-command-bar">
+      <div class="writer-command-leading">
+        <button class="icon-action" title="返回我的论文" aria-label="返回我的论文" @click="router.push('/')">
+          <span class="material-symbols-outlined">arrow_back</span>
+        </button>
+        <div class="writer-command-title">
+          <span>论文写作</span>
+          <strong :title="project.title || '未命名论文'">{{ project.title || '未命名论文' }}</strong>
+        </div>
+      </div>
+      <div class="writer-command-metrics">
+        <span class="writer-save-status" :class="{ pending: saving || dirtyCount }">
+          <span class="save-dot"></span>
+          <span v-if="saving">保存中…</span>
+          <span v-else-if="dirtyCount">有 {{ dirtyCount }} 项待保存</span>
+          <span v-else>已保存 {{ savedAt || '刚刚' }}</span>
+        </span>
+        <span><b>{{ totalChars }}</b> 字</span>
+        <span><b>{{ doneCount }}/{{ requiredCount }}</b> 节完成</span>
+      </div>
+      <div class="writer-command-actions">
+        <button class="writer-review-action" @click="checkOpen = !checkOpen">
+          <span class="material-symbols-outlined">rule</span>
+          <span>检查</span>
+        </button>
+        <button class="primary writer-export-action" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">
+          <span class="material-symbols-outlined">download</span>
+          <span>{{ exporting ? '导出中…' : '导出' }}</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="writer-columns">
     <!-- 左侧章节导航 -->
     <aside class="sidebar">
       <div class="sidebar-head">
@@ -14,7 +47,6 @@
           <button class="small" @click="openAiSettings" title="AI 设置">✨AI</button>
           <button v-if="isManager()" class="small" @click="openTemplateModal"
                   :disabled="saving" title="把本项目换成其它模板的排版规范">🔀 换模板</button>
-          <button class="small" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">⬇️ 导出</button>
         </span>
       </div>
       <div class="tree-nav-header" style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; margin-bottom: 6px;">
@@ -69,26 +101,6 @@
       <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}</div>
       <div v-if="templateNotice" class="notice-banner">✅ {{ templateNotice }}</div>
 
-      <!-- 实时格式检查面板 -->
-      <div v-if="checking || checkResult || checkError" class="check-panel" :class="{ clean: checkResult && checkResult.summary.total === 0 }">
-        <div class="check-head" @click="checkOpen = !checkOpen">
-          <span v-if="checking">⏳ 检查中…</span>
-          <span v-else-if="checkError">⚠ 检查失败: {{ checkError }}</span>
-          <span v-else-if="checkStale">⚠ 内容已变化, 检查结果可能过期</span>
-          <span v-else-if="checkResult.context && checkResult.summary.total === 0">✅ 按模板「{{ checkResult.context.template_name }}」检查通过</span>
-          <span v-else>⚠ {{ checkResult.summary.total }} 个模板格式问题({{ checkResult.summary.error }} 错 / {{ checkResult.summary.warning }} 警)</span>
-          <button class="tiny" :disabled="checking" @click.stop="runCheckNow">🔄 重新检查</button>
-        </div>
-        <div v-if="checkOpen && checkResult && checkResult.findings.length" class="check-list">
-          <div v-for="(f, i) in checkResult.findings" :key="f.rule_id + ':' + (f.section_key || '') + ':' + i" class="check-item"
-               :class="'severity-' + f.severity" @click="jumpTo(f)">
-            <span class="badge" :class="f.severity">{{ { error: '错', warning: '警', info: '提' }[f.severity] }}</span>
-            <span class="check-msg">{{ f.message }}</span>
-            <span class="check-sec" v-if="f.section_key || f.location?.section_key">{{ sectionTitle(f.section_key || f.location.section_key) }} →</span>
-          </div>
-        </div>
-      </div>
-
       <!-- 导出缺失清单 -->
       <div v-if="missing.length" class="missing-panel">
         <b>⚠ 以下必填项未完成, 无法导出:</b>
@@ -99,6 +111,46 @@
           <button @click="exportDocx(true)" :disabled="exporting">仍要导出(跳过检查)</button>
           <button @click="missing = []">知道了</button>
         </div>
+      </div>
+
+      <div v-if="waiverTarget" class="modal-mask" @click.self="waiverTarget = null">
+        <div class="modal card">
+          <h3>申请规范豁免</h3>
+          <p class="hint">{{ waiverTarget.message }}</p>
+          <label class="field">申请理由<textarea v-model="waiverReason" rows="4" placeholder="说明特殊情况和希望豁免的原因"></textarea></label>
+          <div class="form-row"><button class="primary" :disabled="waiverBusy || !waiverReason.trim()" @click="submitWaiver">{{ waiverBusy ? '提交中…' : '提交申请' }}</button><button @click="waiverTarget = null">取消</button></div>
+        </div>
+      </div>
+
+      <div v-if="disputeTarget" class="modal-mask" @click.self="disputeTarget = null">
+        <div class="modal card">
+          <h3>提交规范申诉</h3>
+          <p class="hint">{{ disputeTarget.message }}</p>
+          <label class="field">申诉理由<textarea v-model="disputeReason" rows="4" placeholder="说明规范不适用、事实依据或需要人工复核的原因"></textarea></label>
+          <div class="form-row"><button class="primary" :disabled="disputeBusy || !disputeReason.trim()" @click="submitDispute">{{ disputeBusy ? '提交中…' : '提交申诉' }}</button><button @click="disputeTarget = null">取消</button></div>
+        </div>
+      </div>
+
+      <div v-if="upgradePreview" class="modal-mask" @click.self="upgradePreview = null">
+        <div class="modal card upgrade-modal">
+          <h3>规范版本更新</h3>
+          <p class="hint">当前版本 {{ upgradePreview.from_snapshot_hash?.slice(0, 18) }}…，可升级到 {{ upgradePreview.to_snapshot_hash?.slice(0, 18) }}…。</p>
+          <p v-if="!upgradePreview.diff.changed" class="ok-banner">当前项目已经是最新规范版本。</p>
+          <div v-else class="upgrade-summary"><p>新增规范 {{ upgradePreview.diff.added_sets.length }} 套，移除 {{ upgradePreview.diff.removed_sets.length }} 套，变更 {{ upgradePreview.diff.changed_sets.length }} 套。</p><p>新增要求 {{ upgradePreview.diff.added_items.length }} 条，移除 {{ upgradePreview.diff.removed_items.length }} 条。</p></div>
+          <div class="form-row"><button v-if="upgradePreview.diff.changed" class="primary" :disabled="upgradeBusy" @click="applyUpgrade">应用到本项目</button><button @click="upgradePreview = null">关闭</button></div>
+        </div>
+      </div>
+
+      <div v-if="upgradeConfirm" class="modal-mask" @click.self="upgradeConfirm = false">
+        <div class="modal card">
+          <h3>确认更新规范</h3>
+          <p class="hint">应用后，项目后续检查将使用最新规范版本；已有论文内容不会被修改。</p>
+          <div class="form-row"><button class="primary" :disabled="upgradeBusy" @click="confirmUpgrade">确认升级</button><button @click="upgradeConfirm = false">取消</button></div>
+        </div>
+      </div>
+
+      <div v-if="assistResult" class="modal-mask" @click.self="assistResult = null">
+        <div class="modal card"><h3>AI 人工检查辅助</h3><p class="hint">AI 结果只提供证据线索，不会改变自动检查结果。</p><div class="assist-result">{{ assistResult.suggestion }}</div><div class="form-row"><button @click="assistResult = null">关闭</button></div></div>
       </div>
 
       <!-- 封面 -->
@@ -154,6 +206,92 @@
                     :chapter="chapterOf(currentSection.key)"
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
       </div>
+
+    </section>
+
+    <!-- 右侧上下文检查栏：写作依据和格式问题随时可查，但不打断正文 -->
+    <aside class="writer-context">
+      <div class="context-header">
+        <div>
+          <p class="writing-eyebrow">WRITING CONTEXT</p>
+          <h2>写作辅助</h2>
+        </div>
+        <span class="context-header-icon material-symbols-outlined">tune</span>
+      </div>
+
+      <div v-if="requirementSnapshot" class="requirements-panel context-panel">
+        <div class="requirements-head">
+          <div>
+            <span class="eyebrow">PROJECT BASIS</span>
+            <h3>当前写作依据</h3>
+          </div>
+          <div class="basis-actions">
+            <span class="snapshot-tag">v{{ template.version || requirementSnapshot.template?.version || '1' }}</span>
+            <button v-if="!hasAcknowledged" class="tiny" @click="acknowledgeBasis">确认已读</button>
+            <button v-if="isManager()" class="tiny" :disabled="upgradeBusy" @click="openUpgradePreview">更新</button>
+          </div>
+        </div>
+        <div class="requirements-sources">
+          <div class="source-chip template-chip">
+            <span class="material-symbols-outlined">description</span>
+            <span>模板 · {{ template.name }}</span>
+          </div>
+          <div v-for="source in requirementSets" :key="source.id" class="source-chip">
+            <span class="material-symbols-outlined">rule</span>
+            <span>{{ source.name }} · v{{ source.version }}</span>
+          </div>
+          <div v-for="packId in (requirementSnapshot.rule_packs || [])" :key="packId" class="source-chip">
+            <span class="material-symbols-outlined">format_align_left</span>
+            <span>格式规则 · {{ packId }}</span>
+          </div>
+        </div>
+        <p class="requirements-foot">自动检查 {{ autoRequirementCount }} 项<span v-if="checkResult"> · 未自动判定 {{ checkResult.summary.not_checked || 0 }} 项</span></p>
+      </div>
+
+      <div v-if="isManager() && pendingWaivers.length" class="waiver-review-panel context-panel">
+        <div class="requirements-head"><div><span class="eyebrow">REVIEW QUEUE</span><h3>待审核豁免</h3></div><span class="snapshot-tag">{{ pendingWaivers.length }} 条</span></div>
+        <div v-for="waiver in pendingWaivers" :key="waiver.id" class="waiver-review-row"><span>豁免 · {{ waiver.requirement_item_id }} · {{ waiver.reason }}</span><span><button class="tiny" @click="decideWaiver(waiver, 'approved')">同意</button><button class="tiny danger" @click="decideWaiver(waiver, 'rejected')">驳回</button></span></div>
+      </div>
+      <div v-if="isManager() && pendingDisputes.length" class="waiver-review-panel dispute-review-panel context-panel">
+        <div class="requirements-head"><div><span class="eyebrow">DISPUTE QUEUE</span><h3>待处理申诉</h3></div><span class="snapshot-tag">{{ pendingDisputes.length }} 条</span></div>
+        <div v-for="dispute in pendingDisputes" :key="dispute.id" class="waiver-review-row"><span>申诉 · {{ dispute.requirement_item_id }} · {{ dispute.reason }}</span><span><button class="tiny" @click="decideDispute(dispute, 'accepted')">接受</button><button class="tiny danger" @click="decideDispute(dispute, 'rejected')">驳回</button></span></div>
+      </div>
+
+      <div v-if="checking || checkResult || checkError" class="check-panel context-panel" :class="{ clean: checkResult && checkResult.summary.total === 0 && checkResult.summary.not_checked === 0 && checkResult.summary.waived === 0 && !(requirementSnapshot?.conflicts?.length) }">
+        <div class="context-section-title">
+          <span><span class="material-symbols-outlined">fact_check</span>规范检查</span>
+          <button class="tiny" :disabled="checking" @click="runCheckNow">重新检查</button>
+        </div>
+        <div class="check-head" @click="checkOpen = !checkOpen">
+          <span v-if="checking">⏳ 检查中…</span>
+          <span v-else-if="checkError">⚠ 检查失败: {{ checkError }}</span>
+          <span v-else-if="checkStale">⚠ 内容已变化, 检查结果可能过期</span>
+          <span v-else-if="checkResult.context && checkResult.summary.total === 0 && checkResult.summary.not_checked === 0 && checkResult.summary.waived === 0 && !(requirementSnapshot?.conflicts?.length)">✅ 当前检查通过</span>
+          <span v-else>⚠ {{ checkResult.summary.total }} 个问题 · {{ checkResult.summary.not_checked || 0 }} 项未检查</span>
+          <span class="material-symbols-outlined context-chevron">{{ checkOpen ? 'expand_less' : 'expand_more' }}</span>
+        </div>
+        <div v-if="checkOpen && checkResult && checkResult.findings.length" class="check-list">
+          <div v-for="(f, i) in checkResult.findings" :key="f.rule_id + ':' + (f.section_key || '') + ':' + i" class="check-item"
+               :class="'severity-' + f.severity" @click="jumpTo(f)">
+            <span class="badge" :class="f.severity">{{ { error: '错', warning: '警', info: '提' }[f.severity] }}</span>
+            <span class="check-msg">{{ f.message }}</span>
+            <span class="check-sec" v-if="f.section_key || f.location?.section_key">{{ sectionTitle(f.section_key || f.location.section_key) }} →</span>
+            <template v-if="f.source_type === 'requirement'"><button class="tiny waiver-btn" @click.stop="openWaiver(f)">申请豁免</button><button class="tiny dispute-btn" @click.stop="openDispute(f)">申诉</button></template>
+          </div>
+        </div>
+        <div v-if="checkOpen && checkResult && checkResult.waived?.length" class="waived-list">
+          <strong>已豁免</strong>
+          <span v-for="item in checkResult.waived" :key="item.rule_id">{{ item.message }} · {{ item.waiver?.reason }}</span>
+        </div>
+        <div v-if="checkOpen && checkResult && checkResult.not_checked?.length" class="not-checked-list">
+          <strong>未自动检查项</strong>
+          <span v-for="item in checkResult.not_checked" :key="item.id" class="not-checked-item">
+            <span>{{ item.description }} · {{ item.source }}</span>
+            <button v-if="item.type === 'manual'" class="tiny" @click.stop="openAssist(item)">AI 辅助</button>
+          </span>
+        </div>
+      </div>
+    </aside>
 
       <!-- AI 对照选择弹窗 -->
       <div v-if="aiDiff" class="modal-mask" @click.self="cancelAiDiff">
@@ -233,7 +371,7 @@
             </label>
             <label class="field">API Key
               <input v-model="aiCfgForm.api_key" type="password" autocomplete="new-password"
-                     :placeholder="aiCfgInfo.configured ? '已保存 ' + aiCfgInfo.api_key_masked + ' (重填可覆盖)' : '必填, 如 sk-xxx'" />
+                     :placeholder="aiCfgInfo.configured ? '已保存 ' + aiCfgInfo.api_key_masked + ' (留空则沿用)' : '必填, 如 sk-xxx'" />
             </label>
             <label class="field">模型
               <input v-model="aiCfgForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
@@ -260,7 +398,7 @@
             </label>
             <label class="field">API Key
               <input v-model="adminAiForm.api_key" type="password" autocomplete="new-password"
-                     :placeholder="adminAiInfo.configured ? '已配置 ' + adminAiInfo.api_key_masked + ' (输入新Key覆盖)' : '必填, 如 sk-xxx'" />
+                     :placeholder="adminAiInfo.configured ? '已配置 ' + adminAiInfo.api_key_masked + ' (留空则沿用)' : '必填, 如 sk-xxx'" />
             </label>
             <label class="field">模型
               <input v-model="adminAiForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
@@ -349,7 +487,7 @@
           </div>
         </div>
       </div>
-    </section>
+    </div>
   </div>
 </template>
 
@@ -359,7 +497,9 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth, isManager } from '../auth'
 import {
   fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, exportProject,
-  checkProjectTemplate, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
+  checkProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
+  acknowledgeRequirements, assistRequirement, listRequirementWaivers, listRequirementDisputes, previewRequirementUpgrade,
+  requestRequirementWaiver, requestRequirementDispute, upgradeRequirements, decideRequirementWaiver, decideRequirementDispute,
   aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
   getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
 } from '../api'
@@ -393,6 +533,18 @@ const checkStale = ref(false)
 const checkOpen = ref(true)
 const missing = ref([])
 const dirtyKeys = reactive(new Set())
+
+const requirementSnapshot = computed(() => project.value?.requirement_snapshot || null)
+const requirementSets = computed(() => requirementSnapshot.value?.policy_sets || [])
+const autoRequirementCount = computed(() => (requirementSnapshot.value?.resolved_items || []).filter((item) => item.type === 'auto').length)
+const hasAcknowledged = computed(() => (project.value?.requirement_acknowledgements || []).some((item) => item.user_id === auth.user?.id && item.snapshot_hash === requirementSnapshot.value?.content_hash))
+const waiverTarget = ref(null); const waiverReason = ref(''); const waiverBusy = ref(false)
+const disputeTarget = ref(null); const disputeReason = ref(''); const disputeBusy = ref(false)
+const upgradePreview = ref(null); const upgradeBusy = ref(false); const upgradeConfirm = ref(false); const assistResult = ref(null)
+const waivers = ref([])
+const disputes = ref([])
+const pendingWaivers = computed(() => waivers.value.filter((item) => item.status === 'pending'))
+const pendingDisputes = computed(() => disputes.value.filter((item) => item.status === 'pending'))
 
 const saveTimers = new Map()
 const saveVersions = new Map()
@@ -705,13 +857,16 @@ async function openAiSettings() {
 }
 
 function adminAiFilled() {
-  return !!(adminAiForm.base_url && adminAiForm.api_key && adminAiForm.model)
+  return !!(adminAiForm.base_url && adminAiForm.model
+    && (adminAiForm.api_key || (adminAiInfo.configured && adminAiInfo.api_key_masked)))
 }
 
 async function testAdminAiConnection() {
   if (!adminAiFilled()) {
     adminAiInfo.ok = false
-    adminAiInfo.message = '请先完整填写 Base URL / API Key / 模型'
+    adminAiInfo.message = adminAiInfo.configured
+      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
+      : '请先完整填写 Base URL / API Key / 模型'
     return
   }
   adminAiInfo.testing = true
@@ -731,7 +886,9 @@ async function testAdminAiConnection() {
 async function saveAdminAiCfg() {
   if (!adminAiFilled()) {
     adminAiInfo.ok = false
-    adminAiInfo.message = '请先完整填写 Base URL / API Key / 模型'
+    adminAiInfo.message = adminAiInfo.configured
+      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
+      : '请先完整填写 Base URL / API Key / 模型'
     return
   }
   adminAiInfo.saving = true
@@ -866,12 +1023,17 @@ async function aiGenerate() {
   }
 }
 
-function aiCfgFilled() { return !!(aiCfgForm.base_url && aiCfgForm.api_key && aiCfgForm.model) }
+function aiCfgFilled() {
+  return !!(aiCfgForm.base_url && aiCfgForm.model
+    && (aiCfgForm.api_key || (aiCfgInfo.configured && aiCfgInfo.api_key_masked)))
+}
 
 async function testAiConnection() {
   if (!aiCfgFilled()) {
     aiCfgInfo.ok = false
-    aiCfgInfo.message = '请先填写完整 Base URL / API Key / 模型'
+    aiCfgInfo.message = aiCfgInfo.configured
+      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
+      : '请先填写完整 Base URL / API Key / 模型'
     return
   }
   aiCfgInfo.testing = true
@@ -891,7 +1053,9 @@ async function testAiConnection() {
 async function saveAiCfg() {
   if (!aiCfgFilled()) {
     aiCfgInfo.ok = false
-    aiCfgInfo.message = '请填写完整 Base URL / API Key / 模型'
+    aiCfgInfo.message = aiCfgInfo.configured
+      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
+      : '请填写完整 Base URL / API Key / 模型'
     return
   }
   aiCfgInfo.saving = true
@@ -946,6 +1110,7 @@ async function loadProject() {
     }
     window.addEventListener('beforeunload', beforeUnloadHandler)
     void runCheckNow()
+    void loadWaivers()
   } catch (e) {
     loading.value = false
     loadError.value = e.message || '论文加载失败'
@@ -1179,7 +1344,7 @@ async function runCheckNow() {
   checking.value = true
   checkError.value = ''
   try {
-    const result = await checkProjectTemplate(projectId)
+    const result = await checkProject(projectId)
     if (generation !== checkGeneration) return
     checkResult.value = result
     checkStale.value = false
@@ -1188,6 +1353,72 @@ async function runCheckNow() {
   } finally {
     if (generation === checkGeneration) checking.value = false
   }
+}
+
+async function acknowledgeBasis() {
+  try { const result = await acknowledgeRequirements(projectId, requirementSnapshot.value?.content_hash); project.value.requirement_acknowledgements = [...(project.value.requirement_acknowledgements || []).filter((item) => item.user_id !== auth.user?.id), result] }
+  catch (e) { error.value = e.message || '确认规范失败' }
+}
+
+function openWaiver(finding) { waiverTarget.value = finding; waiverReason.value = '' }
+function openDispute(finding) { disputeTarget.value = finding; disputeReason.value = '' }
+async function submitWaiver() {
+  waiverBusy.value = true
+  try {
+    await requestRequirementWaiver(projectId, waiverTarget.value.requirement_item_id, { reason: waiverReason.value })
+    waiverTarget.value = null; await runCheckNow()
+  } catch (e) { error.value = e.message || '提交豁免申请失败' }
+  finally { waiverBusy.value = false }
+}
+
+async function loadWaivers() {
+  try { waivers.value = await listRequirementWaivers(projectId) } catch { waivers.value = [] }
+  try { disputes.value = await listRequirementDisputes(projectId) } catch { disputes.value = [] }
+}
+async function decideWaiver(waiver, status) {
+  try {
+    await decideRequirementWaiver(projectId, waiver.id, { status, review_note: status === 'approved' ? '审核通过' : '请补充说明后重新申请' })
+    await loadWaivers(); await runCheckNow()
+  } catch (e) { error.value = e.message || '审核豁免失败' }
+}
+async function submitDispute() {
+  disputeBusy.value = true
+  try {
+    await requestRequirementDispute(projectId, disputeTarget.value.requirement_item_id, { reason: disputeReason.value })
+    disputeTarget.value = null; await loadWaivers()
+  } catch (e) { error.value = e.message || '提交申诉失败' }
+  finally { disputeBusy.value = false }
+}
+async function decideDispute(dispute, status) {
+  try {
+    await decideRequirementDispute(projectId, dispute.id, { status, review_note: status === 'accepted' ? '申诉已接受，请按申诉结论人工处理' : '申诉驳回' })
+    await loadWaivers()
+  } catch (e) { error.value = e.message || '审核申诉失败' }
+}
+
+async function openUpgradePreview() {
+  upgradeBusy.value = true
+  try { upgradePreview.value = await previewRequirementUpgrade(projectId) }
+  catch (e) { error.value = e.message || '获取规范升级预览失败' }
+  finally { upgradeBusy.value = false }
+}
+async function applyUpgrade() {
+  if (!upgradePreview.value?.diff.changed) return
+  upgradeConfirm.value = true
+}
+async function confirmUpgrade() {
+  if (!upgradePreview.value?.diff.changed) return
+  upgradeConfirm.value = false
+  upgradeBusy.value = true
+  try {
+    const result = await upgradeRequirements(projectId, { expected_snapshot_hash: upgradePreview.value.from_snapshot_hash, reason: '项目主动升级规范', confirm: true })
+    project.value = result.project; upgradePreview.value = null; await runCheckNow()
+  } catch (e) { error.value = e.message || '应用规范升级失败' }
+  finally { upgradeBusy.value = false }
+}
+async function openAssist(item) {
+  try { assistResult.value = await assistRequirement(projectId, item.id, item.description) }
+  catch (e) { error.value = e.message || 'AI 辅助检查失败' }
 }
 
 function jumpTo(f) { if (f.section_key) current.value = f.section_key }
@@ -1306,6 +1537,23 @@ onBeforeUnmount(() => {
 .ok-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .error-banner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .notice-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.requirements-panel {
+  border: 1px solid #cbd5e1; background: #ffffff; border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 14px; box-shadow: var(--shadow-card);
+}
+.requirements-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.requirements-head h3 { font-size: 15px; margin-top: 3px; }
+.basis-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.eyebrow { color: var(--primary); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.snapshot-tag { color: #166534; background: #dcfce7; border-radius: 999px; padding: 3px 8px; font-size: 11px; white-space: nowrap; }
+.requirements-sources { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.source-chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid #dbeafe; border-radius: 6px; background: #eff6ff; color: #1e40af; font-size: 12px; }
+.source-chip.template-chip { border-color: #e2e8f0; background: #f8fafc; color: #475569; }
+.source-chip .material-symbols-outlined { font-size: 14px; }
+.requirements-foot { color: var(--muted); font-size: 12px; margin-top: 10px; }
+.waiver-review-panel { border: 1px solid #fcd34d; background: #fffbeb; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.dispute-review-panel { border-color: #bfdbfe; background: #eff6ff; }
+.waiver-review-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid #fde68a; color: #92400e; font-size: 12px; }
 .template-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
 .template-row.current { border-color: var(--primary); background: #f8fafc; }
 .template-meta { min-width: 0; }
@@ -1387,7 +1635,16 @@ button.tiny.danger { color: var(--error); }
 .check-item:hover { background: #fff; }
 .check-item .badge { font-size: 11px; padding: 1px 8px; }
 .check-msg { flex: 1; }
+.check-source { color: #475569; font-size: 11px; white-space: nowrap; }
 .check-sec { color: var(--primary); white-space: nowrap; }
+.not-checked-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; border-top: 1px solid #e2e8f0; margin-top: 8px; padding-top: 8px; color: var(--muted); font-size: 12px; }
+.not-checked-list strong { color: #475569; }
+.not-checked-item { display: inline-flex; align-items: center; gap: 5px; }
+.waived-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; border-top: 1px solid #bbf7d0; margin-top: 8px; padding-top: 8px; color: #166534; font-size: 12px; }
+.waiver-btn { flex-shrink: 0; }
+.dispute-btn { flex-shrink: 0; }
+.upgrade-summary { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-container-low); color: var(--muted); }
+.assist-result { white-space: pre-wrap; border: 1px solid var(--border); border-radius: 8px; padding: 12px; max-height: 420px; overflow: auto; line-height: 1.7; }
 
 /* 导出缺失清单 */
 .missing-panel {
@@ -1422,7 +1679,140 @@ button.tiny.danger { color: var(--error); }
   .check-head { align-items: flex-start; flex-wrap: wrap; }
   .check-head .tiny { margin-left: 0; }
   .check-sec { display: none; }
+  .check-source { display: none; }
   .caption-row { align-items: stretch; flex-direction: column; gap: 4px; }
   .caption-num { width: max-content; }
+  .requirements-head { flex-direction: column; }
+  .snapshot-tag { align-self: flex-start; }
+  .basis-actions { justify-content: flex-start; }
+}
+
+/* Stitch writing workspace */
+.writer-shell { width: 100%; }
+.writer-command-bar {
+  position: sticky;
+  top: 60px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 60px;
+  margin: 0 -24px;
+  padding: 10px 24px;
+  background: rgba(248, 249, 255, .94);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 5px rgba(15, 23, 42, .04);
+}
+.writer-command-leading, .writer-command-actions, .writer-command-metrics { display: flex; align-items: center; gap: 10px; }
+.writer-command-leading { min-width: 0; }
+.writer-command-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.writer-command-title span { color: var(--on-surface-variant); font-size: 10px; }
+.writer-command-title strong { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.writer-command-metrics { color: var(--on-surface-variant); font-size: 11px; white-space: nowrap; }
+.writer-command-metrics > span + span { padding-left: 10px; border-left: 1px solid var(--border); }
+.writer-command-metrics b { color: var(--on-surface); font-family: "JetBrains Mono", monospace; font-weight: 600; }
+.writer-save-status { display: inline-flex; align-items: center; gap: 6px; }
+.save-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
+.writer-save-status.pending .save-dot { background: var(--tertiary); }
+.writer-review-action, .writer-export-action { display: inline-flex; align-items: center; gap: 5px; }
+.writer-review-action { color: var(--primary); border-color: var(--primary-fixed); background: var(--surface-container-low); }
+.writer-command-bar .icon-action { flex-shrink: 0; }
+
+.writer-columns {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 320px;
+  align-items: start;
+  gap: 0;
+  margin: 0 -24px -40px;
+  min-height: calc(100vh - 120px);
+  background: var(--surface-container-low);
+}
+.writer-columns > .sidebar {
+  width: auto;
+  min-height: calc(100vh - 120px);
+  max-height: calc(100vh - 120px);
+  position: sticky;
+  top: 120px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  padding: 20px 14px 18px;
+  background: var(--surface-container-lowest);
+  box-shadow: none;
+}
+.writer-columns > .sidebar .sidebar-head { padding: 0 6px 12px; border-bottom: 1px solid var(--border); }
+.writer-columns > .sidebar .proj-title { font-size: 13px; }
+.writer-columns > .sidebar .head-actions { width: 100%; margin-left: 0; }
+.writer-columns > .sidebar .head-actions button { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.writer-columns > .sidebar .tree-nav-header { margin: 14px 6px 6px !important; }
+.writer-columns > .sidebar .sidebar-foot { padding: 12px 6px 0; }
+
+.editor-pane {
+  min-width: 0;
+  min-height: calc(100vh - 120px);
+  padding: 28px clamp(24px, 5vw, 72px) 64px;
+  background: var(--surface-container-low);
+}
+.editor-pane > .error-banner, .editor-pane > .notice-banner, .editor-pane > .missing-panel { max-width: 840px; margin-left: auto; margin-right: auto; }
+.editor-head { max-width: 840px; margin: 0 auto 12px; }
+.heading-input { display: block; max-width: 840px; margin: 0 auto 20px; background: var(--surface-container-lowest); border-radius: var(--radius-xs); }
+.editor-pane > div:not(.error-banner):not(.notice-banner):not(.missing-panel) { max-width: 840px; margin-left: auto; margin-right: auto; }
+.editor-pane > div > .para-block, .editor-pane > div > .section-text-editor { max-width: 840px; }
+.editor-pane .para-block { border-radius: var(--radius-xs); box-shadow: 0 1px 2px rgba(15, 23, 42, .02); }
+
+.writer-context {
+  min-width: 0;
+  min-height: calc(100vh - 120px);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  position: sticky;
+  top: 120px;
+  padding: 20px 14px 28px;
+  border-left: 1px solid var(--border);
+  background: var(--surface-container-lowest);
+}
+.context-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 0 4px 14px; border-bottom: 1px solid var(--border); }
+.context-header h2 { font-size: 16px; font-weight: 650; }
+.context-header-icon { color: var(--primary); font-size: 19px; }
+.context-panel { margin: 12px 0 0; border-radius: var(--radius-xs); box-shadow: none; }
+.context-panel.requirements-panel { padding: 12px; }
+.context-panel .requirements-head { gap: 6px; }
+.context-panel .requirements-head h3 { font-size: 13px; }
+.context-panel .basis-actions { gap: 4px; }
+.context-panel .snapshot-tag { padding: 2px 5px; font-size: 10px; }
+.context-panel .requirements-sources { gap: 5px; }
+.context-panel .source-chip { width: 100%; min-width: 0; padding: 4px 6px; font-size: 11px; }
+.context-panel .source-chip span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-panel .requirements-foot { font-size: 11px; }
+.context-section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(195, 198, 215, .4); color: var(--on-surface); font-size: 12px; font-weight: 600; }
+.context-section-title > span { display: inline-flex; align-items: center; gap: 5px; }
+.context-section-title .material-symbols-outlined { color: var(--primary); font-size: 16px; }
+.context-panel .check-head { gap: 5px; margin-top: 8px; font-size: 11px; line-height: 1.4; }
+.context-chevron { flex-shrink: 0; color: var(--outline); font-size: 16px; }
+.context-panel .check-list { max-height: 320px; overflow-y: auto; }
+.context-panel .check-item { align-items: flex-start; flex-wrap: wrap; padding: 7px 2px; font-size: 11px; }
+.context-panel .check-msg { min-width: 0; }
+.context-panel .check-sec { width: 100%; padding-left: 20px; font-size: 10px; }
+.context-panel .waived-list, .context-panel .not-checked-list { font-size: 11px; }
+
+@media (max-width: 1180px) {
+  .writer-columns { grid-template-columns: 220px minmax(0, 1fr); }
+  .writer-context { grid-column: 2; min-height: auto; max-height: none; position: static; border-left: 0; border-top: 1px solid var(--border); padding: 18px 24px 28px; }
+  .writer-context .context-panel { max-width: 680px; }
+}
+
+@media (max-width: 768px) {
+  .writer-command-bar { top: 60px; margin: 0 -24px; padding: 9px 14px; gap: 8px; }
+  .writer-command-title strong { max-width: 180px; }
+  .writer-command-metrics { display: none; }
+  .writer-review-action span:last-child { display: none; }
+  .writer-review-action { width: 34px; padding: 6px 8px; justify-content: center; }
+  .writer-export-action { padding: 6px 10px; }
+  .writer-columns { display: flex; flex-direction: column; margin: 0 -24px -40px; }
+  .writer-columns > .sidebar { width: 100%; min-height: auto; max-height: none; position: static; border-right: 0; border-bottom: 1px solid var(--border); padding: 14px 16px; }
+  .writer-columns > .sidebar .tree-nav { max-height: 220px; }
+  .editor-pane { width: 100%; min-height: auto; padding: 22px 16px 40px; }
+  .writer-context { width: 100%; padding: 16px; }
 }
 </style>

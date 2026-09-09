@@ -29,6 +29,7 @@ from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import Align, PaperTemplate, SectionType, TextStyle
 
 _IMAGE_WIDTH_CM = 14.0
+_IMAGE_MAX_HEIGHT_CM = 13.5
 
 _LOGGER = logging.getLogger("paperguard.export")
 
@@ -128,12 +129,15 @@ def _apply_paragraph_format(par, style: TextStyle) -> None:
 
 
 def _add_text_paragraph(doc: Document, text: str, style: TextStyle,
-                        word_style: str | None = None) -> None:
+                        word_style: str | None = None,
+                        suppress_inherited_page_break: bool = False) -> None:
     """添加文本段落; word_style 指定时使用内置 Word 样式(如 Heading 1)。"""
     par = doc.add_paragraph()
     if word_style and word_style in doc.styles:
         par.style = doc.styles[word_style]
     _apply_paragraph_format(par, style)
+    if suppress_inherited_page_break:
+        par.paragraph_format.page_break_before = False
     run = par.add_run(text)
     _apply_run_font(run, style)
 
@@ -203,16 +207,32 @@ def _add_cover_field_paragraph(doc: Document, field, project: WritingProject) ->
     _apply_run_font(value_run, value_style)
 
 
-def _remove_table_borders(table) -> None:
-    """封面信息表不带边框。"""
-    tbl_pr = table._tbl.tblPr
-    borders = OxmlElement("w:tblBorders")
-    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
-        el = OxmlElement(f"w:{edge}")
-        el.set(qn("w:val"), "none")
-        el.set(qn("w:sz"), "0")
-        borders.append(el)
-    tbl_pr.append(borders)
+def _apply_cover_table_borders(table) -> None:
+    """封面信息表只保留源模板的横线, 不绘制外框和竖线。"""
+    for row_index, row in enumerate(table.rows):
+        for cell in row.cells:
+            tc_pr = cell._tc.get_or_add_tcPr()
+            borders = tc_pr.find(qn("w:tcBorders"))
+            if borders is None:
+                borders = OxmlElement("w:tcBorders")
+                tc_pr.append(borders)
+            for edge in ("top", "bottom", "left", "right", "insideH", "insideV"):
+                old = borders.find(qn(f"w:{edge}"))
+                if old is not None:
+                    borders.remove(old)
+            bottom = OxmlElement("w:bottom")
+            bottom.set(qn("w:val"), "single")
+            bottom.set(qn("w:sz"), "4")
+            bottom.set(qn("w:space"), "0")
+            bottom.set(qn("w:color"), "auto")
+            borders.append(bottom)
+            if row_index > 0:
+                top = OxmlElement("w:top")
+                top.set(qn("w:val"), "single")
+                top.set(qn("w:sz"), "4")
+                top.set(qn("w:space"), "0")
+                top.set(qn("w:color"), "auto")
+                borders.append(top)
 
 
 def _add_cover_table(doc: Document, block, project: WritingProject) -> None:
@@ -221,7 +241,7 @@ def _add_cover_table(doc: Document, block, project: WritingProject) -> None:
     table = doc.add_table(rows=len(rows), cols=2)
     table.autofit = False
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _remove_table_borders(table)
+    _apply_cover_table_borders(table)
 
     widths = [Cm(w) for w in block.column_widths_cm[:2]]
     if len(widths) == 2:
@@ -308,6 +328,17 @@ def _start_section(doc: Document, page_number_format: str | None = None,
     return section
 
 
+def _set_page_number_format(section, page_number_format: str) -> None:
+    """设置当前节的页码格式并从 1 开始。"""
+    sect_pr = section._sectPr
+    pg_num = sect_pr.find(qn("w:pgNumType"))
+    if pg_num is None:
+        pg_num = OxmlElement("w:pgNumType")
+        sect_pr.append(pg_num)
+    pg_num.set(qn("w:fmt"), page_number_format)
+    pg_num.set(qn("w:start"), "1")
+
+
 def _set_empty_footer(section) -> None:
     """给该节挂一个空页脚(封面不显示页码)。"""
     for ref in section._sectPr.findall(qn("w:footerReference")):
@@ -316,7 +347,7 @@ def _set_empty_footer(section) -> None:
 
 
 def _add_toc_field(doc: Document) -> None:
-    """目录节: 插入 TOC 域, Word 打开后右键 → 更新域 生成目录。"""
+    """目录节: 插入 TOC 域, 打开 Word 时自动更新生成目录。"""
     settings = doc.settings._element
     update_fields = settings.find(qn("w:updateFields"))
     if update_fields is None:
@@ -329,25 +360,26 @@ def _add_toc_field(doc: Document) -> None:
     r = run._r
     fld_begin = OxmlElement("w:fldChar")
     fld_begin.set(qn("w:fldCharType"), "begin")
+    fld_begin.set(qn("w:dirty"), "true")
     instr = OxmlElement("w:instrText")
     instr.set(qn("xml:space"), "preserve")
     instr.text = 'TOC \\o "1-3" \\h \\z \\u'
     fld_sep = OxmlElement("w:fldChar")
     fld_sep.set(qn("w:fldCharType"), "separate")
-    hint = OxmlElement("w:t")
-    hint.text = "在 Word 中右键此处 → 更新域, 生成目录"
+    result = OxmlElement("w:t")
+    result.text = "请右键更新目录"
     fld_end = OxmlElement("w:fldChar")
     fld_end.set(qn("w:fldCharType"), "end")
     r.append(fld_begin)
     r.append(instr)
     r.append(fld_sep)
-    r.append(hint)
+    r.append(result)
     r.append(fld_end)
 
 
-def _add_page_number_footer(doc: Document) -> None:
+def _add_page_number_footer(doc: Document, section=None) -> None:
     """页脚: 居中页码域 '第 N 页'。"""
-    footer = doc.sections[0].footer
+    footer = (section or doc.sections[0]).footer
     par = footer.paragraphs[0]
     par.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = par.add_run("第 ")
@@ -409,33 +441,83 @@ def _inherit_section_refs(doc: Document, sect_prs: list) -> None:
 
 
 def _clear_body(doc: Document) -> None:
-    """清空正文内容, 保留节属性(sectPr)与包内 styles/页眉页脚/主题。"""
+    """清空正文内容, 保留源文档首节的页面与页眉页脚设置。"""
     body = doc.element.body
     sect_prs = list(body.iter(qn("w:sectPr")))
     if sect_prs:
-        _inherit_section_refs(doc, sect_prs)
+        # 旧实现使用最后一节的 sectPr, 会把正文页眉页脚错误地带到封面。
+        # 首节是清空后保留下来的封面节, 后续阶段再按源文档布局补回对应节。
+        first = copy.deepcopy(sect_prs[0])
+        final = sect_prs[-1]
+        for child in list(final):
+            final.remove(child)
+        for child in first:
+            final.append(copy.deepcopy(child))
     for child in list(body):
         if child.tag == qn("w:sectPr"):
             continue
         body.remove(child)
 
 
-def _open_base_document(template_path: str | Path | None) -> tuple[Document, bool]:
+def _open_base_document(template_path: str | Path | None) -> tuple[Document, bool, list]:
     """打开排版基底: 优先用模板 docx, 缺失/损坏时回退空白文档。
 
-    返回 (文档, 是否模板基底)。模板基底沿用模板的 styles.xml、页边距、
-    页眉页脚与主题字体, 不再硬编码页面设置。
+    返回 (文档, 是否模板基底, 源文档各节设置)。模板基底沿用模板的
+    styles.xml、页边距、页眉页脚与主题字体, 不再硬编码页面设置。
     """
     if template_path:
         path = Path(template_path)
         if path.is_file() and path.suffix.lower() == ".docx":
             try:
                 doc = Document(str(path))
+                section_layouts = [copy.deepcopy(section._sectPr)
+                                   for section in doc.sections]
                 _clear_body(doc)
-                return doc, True
+                return doc, True, section_layouts
             except Exception as exc:
                 _LOGGER.warning("模板基底不可用, 回退空白文档: %s (%s)", path, exc)
-    return Document(), False
+    return Document(), False, []
+
+
+def _apply_section_layout(section, layout) -> None:
+    """把源文档节的页面/页眉/页脚设置复制到新节。"""
+    if layout is None:
+        return
+    sect_pr = section._sectPr
+    for child in list(sect_pr):
+        sect_pr.remove(child)
+    for child in layout:
+        sect_pr.append(copy.deepcopy(child))
+
+
+def _layout_has_page_field(doc: Document, layout) -> bool:
+    """源文档节是否引用了带 PAGE 域的页脚。"""
+    if layout is None:
+        return False
+    return any(
+        _has_page_field(doc, ref.get(qn("r:id")))
+        for ref in layout.findall(qn("w:footerReference"))
+    )
+
+
+def _find_phase_layouts(doc: Document, layouts: list) -> tuple[object | None, object | None]:
+    """从源模板中找前置页和正文页的代表性节设置。"""
+    front = None
+    body = None
+    page_layouts = [layout for layout in layouts[1:]
+                    if _layout_has_page_field(doc, layout)]
+    for layout in page_layouts:
+        pg_num = layout.find(qn("w:pgNumType"))
+        fmt = pg_num.get(qn("w:fmt")) if pg_num is not None else None
+        if front is None and fmt == "upperRoman":
+            front = layout
+        elif body is None and (fmt != "upperRoman" or len(page_layouts) > 1):
+            body = layout
+    if front is None and page_layouts:
+        front = page_layouts[0]
+    if body is None and len(page_layouts) > 1:
+        body = page_layouts[1]
+    return front, body
 
 
 def export_project_to_docx(project: WritingProject, template: PaperTemplate, out_path: str,
@@ -444,7 +526,7 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
 
     template_path 指向导入的模板 docx 时, 以它为基底排版。
     """
-    doc, from_template = _open_base_document(template_path)
+    doc, from_template, source_layouts = _open_base_document(template_path)
 
     if not from_template:
         # 回退: A4 + 常规页边距
@@ -453,9 +535,11 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
         section.top_margin = section.bottom_margin = Cm(2.54)
         section.left_margin = section.right_margin = Cm(3.17)
 
-    # 模板没提供页码页脚时补一个
-    if not doc.sections[0]._sectPr.findall(qn("w:footerReference")):
+    # 无源模板时保留旧行为: 先创建一个页脚, 后续分节继承它。
+    if not from_template and not doc.sections[0]._sectPr.findall(qn("w:footerReference")):
         _add_page_number_footer(doc)
+
+    front_layout, body_layout = _find_phase_layouts(doc, source_layouts)
 
     # 模板里各章节的样式覆盖(key -> TextStyle), 以及章节类型转换表
     node_styles: dict[str, TextStyle | None] = {}
@@ -470,9 +554,12 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
     toc_state = {"emitted": False}
     toc_node = _find_node(template.sections, SectionType.TOC)
 
-    def emit_toc(title: str, style: TextStyle) -> None:
+    def emit_toc(title: str, style: TextStyle,
+                 section_started: bool = False) -> None:
         if toc_state["emitted"]:
             return
+        if style.page_break_before and not section_started:
+            doc.add_page_break()
         _add_text_paragraph(doc, title, style)
         _add_toc_field(doc)
         toc_state["emitted"] = True
@@ -489,30 +576,48 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
     # 模板没有封面内容时不分节(否则第一页会空白)
     state = {"front_started": not cover_rendered, "body_started": not cover_rendered}
 
-    def ensure_section(node_type: SectionType) -> None:
+    def ensure_section(node_type: SectionType) -> bool:
         """封面/前置部分/正文各自成节, 页码格式按论文惯例。"""
         is_front = node_type in _FRONT_TYPES
         is_body = node_type in _BODY_TYPES
+        started = False
         if not state["front_started"] and not state["body_started"]:
             if is_front:
-                _start_section(doc, "upperRoman", suppress_previous_footer=True)
+                section = _start_section(doc, suppress_previous_footer=True)
+                _apply_section_layout(section, front_layout)
+                _set_page_number_format(section, "upperRoman")
+                if not section._sectPr.findall(qn("w:footerReference")):
+                    _add_page_number_footer(doc, section)
                 state["front_started"] = True
+                started = True
             elif is_body:
                 ensure_toc()
-                _start_section(doc, "decimal", suppress_previous_footer=True)
+                section = _start_section(doc, suppress_previous_footer=True)
+                _apply_section_layout(section, body_layout)
+                _set_page_number_format(section, "decimal")
+                if not section._sectPr.findall(qn("w:footerReference")):
+                    _add_page_number_footer(doc, section)
                 state["body_started"] = True
-            return
+                started = True
+            return started
         if is_body and not state["body_started"]:
+            had_front = state["front_started"]
             ensure_toc()
-            _start_section(doc, "decimal")
+            section = _start_section(doc)
+            _apply_section_layout(section, body_layout)
+            _set_page_number_format(section, "decimal")
+            if not had_front and not section._sectPr.findall(qn("w:footerReference")):
+                _add_page_number_footer(doc, section)
             state["body_started"] = True
+            started = True
+        return started
 
     def emit(proj_sec: ProjectSection) -> None:
         """按项目实际章节顺序渲染一节(写作界面看到的顺序就是导出顺序)。"""
         section_type = _to_section_type(proj_sec.type)
         node_style = node_styles.get(proj_sec.key)
         stype = section_type.value
-        ensure_section(section_type)
+        section_started = ensure_section(section_type)
 
         if section_type is SectionType.COVER:
             return  # 封面已处理
@@ -520,13 +625,11 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
         style = _style_for(template, stype, node_style)
 
         if section_type is SectionType.TOC:
-            if style.page_break_before:
-                doc.add_page_break()
-            emit_toc(proj_sec.title, style)
+            emit_toc(proj_sec.title, style, section_started=section_started)
             return
 
         if section_type in (SectionType.ABSTRACT, SectionType.ENGLISH_ABSTRACT):
-            if style.page_break_before:
+            if style.page_break_before and not section_started:
                 doc.add_page_break()
             _add_text_paragraph(doc, proj_sec.title, style)
             # 摘要正文用正文样式, 不能沿用标题样式(否则正文变成大字居中)
@@ -553,19 +656,21 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             return
 
         if section_type in (SectionType.HEADING1, SectionType.HEADING2, SectionType.HEADING3):
-            if style.page_break_before:
+            if style.page_break_before and not section_started:
                 doc.add_page_break()
             if section_type is SectionType.HEADING1:
                 numbering.next_chapter()
             _add_text_paragraph(doc, proj_sec.title, style,
-                                word_style=_HEADING_STYLE[section_type])
+                                word_style=_HEADING_STYLE[section_type],
+                                suppress_inherited_page_break=(
+                                    section_type is SectionType.HEADING1))
             body_style = _style_for(template, "body", None)
             for par in proj_sec.paragraphs:
                 _export_paragraph(doc, par, body_style, template, numbering)
             return
 
         # BODY / REFERENCES / ACKNOWLEDGEMENT / APPENDIX
-        if style.page_break_before:
+        if style.page_break_before and not section_started and not proj_sec.title:
             doc.add_page_break()
         if proj_sec.title:
             # 参考文献/致谢等章节标题也作为一级标题, 进入目录
@@ -576,7 +681,11 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
                 numbering.next_chapter()
             # 这类章节的 style 是正文条目样式, 标题需借一级标题样式呈现
             title_style = _style_for(template, "heading1", None) if word_style else style
-            _add_text_paragraph(doc, proj_sec.title, title_style, word_style=word_style)
+            if title_style.page_break_before and not section_started:
+                doc.add_page_break()
+            _add_text_paragraph(doc, proj_sec.title, title_style,
+                                word_style=word_style,
+                                suppress_inherited_page_break=bool(word_style))
         for par in proj_sec.paragraphs:
             _export_paragraph(doc, par, style, template, numbering)
 
@@ -624,7 +733,11 @@ def _export_image(doc: Document, img, template: PaperTemplate | None,
     par = doc.add_paragraph()
     par.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if local_path.exists():
-        par.add_run().add_picture(str(local_path), width=Cm(_IMAGE_WIDTH_CM))
+        shape = par.add_run().add_picture(str(local_path), width=Cm(_IMAGE_WIDTH_CM))
+        if shape.height > Cm(_IMAGE_MAX_HEIGHT_CM):
+            scale = Cm(_IMAGE_MAX_HEIGHT_CM) / shape.height
+            shape.height = Cm(_IMAGE_MAX_HEIGHT_CM)
+            shape.width = int(shape.width * scale)
     else:
         par.add_run(f"[图片缺失: {img.url}]")
 

@@ -1,48 +1,136 @@
 <template>
-  <div class="stitch-dashboard">
-    <!-- 1:1 Stitch Hero Section (Modern Academic Rigor) -->
-    <section class="stitch-hero">
-      <div class="stitch-hero-inner">
-        <div class="hero-text-col">
-          <p class="hero-overline">{{ t('heroOverline') }}</p>
-          <h1 class="hero-headline">{{ t('heroHeadline') }}</h1>
-          <p class="hero-subtext">
-            {{ t('heroSubtext') }}
-          </p>
-        </div>
-        <div class="hero-badge-col">
-          <div class="engine-active-card">
-            <div class="engine-active-header">
-              <span class="material-symbols-outlined engine-icon">verified</span>
-              <span class="engine-text">{{ t('engineActive') }}</span>
-            </div>
-            <p class="engine-subtext">{{ t('rulesetText') }}</p>
-          </div>
+  <div class="writing-home">
+    <section class="writing-home-head">
+      <div>
+        <p class="writing-eyebrow">MY WRITING SPACE</p>
+        <h1>{{ t('myThesesTitle') }}</h1>
+        <p class="writing-home-subtitle">{{ t('myThesesSub') }}</p>
+      </div>
+      <div class="writing-home-summary">
+        <span class="material-symbols-outlined">edit_note</span>
+        <div>
+          <strong>{{ projects.length }}</strong>
+          <span>篇进行中的论文</span>
         </div>
       </div>
     </section>
 
-    <!-- 1:1 Stitch Content Stage -->
-    <div class="stitch-content-stage">
-      <!-- Segmented Navigation Pills -->
-      <div class="stitch-segmented-wrapper">
-        <div class="stitch-segmented-pills">
-          <button class="pill-btn" :class="{ active: tab === 'check' }" @click="tab = 'check'">
-            {{ t('tabUpload') }}
-          </button>
-          <button class="pill-btn" :class="{ active: tab === 'projects' }" @click="tab = 'projects'">
-            {{ t('tabProjects') }} ({{ projects.length }})
-          </button>
+    <div class="workspace-switcher" role="tablist" aria-label="工作台视图">
+      <button class="workspace-tab" :class="{ active: tab === 'projects' }" role="tab" :aria-selected="tab === 'projects'" @click="selectTab('projects')">
+        <span class="material-symbols-outlined">edit_note</span>
+        <span>{{ t('tabProjects') }}</span>
+        <span class="workspace-tab-count">{{ projects.length }}</span>
+      </button>
+      <button class="workspace-tab" :class="{ active: tab === 'check' }" role="tab" :aria-selected="tab === 'check'" @click="selectTab('check')">
+        <span class="material-symbols-outlined">rule</span>
+        <span>{{ t('tabUpload') }}</span>
+      </button>
+    </div>
+
+    <div v-if="error" class="error-banner" role="alert" aria-live="polite">
+      <span class="material-symbols-outlined" style="font-size: 18px">warning</span>
+      <span>{{ error }}</span>
+    </div>
+
+    <!-- ============ TAB 1: WRITING WORKSPACE ============ -->
+    <section v-if="tab === 'projects'" class="writing-projects">
+      <div v-if="primaryProject" class="continue-writing-panel">
+        <div class="continue-writing-copy">
+          <p class="writing-eyebrow">CONTINUE WHERE YOU LEFT OFF</p>
+          <h2>{{ primaryProject.title || '未命名毕业论文' }}</h2>
+          <p class="continue-writing-meta">
+            <span>{{ primaryProject.template_name || '通用学术模板' }}</span>
+            <span aria-hidden="true">·</span>
+            <span>{{ primaryProject.last_written_section || '从论文结构开始' }}</span>
+            <span aria-hidden="true">·</span>
+            <span>最后编辑 {{ shortDate(primaryProject.updated_at) || '刚刚' }}</span>
+          </p>
+          <div class="continue-writing-progress">
+            <div class="progress-track"><span :style="{ width: projectProgress(primaryProject) + '%' }"></span></div>
+            <span>{{ projectProgress(primaryProject) }}% 已完成</span>
+          </div>
+        </div>
+        <button class="primary continue-writing-action" @click="$router.push('/write/' + primaryProject.id)">
+          <span class="material-symbols-outlined">play_arrow</span>
+          <span>{{ t('continueWriting') }}</span>
+        </button>
+      </div>
+
+      <div class="section-heading-row">
+        <div>
+          <p class="writing-eyebrow">YOUR MANUSCRIPTS</p>
+          <h2>最近论文</h2>
+        </div>
+        <span class="section-heading-note">按最近编辑排序</span>
+      </div>
+
+      <div class="create-thesis-bar">
+        <span class="material-symbols-outlined create-thesis-icon">add_circle</span>
+        <div class="create-thesis-label">
+          <strong>开始一篇新论文</strong>
+          <span>先选择写作模板，再进入论文工作区</span>
+        </div>
+        <select id="tpl" v-model="newProjectTemplate" aria-label="选择写作模板">
+          <option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option>
+        </select>
+        <input v-model="newProjectTitle" :placeholder="t('thesisTitlePlaceholder')" aria-label="论文题目" />
+        <button class="primary" :disabled="creating || initializing || !newProjectTemplate" @click="createProject">
+          <span class="material-symbols-outlined">add</span>
+          <span>{{ creating ? t('creating') : t('newThesisBtn') }}</span>
+        </button>
+      </div>
+
+      <div v-if="initializing" class="hint-center">{{ t('loadingEnv') }}</div>
+
+      <div v-else-if="projects.length === 0" class="writing-empty-state">
+        <span class="material-symbols-outlined">note_add</span>
+        <h3>{{ t('noThesesTitle') }}</h3>
+        <p>{{ t('noThesesSub') }}</p>
+      </div>
+
+      <div v-else class="theses-list" aria-label="论文列表">
+        <div v-for="p in projects" :key="p.id" class="thesis-row">
+          <div class="thesis-row-icon"><span class="material-symbols-outlined">description</span></div>
+          <div class="thesis-row-main">
+            <h3 :title="p.title || p.template_name">{{ p.title || '未命名毕业论文' }}</h3>
+            <p>{{ p.template_name || '通用学术模板' }} <span aria-hidden="true">·</span> {{ p.last_written_section || '尚未开始正文' }}</p>
+          </div>
+          <div class="thesis-row-progress">
+            <div class="progress-track"><span :style="{ width: projectProgress(p) + '%' }"></span></div>
+            <span>{{ projectProgress(p) }}%</span>
+          </div>
+          <div class="thesis-row-date">{{ shortDate(p.updated_at) }}</div>
+          <div class="thesis-row-actions">
+            <button class="primary small" @click="$router.push('/write/' + p.id)">
+              <span class="material-symbols-outlined">edit_note</span>
+              <span>{{ t('continueWriting') }}</span>
+            </button>
+            <button class="icon-action" :title="exporting.has(p.id) ? t('exporting') : t('exportDocx')" :aria-label="t('exportDocx')" @click="exportProject(p)" :disabled="exporting.has(p.id)">
+              <span class="material-symbols-outlined">download</span>
+            </button>
+            <button class="icon-action danger" :title="t('delete')" :aria-label="t('delete')" @click="deleteProject(p)" :disabled="deleting.has(p.id)">
+              <span class="material-symbols-outlined">delete</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      <div v-if="error" class="error-banner" role="alert" aria-live="polite">
-        <span class="material-symbols-outlined" style="font-size: 18px">warning</span>
-        <span>{{ error }}</span>
+      <div class="writing-utilities">
+        <RouterLink to="/policies" class="writing-utility-link">
+          <span class="material-symbols-outlined">menu_book</span>
+          <span><strong>写作规范</strong><small>查看当前院校的写作要求与检查依据</small></span>
+          <span class="material-symbols-outlined">arrow_forward</span>
+        </RouterLink>
+        <RouterLink to="/templates" class="writing-utility-link">
+          <span class="material-symbols-outlined">description</span>
+          <span><strong>模板管理</strong><small>浏览可用模板与论文结构</small></span>
+          <span class="material-symbols-outlined">arrow_forward</span>
+        </RouterLink>
       </div>
+    </section>
 
-      <!-- ============ TAB 1: UPLOAD INSPECTION ============ -->
-      <section v-if="tab === 'check'" class="inspection-section">
+    <!-- ============ TAB 2: FORMAT INSPECTION ============ -->
+    <section v-else class="inspection-section">
         <!-- 模式切换小胶囊 (规则包 vs 模板) -->
         <div class="check-options-bar">
           <div class="mode-switch-capsule">
@@ -194,70 +282,6 @@
         </section>
       </section>
 
-      <!-- ============ TAB 2: MY THESES (我的论文工作台) ============ -->
-      <section v-else class="theses-section">
-        <div class="theses-header-bar">
-          <div>
-            <h2 style="font-size: 18px; font-weight: 700;">{{ t('myThesesTitle') }}</h2>
-            <p style="font-size: 13px; color: var(--on-surface-variant); margin-top: 2px">{{ t('myThesesSub') }}</p>
-          </div>
-        </div>
-
-        <!-- 新建论文条 -->
-        <div class="create-thesis-bar">
-          <select id="tpl" v-model="newProjectTemplate">
-            <option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option>
-          </select>
-          <input v-model="newProjectTitle" :placeholder="t('thesisTitlePlaceholder')" style="flex: 1" />
-          <button class="primary" :disabled="creating || initializing || !newProjectTemplate" @click="createProject">
-            <span class="material-symbols-outlined text-[15px]">add</span>
-            <span>{{ creating ? t('creating') : t('newThesisBtn') }}</span>
-          </button>
-        </div>
-
-        <div v-if="initializing" class="hint-center">{{ t('loadingEnv') }}</div>
-
-        <!-- 空状态 -->
-        <div v-else-if="projects.length === 0" class="stitch-empty-findings">
-          <span class="material-symbols-outlined" style="font-size: 36px; color: var(--outline)">note_add</span>
-          <h3 style="font-weight: 700; margin-top: 8px">{{ t('noThesesTitle') }}</h3>
-          <p style="color: var(--on-surface-variant); font-size: 13px">{{ t('noThesesSub') }}</p>
-        </div>
-
-        <!-- 论文卡片网格 -->
-        <div v-else class="theses-grid">
-          <div v-for="p in projects" :key="p.id" class="thesis-card">
-            <div class="thesis-card-top">
-              <span class="thesis-template-tag">
-                <span class="material-symbols-outlined text-[13px]">school</span>
-                {{ p.template_name || '通用学术模板' }}
-              </span>
-              <span class="thesis-date">{{ shortDate(p.updated_at) }}</span>
-            </div>
-
-            <h3 class="thesis-card-title" :title="p.title || p.template_name">
-              {{ p.title || '未命名毕业论文' }}
-            </h3>
-
-            <div class="thesis-card-actions">
-              <button class="primary small" @click="$router.push('/write/' + p.id)">
-                <span class="material-symbols-outlined text-[14px]">edit_note</span>
-                <span>{{ t('continueWriting') }}</span>
-              </button>
-              <div style="display: flex; gap: 6px">
-                <button class="small" @click="exportProject(p)" :disabled="exporting.has(p.id)">
-                  <span class="material-symbols-outlined text-[14px]">download</span>
-                  <span>{{ exporting.has(p.id) ? t('exporting') : t('exportDocx') }}</span>
-                </button>
-                <button class="small danger" @click="deleteProject(p)" :disabled="deleting.has(p.id)">
-                  <span class="material-symbols-outlined text-[14px]">delete</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
   </div>
 </template>
 
@@ -271,12 +295,14 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 
-const tab = ref(route.query.tab === 'projects' ? 'projects' : 'check')
+const tab = ref(route.query.tab === 'check' ? 'check' : 'projects')
 watch(() => route.query.tab, (newTab) => {
-  if (newTab === 'projects' || newTab === 'check') {
-    tab.value = newTab
-  }
+  tab.value = newTab === 'check' ? 'check' : 'projects'
 })
+
+function selectTab(nextTab) {
+  router.push({ path: '/', query: { tab: nextTab } })
+}
 
 const packs = ref([])
 const pack = ref("")
@@ -296,6 +322,7 @@ const templateInput = ref(null)
 
 const templates = ref([])
 const projects = ref([])
+const primaryProject = computed(() => projects.value[0] || null)
 const newProjectTitle = ref("")
 const newProjectTemplate = ref("")
 const creating = ref(false)
@@ -416,6 +443,11 @@ async function deleteProject(p) {
 }
 
 function shortDate(s) { return s ? s.slice(0, 10) : '' }
+
+function projectProgress(project) {
+  const value = Number(project?.progress_pct ?? project?.progress ?? 0)
+  return Math.min(100, Math.max(0, Number.isFinite(value) ? Math.round(value) : 0))
+}
 </script>
 
 <style scoped>
@@ -979,6 +1011,192 @@ function shortDate(s) { return s ? s.slice(0, 10) : '' }
   font-size: 13px;
 }
 
+/* Stitch writing-first dashboard */
+.writing-home {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.writing-home-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 34px 0 26px;
+  border-bottom: 1px solid var(--border);
+}
+
+.writing-eyebrow {
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.writing-home-head h1 {
+  font-size: 28px;
+  line-height: 1.25;
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+
+.writing-home-subtitle {
+  color: var(--on-surface-variant);
+  font-size: 13px;
+  max-width: 680px;
+}
+
+.writing-home-summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--primary);
+  padding: 8px 12px;
+  background: var(--surface-container-low);
+  border: 1px solid var(--primary-fixed);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.writing-home-summary > .material-symbols-outlined { font-size: 22px; }
+.writing-home-summary div { display: flex; flex-direction: column; gap: 1px; }
+.writing-home-summary strong { font-family: "JetBrains Mono", monospace; font-size: 17px; line-height: 1; }
+.writing-home-summary span:last-child { color: var(--on-surface-variant); font-size: 11px; }
+
+.workspace-switcher {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: 52px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 52px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--on-surface-variant);
+  position: relative;
+  box-shadow: none;
+}
+
+.workspace-tab:hover { color: var(--primary); background: transparent; }
+.workspace-tab.active { color: var(--primary); font-weight: 650; }
+.workspace-tab.active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--primary); }
+.workspace-tab .material-symbols-outlined { font-size: 18px; }
+.workspace-tab-count { min-width: 20px; padding: 1px 5px; border-radius: 10px; background: var(--surface-container-low); font-family: "JetBrains Mono", monospace; font-size: 10px; text-align: center; }
+
+.writing-projects { padding-top: 24px; }
+
+.continue-writing-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px;
+  border: 1px solid var(--outline-variant);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm);
+  background: var(--surface-container-lowest);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 30px;
+}
+
+.continue-writing-copy { min-width: 0; }
+.continue-writing-copy h2 { font-size: 19px; line-height: 1.4; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.continue-writing-meta { display: flex; flex-wrap: wrap; gap: 7px; color: var(--on-surface-variant); font-size: 12px; }
+.continue-writing-progress { display: flex; align-items: center; gap: 10px; margin-top: 14px; color: var(--on-surface-variant); font-size: 11px; }
+.progress-track { height: 6px; width: 180px; border-radius: 999px; overflow: hidden; background: var(--surface-container-high); }
+.progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width .2s ease; }
+.continue-writing-action { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; }
+
+.section-heading-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.section-heading-row h2 { font-size: 17px; font-weight: 650; }
+.section-heading-note { color: var(--on-surface-variant); font-size: 12px; }
+
+.create-thesis-bar {
+  display: grid;
+  grid-template-columns: auto minmax(185px, 1fr) 200px minmax(220px, 1.4fr) auto;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-container-low);
+  box-shadow: none;
+}
+
+.create-thesis-icon { color: var(--primary); font-size: 22px; }
+.create-thesis-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.create-thesis-label strong { font-size: 13px; }
+.create-thesis-label span { color: var(--on-surface-variant); font-size: 11px; white-space: nowrap; }
+.create-thesis-bar select, .create-thesis-bar input { min-width: 0; height: 34px; }
+
+.writing-empty-state {
+  padding: 48px 24px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+  color: var(--on-surface-variant);
+}
+.writing-empty-state .material-symbols-outlined { color: var(--outline); font-size: 36px; margin-bottom: 8px; }
+.writing-empty-state h3 { color: var(--on-surface); font-size: 16px; margin-bottom: 4px; }
+.writing-empty-state p { font-size: 13px; }
+
+.theses-list { border-top: 1px solid var(--border); }
+.thesis-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 200px 90px auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 76px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.thesis-row:hover { background: rgba(239, 244, 255, .45); }
+.thesis-row-icon { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--primary-fixed); border-radius: var(--radius-xs); background: var(--surface-container-low); color: var(--primary); }
+.thesis-row-icon .material-symbols-outlined { font-size: 17px; }
+.thesis-row-main { min-width: 0; }
+.thesis-row-main h3 { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
+.thesis-row-main p { color: var(--on-surface-variant); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thesis-row-progress { display: flex; align-items: center; gap: 8px; color: var(--on-surface-variant); font-family: "JetBrains Mono", monospace; font-size: 11px; }
+.thesis-row-progress .progress-track { width: 120px; }
+.thesis-row-date { color: var(--on-surface-variant); font-family: "JetBrains Mono", monospace; font-size: 11px; }
+.thesis-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.thesis-row-actions .small { display: inline-flex; align-items: center; gap: 5px; }
+.icon-action { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; background: transparent; color: var(--on-surface-variant); border-radius: var(--radius-xs); }
+.icon-action:hover { background: var(--surface-container-low); color: var(--primary); }
+.icon-action.danger:hover { color: var(--error); background: var(--error-container); }
+.icon-action .material-symbols-outlined { font-size: 17px; }
+
+.writing-utilities { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--border); }
+.writing-utility-link { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 11px 4px; color: var(--on-surface); text-decoration: none; border-bottom: 1px solid transparent; }
+.writing-utility-link:hover { color: var(--primary); border-bottom-color: var(--primary-fixed); }
+.writing-utility-link > .material-symbols-outlined:first-child { color: var(--primary); font-size: 19px; }
+.writing-utility-link > span:nth-child(2) { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.writing-utility-link strong { font-size: 13px; }
+.writing-utility-link small { color: var(--on-surface-variant); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.writing-utility-link > .material-symbols-outlined:last-child { color: var(--outline); font-size: 17px; }
+
+@media (max-width: 960px) {
+  .create-thesis-bar { grid-template-columns: auto minmax(160px, 1fr) minmax(180px, 1fr); }
+  .create-thesis-label { grid-column: span 2; }
+  .create-thesis-bar select { grid-column: 2; }
+  .create-thesis-bar input { grid-column: 3; }
+  .create-thesis-bar button { grid-column: 1 / -1; justify-self: end; }
+  .thesis-row { grid-template-columns: 32px minmax(0, 1fr) auto; }
+  .thesis-row-progress, .thesis-row-date { display: none; }
+}
+
 @media (max-width: 768px) {
   .stitch-metrics-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -994,5 +1212,19 @@ function shortDate(s) { return s ? s.slice(0, 10) : '' }
     flex-direction: column;
     align-items: stretch;
   }
+  .writing-home-head { align-items: flex-start; flex-direction: column; padding-top: 24px; }
+  .writing-home-head h1 { font-size: 23px; }
+  .writing-home-summary { align-self: stretch; }
+  .workspace-switcher { gap: 18px; overflow-x: auto; }
+  .continue-writing-panel { align-items: flex-start; flex-direction: column; padding: 18px; }
+  .continue-writing-copy h2 { white-space: normal; }
+  .continue-writing-action { width: 100%; justify-content: center; }
+  .create-thesis-bar { display: flex; flex-direction: column; align-items: stretch; }
+  .create-thesis-icon { display: none; }
+  .create-thesis-label span { white-space: normal; }
+  .writing-utilities { grid-template-columns: 1fr; }
+  .thesis-row { grid-template-columns: 30px minmax(0, 1fr); gap: 10px; }
+  .thesis-row-actions { grid-column: 2; justify-content: flex-start; }
+  .thesis-row-actions .primary.small { flex: 1; justify-content: center; }
 }
 </style>

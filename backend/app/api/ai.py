@@ -35,7 +35,9 @@ class AssistRequest(BaseModel):
 
 class AiConfigRequest(BaseModel):
     base_url: str = Field(min_length=1)
-    api_key: str = Field(min_length=1)
+    # 密钥只写入服务端, 查询时不会回传明文。更新已存在的配置时允许留空,
+    # 由保存/测试逻辑沿用服务端已有密钥。
+    api_key: str | None = None
     model: str = Field(min_length=1)
 
 
@@ -90,6 +92,25 @@ def _mask_key(api_key: str) -> str:
 def _normalize_base_url(raw: str) -> str:
     """标准化 Base URL: 去除首尾空白与结尾斜杠。"""
     return raw.strip().rstrip("/")
+
+
+def _request_cfg(req: AiConfigRequest, fallback_cfg: dict | None = None) -> dict:
+    """构造请求配置, 空密钥仅允许沿用服务端已有配置。"""
+    base_url = _normalize_base_url(req.base_url)
+    model = req.model.strip()
+    api_key = (req.api_key or "").strip()
+    if not api_key and fallback_cfg:
+        api_key = str(fallback_cfg.get("api_key", "")).strip()
+    missing = []
+    if not base_url:
+        missing.append("Base URL")
+    if not api_key:
+        missing.append("API Key")
+    if not model:
+        missing.append("模型")
+    if missing:
+        raise HTTPException(status_code=400, detail=f"请填写完整的 {' / '.join(missing)}")
+    return {"base_url": base_url, "api_key": api_key, "model": model}
 
 
 def _parse_error_detail(resp: httpx.Response) -> str:
@@ -229,7 +250,7 @@ def ai_status(user: dict = Depends(current_user), store: Store = Depends(lambda:
 @router.get("/config")
 def get_ai_config(user: dict = Depends(current_user), store: Store = Depends(lambda: Store())) -> dict:
     cfg = store.get_user_ai_config(user["id"])
-    if not cfg:
+    if not cfg or not all(cfg.get(k) for k in ("base_url", "api_key", "model")):
         return {"configured": False, "base_url": None, "model": None, "api_key_masked": None}
     return {
         "configured": True,
@@ -242,11 +263,8 @@ def get_ai_config(user: dict = Depends(current_user), store: Store = Depends(lam
 @router.put("/config")
 def save_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
                    store: Store = Depends(lambda: Store())) -> dict:
-    store.set_user_ai_config(user["id"], {
-        "base_url": req.base_url.strip().rstrip("/"),
-        "api_key": req.api_key.strip(),
-        "model": req.model.strip(),
-    })
+    cfg = _request_cfg(req, store.get_user_ai_config(user["id"]))
+    store.set_user_ai_config(user["id"], cfg)
     return {"configured": True}
 
 
@@ -256,12 +274,9 @@ def clear_ai_config(user: dict = Depends(current_user), store: Store = Depends(l
 
 
 @router.post("/config/test")
-def test_ai_config(req: AiConfigRequest, user: dict = Depends(current_user)) -> dict:
-    cfg = {
-        "base_url": req.base_url.strip().rstrip("/"),
-        "api_key": req.api_key.strip(),
-        "model": req.model.strip(),
-    }
+def test_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
+                   store: Store = Depends(lambda: Store())) -> dict:
+    cfg = _request_cfg(req, store.get_user_ai_config(user["id"]))
     try:
         _chat_completion(cfg, [{"role": "user", "content": "回复「ok」两个字"}], 0.0)
     except HTTPException as exc:
@@ -309,11 +324,10 @@ def get_admin_ai_config(admin: dict = Depends(require_admin),
 def save_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_admin),
                          store: Store = Depends(lambda: Store())) -> dict:
     """管理员保存系统默认模型到数据库。"""
-    store.set_system_ai_config({
-        "base_url": req.base_url.strip().rstrip("/"),
-        "api_key": req.api_key.strip(),
-        "model": req.model.strip(),
-    })
+    # 已存在数据库配置或环境变量配置时, 管理员可以只修改 URL/模型, 留空表示保留密钥。
+    fallback = _system_cfg(store)
+    cfg = _request_cfg(req, fallback[0] if fallback else None)
+    store.set_system_ai_config(cfg)
     return {"configured": True, "source": "database"}
 
 
@@ -325,13 +339,11 @@ def clear_admin_ai_config(admin: dict = Depends(require_admin),
 
 
 @router.post("/admin/config/test")
-def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_admin)) -> dict:
+def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_admin),
+                         store: Store = Depends(lambda: Store())) -> dict:
     """管理员测试准备配置的系统默认模型。"""
-    cfg = {
-        "base_url": req.base_url.strip().rstrip("/"),
-        "api_key": req.api_key.strip(),
-        "model": req.model.strip(),
-    }
+    fallback = _system_cfg(store)
+    cfg = _request_cfg(req, fallback[0] if fallback else None)
     try:
         _chat_completion(cfg, [{"role": "user", "content": "回复「ok」两个字"}], 0.0)
     except HTTPException as exc:

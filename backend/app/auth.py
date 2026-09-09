@@ -30,7 +30,7 @@ def configured_admin_password() -> str:
         raise RuntimeError("请设置 PAPERGUARD_ADMIN_PASSWORD, 且长度至少 12 位")
     return password
 
-MANAGE_ROLES = ("admin", "teacher")
+MANAGE_ROLES = ("admin", "college_admin", "teacher")
 
 
 def _now() -> str:
@@ -174,6 +174,7 @@ def public_user(user: dict) -> dict:
         "status": user.get("status", "active"),
         "teacher_id": user.get("teacher_id"),
         "must_change_password": bool(user.get("must_change_password", 0)),
+        "organization_context": user.get("organization_context") or {},
     }
 
 
@@ -193,8 +194,17 @@ def require_manager(user: dict = Depends(current_user)) -> dict:
     """模板管理权限: admin / 已认证 teacher。"""
     if user["role"] not in MANAGE_ROLES:
         raise HTTPException(status_code=403, detail="仅教师/管理员可管理模板")
+    if user["role"] in ("teacher", "college_admin") and user.get("status") != "active":
+        raise HTTPException(status_code=403, detail="账号正在认证审核中，暂无管理权限")
+    return user
+
+
+def require_template_manager(user: dict = Depends(current_user)) -> dict:
+    """模板权限只授予学校管理员与已认证指导教师。"""
+    if user["role"] not in ("admin", "teacher"):
+        raise HTTPException(status_code=403, detail="仅教师/学校管理员可管理模板")
     if user["role"] == "teacher" and user.get("status") != "active":
-        raise HTTPException(status_code=403, detail="教师账号正在认证审核中，暂无管理权限")
+        raise HTTPException(status_code=403, detail="教师账号正在认证审核中，暂无模板管理权限")
     return user
 
 
@@ -208,6 +218,6 @@ def require_admin(user: dict = Depends(current_user)) -> dict:
 def can_manage(user: dict) -> bool:
     if user["role"] == "admin":
         return True
-    if user["role"] == "teacher" and user.get("status") == "active":
+    if user["role"] in ("teacher", "college_admin") and user.get("status") == "active":
         return True
     return False

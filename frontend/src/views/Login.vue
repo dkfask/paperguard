@@ -24,7 +24,7 @@
           {{ forceChange ? (lang === 'zh' ? '设置个人新密码' : 'Set New Password') : (mode === 'login' ? (lang === 'zh' ? '欢迎登录 PaperGuard' : 'Welcome to PaperGuard') : (lang === 'zh' ? '注册 PaperGuard 账号' : 'Create an Account')) }}
         </h1>
         <p class="auth-sub">
-          {{ forceChange ? (lang === 'zh' ? '首次登录需完成初始密码更新以保障学术成果安全' : 'Update your initial password to secure your thesis files') : (lang === 'zh' ? '毕业论文格式全流程合规引擎 · GB/T 7713 规范约束' : 'Academic Thesis Formatting Engine · Institutional Compliance') }}
+          {{ forceChange ? (lang === 'zh' ? '首次登录需完成初始密码更新以保障学术成果安全' : 'Update your initial password to secure your thesis files') : (lang === 'zh' ? '从章节结构到正文表达，集中完成毕业论文写作，并在需要时查看模板与规范。' : 'Write your thesis from chapter structure to final prose, with templates and standards available when you need them.') }}
         </p>
       </div>
 
@@ -104,7 +104,7 @@
     <footer class="stitch-auth-bottom-footer">
       <div>PaperGuard © 2026. All rights reserved.</div>
       <div class="footer-links">
-        <span>Academic Thesis Formatting Engine</span>
+        <span>Academic Thesis Writing Workspace</span>
         <span>·</span>
         <span>GB/T 7713-1987 / 2006</span>
       </div>

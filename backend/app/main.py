@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import os
 from pathlib import Path
 
@@ -22,6 +23,8 @@ from app.api.projects import router as projects_router
 from app.api.routes import router
 from app.api.teacher import router as teacher_router
 from app.api.templates import router as templates_router
+from app.api.policies import router as policies_router
+from app.api.organizations import router as organizations_router
 
 
 def _load_dotenv() -> None:
@@ -48,10 +51,30 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """启动时准备默认数据并清理过期孤儿图片。"""
+    try:
+        from app.auth import seed_admin
+        from app.db import Store
+        from app.services.image_cleanup import cleanup_orphan_images
+        from app.services.projects import seed_default_template
+
+        store = Store()
+        seed_admin(store)
+        seed_default_template(store)
+        cleanup_orphan_images(store, grace_seconds=24 * 60 * 60)
+    except Exception as exc:
+        import logging
+        logging.getLogger("paperguard.startup").exception("启动初始化失败: %s", exc)
+    yield
+
+
 app = FastAPI(
     title="PaperGuard API",
     description="论文格式规范检查与自动修复",
     version=__version__,
+    lifespan=_lifespan,
 )
 
 _allowed_origins = [
@@ -72,6 +95,8 @@ app.include_router(templates_router)
 app.include_router(projects_router)
 app.include_router(ai_router)
 app.include_router(teacher_router)
+app.include_router(policies_router)
+app.include_router(organizations_router)
 
 # 通过 API 鉴权读取项目图片, 不再公开挂载整个 uploads 目录。
 _uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
@@ -95,22 +120,3 @@ def download_image(filename: str, user: dict = Depends(current_user)):
     if not permitted or not path.is_file():
         raise HTTPException(status_code=404, detail="图片不存在")
     return FileResponse(path, headers={"X-Content-Type-Options": "nosniff"})
-
-
-
-@app.on_event("startup")
-def _startup_init() -> None:
-    """启动初始化: 内置管理员 + 孤儿图片清理。"""
-    try:
-        from app.auth import seed_admin
-        from app.db import Store
-        from app.services.image_cleanup import cleanup_orphan_images
-        from app.services.projects import seed_default_template
-
-        store = Store()
-        seed_admin(store)
-        seed_default_template(store)
-        cleanup_orphan_images(store, grace_seconds=24 * 60 * 60)
-    except Exception as exc:
-        import logging
-        logging.getLogger("paperguard.startup").exception("启动初始化失败: %s", exc)

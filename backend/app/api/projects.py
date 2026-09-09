@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -17,11 +18,20 @@ from app.auth import can_manage, current_user
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
+from app.models.policy import (
+    DisputeStatus,
+    RequirementAcknowledgement,
+    RequirementDispute,
+    RequirementUpgrade,
+    Waiver,
+    WaiverStatus,
+)
 from app.models.template import PaperTemplate, SectionType
 from app.services.image_cleanup import cleanup_orphan_images, remove_project_images
 from app.services.project_validation import validate_project_completeness
 from app.services.template_compare import compare_project_to_template
 from app.services.projects import create_project_from_template
+from app.services.policy_resolver import build_requirement_snapshot
 from app.services.template_source import resolve_template_source
 from app.services.upload_security import IMAGE_MAX_BYTES, validate_image
 
@@ -33,6 +43,38 @@ _UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "uploads"
 class CreateProjectRequest(BaseModel):
     template_id: str
     title: str = ""
+    organization_context: dict[str, str] = {}
+    stage: str = ""
+
+
+def _project_writing_metrics(project: WritingProject) -> dict[str, object]:
+    """Return lightweight writing progress for the manuscript list view."""
+    sections = [section for section in project.sections if section.type not in ("cover", "toc")]
+
+    def block_has_content(block) -> bool:
+        block_type = getattr(block.type, "value", block.type)
+        if block_type == "image":
+            return bool(block.image and block.image.url)
+        if block_type == "table":
+            return bool(block.table and any(str(cell).strip() for row in block.table.cells for cell in row))
+        return bool((block.text or "").strip())
+
+    completed = [section for section in sections if any(block_has_content(block) for block in section.paragraphs)]
+    total_words = sum(
+        len((block.text or "").strip())
+        for section in project.sections
+        for block in section.paragraphs
+        if getattr(block.type, "value", block.type) == "paragraph"
+    )
+    last_written = next((section.title for section in reversed(sections) if any(block_has_content(block) for block in section.paragraphs)), "")
+    progress = round(len(completed) / len(sections) * 100) if sections else 0
+    return {
+        "section_count": len(sections),
+        "completed_sections": len(completed),
+        "total_words": total_words,
+        "progress_pct": progress,
+        "last_written_section": last_written,
+    }
 
 
 @router.get("")
@@ -49,6 +91,7 @@ def list_projects(store: Store = Depends(get_store),
             "template_name": p.template_name,
             "title": p.title,
             "updated_at": p.updated_at,
+            **_project_writing_metrics(p),
         }
         for p in all_projects
     ]
@@ -81,8 +124,19 @@ def create_project(req: CreateProjectRequest, store: Store = Depends(get_store),
     tpl = store.get_template(req.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")
-    proj = create_project_from_template(store, tpl)
-    proj.owner_id = user["id"]
+    owner = user["id"]
+    teacher_id = user.get("teacher_id")
+    organization_context = dict(user.get("organization_context") or {})
+    if can_manage(user):
+        organization_context.update(req.organization_context)
+    proj = create_project_from_template(
+        store,
+        tpl,
+        owner_id=owner,
+        teacher_id=teacher_id,
+        organization_context=organization_context,
+        stage=req.stage,
+    )
     if req.title:
         proj.title = req.title
     return store.save_project(proj)
@@ -340,6 +394,24 @@ def _project_template(proj: WritingProject, store: Store) -> PaperTemplate:
     return tpl
 
 
+def _ensure_requirement_snapshot(proj: WritingProject, tpl: PaperTemplate, store: Store) -> dict:
+    """为旧项目补建规范快照；新项目始终在创建时生成。"""
+    if proj.requirement_snapshot:
+        return proj.requirement_snapshot
+    owner = store.get_user(proj.owner_id) if proj.owner_id else None
+    proj.requirement_snapshot = build_requirement_snapshot(
+        store,
+        tpl,
+        teacher_id=owner.get("teacher_id") if owner else None,
+        student_id=proj.owner_id,
+        organization_context=proj.organization_context,
+        project_id=proj.id,
+        stage=proj.stage,
+    )
+    store.save_project(proj)
+    return proj.requirement_snapshot
+
+
 class SwitchTemplateRequest(BaseModel):
     template_id: str
 
@@ -407,7 +479,17 @@ def switch_project_template(proj_id: str, req: SwitchTemplateRequest,
     tpl = store.get_template(req.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="目标模板不存在")
-    store.save_project(_rebind_template(proj, tpl))
+    _rebind_template(proj, tpl)
+    owner = store.get_user(proj.owner_id) if proj.owner_id else None
+    proj.requirement_snapshot = build_requirement_snapshot(
+        store, tpl,
+        teacher_id=owner.get("teacher_id") if owner else None,
+        student_id=proj.owner_id,
+        organization_context=proj.organization_context,
+        project_id=proj.id,
+        stage=proj.stage,
+    )
+    store.save_project(proj)
     return proj
 
 
@@ -425,7 +507,17 @@ def refresh_project_template(proj_id: str,
     tpl = store.get_template(proj.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="项目绑定的模板不存在")
-    store.save_project(_rebind_template(proj, tpl))
+    _rebind_template(proj, tpl)
+    owner = store.get_user(proj.owner_id) if proj.owner_id else None
+    proj.requirement_snapshot = build_requirement_snapshot(
+        store, tpl,
+        teacher_id=owner.get("teacher_id") if owner else None,
+        student_id=proj.owner_id,
+        organization_context=proj.organization_context,
+        project_id=proj.id,
+        stage=proj.stage,
+    )
+    store.save_project(proj)
     return proj
 
 
@@ -451,7 +543,7 @@ def check_project_template(proj_id: str,
 
 
 @router.get("/{proj_id}/check")
-def check_project(proj_id: str, pack: str = "GB-T-7713-1-2006",
+def check_project(proj_id: str, pack: str | None = None,
                   store: Store = Depends(get_store),
                   user: dict = Depends(current_user)) -> dict:
     """对写作项目实时跑格式规则, 返回问题列表(带章节定位)。"""
@@ -460,8 +552,387 @@ def check_project(proj_id: str, pack: str = "GB-T-7713-1-2006",
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
     tpl = _project_template(proj, store)
+    _ensure_requirement_snapshot(proj, tpl, store)
     from app.services.project_check import check_project as run_check
-    return run_check(proj, tpl, pack=pack)
+    return run_check(proj, tpl, pack=pack, store=store, performed_by=user["id"])
+
+
+class WaiverRequest(BaseModel):
+    reason: str
+    effective_from: str = ""
+    effective_to: str = ""
+
+
+class WaiverDecisionRequest(BaseModel):
+    status: WaiverStatus
+    review_note: str = ""
+    effective_from: str = ""
+    effective_to: str = ""
+
+
+class DisputeRequest(BaseModel):
+    reason: str
+
+
+class DisputeDecisionRequest(BaseModel):
+    status: DisputeStatus
+    review_note: str = ""
+
+
+class RequirementUpgradeRequest(BaseModel):
+    reason: str = ""
+    expected_snapshot_hash: str = ""
+    confirm: bool = False
+
+
+class RequirementAcknowledgementRequest(BaseModel):
+    snapshot_hash: str = ""
+
+
+class RequirementAssistRequest(BaseModel):
+    question: str = ""
+
+
+def _current_requirement_snapshot(proj: WritingProject, tpl: PaperTemplate, store: Store) -> dict:
+    owner = store.get_user(proj.owner_id) if proj.owner_id else None
+    return build_requirement_snapshot(
+        store,
+        tpl,
+        teacher_id=owner.get("teacher_id") if owner else None,
+        student_id=proj.owner_id,
+        organization_context=proj.organization_context,
+        project_id=proj.id,
+        stage=proj.stage,
+    )
+
+
+def _snapshot_diff(old: dict, new: dict) -> dict:
+    old_sets = {item.get("id"): item for item in old.get("policy_sets", [])}
+    new_sets = {item.get("id"): item for item in new.get("policy_sets", [])}
+    added = [new_sets[key] for key in new_sets.keys() - old_sets.keys()]
+    removed = [old_sets[key] for key in old_sets.keys() - new_sets.keys()]
+    changed = [
+        {"before": old_sets[key], "after": new_sets[key]}
+        for key in old_sets.keys() & new_sets.keys()
+        if old_sets[key].get("content_hash") != new_sets[key].get("content_hash")
+    ]
+    old_items = {item.get("id"): item for item in old.get("resolved_items", [])}
+    new_items = {item.get("id"): item for item in new.get("resolved_items", [])}
+    return {
+        "changed": bool(added or removed or changed or old.get("content_hash") != new.get("content_hash")),
+        "added_sets": added,
+        "removed_sets": removed,
+        "changed_sets": changed,
+        "added_items": [new_items[key] for key in new_items.keys() - old_items.keys()],
+        "removed_items": [old_items[key] for key in old_items.keys() - new_items.keys()],
+    }
+
+
+def _can_review_waiver(proj: WritingProject, user: dict, store: Store) -> bool:
+    if user["role"] in ("admin", "college_admin"):
+        return True
+    owner = store.get_user(proj.owner_id) if proj.owner_id else None
+    return user["role"] == "teacher" and owner is not None and owner.get("teacher_id") == user["id"]
+
+
+def _ensure_requirement_item(proj: WritingProject, item_id: str) -> None:
+    item_ids = {item.get("id") for item in (proj.requirement_snapshot or {}).get("resolved_items", [])}
+    if item_id not in item_ids:
+        raise HTTPException(status_code=404, detail="项目当前规范中不存在该要求")
+
+
+@router.get("/{proj_id}/requirements/waivers")
+def list_requirement_waivers(proj_id: str, store: Store = Depends(get_store),
+                             user: dict = Depends(current_user)) -> list[dict]:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    return proj.waivers
+
+
+@router.post("/{proj_id}/requirements/{item_id}/waiver", status_code=201)
+def request_requirement_waiver(proj_id: str, item_id: str, req: WaiverRequest,
+                               store: Store = Depends(get_store),
+                               user: dict = Depends(current_user)) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    if not req.reason.strip():
+        raise HTTPException(status_code=422, detail="申请豁免必须填写理由")
+    _ensure_requirement_item(proj, item_id)
+    pending = next((item for item in proj.waivers if item.get("requirement_item_id") == item_id and item.get("status") == "pending"), None)
+    if pending:
+        raise HTTPException(status_code=409, detail="该要求已有待审核的豁免申请")
+    waiver = Waiver(
+        id=new_id("waiver"),
+        requirement_item_id=item_id,
+        reason=req.reason.strip(),
+        requested_by=user["id"],
+        requested_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        effective_from=req.effective_from,
+        effective_to=req.effective_to,
+    )
+    proj.waivers.append(waiver.model_dump(mode="json"))
+    store.save_project(proj)
+    return waiver.model_dump(mode="json")
+
+
+@router.post("/{proj_id}/requirements/waivers/{waiver_id}/decision")
+def decide_requirement_waiver(proj_id: str, waiver_id: str, req: WaiverDecisionRequest,
+                              store: Store = Depends(get_store),
+                              user: dict = Depends(current_user)) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    if not _can_review_waiver(proj, user, store):
+        raise HTTPException(status_code=403, detail="只有指导教师或管理员可以审核豁免")
+    waiver = next((item for item in proj.waivers if item.get("id") == waiver_id), None)
+    if waiver is None:
+        raise HTTPException(status_code=404, detail="豁免申请不存在")
+    if waiver.get("status") != WaiverStatus.PENDING.value:
+        raise HTTPException(status_code=409, detail="该豁免申请已经处理")
+    if req.status not in (WaiverStatus.APPROVED, WaiverStatus.REJECTED):
+        raise HTTPException(status_code=422, detail="审核结果只能是 approved 或 rejected")
+    waiver.update({
+        "status": req.status.value,
+        "reviewed_by": user["id"],
+        "reviewed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "review_note": req.review_note,
+        "effective_from": req.effective_from or waiver.get("effective_from", ""),
+        "effective_to": req.effective_to or waiver.get("effective_to", ""),
+    })
+    store.save_project(proj)
+    return waiver
+
+
+@router.get("/{proj_id}/requirements/disputes")
+def list_requirement_disputes(proj_id: str, store: Store = Depends(get_store),
+                              user: dict = Depends(current_user)) -> list[dict]:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    return proj.requirement_disputes
+
+
+@router.post("/{proj_id}/requirements/{item_id}/dispute", status_code=201)
+def request_requirement_dispute(proj_id: str, item_id: str, req: DisputeRequest,
+                                store: Store = Depends(get_store),
+                                user: dict = Depends(current_user)) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    if not req.reason.strip():
+        raise HTTPException(status_code=422, detail="申诉必须填写理由")
+    _ensure_requirement_item(proj, item_id)
+    pending = next((item for item in proj.requirement_disputes
+                    if item.get("requirement_item_id") == item_id and item.get("status") == DisputeStatus.PENDING.value), None)
+    if pending:
+        raise HTTPException(status_code=409, detail="该要求已有待处理的申诉")
+    dispute = RequirementDispute(
+        id=new_id("dispute"),
+        requirement_item_id=item_id,
+        reason=req.reason.strip(),
+        requested_by=user["id"],
+        requested_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    proj.requirement_disputes.append(dispute.model_dump(mode="json"))
+    store.save_project(proj)
+    return dispute.model_dump(mode="json")
+
+
+@router.post("/{proj_id}/requirements/disputes/{dispute_id}/decision")
+def decide_requirement_dispute(proj_id: str, dispute_id: str, req: DisputeDecisionRequest,
+                               store: Store = Depends(get_store),
+                               user: dict = Depends(current_user)) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    if not _can_review_waiver(proj, user, store):
+        raise HTTPException(status_code=403, detail="只有指导教师或管理员可以审核申诉")
+    dispute = next((item for item in proj.requirement_disputes if item.get("id") == dispute_id), None)
+    if dispute is None:
+        raise HTTPException(status_code=404, detail="申诉记录不存在")
+    if dispute.get("status") != DisputeStatus.PENDING.value:
+        raise HTTPException(status_code=409, detail="该申诉已经处理")
+    if req.status not in (DisputeStatus.ACCEPTED, DisputeStatus.REJECTED):
+        raise HTTPException(status_code=422, detail="审核结果只能是 accepted 或 rejected")
+    dispute.update({
+        "status": req.status.value,
+        "reviewed_by": user["id"],
+        "reviewed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "review_note": req.review_note,
+    })
+    store.save_project(proj)
+    return dispute
+
+
+@router.post("/{proj_id}/requirements/acknowledge")
+def acknowledge_requirements(proj_id: str, req: RequirementAcknowledgementRequest,
+                             store: Store = Depends(get_store),
+                             user: dict = Depends(current_user)) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    current_hash = (proj.requirement_snapshot or {}).get("content_hash", "")
+    if req.snapshot_hash and req.snapshot_hash != current_hash:
+        raise HTTPException(status_code=409, detail="确认的规范快照不是项目当前版本，请刷新后重试")
+    snapshot_hash = current_hash
+    if not snapshot_hash:
+        raise HTTPException(status_code=409, detail="项目尚未生成规范快照")
+    item = RequirementAcknowledgement(
+        id=new_id("ack"),
+        user_id=user["id"],
+        snapshot_hash=snapshot_hash,
+        acknowledged_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    proj.requirement_acknowledgements = [
+        value for value in proj.requirement_acknowledgements
+        if value.get("user_id") != user["id"]
+    ] + [item.model_dump(mode="json")]
+    store.save_project(proj)
+    return item.model_dump(mode="json")
+
+
+@router.post("/{proj_id}/requirements/{item_id}/assist")
+def assist_requirement_check(proj_id: str, item_id: str, req: RequirementAssistRequest,
+                             store: Store = Depends(get_store),
+                             user: dict = Depends(current_user)) -> dict:
+    """对 manual 要求提供非判定性的 AI 检查建议，不改变合规结果。"""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    _ensure_requirement_item(proj, item_id)
+    item = next(item for item in proj.requirement_snapshot.get("resolved_items", []) if item.get("id") == item_id)
+    if item.get("type") != "manual":
+        raise HTTPException(status_code=422, detail="只有人工检查项可以请求 AI 辅助")
+    text_parts = []
+    for section in proj.sections:
+        for paragraph in section.paragraphs:
+            if paragraph.type.value == "paragraph" and paragraph.text.strip():
+                text_parts.append(f"【{section.title}】\n{paragraph.text.strip()}")
+    content = "\n\n".join(text_parts)
+    if not content:
+        raise HTTPException(status_code=422, detail="项目正文为空，无法辅助检查")
+    from app.api.ai import _chat_completion, _resolve_cfg
+    resolved = _resolve_cfg(store, user)
+    if not resolved:
+        raise HTTPException(status_code=503, detail="AI 功能未启用")
+    cfg, _source = resolved
+    question = req.question.strip() or item.get("description", "请按要求检查论文")
+    messages = [
+        {"role": "system", "content": "你是论文人工检查辅助工具。只给出基于提供文本的核对建议，不作最终合规判定，不编造事实。输出三部分：已观察到的证据、疑点或缺口、建议人工确认的问题。"},
+        {"role": "user", "content": f"检查要求：{question}\n\n论文内容：\n{content[:11000]}"},
+    ]
+    suggestion = _chat_completion(cfg, messages, 0.2)
+    return {
+        "requirement_item_id": item_id,
+        "suggestion": suggestion,
+        "is_authoritative": False,
+        "message": "AI 结果仅供人工参考，不会自动改变合规判定。",
+    }
+
+
+@router.get("/{proj_id}/requirements/upgrade-preview")
+def preview_requirement_upgrade(proj_id: str, store: Store = Depends(get_store),
+                                 user: dict = Depends(current_user)) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    tpl = _project_template(proj, store)
+    _ensure_requirement_snapshot(proj, tpl, store)
+    new_snapshot = _current_requirement_snapshot(proj, tpl, store)
+    return {
+        "from_snapshot_hash": proj.requirement_snapshot.get("content_hash", ""),
+        "to_snapshot_hash": new_snapshot.get("content_hash", ""),
+        "diff": _snapshot_diff(proj.requirement_snapshot, new_snapshot),
+        "snapshot": new_snapshot,
+    }
+
+
+@router.post("/{proj_id}/requirements/upgrade")
+def upgrade_requirements(proj_id: str, req: RequirementUpgradeRequest,
+                         store: Store = Depends(get_store),
+                         user: dict = Depends(current_user)) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="只有教师或管理员可以升级项目规范")
+    tpl = _project_template(proj, store)
+    _ensure_requirement_snapshot(proj, tpl, store)
+    if req.expected_snapshot_hash and req.expected_snapshot_hash != proj.requirement_snapshot.get("content_hash"):
+        raise HTTPException(status_code=409, detail="项目规范已发生变化，请重新预览")
+    new_snapshot = _current_requirement_snapshot(proj, tpl, store)
+    diff = _snapshot_diff(proj.requirement_snapshot, new_snapshot)
+    if not req.confirm:
+        raise HTTPException(status_code=428, detail={"message": "请确认应用规范升级", "diff": diff})
+    old_hash = proj.requirement_snapshot.get("content_hash", "")
+    if diff["changed"]:
+        upgrade = RequirementUpgrade(
+            id=new_id("upgrade"),
+            from_snapshot_hash=old_hash,
+            to_snapshot_hash=new_snapshot.get("content_hash", ""),
+            changed_policy_ids=[item.get("id", "") for item in diff["added_sets"]]
+            + [item.get("id", "") for item in diff["removed_sets"]]
+            + [item["after"].get("id", "") for item in diff["changed_sets"]],
+            reason=req.reason,
+            operated_by=user["id"],
+            operated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+        proj.requirement_upgrades.append(upgrade.model_dump(mode="json"))
+        proj.requirement_snapshot = new_snapshot
+        store.save_project(proj)
+    return {"project": proj, "diff": diff}
+
+
+@router.get("/{proj_id}/check-runs")
+def list_project_check_runs(proj_id: str, store: Store = Depends(get_store),
+                            user: dict = Depends(current_user)) -> list[dict]:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    return [item.model_dump(mode="json") for item in store.list_check_runs(proj_id)]
+
+
+@router.get("/{proj_id}/check-runs/{run_id}")
+def get_project_check_run(proj_id: str, run_id: str, store: Store = Depends(get_store),
+                          user: dict = Depends(current_user)) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    run = store.get_check_run(run_id)
+    if run is None or run.project_id != proj_id:
+        raise HTTPException(status_code=404, detail="检查记录不存在")
+    return run.model_dump(mode="json")
+
+
+@router.get("/{proj_id}/compliance-report")
+def compliance_report(proj_id: str, store: Store = Depends(get_store),
+                      user: dict = Depends(current_user)) -> dict:
+    """生成绑定当前模板/规范快照的合规报告，供送审或归档使用。"""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    tpl = _project_template(proj, store)
+    _ensure_requirement_snapshot(proj, tpl, store)
+    from app.services.project_check import check_project as run_check
+    report = run_check(proj, tpl, pack=None, store=store, performed_by=user["id"])
+    report["report_type"] = "compliance"
+    report["generated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return report
 
 
 def _cleanup_export(path: Path) -> None:
@@ -482,9 +953,19 @@ def export_docx(proj_id: str, force: bool = False,
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
     tpl = _project_template(proj, store)
+    _ensure_requirement_snapshot(proj, tpl, store)
 
     if not force:
         missing = validate_project_completeness(proj, tpl)
+        from app.services.project_check import check_project as run_check
+        report = run_check(proj, tpl, pack=None, store=store, performed_by=user["id"])
+        missing.extend(
+            f"{finding.get('source', '规范要求')}: {finding['message']}"
+            for finding in report.get("findings", [])
+            if finding.get("source_type") == "requirement"
+            and finding.get("enforce") == "hard"
+            and finding.get("severity") == "error"
+        )
         if missing:
             raise HTTPException(
                 status_code=409,

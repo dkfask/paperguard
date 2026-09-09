@@ -12,14 +12,20 @@
 
         <!-- Stitch Nav Links -->
         <nav class="nav-links">
-          <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && (!$route.query.tab || $route.query.tab === 'check') }" @click="setTab('check')">
-            {{ t('navDashboard') }}
-          </RouterLink>
-          <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && $route.query.tab === 'projects' }" @click="setTab('projects')">
+          <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && (!$route.query.tab || $route.query.tab === 'projects') }" @click="setTab('projects')">
             {{ t('navProjects') }}
+          </RouterLink>
+          <RouterLink to="/policies" class="stitch-nav-link" :class="{ active: $route.path.startsWith('/policies') }">
+            {{ t('navWriting') }}
           </RouterLink>
           <RouterLink to="/templates" class="stitch-nav-link" :class="{ active: $route.path.startsWith('/templates') }">
             {{ t('navStandards') }}
+          </RouterLink>
+          <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && $route.query.tab === 'check' }" @click="setTab('check')">
+            {{ t('navDashboard') }}
+          </RouterLink>
+          <RouterLink v-if="auth.user?.role === 'admin' || auth.user?.role === 'college_admin'" to="/organizations" class="stitch-nav-link" :class="{ active: $route.path.startsWith('/organizations') }">
+            组织与作用域
           </RouterLink>
           <button v-if="auth.user?.role === 'admin' || (auth.user?.role === 'teacher' && auth.user?.status === 'active')"
                   class="small" style="background: var(--surface-container-low); border-color: var(--primary-fixed);"
@@ -81,7 +87,7 @@
         </label>
         <label class="field">API Key
           <input v-model="adminAiForm.api_key" type="password" autocomplete="new-password"
-                 :placeholder="adminAiInfo.configured ? '已配置 ' + adminAiInfo.api_key_masked + ' (输入新Key可覆盖)' : '必填, 如 sk-xxx'" />
+                 :placeholder="adminAiInfo.configured ? '已配置 ' + adminAiInfo.api_key_masked + ' (留空则沿用)' : '必填, 如 sk-xxx'" />
         </label>
         <label class="field">模型
           <input v-model="adminAiForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
@@ -168,6 +174,9 @@
                     </button>
                     <button v-if="u.role !== 'teacher'" class="tiny" @click="changeRoleStatus(u.id, 'teacher', 'active')">
                       设为教师
+                    </button>
+                    <button v-if="u.role !== 'college_admin'" class="tiny" @click="changeRoleStatus(u.id, 'college_admin', 'active')">
+                      设为学院管理员
                     </button>
                     <button v-if="u.role !== 'student'" class="tiny" @click="changeRoleStatus(u.id, 'student', 'active')">
                       设为学生
@@ -370,7 +379,7 @@ function setTab(tab) {
 }
 
 function roleLabel(role) {
-  return { admin: '管理员', teacher: '教师', student: '学生' }[role] || role
+  return { admin: '管理员', college_admin: '学院管理员', teacher: '教师', student: '学生' }[role] || role
 }
 
 async function logout() {
@@ -446,13 +455,16 @@ async function openAdminAiModal() {
 }
 
 function adminAiFilled() {
-  return !!(adminAiForm.base_url && adminAiForm.api_key && adminAiForm.model)
+  return !!(adminAiForm.base_url && adminAiForm.model
+    && (adminAiForm.api_key || (adminAiInfo.configured && adminAiInfo.api_key_masked)))
 }
 
 async function testAdminAi() {
   if (!adminAiFilled()) {
     adminAiInfo.ok = false
-    adminAiInfo.message = '请先完整填写 Base URL / API Key / 模型'
+    adminAiInfo.message = adminAiInfo.configured
+      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
+      : '请先完整填写 Base URL / API Key / 模型'
     return
   }
   adminAiInfo.testing = true
@@ -472,7 +484,9 @@ async function testAdminAi() {
 async function saveAdminAi() {
   if (!adminAiFilled()) {
     adminAiInfo.ok = false
-    adminAiInfo.message = '请先完整填写 Base URL / API Key / 模型'
+    adminAiInfo.message = adminAiInfo.configured
+      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
+      : '请先完整填写 Base URL / API Key / 模型'
     return
   }
   adminAiInfo.saving = true
@@ -753,6 +767,7 @@ function copyCredentials() {
 }
 .role-tag.admin { background: #fee2e2; color: #991b1b; }
 .role-tag.teacher { background: #e0e7ff; color: #3730a3; }
+.role-tag.college_admin { background: #fef3c7; color: #92400e; }
 .role-tag.student { background: #f1f5f9; color: #475569; }
 
 .status-tag {

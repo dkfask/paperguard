@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
-from app.auth import require_manager
+from app.auth import require_template_manager
 
 from app.db import Store, new_id
 from app.models.template import PaperTemplate
@@ -48,6 +48,9 @@ def list_templates(store: Store = Depends(get_store)) -> list[dict]:
             "description": t.description,
             "updated_at": t.updated_at,
             "section_count": _count_sections(t.sections),
+            "version": t.version,
+            "rule_packs": t.rule_packs,
+            "requirement_set_ids": t.requirement_set_ids,
         }
         for t in store.list_templates()
     ]
@@ -81,12 +84,16 @@ def _validate_template_structure(payload: PaperTemplate) -> None:
         fields.add(field.key)
     if payload.source_docx and resolve_template_source(payload.source_docx) is None:
         raise HTTPException(status_code=422, detail="模板源文件不存在或已失效, 请重新导入 Word 模板")
+    if len(payload.rule_packs) != len(set(payload.rule_packs)):
+        raise HTTPException(status_code=422, detail="规则包不能重复")
+    if len(payload.requirement_set_ids) != len(set(payload.requirement_set_ids)):
+        raise HTTPException(status_code=422, detail="规范集合不能重复")
 
 
 
 @router.post("", status_code=201)
 def create_template(payload: dict, store: Store = Depends(get_store),
-                  _: dict = Depends(require_manager)) -> PaperTemplate:
+                  _: dict = Depends(require_template_manager)) -> PaperTemplate:
     """创建模板。id 未指定时由服务端生成。"""
     data = dict(payload)
     if not str(data.get("id") or "").strip():
@@ -103,7 +110,7 @@ def create_template(payload: dict, store: Store = Depends(get_store),
 
 @router.post("/default")
 def create_default_template(store: Store = Depends(get_store),
-                        _: dict = Depends(require_manager)) -> PaperTemplate:
+                        _: dict = Depends(require_template_manager)) -> PaperTemplate:
     """内置模板存库(幂等)。"""
     tpl = default_template()
     store.save_template(tpl)
@@ -112,7 +119,7 @@ def create_default_template(store: Store = Depends(get_store),
 
 @router.post("/strip-comments")
 async def strip_template_comments(file: UploadFile = File(...),
-                                  _: dict = Depends(require_manager)):
+                                  _: dict = Depends(require_template_manager)):
     """生成删除批注后的模板副本，不修改上传原文件。"""
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="只支持 .docx 文件")
@@ -146,7 +153,7 @@ async def strip_template_comments(file: UploadFile = File(...),
 
 @router.post("/import")
 async def import_docx_template(file: UploadFile = File(...),
-                              _: dict = Depends(require_manager)) -> dict:
+                              _: dict = Depends(require_template_manager)) -> dict:
     """上传 Word .docx, 识别其中的字体/字号/行距/缩进等样式, 返回可生成模板的配置。"""
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="只支持 .docx 文件")
@@ -184,7 +191,7 @@ async def import_docx_template(file: UploadFile = File(...),
 @router.put("/{tpl_id}")
 def update_template(tpl_id: str, payload: PaperTemplate,
                     store: Store = Depends(get_store),
-                    _: dict = Depends(require_manager)) -> PaperTemplate:
+                    _: dict = Depends(require_template_manager)) -> PaperTemplate:
     _validate_template_structure(payload)
     if store.get_template(tpl_id) is None:
         raise HTTPException(status_code=404, detail="模板不存在")
@@ -194,7 +201,7 @@ def update_template(tpl_id: str, payload: PaperTemplate,
 
 @router.delete("/{tpl_id}", status_code=204)
 def delete_template(tpl_id: str, store: Store = Depends(get_store),
-                    _: dict = Depends(require_manager)) -> None:
+                    _: dict = Depends(require_template_manager)) -> None:
     tpl = store.get_template(tpl_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")

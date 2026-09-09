@@ -5,6 +5,8 @@ import Login from './views/Login.vue'
 import Templates from './views/Templates.vue'
 import TemplateEditor from './views/TemplateEditor.vue'
 import Writer from './views/Writer.vue'
+import Policies from './views/Policies.vue'
+import Organizations from './views/Organizations.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -13,6 +15,8 @@ const router = createRouter({
     { path: '/login', component: Login, meta: { title: '登录' } },
     { path: '/templates', component: Templates, meta: { title: '模板管理' } },
     { path: '/templates/:id/edit', component: TemplateEditor, meta: { title: '编辑模板' } },
+    { path: '/policies', component: Policies, meta: { title: '写作规范' } },
+    { path: '/organizations', component: Organizations, meta: { title: '组织与作用域' } },
     { path: '/write/:id', component: Writer, meta: { title: '论文写作' } },
   ],
 })
@@ -24,6 +28,11 @@ router.beforeEach((to) => {
   }
   if (auth.token && to.path === '/login' && to.query.forceChange !== '1') {
     return { path: '/' }
+  }
+  const canManageTemplates = auth.user?.role === 'admin'
+    || (auth.user?.role === 'teacher' && auth.user?.status === 'active')
+  if (auth.token && to.path.startsWith('/templates/') && to.path.endsWith('/edit') && !canManageTemplates) {
+    return { path: '/templates' }
   }
   if (auth.token && auth.user?.must_change_password && to.path !== '/login') {
     return { path: '/login', query: { forceChange: '1', redirect: to.fullPath } }
