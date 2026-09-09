@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.models.project import WritingProject
+from app.models.organization import OrganizationUnit
+from app.models.policy import CheckRun, PolicyAuditEvent, RequirementSet
 from app.models.template import PaperTemplate
 
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "paperguard.db"
@@ -90,6 +92,28 @@ class Store:
                     value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS requirement_sets (
+                    id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS organization_units (
+                    id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS check_runs (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS policy_audit_events (
+                    id TEXT PRIMARY KEY,
+                    policy_id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 UPDATE projects
                 SET data = json_set(data, '$.revision', 0)
                 WHERE json_extract(data, '$.revision') IS NULL;
@@ -108,19 +132,23 @@ class Store:
                 conn.execute("ALTER TABLE users ADD COLUMN teacher_id TEXT")
             if "ai_config" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN ai_config TEXT")
+            if "organization_context" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN organization_context TEXT")
 
     # ------------------------------ users --------------------------------
 
     def save_user(self, user: dict) -> dict:
-        """保存用户, 兼容旧数据库中不存在的 must_change_password / status / teacher_id / ai_config 字段。"""
-        sql = "INSERT OR REPLACE INTO users (id, username, password_hash, salt, role, display_name, token, must_change_password, status, teacher_id, ai_config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        """保存用户, 兼容旧数据库新增的账号与组织字段。"""
+        sql = "INSERT OR REPLACE INTO users (id, username, password_hash, salt, role, display_name, token, must_change_password, status, teacher_id, ai_config, organization_context, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         params = (
             user["id"], user["username"], user["password_hash"], user["salt"],
             user["role"], user["display_name"], user.get("token"),
             int(user.get("must_change_password", 0)),
             user.get("status", "active"),
             user.get("teacher_id"),
-            user.get("ai_config"), user["created_at"],
+            user.get("ai_config"),
+            json.dumps(user.get("organization_context") or {}, ensure_ascii=False),
+            user["created_at"],
         )
         with self._connect() as conn:
             conn.execute(sql, params)
@@ -131,26 +159,39 @@ class Store:
             row = conn.execute(
                 "SELECT * FROM users WHERE username = ?", (username,)
             ).fetchone()
-        return dict(row) if row else None
+        return self._hydrate_user(dict(row)) if row else None
 
     def get_user_by_token(self, token: str) -> dict | None:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM users WHERE token = ?", (token,)
             ).fetchone()
-        return dict(row) if row else None
+        return self._hydrate_user(dict(row)) if row else None
 
     def get_user(self, user_id: str) -> dict | None:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM users WHERE id = ?", (user_id,)
             ).fetchone()
-        return dict(row) if row else None
+        return self._hydrate_user(dict(row)) if row else None
 
     def list_users(self) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()
-        return [dict(r) for r in rows]
+        return [self._hydrate_user(dict(r)) for r in rows]
+
+    @staticmethod
+    def _hydrate_user(user: dict) -> dict:
+        raw = user.get("organization_context")
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+                user["organization_context"] = parsed if isinstance(parsed, dict) else {}
+            except (TypeError, ValueError):
+                user["organization_context"] = {}
+        elif not isinstance(raw, dict):
+            user["organization_context"] = {}
+        return user
 
     def create_session(self, session: dict) -> None:
         with self._connect() as conn:
@@ -176,7 +217,7 @@ class Store:
                     "UPDATE sessions SET last_seen_at = ? WHERE id = ?",
                     (now, row["session_id"]),
                 )
-        return dict(row) if row else None
+        return self._hydrate_user(dict(row)) if row else None
 
     def revoke_session(self, token_hash: str, revoked_at: str) -> None:
         with self._connect() as conn:
@@ -198,7 +239,7 @@ class Store:
                 "SELECT * FROM users WHERE teacher_id = ? ORDER BY created_at DESC",
                 (teacher_id,),
             ).fetchall()
-        return [dict(r) for r in rows]
+        return [self._hydrate_user(dict(r)) for r in rows]
 
     def unbind_teacher_student(self, teacher_id: str, student_id: str) -> bool:
         with self._connect() as conn:
@@ -308,6 +349,111 @@ class Store:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM templates WHERE id = ?", (tpl_id,))
             return cur.rowcount > 0
+
+    # ------------------------- requirement sets ------------------------
+
+    def save_requirement_set(self, requirement_set: RequirementSet) -> RequirementSet:
+        requirement_set.updated_at = _now()
+        if not requirement_set.created_at:
+            requirement_set.created_at = requirement_set.updated_at
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO requirement_sets (id, data, updated_at) VALUES (?, ?, ?)",
+                (requirement_set.id, requirement_set.model_dump_json(), requirement_set.updated_at),
+            )
+        return requirement_set
+
+    def get_requirement_set(self, set_id: str) -> RequirementSet | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM requirement_sets WHERE id = ?", (set_id,)
+            ).fetchone()
+        return RequirementSet.model_validate_json(row["data"]) if row else None
+
+    def list_requirement_sets(self) -> list[RequirementSet]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT data FROM requirement_sets ORDER BY updated_at DESC"
+            ).fetchall()
+        return [RequirementSet.model_validate_json(row["data"]) for row in rows]
+
+    def delete_requirement_set(self, set_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM requirement_sets WHERE id = ?", (set_id,))
+            return cur.rowcount > 0
+
+    # ------------------------- organization units ------------------------
+
+    def save_organization_unit(self, unit: OrganizationUnit) -> OrganizationUnit:
+        unit.updated_at = _now()
+        if not unit.created_at:
+            unit.created_at = unit.updated_at
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO organization_units (id, data, updated_at) VALUES (?, ?, ?)",
+                (unit.id, unit.model_dump_json(), unit.updated_at),
+            )
+        return unit
+
+    def get_organization_unit(self, unit_id: str) -> OrganizationUnit | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM organization_units WHERE id = ?", (unit_id,)
+            ).fetchone()
+        return OrganizationUnit.model_validate_json(row["data"]) if row else None
+
+    def list_organization_units(self) -> list[OrganizationUnit]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT data FROM organization_units ORDER BY updated_at DESC"
+            ).fetchall()
+        return [OrganizationUnit.model_validate_json(row["data"]) for row in rows]
+
+    def delete_organization_unit(self, unit_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM organization_units WHERE id = ?", (unit_id,))
+            return cur.rowcount > 0
+
+    # ---------------------------- check runs -----------------------------
+
+    def save_check_run(self, check_run: CheckRun) -> CheckRun:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO check_runs (id, project_id, data, created_at) VALUES (?, ?, ?, ?)",
+                (check_run.id, check_run.project_id, check_run.model_dump_json(), check_run.created_at),
+            )
+        return check_run
+
+    def list_check_runs(self, project_id: str, limit: int = 20) -> list[CheckRun]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT data FROM check_runs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?",
+                (project_id, max(1, min(limit, 100))),
+            ).fetchall()
+        return [CheckRun.model_validate_json(row["data"]) for row in rows]
+
+    def get_check_run(self, run_id: str) -> CheckRun | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT data FROM check_runs WHERE id = ?", (run_id,)).fetchone()
+        return CheckRun.model_validate_json(row["data"]) if row else None
+
+    # -------------------------- policy audit -----------------------------
+
+    def save_policy_audit(self, event: PolicyAuditEvent) -> PolicyAuditEvent:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO policy_audit_events (id, policy_id, data, created_at) VALUES (?, ?, ?, ?)",
+                (event.id, event.policy_id, event.model_dump_json(), event.created_at),
+            )
+        return event
+
+    def list_policy_audits(self, policy_id: str, limit: int = 100) -> list[PolicyAuditEvent]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT data FROM policy_audit_events WHERE policy_id = ? ORDER BY created_at DESC LIMIT ?",
+                (policy_id, max(1, min(limit, 500))),
+            ).fetchall()
+        return [PolicyAuditEvent.model_validate_json(row["data"]) for row in rows]
 
     # ---------------------------- projects -----------------------------
 

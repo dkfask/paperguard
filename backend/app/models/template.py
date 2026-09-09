@@ -101,6 +101,10 @@ class PaperTemplate(BaseModel):
     cover_blocks: list[CoverBlock] = []     # 封面版式(为空时按 meta_fields 逐行渲染)
     source_docx: str = ""                   # 导入时的模板 docx 文件名(导出以此为基底)
     allow_structure_edit: bool = True       # 允许学生在写作中调整/增删章节框架
+    version: str = "1"                      # 模板内容版本, 项目快照引用此版本
+    rule_packs: list[str] = []              # 内置格式规则包, 与写作规范独立
+    requirement_set_ids: list[str] = []     # 可绑定的学校/教师规范集合
+    organization_context: dict[str, str] = {}  # 模板适用的默认组织作用域
 
 
 # ---------------------------------------------------------------------------

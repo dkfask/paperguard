@@ -33,6 +33,27 @@ def _section_complete(proj_sec) -> bool:
     return False
 
 
+def _section_complete_with_children(index: int, sections: list) -> bool:
+    """判断一节是否完成, 允许一级标题由下属内容节承载正文。
+
+    写作项目把模板树展开成扁平列表。一级标题常只有标题, 正文写在随后
+    的二级/三级小节中; 不能因此把整章判定为未完成。
+    """
+    section = sections[index]
+    if _section_complete(section):
+        return True
+    if section.type != SectionType.HEADING1.value:
+        return False
+
+    for child in sections[index + 1:]:
+        if child.type == SectionType.HEADING1.value:
+            break
+        if child.type in (SectionType.HEADING2.value, SectionType.HEADING3.value) \
+                and _section_complete(child):
+            return True
+    return False
+
+
 def validate_project_completeness(
     proj: WritingProject, tpl: PaperTemplate
 ) -> list[str]:
@@ -50,13 +71,12 @@ def validate_project_completeness(
             missing.append(f"封面「{f.label}」未填写")
 
     # 必填章节
-    proj_map = {s.key: s for s in proj.sections}
-    for sec in proj.sections:
+    for index, sec in enumerate(proj.sections):
         if not sec.required:
             continue
         if sec.type in (SectionType.COVER.value, SectionType.TOC.value):
             continue  # 封面走字段, 目录自动生成
-        if not _section_complete(sec):
+        if not _section_complete_with_children(index, proj.sections):
             missing.append(f"「{sec.title or sec.key}」未完成(标题或内容为空)")
 
     return missing

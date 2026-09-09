@@ -36,6 +36,28 @@
       </p>
     </div>
 
+    <!-- 写作规范绑定 -->
+    <h3 style="margin: 24px 0 12px">📐 写作规范绑定</h3>
+    <div class="policy-binding">
+      <label>模板版本
+        <input v-model="tpl.version" placeholder="如 2026.1" />
+      </label>
+      <label>格式规则包（逗号分隔）
+        <input :value="(tpl.rule_packs || []).join(',')" @input="setRulePacks($event.target.value)"
+               placeholder="如 GB-T-7713-1-2006" />
+      </label>
+      <label class="policy-select-label">适用写作规范
+        <select v-model="tpl.requirement_set_ids" multiple>
+          <option v-for="policy in policyOptions" :key="policy.id" :value="policy.id">
+            {{ policy.name }} · v{{ policy.version }}
+          </option>
+        </select>
+      </label>
+      <p class="field-hint">
+        规范在项目创建时冻结。已发布规范不能原地修改，修订后请创建新版本。
+      </p>
+    </div>
+
     <!-- 封面字段 -->
     <h3 style="margin: 24px 0 12px">📋 封面字段</h3>
     <div v-for="(f, i) in tpl.meta_fields" :key="i" class="form-row">
@@ -98,7 +120,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { fetchTemplate, saveTemplate } from '../api'
+import { fetchTemplate, fetchPolicies, saveTemplate } from '../api'
 import SectionNode from '../components/SectionNode.vue'
 
 const route = useRoute()
@@ -124,8 +146,10 @@ const DEFAULT_STYLE = () => ({
 const tpl = ref({
   id: '', name: '', description: '',
   allow_structure_edit: true,
+  version: '1', rule_packs: [], requirement_set_ids: [],
   sections: [], styles: {}, meta_fields: [],
 })
+const policyOptions = ref([])
 const stylesKeys = ref([])
 const collapsed = ref({})
 const error = ref('')
@@ -162,10 +186,15 @@ onMounted(async () => {
       loadError.value = e.message || '模板加载失败'
     }
   }
+  try { policyOptions.value = await fetchPolicies() } catch { /* 学生或旧后端可无规范列表 */ }
   stylesKeys.value = Object.keys(tpl.value.styles)
   for (const k of stylesKeys.value) collapsed.value[k] = true
   loading.value = false
 })
+
+function setRulePacks(value) {
+  tpl.value.rule_packs = value.split(',').map((item) => item.trim()).filter(Boolean)
+}
 
 function addSection() {
   const used = new Set()
@@ -266,4 +295,21 @@ async function save() {
   padding: 8px 12px; color: #1f2937; min-height: 32px;
 }
 .head-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.policy-binding {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+  padding: 14px; background: var(--surface-container-low); border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.policy-binding label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
+.policy-binding input, .policy-binding select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--card); color: var(--on-surface); font: inherit; font-size: 13px;
+}
+.policy-select-label { grid-column: 1 / -1; }
+.policy-select-label select { min-height: 96px; }
+.field-hint { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+@media (max-width: 640px) {
+  .policy-binding { grid-template-columns: 1fr; }
+  .policy-select-label, .field-hint { grid-column: auto; }
+}
 </style>

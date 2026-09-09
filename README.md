@@ -128,6 +128,23 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 | PUT | `/api/projects/{id}/meta` | 保存封面字段 |
 | POST | `/api/projects/{id}/export` | 按模板导出 docx |
 | GET | `/api/packs` | 检查规则包列表 |
+| GET | `/api/policies` | 当前用户可见的学校规范/教师要求 |
+| GET | `/api/policies/{id}` | 规范集合详情 |
+| POST | `/api/policies` | 创建规范集合 |
+| PUT | `/api/policies/{id}` | 更新未发布草稿 |
+| POST | `/api/policies/{id}/publish` | 发布规范版本（发布后不可原地修改） |
+| POST | `/api/policies/{id}/archive` | 停用规范版本 |
+| POST | `/api/policies/{id}/versions` | 从已发布规范创建新版本草稿 |
+| POST | `/api/policies/{id}/documents` | 上传规范参考文档 |
+| GET | `/api/policies/{id}/audit` | 查看规范审计记录 |
+| GET | `/api/organizations` | 组织层级与作用域 |
+| GET | `/api/projects/{id}/check` | 按模板快照和项目规范生成统一检查报告 |
+| GET | `/api/projects/{id}/check-runs` | 查看项目检查运行记录 |
+| GET | `/api/projects/{id}/compliance-report` | 生成送审/归档合规报告 |
+| POST | `/api/projects/{id}/requirements/{item}/waiver` | 对单条要求申请豁免 |
+| POST | `/api/projects/{id}/requirements/{item}/dispute` | 对单条要求提交申诉 |
+| GET | `/api/projects/{id}/requirements/upgrade-preview` | 预览规范快照升级差异 |
+| POST | `/api/projects/{id}/requirements/upgrade` | 显式升级项目规范快照 |
 | POST | `/api/check` | 上传 docx 检查 |
 | POST | `/api/fix` | 上传 docx 自动修复并下载 |
 
@@ -144,10 +161,11 @@ paperguard fix paper.docx -o fixed.docx --pack GB-T-7713-1-2006
 
 ```bash
 cd backend
-pytest -q        # 423 个测试: 引擎 / docx 读写 / 模板/项目 API / 导出验证 / 安全回归
+pytest -q        # 当前 474 passed, 5 skipped: 引擎 / docx 读写 / 模板/项目 API / 规范生命周期 / 安全回归
 ```
 
 ## 模板与规则
 
 - **模板**(`/api/templates`):章节树 + 每类元素样式 + 封面字段,在线配置
-- **检查规则包**(`backend/app/core/rules/packs/*.yaml`):GB/T 7713(29 条)、GB/T 7714(12 条)、SIM-UNIV 通用(23 条),每条含 `scope`(JMESPath)、`when`(JSONLogic)、`message` 和可选 `fix`
+- **检查规则包**(`backend/app/core/rules/packs/*.yaml`):GB/T 7713、GB/T 7714、SIM-UNIV 通用规则,每条含 `scope`(JMESPath)、`when`(JSONLogic)、`message` 和可选 `fix`; 规范项可按规则 ID 冻结受控覆盖 `when/scope/severity/message/fix`
+- **写作规范**:学校/学院/专业/课程/批次/教师要求独立建模,支持 Markdown frontmatter、自动/人工/文档要求、组织绑定、版本生效时间、项目快照、统一报告、豁免和申诉留痕

@@ -24,7 +24,8 @@ from app.core.engine.loader import (
     list_packs,
     load_pack,
 )
-from app.core.ir import Fix, Severity
+from app.core.ir import Document, DocumentMetadata, Fix, Paragraph, Run, Severity
+from app.core.engine import validate_docx
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +95,32 @@ class TestLoadValidPack(unittest.TestCase):
             _write_pack(tmpdir, "TEST-PACK-001", VALID_PACK_YAML)
             pack = load_pack("TEST-PACK-001", packs_dir=tmpdir)
             self.assertEqual(pack.rules[0].severity, Severity.WARNING)
+
+    def test_rule_override_replaces_when_expression(self):
+        document = Document(
+            sections=(),
+            paragraphs=(Paragraph(
+                style_id="Body Text", text="正文", level=None,
+                runs=(Run(text="正文", font_eastasia="宋体", font_ascii="Times New Roman", font_hansi="Times New Roman", font_size_pt=12.0),),
+                line_spacing=1.5, space_before_pt=0.0, space_after_pt=0.0,
+                first_line_indent_cm=0.74, alignment="justify",
+            ),),
+            metadata=DocumentMetadata(),
+        )
+        default_findings = validate_docx(document, "GB-T-7713-1-2006")
+        overridden_findings = validate_docx(
+            document, "GB-T-7713-1-2006", pack_params={
+                "PG-BODY-LINE-SPACING": {
+                    "when": {"!=": [{"var": "line_spacing"}, 2.0]},
+                },
+            },
+        )
+        self.assertFalse(any(item.rule_id == "PG-BODY-LINE-SPACING" for item in default_findings))
+        self.assertTrue(any(item.rule_id == "PG-BODY-LINE-SPACING" for item in overridden_findings))
+
+    def test_unknown_rule_override_field_fails_fast(self):
+        with self.assertRaises(ValueError):
+            load_pack("GB-T-7713-1-2006", params={"PG-BODY-LINE-SPACING": {"threshold": 2}})
 
 
 # ---------------------------------------------------------------------------

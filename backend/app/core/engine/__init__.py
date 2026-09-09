@@ -23,6 +23,7 @@ def validate_docx(
     ir: Document,
     pack: str = "GB-T-7713-1-2006",
     packs_dir: Path | None = None,
+    pack_params: dict | None = None,
 ) -> list[Finding]:
     """加载 YAML pack 并对 IR Document 跑全部规则，返回 Finding 列表。
 
@@ -31,6 +32,7 @@ def validate_docx(
         pack: pack id，对应 ``{packs_dir}/{pack}.yaml`` 文件
               默认 ``"GB-T-7713-1-2006"``（GB/T 7713.1—2006 学位论文编写规则）
         packs_dir: pack 目录，默认 ``app/core/rules/packs/``（注入便于测试）
+        pack_params: 可选的规则 ID 覆盖映射，来自项目冻结的规范快照
 
     Returns:
         ``list[Finding]``：按 (paragraph_index, rule_id) 排序
@@ -39,7 +41,7 @@ def validate_docx(
         FileNotFoundError: pack 文件不存在
         其他: load_pack / visit_document 内部抛出的异常（fail-fast）
     """
-    rule_pack = load_pack(pack, packs_dir=packs_dir)
+    rule_pack = load_pack(pack, packs_dir=packs_dir, params=pack_params)
     return visit_document(ir, rule_pack)
 
 

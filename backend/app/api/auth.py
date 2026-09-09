@@ -99,7 +99,7 @@ def update_user_role_status(user_id: str,
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
 
-    new_role = req.role if req.role in ("admin", "teacher", "student") else target["role"]
+    new_role = req.role if req.role in ("admin", "college_admin", "teacher", "student") else target["role"]
     new_status = req.status if req.status in ("active", "pending", "rejected") else target.get("status", "active")
 
     # 防止取消唯一内置管理员自身角色

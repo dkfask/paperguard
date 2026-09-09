@@ -1,0 +1,335 @@
+"""多层级规范 P1/P2 生命周期：组织、附件、版本、豁免与检查留痕。"""
+
+from __future__ import annotations
+
+import uuid
+
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+
+client = TestClient(app)
+
+
+def _login(username: str, password: str) -> dict[str, str]:
+    response = client.post("/api/auth/login", json={"username": username, "password": password})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def _admin_headers() -> dict[str, str]:
+    return _login("admin", "TestAdminPassword123")
+
+
+def _new_student(suffix: str) -> tuple[str, dict[str, str]]:
+    username = f"lifecycle-student-{suffix}"
+    password = "StudentPassword123"
+    registered = client.post("/api/auth/register", json={
+        "username": username, "password": password, "display_name": "生命周期学生",
+    })
+    assert registered.status_code == 201, registered.text
+    return registered.json()["id"], _login(username, password)
+
+
+def _policy(headers: dict[str, str], *, policy_id: str, version: str = "1", items: list | None = None, **extra):
+    payload = {
+        "id": policy_id, "name": f"生命周期规范 {version}", "level": "school",
+        "status": "published", "version": version, "items": items or [],
+    }
+    payload.setdefault("scope_id", f"isolated-{policy_id}")
+    payload.update(extra)
+    response = client.post("/api/policies", headers=headers, json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_organization_binding_is_inherited_by_student_project():
+    admin = _admin_headers()
+    suffix = uuid.uuid4().hex[:8]
+    school = client.post("/api/organizations", headers=admin, json={"id": f"school-{suffix}", "name": "测试大学", "type": "school"})
+    assert school.status_code == 201, school.text
+    college = client.post("/api/organizations", headers=admin, json={"id": f"college-{suffix}", "name": "测试学院", "type": "college", "parent_id": f"school-{suffix}"})
+    assert college.status_code == 201, college.text
+    major = client.post("/api/organizations", headers=admin, json={"id": f"major-{suffix}", "name": "测试专业", "type": "major", "parent_id": f"college-{suffix}"})
+    assert major.status_code == 201, major.text
+
+    student_id, student = _new_student(suffix)
+    context = {"school_id": f"school-{suffix}", "college_id": f"college-{suffix}", "major_id": f"major-{suffix}"}
+    assigned = client.put(f"/api/organizations/users/{student_id}/context", headers=admin, json={"organization_context": context})
+    assert assigned.status_code == 200, assigned.text
+    policy_id = f"major-policy-{suffix}"
+    policy = _policy(admin, policy_id=policy_id, items=[{
+        "id": "major-section", "type": "auto", "target": "methodology", "checker": "section.exists",
+        "params": {}, "severity": "error", "enforce": "hard", "description": "必须包含研究方法",
+    }], level="major", bindings=[{
+        "id": f"binding-{suffix}", "scope_type": "major", "scope_id": f"major-{suffix}",
+    }])
+    project = client.post("/api/projects", headers=student, json={"template_id": "default-gb7713", "title": "组织继承项目"})
+    assert project.status_code == 201, project.text
+    snapshot = project.json()["requirement_snapshot"]
+    assert any(item["id"] == policy["id"] for item in snapshot["policy_sets"])
+    assert snapshot["context"]["major_id"] == f"major-{suffix}"
+
+
+def test_policy_document_version_and_audit_lifecycle():
+    admin = _admin_headers()
+    suffix = uuid.uuid4().hex[:8]
+    policy_id = f"doc-policy-{suffix}"
+    created = _policy(admin, policy_id=policy_id, status="draft")
+    uploaded = client.post(
+        f"/api/policies/{policy_id}/documents", headers=admin,
+        files={"file": ("guide.md", b"# Writing guide\n", "text/markdown")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    document = uploaded.json()["documents"][0]
+    assert document["checksum"].startswith("sha256:")
+    downloaded = client.get(f"/api/policies/{policy_id}/documents/{document['id']}", headers=admin)
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"# Writing guide\n"
+    assert client.post(f"/api/policies/{policy_id}/publish", headers=admin).status_code == 200
+
+    version = client.post(f"/api/policies/{policy_id}/versions", headers=admin, json={"version": "2", "reason": "年度修订"})
+    assert version.status_code == 201, version.text
+    version_data = version.json()
+    assert version_data["family_id"] == created["id"]
+    assert version_data["status"] == "draft"
+    assert version_data["documents"]
+    assert client.post(f"/api/policies/{version_data['id']}/publish", headers=admin).status_code == 200
+    copied = client.get(f"/api/policies/{version_data['id']}/documents/{version_data['documents'][0]['id']}", headers=admin)
+    assert copied.status_code == 200
+    assert copied.content == b"# Writing guide\n"
+    audit = client.get(f"/api/policies/{policy_id}/audit", headers=admin)
+    assert audit.status_code == 200
+    assert any(item["action"] == "created" for item in audit.json())
+
+
+def test_waiver_approval_removes_requirement_from_gate_and_records_check_run():
+    admin = _admin_headers()
+    student_id, student = _new_student(uuid.uuid4().hex[:8])
+    suffix = uuid.uuid4().hex[:8]
+    policy_id = f"waiver-policy-{suffix}"
+    policy = _policy(admin, policy_id=policy_id, items=[{
+        "id": "waiver-abstract", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+        "params": {"min": 100}, "severity": "error", "enforce": "hard", "description": "摘要不少于 100 字",
+    }])
+    template = client.get("/api/templates/default-gb7713", headers=admin).json()
+    template.update({"id": f"waiver-template-{suffix}", "name": "豁免测试模板", "requirement_set_ids": [policy_id]})
+    assert client.post("/api/templates", headers=admin, json=template).status_code == 201
+    project = client.post("/api/projects", headers=student, json={"template_id": template["id"], "title": "豁免项目"})
+    assert project.status_code == 201, project.text
+    project_id = project.json()["id"]
+    report = client.get(f"/api/projects/{project_id}/check", headers=student)
+    assert report.status_code == 200
+    assert report.json()["summary"]["hard_failures"] >= 1
+    waiver = client.post(f"/api/projects/{project_id}/requirements/waiver-abstract/waiver", headers=student, json={"reason": "研究对象特殊，导师已确认"})
+    assert waiver.status_code == 201, waiver.text
+    decision = client.post(f"/api/projects/{project_id}/requirements/waivers/{waiver.json()['id']}/decision", headers=admin, json={"status": "approved", "review_note": "同意特殊情况豁免"})
+    assert decision.status_code == 200, decision.text
+    checked = client.get(f"/api/projects/{project_id}/check", headers=student)
+    assert checked.status_code == 200
+    assert checked.json()["summary"]["hard_failures"] == 0
+    assert checked.json()["summary"]["waived"] == 1
+    runs = client.get(f"/api/projects/{project_id}/check-runs", headers=student)
+    assert runs.status_code == 200
+    assert runs.json()[0]["project_id"] == project_id
+    assert student_id
+
+
+def test_published_version_is_used_by_upgrade_preview_and_application():
+    admin = _admin_headers()
+    suffix = uuid.uuid4().hex[:8]
+    policy_id = f"upgrade-policy-{suffix}"
+    policy = _policy(admin, policy_id=policy_id, version="1", items=[{
+        "id": "upgrade-min", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+        "params": {"min": 10}, "severity": "warning", "enforce": "soft", "description": "摘要不少于 10 字",
+    }])
+    template = client.get("/api/templates/default-gb7713", headers=admin).json()
+    template.update({"id": f"upgrade-template-{suffix}", "name": "升级测试模板", "requirement_set_ids": [policy_id]})
+    assert client.post("/api/templates", headers=admin, json=template).status_code == 201
+    project = client.post("/api/projects", headers=admin, json={"template_id": template["id"], "title": "升级项目"})
+    project_id = project.json()["id"]
+    version = client.post(f"/api/policies/{policy_id}/versions", headers=admin, json={"version": "2"})
+    assert version.status_code == 201
+    version_data = version.json()
+    assert client.put(f"/api/policies/{version_data['id']}", headers=admin, json={**version_data, "items": [{
+        "id": "upgrade-min", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+        "params": {"min": 200}, "severity": "error", "enforce": "hard", "description": "摘要不少于 200 字",
+    }]}).status_code == 200
+    assert client.post(f"/api/policies/{version_data['id']}/publish", headers=admin).status_code == 200
+    preview = client.get(f"/api/projects/{project_id}/requirements/upgrade-preview", headers=admin)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["diff"]["changed"] is True
+    applied = client.post(f"/api/projects/{project_id}/requirements/upgrade", headers=admin, json={
+        "confirm": True, "expected_snapshot_hash": preview.json()["from_snapshot_hash"], "reason": "采用年度新规范",
+    })
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["project"]["requirement_snapshot"]["policy_sets"][0]["version"] == "2"
+
+
+def test_batch_upgrade_uses_policy_family_for_projects_on_older_version():
+    admin = _admin_headers()
+    suffix = uuid.uuid4().hex[:8]
+    policy_id = f"batch-policy-{suffix}"
+    policy = _policy(admin, policy_id=policy_id, version="1", items=[{
+        "id": "batch-min", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+        "params": {"min": 10}, "severity": "warning", "enforce": "soft", "description": "摘要不少于 10 字",
+    }])
+    template = client.get("/api/templates/default-gb7713", headers=admin).json()
+    template.update({"id": f"batch-template-{suffix}", "name": "批量升级模板", "requirement_set_ids": [policy_id]})
+    assert client.post("/api/templates", headers=admin, json=template).status_code == 201
+    old_project = client.post("/api/projects", headers=admin, json={"template_id": template["id"], "title": "旧快照项目"})
+    assert old_project.status_code == 201, old_project.text
+    version = client.post(f"/api/policies/{policy_id}/versions", headers=admin, json={"version": "2"})
+    assert version.status_code == 201, version.text
+    version_data = version.json()
+    assert client.put(f"/api/policies/{version_data['id']}", headers=admin, json={**version_data, "items": [{
+        "id": "batch-min", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+        "params": {"min": 200}, "severity": "error", "enforce": "hard", "description": "摘要不少于 200 字",
+    }]}).status_code == 200
+    assert client.post(f"/api/policies/{version_data['id']}/publish", headers=admin).status_code == 200
+    upgraded = client.post(f"/api/policies/{version_data['id']}/upgrade-projects", headers=admin, json={"reason": "批量切换新版本"})
+    assert upgraded.status_code == 200, upgraded.text
+    assert old_project.json()["id"] in upgraded.json()["upgraded"]
+    current = client.get(f"/api/projects/{old_project.json()['id']}", headers=admin)
+    assert current.json()["requirement_snapshot"]["policy_sets"][0]["version"] == "2"
+
+
+def test_college_admin_can_manage_scoped_policy_but_not_template():
+    admin = _admin_headers()
+    suffix = uuid.uuid4().hex[:8]
+    school_id, college_id = f"scope-school-{suffix}", f"scope-college-{suffix}"
+    assert client.post("/api/organizations", headers=admin, json={"id": school_id, "name": "权限大学", "type": "school"}).status_code == 201
+    assert client.post("/api/organizations", headers=admin, json={"id": college_id, "name": "权限学院", "type": "college", "parent_id": school_id}).status_code == 201
+    teacher_username = f"college-admin-{suffix}"
+    registered = client.post("/api/auth/register", json={"username": teacher_username, "password": "TeacherPassword123", "display_name": "学院管理员", "role": "teacher"})
+    assert registered.status_code == 201
+    teacher_id = registered.json()["id"]
+    assert client.put(f"/api/auth/admin/users/{teacher_id}/role-status", headers=admin, json={"role": "college_admin", "status": "active"}).status_code == 200
+    assert client.put(f"/api/organizations/users/{teacher_id}/context", headers=admin, json={"organization_context": {"school_id": school_id, "college_id": college_id}}).status_code == 200
+    college_admin = _login(teacher_username, "TeacherPassword123")
+    policy = client.post("/api/policies", headers=college_admin, json={
+        "name": "学院补充规范", "level": "college", "version": "1", "status": "draft",
+        "bindings": [{"id": f"binding-{suffix}", "scope_type": "college", "scope_id": college_id}],
+        "items": [{"id": "college-method", "type": "manual", "target": "document", "description": "学院人工确认项"}],
+    })
+    assert policy.status_code == 201, policy.text
+    major_id = f"scope-major-{suffix}"
+    assert client.post("/api/organizations", headers=admin, json={"id": major_id, "name": "权限专业", "type": "major", "parent_id": college_id}).status_code == 201
+    descendant_policy = client.post("/api/policies", headers=college_admin, json={
+        "name": "专业补充规范", "level": "major", "version": "1", "status": "draft",
+        "bindings": [{"id": f"major-binding-{suffix}", "scope_type": "major", "scope_id": major_id}],
+        "items": [{"id": "major-review", "type": "manual", "target": "document", "description": "专业人工确认项"}],
+    })
+    assert descendant_policy.status_code == 201, descendant_policy.text
+    assert client.post(f"/api/policies/{descendant_policy.json()['id']}/publish", headers=college_admin).status_code == 200
+    outside = client.post("/api/policies", headers=college_admin, json={
+        "name": "越界规范", "level": "college", "version": "1", "status": "draft",
+        "bindings": [{"id": f"outside-binding-{suffix}", "scope_type": "college", "scope_id": "college-b"}],
+    })
+    assert outside.status_code == 403
+    template = client.get("/api/templates/default-gb7713", headers=admin)
+    assert template.status_code == 200
+    assert client.post("/api/templates", headers=college_admin, json=template.json()).status_code == 403
+
+
+def test_requirement_dispute_is_reviewable_without_bypassing_automatic_gate():
+    admin = _admin_headers()
+    suffix = uuid.uuid4().hex[:8]
+    student_id, student = _new_student(suffix)
+    policy_id = f"dispute-policy-{suffix}"
+    policy = _policy(admin, policy_id=policy_id, items=[{
+        "id": "disputed-abstract", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+        "params": {"min": 100}, "severity": "error", "enforce": "hard", "description": "摘要不少于 100 字",
+    }])
+    template = client.get("/api/templates/default-gb7713", headers=admin).json()
+    template.update({"id": f"dispute-template-{suffix}", "name": "申诉测试模板", "requirement_set_ids": [policy_id]})
+    assert client.post("/api/templates", headers=admin, json=template).status_code == 201
+    project = client.post(f"/api/projects", headers=student, json={"template_id": template["id"], "title": "申诉项目"})
+    assert project.status_code == 201, project.text
+    project_id = project.json()["id"]
+    dispute = client.post(
+        f"/api/projects/{project_id}/requirements/disputed-abstract/dispute",
+        headers=student, json={"reason": "该项目摘要需按特殊格式提交，请人工复核"},
+    )
+    assert dispute.status_code == 201, dispute.text
+    duplicate = client.post(
+        f"/api/projects/{project_id}/requirements/disputed-abstract/dispute",
+        headers=student, json={"reason": "重复申诉"},
+    )
+    assert duplicate.status_code == 409
+    decision = client.post(
+        f"/api/projects/{project_id}/requirements/disputes/{dispute.json()['id']}/decision",
+        headers=admin, json={"status": "accepted", "review_note": "已记录人工处理结论"},
+    )
+    assert decision.status_code == 200, decision.text
+    assert decision.json()["status"] == "accepted"
+    listed = client.get(f"/api/projects/{project_id}/requirements/disputes", headers=student)
+    assert listed.status_code == 200
+    assert listed.json()[0]["status"] == "accepted"
+    report = client.get(f"/api/projects/{project_id}/check", headers=student)
+    assert report.status_code == 200
+    assert report.json()["summary"]["hard_failures"] >= 1
+    assert student_id
+
+
+def test_rule_pack_parameters_are_frozen_and_applied_to_project_checks():
+    admin = _admin_headers()
+    suffix = uuid.uuid4().hex[:8]
+    policy = _policy(admin, policy_id=f"pack-policy-{suffix}", items=[{
+        "id": "body-spacing-override", "type": "auto", "target": "document",
+        "checker": "references.format", "params": {}, "severity": "warning", "enforce": "soft",
+        "description": "参考文献格式规则包参数化",
+        "rule_pack_id": "GB-T-7713-1-2006",
+        "rule_pack_params": {
+            "PG-BODY-LINE-SPACING": {
+                "when": {"!=": [{"var": "line_spacing"}, 2.0]},
+            },
+        },
+    }])
+    template = client.get("/api/templates/default-gb7713", headers=admin).json()
+    template.update({"id": f"pack-template-{suffix}", "name": "规则包参数化模板", "requirement_set_ids": [policy["id"]]})
+    assert client.post("/api/templates", headers=admin, json=template).status_code == 201
+    project = client.post("/api/projects", headers=admin, json={"template_id": template["id"], "title": "规则包参数化项目"})
+    assert project.status_code == 201, project.text
+    snapshot = project.json()["requirement_snapshot"]
+    assert snapshot["rule_pack_overrides"]["GB-T-7713-1-2006"]["PG-BODY-LINE-SPACING"]
+    project_id = project.json()["id"]
+    content = client.put(f"/api/projects/{project_id}/section/ch1", headers=admin, json={
+        "paragraphs": [{"id": "ch1-p1", "text": "正文内容"}],
+    })
+    assert content.status_code == 200, content.text
+    report = client.get(f"/api/projects/{project_id}/check", headers=admin)
+    assert report.status_code == 200, report.text
+    assert any(item["rule_id"] == "PG-BODY-LINE-SPACING" for item in report.json()["findings"])
+
+
+def test_unbound_school_policy_is_global_but_college_admin_cannot_create_global_scope():
+    admin = _admin_headers()
+    suffix = uuid.uuid4().hex[:8]
+    policy = _policy(admin, policy_id=f"global-school-{suffix}", scope_id="", items=[{
+        "id": "global-manual", "type": "manual", "target": "document",
+        "checker": "", "params": {}, "severity": "info", "enforce": "soft",
+        "description": "全校人工确认项",
+    }])
+    student_id, student = _new_student(suffix)
+    project = client.post("/api/projects", headers=student, json={"template_id": "default-gb7713", "title": "全校规范项目"})
+    assert project.status_code == 201, project.text
+    assert any(item["id"] == policy["id"] for item in project.json()["requirement_snapshot"]["policy_sets"])
+
+    school_id, college_id = f"global-school-org-{suffix}", f"global-college-org-{suffix}"
+    assert client.post("/api/organizations", headers=admin, json={"id": school_id, "name": "全局大学", "type": "school"}).status_code == 201
+    assert client.post("/api/organizations", headers=admin, json={"id": college_id, "name": "全局学院", "type": "college", "parent_id": school_id}).status_code == 201
+    username = f"global-college-admin-{suffix}"
+    registered = client.post("/api/auth/register", json={"username": username, "password": "TeacherPassword123", "display_name": "学院管理员", "role": "teacher"})
+    assert registered.status_code == 201
+    college_admin_id = registered.json()["id"]
+    assert client.put(f"/api/auth/admin/users/{college_admin_id}/role-status", headers=admin, json={"role": "college_admin", "status": "active"}).status_code == 200
+    assert client.put(f"/api/organizations/users/{college_admin_id}/context", headers=admin, json={"organization_context": {"school_id": school_id, "college_id": college_id}}).status_code == 200
+    college_admin = _login(username, "TeacherPassword123")
+    denied = client.post("/api/policies", headers=college_admin, json={
+        "name": "学院越权全局规范", "level": "college", "version": "1", "status": "draft",
+        "bindings": [{"id": f"global-binding-{suffix}", "scope_type": "global", "scope_id": ""}],
+    })
+    assert denied.status_code == 403
+    assert student_id

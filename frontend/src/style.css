@@ -120,7 +120,7 @@ header {
 }
 
 .header-inner {
-  max-width: 1120px;
+  max-width: 1440px;
   width: 100%;
   margin: 0 auto;
   display: flex;
@@ -233,10 +233,10 @@ header {
 
 /* 主容器 */
 main {
-  max-width: 1040px;
+  max-width: 1440px;
   width: 100%;
   margin: 0 auto;
-  padding: 0 16px 40px;
+  padding: 0 24px 40px;
 }
 
 /* 卡片规范 */

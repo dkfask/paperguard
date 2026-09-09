@@ -95,6 +95,36 @@ def _compact(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
 
 
+def _visible_paragraph_text(paragraph) -> str:
+    """读取 Word 段落的可见文本, 排除目录页码等域代码及域结果。
+
+    Word 标题后经常带有 ``PAGEREF`` 域。直接遍历 ``w:t`` 会把域结果的
+    页码拼进标题, 导致导入后的章节名变成“第1章 绪论1”。
+    """
+    parts: list[str] = []
+    in_field = False
+    for element in paragraph.iter():
+        tag = element.tag
+        if tag == qn("w:fldSimple") or any(
+                ancestor.tag == qn("w:fldSimple")
+                for ancestor in element.iterancestors()):
+            continue
+        if tag == qn("w:fldChar"):
+            field_type = element.get(qn("w:fldCharType"))
+            if field_type == "begin":
+                in_field = True
+            elif field_type == "end":
+                in_field = False
+            continue
+        if in_field or tag == qn("w:instrText"):
+            continue
+        if tag == qn("w:t"):
+            parts.append(element.text or "")
+        elif tag == qn("w:tab"):
+            parts.append("\t")
+    return "".join(parts)
+
+
 def import_template_styles(docx_path: str | Path) -> dict:
     """从 docx 抽取并映射为模板样式配置。
 
@@ -607,7 +637,7 @@ def extract_cover_blocks(docx_path: str | Path) -> list[CoverBlock]:
             continue
         if child.tag != qn("w:p"):
             continue
-        text = "".join(child.itertext()).strip()
+        text = _visible_paragraph_text(child).strip()
         style_id = _paragraph_style_id(child)
         probe = ParaSample(index=0, text=text, style_id=style_id)
         if _is_content_start(probe, _style_key(style_id, id_to_name)):
@@ -660,6 +690,9 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
         if "word/document.xml" not in zf.namelist():
             return []
         root = parse_xml(zf.read("word/document.xml"))
+        styles_el = load_part(zf, "word/styles.xml")
+
+    id_to_name = style_id_to_name(styles_el) if styles_el is not None else {}
 
     body = root.find(f"{{{W}}}body")
     if body is None:
@@ -668,6 +701,7 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
     # 收集 (style_id, text), 同时支持正文中的中文/数字章节标题。
     items: list[tuple[str, str]] = []
     toc_style_ids = {"TOC1", "TOC2", "TOC3", "TOC4", "TOC5", "TOC6", "TOC7", "TOC8", "TOC9", "toc 1", "toc 2", "toc 3"}
+    in_toc = False
     for p in body.iter(f"{{{W}}}p"):
         style_id = None
         ppr = p.find(f"{{{W}}}pPr")
@@ -675,13 +709,19 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
             pstyle = ppr.find(f"{{{W}}}pStyle")
             if pstyle is not None:
                 style_id = pstyle.get(f"{{{W}}}val")
-        if style_id in toc_style_ids:
+        style_name = id_to_name.get(style_id or "", "")
+        if style_id in toc_style_ids or _is_toc_style(style_name):
             continue
-        text = "".join(t.text or "" for t in p.iter(f"{{{W}}}t")).strip()
+        raw_text = _visible_paragraph_text(p)
+        text = raw_text.strip()
         if not text:
             continue
         compact = re.sub(r"\s+", "", text)
         lower = compact.lower()
+        # 部分模板把目录条目也保存为普通 Heading 样式。目录页码前的
+        # 制表符是它与正文同名标题之间可靠的结构边界。
+        if in_toc and "\t" in raw_text:
+            continue
         if compact in {"摘要", "中文摘要"}:
             items.append(("special-abstract", text))
         elif lower in {"abstract", "englishabstract", "英文摘要", "abstractenglish"}:
@@ -691,14 +731,19 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
             continue
         elif compact in {"目录", "toc", "contents", "tableofcontents"} or lower in {"toc", "contents", "tableofcontents"} or style_id == "TOCHeading":
             items.append(("special-toc", text))
+            in_toc = True
         elif compact == "参考文献":
             items.append(("special-references", text))
         elif compact in {"致谢", "谢辞"}:
             items.append(("special-acknowledgement", text))
         elif compact == "附录":
             items.append(("special-appendix", text))
-        elif style_id in _HEADING_STYLE_IDS:
-            items.append((style_id, text))
+        elif style_id in _HEADING_STYLE_IDS or _norm(style_name) in {
+                "heading1", "heading2", "heading3",
+                "标题1", "标题2", "标题3"}:
+            # 用显示名参与后续层级判断。中文模板经常使用 2/17 这类
+            # 内部 styleId, 不能把它们直接当成标题级别。
+            items.append((style_name or style_id, text))
         elif re.match(r"^(第\s*[0-9一二三四五六七八九十百]+\s*[章节]|\d+(?:\.\d+){1,2}\s*\S+)", text, re.I):
             items.append(("text-heading", text))
 
@@ -732,12 +777,12 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
             })
             continue
 
-        normalized = style_id.replace(" ", "")
-        if normalized in {"1", "Heading1", "标题1"}:
+        normalized = style_id.replace(" ", "").lower()
+        if normalized in {"1", "heading1", "标题1"}:
             level = 1
-        elif normalized in {"2", "Heading2", "标题2"}:
+        elif normalized in {"2", "heading2", "标题2"}:
             level = 2
-        elif normalized in {"3", "Heading3", "标题3"}:
+        elif normalized in {"3", "heading3", "标题3"}:
             level = 3
         elif style_id == "text-heading":
             level = 1 if re.match(r"^第\s*[0-9一二三四五六七八九十百]+\s*[章节]", text) else 2

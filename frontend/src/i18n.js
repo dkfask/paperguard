@@ -23,10 +23,11 @@ export function useI18n() {
 export const translations = {
   zh: {
     // 导航
-    brandTagline: '毕业论文格式合规引擎',
-    navDashboard: '排版检查',
+    brandTagline: '毕业论文写作工作台',
     navProjects: '我的论文',
+    navWriting: '写作规范',
     navStandards: '模板规范',
+    navDashboard: '格式检查',
     navTeacher: '👨‍🎓 指导学生',
     navUserAdmin: '👥 用户认证',
     navAdminAi: '⚙️ 默认模型',
@@ -84,7 +85,7 @@ export const translations = {
 
     // 我的论文
     myThesesTitle: '我的论文项目',
-    myThesesSub: '所有在线撰写的毕业论文均自动与选定高校模板格式实时绑定与合规体检。',
+    myThesesSub: '集中管理论文草稿、章节结构与写作依据，随时回到上次编辑位置。',
     templateLabel: '基于模板：',
     thesisTitlePlaceholder: '输入论文题目，例如：基于深度学习的高校排版引擎设计',
     newThesisBtn: '新建论文',
@@ -102,10 +103,11 @@ export const translations = {
   },
   en: {
     // Nav
-    brandTagline: 'Thesis Formatting Engine',
-    navDashboard: 'Dashboard',
+    brandTagline: 'Academic Thesis Writing Workspace',
     navProjects: 'My Theses',
-    navStandards: 'Standards',
+    navWriting: 'Writing Standards',
+    navStandards: 'Template Standards',
+    navDashboard: 'Format Check',
     navTeacher: '👨‍🎓 Students',
     navUserAdmin: '👥 Users',
     navAdminAi: '⚙️ AI Model',
@@ -163,7 +165,7 @@ export const translations = {
 
     // My Theses
     myThesesTitle: 'My Theses Workstation',
-    myThesesSub: 'All online theses are bound in real-time to institutional templates with live compliance checking.',
+    myThesesSub: 'Keep drafts, chapter structure, and writing guidance together so you can resume exactly where you left off.',
     templateLabel: 'Template: ',
     thesisTitlePlaceholder: 'Enter thesis title, e.g.: Design and Implementation of IoT System',
     newThesisBtn: 'New Thesis',

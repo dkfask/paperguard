@@ -122,6 +122,130 @@ export async function fetchTemplates() {
   return resp.json()
 }
 
+export async function fetchPolicies() {
+  const resp = await api(`${API_BASE}/policies`)
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '获取写作规范失败'))
+  }
+  return resp.json()
+}
+
+export async function fetchPolicy(id) {
+  const resp = await api(`${API_BASE}/policies/${id}`)
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '获取写作规范失败'))
+  }
+  return resp.json()
+}
+
+export async function savePolicy(policy, isNew = false) {
+  const url = isNew ? `${API_BASE}/policies` : `${API_BASE}/policies/${policy.id}`
+  const resp = await api(url, {
+    method: isNew ? 'POST' : 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(policy),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '保存写作规范失败'))
+  }
+  return resp.json()
+}
+
+export async function publishPolicy(id) {
+  const resp = await api(`${API_BASE}/policies/${id}/publish`, { method: 'POST' })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '发布写作规范失败'))
+  }
+  return resp.json()
+}
+
+export async function archivePolicy(id) {
+  const resp = await api(`${API_BASE}/policies/${id}/archive`, { method: 'POST' })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '停用写作规范失败'))
+  }
+  return resp.json()
+}
+
+export async function upgradePolicyProjects(id, payload = {}) {
+  const resp = await api(`${API_BASE}/policies/${id}/upgrade-projects`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '批量升级项目规范失败'))
+  return resp.json()
+}
+
+export async function submitPolicyReview(id) {
+  const resp = await api(`${API_BASE}/policies/${id}/submit-review`, { method: 'POST' })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '提交规范审核失败'))
+  }
+  return resp.json()
+}
+
+export async function createPolicyVersion(id, payload) {
+  const resp = await api(`${API_BASE}/policies/${id}/versions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '创建规范新版本失败'))
+  }
+  return resp.json()
+}
+
+export async function diffPolicy(id, against = '') {
+  const query = against ? `?against=${encodeURIComponent(against)}` : ''
+  const resp = await api(`${API_BASE}/policies/${id}/diff${query}`)
+  if (!resp.ok) throw new Error('获取规范差异失败')
+  return resp.json()
+}
+
+export async function addPolicyBinding(id, binding) {
+  const resp = await api(`${API_BASE}/policies/${id}/bindings`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(binding),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '添加规范绑定失败'))
+  return resp.json()
+}
+
+export async function deletePolicyBinding(id, bindingId) {
+  const resp = await api(`${API_BASE}/policies/${id}/bindings/${bindingId}`, { method: 'DELETE' })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '删除规范绑定失败'))
+  return resp.json()
+}
+
+export async function uploadPolicyDocument(id, file) {
+  const form = new FormData(); form.append('file', file)
+  const resp = await api(`${API_BASE}/policies/${id}/documents`, { method: 'POST', body: form })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '上传规范文档失败'))
+  return resp.json()
+}
+
+export async function deletePolicyDocument(id, documentId) {
+  const resp = await api(`${API_BASE}/policies/${id}/documents/${documentId}`, { method: 'DELETE' })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '删除规范文档失败'))
+  return resp.json()
+}
+
+export async function downloadPolicyDocument(id, documentId, fallbackName = 'requirement-document') {
+  const resp = await api(`${API_BASE}/policies/${id}/documents/${documentId}`)
+  if (!resp.ok) throw new Error('下载规范文档失败')
+  await downloadBlob(resp, fallbackName)
+}
+
+export async function policyAudit(id) {
+  const resp = await api(`${API_BASE}/policies/${id}/audit`)
+  if (!resp.ok) throw new Error('获取规范审计记录失败')
+  return resp.json()
+}
+
 export async function fetchTemplate(id) {
   const resp = await api(`${API_BASE}/templates/${id}`)
   if (!resp.ok) throw new Error('获取模板失败')
@@ -271,9 +395,122 @@ export async function switchProjectTemplate(projectId, templateId) {
 }
 
 
-export async function checkProject(projectId, pack = 'GB-T-7713-1-2006') {
-  const resp = await api(`${API_BASE}/projects/${projectId}/check?pack=${encodeURIComponent(pack)}`)
-  if (!resp.ok) throw new Error('检查失败')
+export async function checkProject(projectId, pack = null) {
+  const query = pack ? `?pack=${encodeURIComponent(pack)}` : ''
+  const resp = await api(`${API_BASE}/projects/${projectId}/check${query}`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '检查失败'))
+  return resp.json()
+}
+
+export async function listProjectCheckRuns(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/check-runs`)
+  if (!resp.ok) throw new Error('获取检查历史失败')
+  return resp.json()
+}
+
+export async function previewRequirementUpgrade(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/upgrade-preview`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '获取规范升级预览失败'))
+  return resp.json()
+}
+
+export async function upgradeRequirements(projectId, payload) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/upgrade`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({}))
+    throw new Error(detailMessage(detail, '应用规范升级失败'))
+  }
+  return resp.json()
+}
+
+export async function listRequirementWaivers(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/waivers`)
+  if (!resp.ok) throw new Error('获取豁免记录失败')
+  return resp.json()
+}
+
+export async function requestRequirementWaiver(projectId, itemId, payload) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/${itemId}/waiver`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '提交豁免申请失败'))
+  return resp.json()
+}
+
+export async function decideRequirementWaiver(projectId, waiverId, payload) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/waivers/${waiverId}/decision`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '审核豁免失败'))
+  return resp.json()
+}
+
+export async function listRequirementDisputes(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/disputes`)
+  if (!resp.ok) throw new Error('获取申诉记录失败')
+  return resp.json()
+}
+
+export async function requestRequirementDispute(projectId, itemId, payload) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/${itemId}/dispute`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '提交申诉失败'))
+  return resp.json()
+}
+
+export async function decideRequirementDispute(projectId, disputeId, payload) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/disputes/${disputeId}/decision`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '审核申诉失败'))
+  return resp.json()
+}
+
+export async function acknowledgeRequirements(projectId, snapshotHash = '') {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/acknowledge`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot_hash: snapshotHash }),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '确认规范失败'))
+  return resp.json()
+}
+
+export async function assistRequirement(projectId, itemId, question = '') {
+  const resp = await api(`${API_BASE}/projects/${projectId}/requirements/${itemId}/assist`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), 'AI 辅助检查失败'))
+  return resp.json()
+}
+
+export async function fetchOrganizations() {
+  const resp = await api(`${API_BASE}/organizations`)
+  if (!resp.ok) throw new Error('获取组织列表失败')
+  return resp.json()
+}
+
+export async function saveOrganization(unit, isNew = false) {
+  const resp = await api(`${API_BASE}/organizations${isNew ? '' : '/' + unit.id}`, {
+    method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(unit),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '保存组织失败'))
+  return resp.json()
+}
+
+export async function deleteOrganization(id) {
+  const resp = await api(`${API_BASE}/organizations/${id}`, { method: 'DELETE' })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '删除组织失败'))
+  return resp.json()
+}
+
+export async function updateUserOrganizationContext(userId, organizationContext) {
+  const resp = await api(`${API_BASE}/organizations/users/${userId}/context`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ organization_context: organizationContext }),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '设置用户组织作用域失败'))
   return resp.json()
 }
 
@@ -492,5 +729,3 @@ export async function unbindTeacherStudent(studentId) {
   }
   return resp.json()
 }
-
-

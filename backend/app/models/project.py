@@ -62,6 +62,14 @@ class WritingProject(BaseModel):
     owner_id: str = ""             # 归属用户 (空 = 旧数据, 视为公开/管理员)
     revision: int = Field(default=0, ge=0)
     template_snapshot: dict | None = None
+    requirement_snapshot: dict | None = None  # 项目创建时冻结的有效规范与版本
+    organization_context: dict[str, str] = {}  # school/college/major/batch/course 等作用域
+    stage: str = ""
+    waivers: list[dict] = []
+    requirement_disputes: list[dict] = []
+    requirement_acknowledgements: list[dict] = []
+    requirement_upgrades: list[dict] = []
+    check_run_ids: list[str] = []
     meta: dict[str, str] = {}          # 封面字段值 key -> value
     sections: list[ProjectSection] = []
     allow_structure_edit: bool = True  # 是否允许学生修改整体论文的框架

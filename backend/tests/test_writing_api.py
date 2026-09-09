@@ -113,7 +113,7 @@ def test_bilingual_abstract_keywords_project_sections():
     assert "toc" not in keys
 
 
-def test_create_project_instantiates_sections():
+def _create_project_instantiates_sections():
     resp = client.post("/api/projects", json={
         "template_id": "default-gb7713", "title": "我的论文",
     })
@@ -129,8 +129,13 @@ def test_create_project_instantiates_sections():
     return proj["id"]
 
 
+def test_create_project_instantiates_sections():
+    """创建项目时应实例化模板章节树。"""
+    _create_project_instantiates_sections()
+
+
 def test_update_section_content():
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     # 给摘要节写内容
     resp = client.put(f"/api/projects/{proj_id}/section/abstract", json={
         "title": "摘要",
@@ -149,7 +154,7 @@ def test_update_section_content():
 
 def test_section_revision_conflict_does_not_overwrite():
     """旧编辑器快照不能覆盖已经保存的新内容。"""
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     initial = client.get(f"/api/projects/{proj_id}").json()
     assert initial["revision"] == 0
 
@@ -175,7 +180,7 @@ def test_section_revision_conflict_does_not_overwrite():
 
 def test_project_update_cannot_change_owner_or_template():
     """项目更新 DTO 不允许客户端篡改归属和模板绑定。"""
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     before = client.get(f"/api/projects/{proj_id}").json()
     resp = client.put(f"/api/projects/{proj_id}", json={
         "title": "新标题",
@@ -192,7 +197,7 @@ def test_project_update_cannot_change_owner_or_template():
 
 
 def test_update_meta():
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     resp = client.put(f"/api/projects/{proj_id}/meta", json={
         "meta": {"author": "张三", "title": "基于XX的研究"},
     })
@@ -201,7 +206,7 @@ def test_update_meta():
 
 
 def test_export_docx():
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     client.put(f"/api/projects/{proj_id}/section/abstract", json={
         "title": "摘要",
         "paragraphs": [{"id": "p1", "text": "这是摘要内容。"}],
@@ -494,7 +499,7 @@ def _make_image_png() -> bytes:
 
 
 def test_upload_rejects_fake_image():
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     resp = client.post(
         f"/api/projects/{proj_id}/images",
         files={"file": ("fake.png", b"<html>not image</html>", "image/png")},
@@ -503,7 +508,7 @@ def test_upload_rejects_fake_image():
 
 
 
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     resp = client.post(
         f"/api/projects/{proj_id}/images",
         files={"file": ("fig1.png", _make_image_png(), "image/png")},
@@ -518,7 +523,7 @@ def test_upload_rejects_fake_image():
 
 
 def test_save_image_and_table_blocks():
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     img = client.post(
         f"/api/projects/{proj_id}/images",
         files={"file": ("fig1.png", _make_image_png(), "image/png")},
@@ -547,7 +552,7 @@ def test_export_docx_with_image_and_table():
     import io
     import docx as docx_lib
 
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     img = client.post(
         f"/api/projects/{proj_id}/images",
         files={"file": ("fig1.png", _make_image_png(), "image/png")},
@@ -582,7 +587,7 @@ def test_removed_image_block_waits_for_orphan_cleanup():
     """删除图片块后先保留文件, 由孤儿回收统一清理。"""
     from pathlib import Path
 
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     img = client.post(
         f"/api/projects/{proj_id}/images",
         files={"file": ("fig1.png", _make_image_png(), "image/png")},
@@ -613,7 +618,7 @@ def test_delete_project_removes_images():
     """删除项目时, 该项目的所有图片文件一并删除。"""
     from pathlib import Path
 
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     img = client.post(
         f"/api/projects/{proj_id}/images",
         files={"file": ("fig1.png", _make_image_png(), "image/png")},
@@ -643,7 +648,7 @@ def test_cleanup_orphan_images():
     uploads = Path(__file__).resolve().parents[1] / "data" / "uploads"
 
     # 被引用图片
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     img = client.post(
         f"/api/projects/{proj_id}/images",
         files={"file": ("fig1.png", _make_image_png(), "image/png")},
@@ -667,7 +672,7 @@ def test_cleanup_orphan_images():
 
 def test_export_blocked_when_incomplete():
     """不完整的项目导出应返回 409 与缺失清单。"""
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     resp = client.post(f"/api/projects/{proj_id}/export")
     assert resp.status_code == 409
     detail = resp.json()["detail"]
@@ -677,9 +682,22 @@ def test_export_blocked_when_incomplete():
     assert any("第一章" in m for m in missing)        # 必填章节
 
 
+def test_export_validation_accepts_content_in_child_section():
+    """一级章节正文写在二级小节时, 不应重复提示一级章节未完成。"""
+    proj_id = _create_project_instantiates_sections()
+    client.put(f"/api/projects/{proj_id}/section/ch1_1", json={
+        "title": "1.1 研究背景与意义",
+        "paragraphs": [{"id": "p1", "text": "本节正文内容。"}],
+    })
+    resp = client.post(f"/api/projects/{proj_id}/export")
+    assert resp.status_code == 409
+    missing = resp.json()["detail"]["missing"]
+    assert not any("第一章" in item for item in missing)
+
+
 def test_export_force_skips_validation():
     """force=true 跳过必填校验。"""
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     resp = client.post(f"/api/projects/{proj_id}/export?force=true")
     assert resp.status_code == 200
     assert resp.content[:2] == b"PK"
@@ -690,7 +708,7 @@ def test_export_docx_has_toc_field_and_page_footer():
     import io
     import docx as docx_lib
 
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     client.put(f"/api/projects/{proj_id}/section/ch1", json={
         "title": "第一章 绪论",
         "paragraphs": [{"id": "p1", "type": "paragraph", "text": "正文内容。"}],
@@ -719,7 +737,7 @@ def test_export_docx_has_toc_field_and_page_footer():
 
 def test_update_project_sections_structure():
     """测试在写作中增删和调整章节结构。"""
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     # 增加新章节并删除非必要章节
     resp = client.put(f"/api/projects/{proj_id}/sections", json={
         "sections": [
@@ -743,7 +761,7 @@ def test_captions_auto_numbered():
     import io
     import docx as docx_lib
 
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     img = client.post(
         f"/api/projects/{proj_id}/images",
         files={"file": ("fig1.png", _make_image_png(), "image/png")},
@@ -779,7 +797,7 @@ def test_captions_auto_numbered():
 
 
 def test_project_template_check_uses_snapshot_and_context():
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     resp = client.get(f"/api/projects/{proj_id}/template-check")
     assert resp.status_code == 200, resp.text
     data = resp.json()
@@ -791,7 +809,7 @@ def test_project_template_check_uses_snapshot_and_context():
 
 def test_check_project_realtime():
     """写作项目实时检查: 正文加粗违规应被检出并定位到章节。"""
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     # 正文段落加粗 (规则要求正文不加粗)
     client.put(f"/api/projects/{proj_id}/section/ch1", json={
         "title": "第一章 绪论",
@@ -809,7 +827,7 @@ def test_check_project_realtime():
 
 def test_check_project_abstract_does_not_use_body_rules():
     """摘要不应被 GB/T 正文样式规则误报。"""
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     client.put(f"/api/projects/{proj_id}/section/abstract", json={
         "title": "摘要",
         "paragraphs": [{"id": "p1", "type": "paragraph", "text": "摘要内容。",
@@ -822,7 +840,7 @@ def test_check_project_abstract_does_not_use_body_rules():
 
 def test_check_empty_project_ok():
     """空项目检查不报错, 返回空结果。"""
-    proj_id = test_create_project_instantiates_sections()
+    proj_id = _create_project_instantiates_sections()
     resp = client.get(f"/api/projects/{proj_id}/check")
     assert resp.status_code == 200
     assert resp.json()["summary"]["total"] >= 0

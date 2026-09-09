@@ -11,6 +11,7 @@ from app.models.template import (
     SectionType,
     TemplateSection,
 )
+from app.services.policy_resolver import build_requirement_snapshot
 
 
 def default_template() -> PaperTemplate:
@@ -19,6 +20,8 @@ def default_template() -> PaperTemplate:
         id="default-gb7713",
         name="学位论文模板 (GB/T 7713)",
         description="内置默认模板: 封面 / 摘要 / 目录 / 正文 / 参考文献 / 致谢",
+        version="1",
+        rule_packs=["GB-T-7713-1-2006"],
         styles={k: v for k, v in DEFAULT_STYLES.items()},
         meta_fields=[
             MetaField(key="school", label="学校名称"),
@@ -74,7 +77,15 @@ def default_template() -> PaperTemplate:
     return tpl
 
 
-def create_project_from_template(store: Store, template: PaperTemplate) -> WritingProject:
+def create_project_from_template(
+    store: Store,
+    template: PaperTemplate,
+    *,
+    owner_id: str = "",
+    teacher_id: str | None = None,
+    organization_context: dict[str, str] | None = None,
+    stage: str = "",
+) -> WritingProject:
     """基于模板实例化写作项目: 展开章节树, 每节生成空段落容器。"""
     sections: list[ProjectSection] = []
 
@@ -96,15 +107,28 @@ def create_project_from_template(store: Store, template: PaperTemplate) -> Writi
     for root in template.sections:
         walk(root)
 
+    project_id = new_id("proj")
     return WritingProject(
-        id=new_id("proj"),
+        id=project_id,
         template_id=template.id,
         template_name=template.name,
         template_snapshot=template.model_dump(mode="json"),
+        requirement_snapshot=build_requirement_snapshot(
+            store,
+            template,
+            teacher_id=teacher_id,
+            student_id=owner_id,
+            organization_context=organization_context,
+            project_id=project_id,
+            stage=stage,
+        ),
         title=template.name,
         meta={f.key: "" for f in template.meta_fields},
         sections=sections,
         allow_structure_edit=getattr(template, "allow_structure_edit", True),
+        owner_id=owner_id,
+        organization_context=organization_context or {},
+        stage=stage,
     )
 
 

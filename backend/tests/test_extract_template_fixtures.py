@@ -16,7 +16,7 @@ from app.core.engine.loader import load_pack
 from app.core.extract import extract_template, requirements_to_pack
 
 
-FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "templates"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "templates"
 
 
 class TestFixtureIntegration(unittest.TestCase):

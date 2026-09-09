@@ -29,5 +29,5 @@ export function clearAuth() {
 }
 
 export function isManager() {
-  return !!auth.user && ['admin', 'teacher'].includes(auth.user.role)
+  return !!auth.user && ['admin', 'college_admin', 'teacher'].includes(auth.user.role)
 }

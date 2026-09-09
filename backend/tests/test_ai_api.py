@@ -135,6 +135,15 @@ def test_user_config_crud_and_priority(monkeypatch: pytest.MonkeyPatch):
     assert got["model"] == "my-model"
     assert got["api_key_masked"] == "***" + user_key[-4:]
 
+    # 查询不会回传明文密钥, 但更新 URL/模型时允许留空并沿用原密钥。
+    retained = stu.put("/api/ai/config", json={
+        "base_url": "http://my-llm.local/v1",
+        "api_key": "",
+        "model": "my-model",
+    })
+    assert retained.status_code == 200, retained.text
+    assert stu.get("/api/ai/config").json()["api_key_masked"] == "***" + user_key[-4:]
+
     status = stu.get("/api/ai/status").json()
     assert status["enabled"] is True
     assert status["source"] == "user"
@@ -264,9 +273,10 @@ def test_admin_ai_config_crud_and_permissions(monkeypatch):
     assert get_res.json()["configured"] is False
 
     # 3. 管理员保存默认模型
+    system_key = _gen_key()
     save_res = admin_client.put(
         "/api/ai/admin/config",
-        json={"base_url": "https://sys-ai.test.com/v1", "api_key": "sk-sys-secret-1234", "model": "sys-model-pro"},
+        json={"base_url": "https://sys-ai.test.com/v1", "api_key": system_key, "model": "sys-model-pro"},
     )
     assert save_res.status_code == 200
     assert save_res.json() == {"configured": True, "source": "database"}
@@ -277,7 +287,14 @@ def test_admin_ai_config_crud_and_permissions(monkeypatch):
     assert cur["source"] == "database"
     assert cur["base_url"] == "https://sys-ai.test.com/v1"
     assert cur["model"] == "sys-model-pro"
-    assert cur["api_key_masked"] == "***1234"
+    assert cur["api_key_masked"] == "***" + system_key[-4:]
+
+    retained = admin_client.put(
+        "/api/ai/admin/config",
+        json={"base_url": "https://sys-ai.test.com/v1", "api_key": "", "model": "sys-model-pro"},
+    )
+    assert retained.status_code == 200, retained.text
+    assert admin_client.get("/api/ai/admin/config").json()["api_key_masked"] == "***" + system_key[-4:]
 
     # 5. 学生在未配置个人 Key 的情况下，状态显示继承系统默认模型
     st_status = student_client.get("/api/ai/status").json()
@@ -300,12 +317,13 @@ def test_admin_ai_config_crud_and_permissions(monkeypatch):
     assert assist_res.json() == {"text": "管理员默认模型润色结果"}
     assert len(calls) == 1
     assert calls[0]["model"] == "sys-model-pro"
-    assert calls[0]["api_key"] == "sk-sys-secret-1234"
+    assert calls[0]["api_key"] == system_key
 
     # 7. 若学生配置了个人模型，学生优先走个人模型
+    user_key = _gen_key()
     student_client.put(
         "/api/ai/config",
-        json={"base_url": "https://user-ai.com/v1", "api_key": "sk-user-key", "model": "user-model"},
+        json={"base_url": "https://user-ai.com/v1", "api_key": user_key, "model": "user-model"},
     )
     student_client.post("/api/ai/assist", json={"action": "polish", "text": "再次润色"})
     assert calls[-1]["model"] == "user-model"
@@ -317,3 +335,49 @@ def test_admin_ai_config_crud_and_permissions(monkeypatch):
     after_del = admin_client.get("/api/ai/admin/config").json()
     assert after_del["configured"] is False
 
+
+def test_admin_ai_config_survives_relogin(monkeypatch):
+    """管理员配置落库后, 新会话仍可直接使用系统默认模型。"""
+    _clear_ai_env(monkeypatch)
+    admin_client = client
+    admin_client.delete("/api/ai/admin/config")
+
+    username = f"ai_relogin_{uuid.uuid4().hex[:8]}"
+    password = _gen_password()
+    assert client.post("/api/auth/register", json={
+        "username": username, "password": password,
+    }).status_code == 201
+    first_login = client.post("/api/auth/login", json={
+        "username": username, "password": password,
+    })
+    assert first_login.status_code == 200
+    first = TestClient(app)
+    first.headers.update({"Authorization": f"Bearer {first_login.json()['token']}"})
+
+    key = _gen_key()
+    assert admin_client.put("/api/ai/admin/config", json={
+        "base_url": "https://persisted-ai.test/v1", "api_key": key, "model": "persisted-model",
+    }).status_code == 200
+    assert first.get("/api/ai/status").json() == {
+        "enabled": True, "source": "system", "model": "persisted-model",
+    }
+
+    assert first.post("/api/auth/logout").status_code == 200
+    second_login = client.post("/api/auth/login", json={
+        "username": username, "password": password,
+    })
+    assert second_login.status_code == 200
+    second = TestClient(app)
+    second.headers.update({"Authorization": f"Bearer {second_login.json()['token']}"})
+    assert second.get("/api/ai/status").json() == {
+        "enabled": True, "source": "system", "model": "persisted-model",
+    }
+
+    captured = {}
+    monkeypatch.setattr(ai_module, "_chat_completion", lambda cfg, messages, temperature: captured.update(cfg) or "ok")
+    response = second.post("/api/ai/assist", json={"action": "polish", "text": "登录后继续写作"})
+    assert response.status_code == 200
+    assert captured["api_key"] == key
+    assert captured["model"] == "persisted-model"
+
+    admin_client.delete("/api/ai/admin/config")
