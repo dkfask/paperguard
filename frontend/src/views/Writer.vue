@@ -1375,6 +1375,7 @@ async function runOneClickFix() {
     await flushPendingSaves()
     const result = await fixProject(projectId, project.value.revision)
     project.value = result.project
+    if (result.project.template_snapshot) template.value = result.project.template_snapshot
     checkResult.value = result.report
     checkStale.value = false
     checkOpen.value = true

@@ -582,9 +582,12 @@ def fix_project(proj_id: str, req: ProjectFixRequest,
 
     from app.services.project_check import apply_project_fixes, check_project as run_check
     report = run_check(proj, tpl, store=None, performed_by=user["id"])
-    fixed_count, fixed_rule_ids = apply_project_fixes(proj, report)
+    fixed_count, fixed_rule_ids = apply_project_fixes(proj, report, template=tpl)
 
     if fixed_count:
+        # Formatting fixes can update the project-bound template rather than a
+        # content block; persist both through the same revision-checked write.
+        proj.template_snapshot = tpl.model_dump(mode="json")
         saved = store.update_project_if_revision(proj, expected_revision)
         if saved is None:
             raise HTTPException(

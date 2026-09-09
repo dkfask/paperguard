@@ -15,7 +15,7 @@ from app.core.ir import Document, DocumentMetadata, Paragraph, Run
 from app.db import Store, new_id
 from app.models.policy import CheckRun
 from app.models.project import WritingProject
-from app.models.template import PaperTemplate, SectionType
+from app.models.template import PaperTemplate, SectionType, TextStyle
 from app.services.requirement_check import check_requirements
 
 # 模板节类型 → 检查引擎 style_id
@@ -34,7 +34,21 @@ _STYLE_ID = {
 }
 
 
-def project_to_ir(project: WritingProject, template: PaperTemplate, *, include_block_ids: bool = False):
+_HEADING_TYPES = {"heading1", "heading2", "heading3"}
+
+
+def _style_key_for(stype: str, template: PaperTemplate) -> str:
+    """Return the actual template style key used when building a paragraph."""
+    if stype in template.styles:
+        return stype
+    if stype in _HEADING_TYPES and "heading1" in template.styles:
+        return "heading1"
+    return "body"
+
+
+def project_to_ir(project: WritingProject, template: PaperTemplate, *,
+                  include_block_ids: bool = False,
+                  include_style_keys: bool = False):
     """项目 → IR Document, 同时返回 IR 段落索引 → 章节 key 的映射表。
 
     run 的字体属性按模板样式填充, 避免"模板未设置"被误报为违规。
@@ -42,6 +56,7 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *, include_b
     paragraphs: list[Paragraph] = []
     index_to_section: list[str] = []
     index_to_block: list[str | None] = []
+    index_to_style: list[str] = []
     proj_map = {s.key: s for s in project.sections}
     table_no = 0
 
@@ -58,9 +73,11 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *, include_b
                 paragraphs.append(_heading_par(sec.title, stype, template))
                 index_to_section.append(sec.key)
                 index_to_block.append(None)
+                index_to_style.append(_style_key_for(stype, template))
             stype = "body"
 
         body_style = template.styles.get(stype) or template.styles.get("body")
+        body_style_key = _style_key_for(stype, template)
         style_id = {
             "abstract": "AbstractBody",
             "references": "Bibliography",
@@ -75,6 +92,7 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *, include_b
                 paragraphs.append(_body_par(par.text, par, template, body_style, style_id))
                 index_to_section.append(sec.key)
                 index_to_block.append(par.id)
+                index_to_style.append(body_style_key)
             elif par.type.value == "table" and par.table:
                 for r, row in enumerate(par.table.cells):
                     for c, cell in enumerate(row):
@@ -82,6 +100,7 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *, include_b
                             paragraphs.append(_cell_par(str(cell), table_no, r, c, template))
                             index_to_section.append(sec.key)
                             index_to_block.append(None)
+                            index_to_style.append("table_cell" if "table_cell" in template.styles else "body")
                 table_no += 1
             # 图片块跳过(无文本检查项)
 
@@ -96,6 +115,8 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *, include_b
         paragraphs=tuple(paragraphs),
         metadata=DocumentMetadata(title=project.title),
     )
+    if include_style_keys:
+        return ir, index_to_section, index_to_block, index_to_style
     if include_block_ids:
         return ir, index_to_section, index_to_block
     return ir, index_to_section
@@ -133,7 +154,9 @@ def check_project(project: WritingProject, template: PaperTemplate,
                   performed_by: str = "") -> dict:
     """运行模板格式 + 项目规范检查，返回统一、带来源的报告。"""
     started = time.perf_counter()
-    ir, index_to_section, index_to_block = project_to_ir(project, template, include_block_ids=True)
+    ir, index_to_section, index_to_block, index_to_style = project_to_ir(
+        project, template, include_block_ids=True, include_style_keys=True,
+    )
     snapshot = project.requirement_snapshot or {}
     pack_ids = [pack] if pack else list(dict.fromkeys(
         (snapshot.get("rule_packs") or template.rule_packs or ["GB-T-7713-1-2006"])
@@ -162,6 +185,7 @@ def check_project(project: WritingProject, template: PaperTemplate,
                     "text_snippet": f.location.text_snippet,
                     "section_key": None,
                     "block_id": None,
+                    "style_key": None,
                 },
                 "actual": f.actual,
                 "expected": f.expected,
@@ -181,6 +205,7 @@ def check_project(project: WritingProject, template: PaperTemplate,
                 item["section_key"] = index_to_section[idx]
                 item["location"]["section_key"] = index_to_section[idx]
                 item["location"]["block_id"] = index_to_block[idx]
+                item["location"]["style_key"] = index_to_style[idx]
             result.append(item)
 
     policy_sources = snapshot.get("policy_sets", [])
@@ -292,10 +317,76 @@ _PROJECT_FIX_TARGETS = {
 }
 
 
-def apply_project_fixes(project: WritingProject, report: dict) -> tuple[int, list[str]]:
-    """Apply only safe inline-format fixes that belong to writing content blocks."""
+_TEMPLATE_FIX_TARGETS = {
+    "paragraph.line_spacing": "line_spacing",
+    "paragraph.first_line_indent_cm": "first_line_indent_chars",
+    "paragraph.alignment": "align",
+    "paragraph.space_before_pt": "space_before_pt",
+    "paragraph.space_after_pt": "space_after_pt",
+    "paragraph.is_page_break_before": "page_break_before",
+    "paragraph.page_break_before": "page_break_before",
+    "runs.*.font_eastasia": "font_zh",
+    "run.font_eastasia": "font_zh",
+    "runs.*.font_ascii": "font_en",
+    "run.font_ascii": "font_en",
+    "runs.*.font_hansi": "font_en",
+    "run.font_hansi": "font_en",
+    "runs.*.font_size_pt": "size_pt",
+    "run.font_size_pt": "size_pt",
+    "runs.*.color_hex": "color",
+    "run.color_hex": "color",
+}
+
+
+def _template_fix_value(target: str, value):
+    """Convert an IR fix value into the corresponding TextStyle value."""
+    field = _TEMPLATE_FIX_TARGETS[target]
+    if value is None:
+        return None
+    if field == "first_line_indent_chars":
+        return round(float(value) / 0.37, 4)
+    if field in {"line_spacing", "size_pt", "space_before_pt", "space_after_pt"}:
+        return float(value)
+    if field == "page_break_before":
+        if isinstance(value, str):
+            return value.strip().lower() == "true"
+        return bool(value)
+    return value
+
+
+def _set_template_style_value(template: PaperTemplate, style_key: str,
+                              target: str, value) -> bool:
+    field = _TEMPLATE_FIX_TARGETS[target]
+    style = template.styles.get(style_key)
+    if style is None:
+        return False
+    normalized = _template_fix_value(target, value)
+    if normalized is None and field != "color":
+        return False
+    payload = style.model_dump(mode="json")
+    if payload.get(field) == normalized:
+        return False
+    payload[field] = normalized
+    updated = TextStyle.model_validate(payload)
+    if updated == style:
+        return False
+    template.styles[style_key] = updated
+    return True
+
+
+def apply_project_fixes(project: WritingProject, report: dict,
+                        template: PaperTemplate | None = None) -> tuple[int, list[str]]:
+    """Apply safe fixes to content blocks and the project's bound template styles."""
     sections = {section.key: section for section in project.sections}
     fixed_rule_ids: list[str] = []
+    fixed_count = 0
+    touched_template_fields: set[tuple[str, str]] = set()
+
+    def record(rule_id: str) -> None:
+        nonlocal fixed_count
+        fixed_count += 1
+        if rule_id and rule_id not in fixed_rule_ids:
+            fixed_rule_ids.append(rule_id)
 
     for finding in report.get("findings", []):
         fix = finding.get("fix") or {}
@@ -305,21 +396,41 @@ def apply_project_fixes(project: WritingProject, report: dict) -> tuple[int, lis
         location = finding.get("location") or {}
         section = sections.get(location.get("section_key") or finding.get("section_key"))
         block_id = location.get("block_id")
-        if not field or not block_id or section is None:
-            continue
+        handled = False
 
-        block = next((item for item in section.paragraphs if item.id == block_id), None)
-        block_type = getattr(getattr(block, "type", None), "value", getattr(block, "type", None))
-        if block is None or block_type != "paragraph":
-            continue
+        if field and block_id and section is not None:
+            block = next((item for item in section.paragraphs if item.id == block_id), None)
+            block_type = getattr(getattr(block, "type", None), "value", getattr(block, "type", None))
+            if block is not None and block_type == "paragraph":
+                value = bool(fix.get("value"))
+                if getattr(block, field) != value:
+                    setattr(block, field, value)
+                    record(finding.get("rule_id", ""))
+                handled = True
 
-        value = bool(fix.get("value"))
-        if getattr(block, field) == value:
+        if template is None or handled:
             continue
-        setattr(block, field, value)
-        fixed_rule_ids.append(finding.get("rule_id", ""))
+        target = fix.get("target")
+        if target not in _TEMPLATE_FIX_TARGETS or section is None:
+            continue
+        style_key = location.get("style_key")
+        if not style_key:
+            if section.type in _HEADING_TYPES and not block_id:
+                style_key = _style_key_for(section.type, template)
+            elif section.type in _HEADING_TYPES:
+                style_key = _style_key_for("body", template)
+            else:
+                style_key = _style_key_for(section.type, template)
+        if style_key not in template.styles:
+            continue
+        template_field = _TEMPLATE_FIX_TARGETS[target]
+        touched_key = (style_key, template_field)
+        changed = _set_template_style_value(template, style_key, target, fix.get("value"))
+        if changed or touched_key in touched_template_fields:
+            touched_template_fields.add(touched_key)
+            record(finding.get("rule_id", ""))
 
-    return len(fixed_rule_ids), fixed_rule_ids
+    return fixed_count, fixed_rule_ids
 
 
 def _heading_par(title: str, stype: str, template: PaperTemplate) -> Paragraph:

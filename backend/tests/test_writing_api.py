@@ -855,6 +855,62 @@ def test_fix_project_repairs_writing_findings_and_checks_revision():
     assert client.get(f"/api/projects/{proj_id}").json()["revision"] == 2
 
 
+def test_fix_project_repairs_bound_template_styles_and_checks_again():
+    """一键修复模板样式问题, 保存模板快照并让复检结果消失。"""
+    base = client.get("/api/templates/default-gb7713").json()
+    styles = {key: dict(value) for key, value in base["styles"].items()}
+    styles["body"].update({
+        "font_zh": "仿宋",
+        "font_en": "Arial",
+        "size_pt": 10.0,
+        "line_spacing": 1.0,
+        "space_before_pt": 6.0,
+        "space_after_pt": 6.0,
+        "first_line_indent_chars": 0.0,
+        "align": "left",
+    })
+    styles["heading1"].update({
+        "font_zh": "宋体",
+        "size_pt": 12.0,
+        "line_spacing": 1.0,
+        "page_break_before": False,
+    })
+    created = client.post("/api/templates", json={
+        **base, "id": "", "name": "一键修复样式测试", "styles": styles,
+    })
+    assert created.status_code == 201, created.text
+    proj = client.post("/api/projects", json={
+        "template_id": created.json()["id"], "title": "模板样式修复测试",
+    })
+    assert proj.status_code == 201, proj.text
+    proj_id = proj.json()["id"]
+    update = client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章 绪论",
+        "paragraphs": [{"id": "p1", "type": "paragraph", "text": "正文样式测试。"}],
+    })
+    assert update.status_code == 200, update.text
+
+    resp = client.post(f"/api/projects/{proj_id}/fix", json={"base_revision": 1})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["fixed_count"] >= 10, data["fixed_rule_ids"]
+    assert data["project"]["revision"] == 2
+    assert data["project"]["template_snapshot"]["styles"]["body"]["font_zh"] == "宋体"
+    assert data["project"]["template_snapshot"]["styles"]["body"]["size_pt"] == 12.0
+    assert data["project"]["template_snapshot"]["styles"]["body"]["line_spacing"] == 1.5
+    assert data["project"]["template_snapshot"]["styles"]["body"]["space_before_pt"] == 0.0
+    assert data["project"]["template_snapshot"]["styles"]["body"]["space_after_pt"] == 0.0
+    assert data["project"]["template_snapshot"]["styles"]["heading1"]["font_zh"] == "黑体"
+    assert data["project"]["template_snapshot"]["styles"]["heading1"]["size_pt"] == 18.0
+    assert data["project"]["template_snapshot"]["styles"]["heading1"]["line_spacing"] == 1.5
+    assert data["project"]["template_snapshot"]["styles"]["heading1"]["page_break_before"] is True
+    assert not data["report"]["findings"], data["report"]["findings"]
+
+    persisted = client.get(f"/api/projects/{proj_id}")
+    assert persisted.status_code == 200
+    assert persisted.json()["template_snapshot"]["styles"]["body"]["font_zh"] == "宋体"
+
+
 def test_check_project_abstract_does_not_use_body_rules():
     """摘要不应被 GB/T 正文样式规则误报。"""
     proj_id = _create_project_instantiates_sections()
