@@ -49,7 +49,10 @@ class TextStyle(BaseModel):
     space_before_pt: float = 0.0
     space_after_pt: float = 0.0
     first_line_indent_chars: float = 0.0   # 首行缩进(字符)
+    hanging_indent_cm: float = 0.0         # 悬挂缩进(厘米)
     color: str = ""                        # RRGGBB, 空=不指定(继承模板样式)
+    highlight: str | None = None
+    vert_align: str | None = None
     page_break_before: bool = False        # 该元素前分页
 
 

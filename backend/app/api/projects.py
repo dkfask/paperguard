@@ -144,7 +144,7 @@ def create_project(req: CreateProjectRequest, store: Store = Depends(get_store),
 
 class UpdateSectionRequest(BaseModel):
     title: str | None = None
-    paragraphs: list[dict] | None = None   # [{id, text, bold, italic, underline}]
+    paragraphs: list[dict] | None = None   # [{id, text, bold, italic, underline, highlight, vert_align}]
     base_revision: int | None = None
 
 
@@ -289,6 +289,8 @@ def _parse_par(data: dict, project_id: str = ""):
         bold=bool(data.get("bold", False)),
         italic=bool(data.get("italic", False)),
         underline=bool(data.get("underline", False)),
+        highlight=(str(data["highlight"]).strip() or None) if data.get("highlight") is not None else None,
+        vert_align=(str(data["vert_align"]).strip() or None) if data.get("vert_align") is not None else None,
     )
 
 

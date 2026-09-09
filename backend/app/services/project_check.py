@@ -26,11 +26,11 @@ _STYLE_ID = {
     "abstract": "AbstractBody",
     "english_abstract": "EnglishAbstractBody",
     "keywords": "Keywords",
-    "english_keywords": "Keywords",
+    "english_keywords": "EnglishKeywords",
     "body": "Body Text",
     "references": "Bibliography",
-    "acknowledgement": "Body Text",
-    "appendix": "Body Text",
+    "acknowledgement": "AcknowledgementBody",
+    "appendix": "AppendixBody",
 }
 
 
@@ -46,6 +46,22 @@ def _style_key_for(stype: str, template: PaperTemplate) -> str:
     return "body"
 
 
+def _style_id_for(stype: str) -> str:
+    """Return the rule-engine style id for a project section type."""
+    return _STYLE_ID.get(stype, "Body Text")
+
+
+def _style_color(style: TextStyle) -> str:
+    """Return a six-digit color for the IR, defaulting to explicit black."""
+    color = (style.color or "").strip().lstrip("#")
+    return color if len(color) == 6 and all(c in "0123456789abcdefABCDEF" for c in color) else "000000"
+
+
+def _is_keyword_paragraph(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return normalized.startswith(("关键词", "关键字", "key words", "keywords"))
+
+
 def project_to_ir(project: WritingProject, template: PaperTemplate, *,
                   include_block_ids: bool = False,
                   include_style_keys: bool = False):
@@ -57,14 +73,10 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *,
     index_to_section: list[str] = []
     index_to_block: list[str | None] = []
     index_to_style: list[str] = []
-    proj_map = {s.key: s for s in project.sections}
     table_no = 0
 
-    def walk(node) -> None:
+    def emit_section(sec) -> None:
         nonlocal table_no
-        sec = proj_map.get(node.key)
-        if sec is None:
-            return
         stype = sec.type
 
         # 标题节: 输出标题段落
@@ -74,25 +86,27 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *,
                 index_to_section.append(sec.key)
                 index_to_block.append(None)
                 index_to_style.append(_style_key_for(stype, template))
-            stype = "body"
 
-        body_style = template.styles.get(stype) or template.styles.get("body")
-        body_style_key = _style_key_for(stype, template)
-        style_id = {
-            "abstract": "AbstractBody",
-            "references": "Bibliography",
-            "body": "Body Text",
-            "acknowledgement": "Body Text",
-            "appendix": "Body Text",
-        }.get(stype, "Body Text")
+        # 标题/摘要的内容段落都按导出时的正文样式检查; 关键词段落使用关键词样式。
+        content_type = "body" if stype in _HEADING_TYPES or stype in {
+            "abstract", "english_abstract",
+        } else stype
 
         # 内容块
         for par in sec.paragraphs:
             if par.type.value == "paragraph" and par.text.strip():
-                paragraphs.append(_body_par(par.text, par, template, body_style, style_id))
+                paragraph_type = content_type
+                rule_type = "body" if stype in _HEADING_TYPES else stype
+                if content_type in {"abstract", "english_abstract"} and _is_keyword_paragraph(par.text):
+                    paragraph_type = "keywords" if content_type == "abstract" else "english_keywords"
+                    rule_type = paragraph_type
+                body_style = template.styles.get(paragraph_type) or template.styles.get("body")
+                paragraphs.append(_body_par(
+                    par.text, par, template, body_style, _style_id_for(rule_type),
+                ))
                 index_to_section.append(sec.key)
                 index_to_block.append(par.id)
-                index_to_style.append(body_style_key)
+                index_to_style.append(_style_key_for(paragraph_type, template))
             elif par.type.value == "table" and par.table:
                 for r, row in enumerate(par.table.cells):
                     for c, cell in enumerate(row):
@@ -104,11 +118,10 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *,
                 table_no += 1
             # 图片块跳过(无文本检查项)
 
-        for child in node.children:
-            walk(child)
-
-    for root in template.sections:
-        walk(root)
+    # 项目 sections 是写作工作台和导出的唯一实际顺序。模板树只负责提供
+    # 样式和初始结构, 因此手动新增或旧模板遗留的章节也必须进入检查。
+    for section in project.sections:
+        emit_section(section)
 
     ir = Document(
         sections=(),
@@ -314,6 +327,10 @@ _PROJECT_FIX_TARGETS = {
     "run.italic": "italic",
     "runs.*.underline": "underline",
     "run.underline": "underline",
+    "runs.*.highlight": "highlight",
+    "run.highlight": "highlight",
+    "runs.*.vert_align": "vert_align",
+    "run.vert_align": "vert_align",
 }
 
 
@@ -323,6 +340,7 @@ _TEMPLATE_FIX_TARGETS = {
     "paragraph.alignment": "align",
     "paragraph.space_before_pt": "space_before_pt",
     "paragraph.space_after_pt": "space_after_pt",
+    "paragraph.hanging_indent_cm": "hanging_indent_cm",
     "paragraph.is_page_break_before": "page_break_before",
     "paragraph.page_break_before": "page_break_before",
     "runs.*.font_eastasia": "font_zh",
@@ -335,6 +353,16 @@ _TEMPLATE_FIX_TARGETS = {
     "run.font_size_pt": "size_pt",
     "runs.*.color_hex": "color",
     "run.color_hex": "color",
+    "runs.*.underline": "underline",
+    "run.underline": "underline",
+    "runs.*.bold": "bold",
+    "run.bold": "bold",
+    "runs.*.italic": "italic",
+    "run.italic": "italic",
+    "runs.*.highlight": "highlight",
+    "run.highlight": "highlight",
+    "runs.*.vert_align": "vert_align",
+    "run.vert_align": "vert_align",
 }
 
 
@@ -345,7 +373,7 @@ def _template_fix_value(target: str, value):
         return None
     if field == "first_line_indent_chars":
         return round(float(value) / 0.37, 4)
-    if field in {"line_spacing", "size_pt", "space_before_pt", "space_after_pt"}:
+    if field in {"line_spacing", "size_pt", "space_before_pt", "space_after_pt", "hanging_indent_cm"}:
         return float(value)
     if field == "page_break_before":
         if isinstance(value, str):
@@ -361,8 +389,13 @@ def _set_template_style_value(template: PaperTemplate, style_key: str,
     if style is None:
         return False
     normalized = _template_fix_value(target, value)
-    if normalized is None and field != "color":
-        return False
+    if normalized is None:
+        if field == "color":
+            normalized = ""
+        elif field == "underline":
+            normalized = False
+        elif field not in {"highlight", "vert_align"}:
+            return False
     payload = style.model_dump(mode="json")
     if payload.get(field) == normalized:
         return False
@@ -396,45 +429,52 @@ def apply_project_fixes(project: WritingProject, report: dict,
         location = finding.get("location") or {}
         section = sections.get(location.get("section_key") or finding.get("section_key"))
         block_id = location.get("block_id")
-        handled = False
+        changed = False
 
         if field and block_id and section is not None:
             block = next((item for item in section.paragraphs if item.id == block_id), None)
             block_type = getattr(getattr(block, "type", None), "value", getattr(block, "type", None))
             if block is not None and block_type == "paragraph":
-                value = bool(fix.get("value"))
+                value = _project_fix_value(field, fix.get("value"))
                 if getattr(block, field) != value:
                     setattr(block, field, value)
-                    record(finding.get("rule_id", ""))
-                handled = True
+                    changed = True
 
-        if template is None or handled:
-            continue
         target = fix.get("target")
-        if target not in _TEMPLATE_FIX_TARGETS or section is None:
-            continue
-        style_key = location.get("style_key")
-        if not style_key:
-            if section.type in _HEADING_TYPES and not block_id:
-                style_key = _style_key_for(section.type, template)
-            elif section.type in _HEADING_TYPES:
-                style_key = _style_key_for("body", template)
-            else:
-                style_key = _style_key_for(section.type, template)
-        if style_key not in template.styles:
-            continue
-        template_field = _TEMPLATE_FIX_TARGETS[target]
-        touched_key = (style_key, template_field)
-        changed = _set_template_style_value(template, style_key, target, fix.get("value"))
-        if changed or touched_key in touched_template_fields:
-            touched_template_fields.add(touched_key)
+        if template is not None and target in _TEMPLATE_FIX_TARGETS and section is not None:
+            style_key = location.get("style_key")
+            if not style_key:
+                if section.type in _HEADING_TYPES and not block_id:
+                    style_key = _style_key_for(section.type, template)
+                elif section.type in _HEADING_TYPES:
+                    style_key = _style_key_for("body", template)
+                else:
+                    style_key = _style_key_for(section.type, template)
+            if style_key in template.styles:
+                template_field = _TEMPLATE_FIX_TARGETS[target]
+                touched_key = (style_key, template_field)
+                style_changed = _set_template_style_value(template, style_key, target, fix.get("value"))
+                if style_changed or touched_key in touched_template_fields:
+                    touched_template_fields.add(touched_key)
+                    changed = True
+
+        if changed:
             record(finding.get("rule_id", ""))
 
     return fixed_count, fixed_rule_ids
 
 
+def _project_fix_value(field: str, value):
+    if field in {"bold", "italic", "underline"}:
+        return bool(value)
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 def _heading_par(title: str, stype: str, template: PaperTemplate) -> Paragraph:
-    style_id = _STYLE_ID.get(stype, "Heading 1")
+    style_id = _style_id_for(stype)
     level = {"heading1": 1, "heading2": 2, "heading3": 3}.get(stype)
     style = template.styles.get(stype) or template.styles.get("heading1", None)
     if style is None:
@@ -450,7 +490,11 @@ def _heading_par(title: str, stype: str, template: PaperTemplate) -> Paragraph:
             font_hansi=style.font_en,
             font_size_pt=style.size_pt,
             bold=style.bold,
-            color_hex="000000",
+            italic=style.italic,
+            underline="single" if style.underline else None,
+            color_hex=_style_color(style),
+            highlight=style.highlight,
+            vert_align=style.vert_align,
         ),),
         line_spacing=style.line_spacing,
         space_before_pt=style.space_before_pt,
@@ -458,6 +502,7 @@ def _heading_par(title: str, stype: str, template: PaperTemplate) -> Paragraph:
         alignment=style.align.value,
         is_page_break_before=style.page_break_before,
         first_line_indent_cm=0.0,
+        hanging_indent_cm=style.hanging_indent_cm,
     )
 
 
@@ -473,15 +518,20 @@ def _body_par(text: str, par, template: PaperTemplate, style=None, style_id: str
             font_ascii=style.font_en,
             font_hansi=style.font_en,
             font_size_pt=style.size_pt,
-            bold=par.bold,
-            italic=par.italic,
-            underline="single" if par.underline else None,
-            color_hex="000000",
+            bold=bool(style.bold or par.bold),
+            italic=bool(style.italic or par.italic),
+            underline="single" if style.underline or par.underline else None,
+            color_hex=_style_color(style),
+            highlight=par.highlight or style.highlight,
+            vert_align=par.vert_align or style.vert_align,
         ),),
         line_spacing=style.line_spacing,
         space_before_pt=style.space_before_pt,
         space_after_pt=style.space_after_pt,
-        first_line_indent_cm=style.first_line_indent_chars * 0.37,
+        first_line_indent_cm=(
+            0.0 if style.hanging_indent_cm else style.first_line_indent_chars * 0.37
+        ),
+        hanging_indent_cm=style.hanging_indent_cm,
         alignment=style.align.value,
     )
 
@@ -490,17 +540,26 @@ def _cell_par(text: str, table_index: int, row: int, col: int,
              template: PaperTemplate) -> Paragraph:
     style = template.styles.get("table_cell") or template.styles["body"]
     return Paragraph(
-        style_id="Body Text",
+        style_id="Table Cell",
         text=text,
         level=None,
         runs=(Run(text=text, font_eastasia=style.font_zh,
-                  font_ascii=style.font_en, font_size_pt=style.size_pt),),
-        line_spacing=1.0,
-        space_before_pt=0.0,
-        space_after_pt=0.0,
-        alignment="center",
+                  font_ascii=style.font_en, font_hansi=style.font_en,
+                  font_size_pt=style.size_pt, bold=style.bold,
+                  italic=style.italic,
+                  underline="single" if style.underline else None,
+                  color_hex=_style_color(style),
+                  highlight=style.highlight,
+                  vert_align=style.vert_align),),
+        line_spacing=style.line_spacing,
+        space_before_pt=style.space_before_pt,
+        space_after_pt=style.space_after_pt,
+        alignment=style.align.value,
         table_index=table_index,
         table_row_index=row,
         table_cell_index=col,
-        first_line_indent_cm=0.0,
+        first_line_indent_cm=(
+            0.0 if style.hanging_indent_cm else style.first_line_indent_chars * 0.37
+        ),
+        hanging_indent_cm=style.hanging_indent_cm,
     )

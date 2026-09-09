@@ -6,6 +6,7 @@ from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+import pytest
 
 from app.core.export.docx_exporter import (
     _add_page_number_footer,
@@ -102,3 +103,38 @@ def test_export_preserves_cover_front_and_body_section_layouts(tmp_path):
     assert cover_borders.find(qn("w:top")) is None
     second_row_borders = exported.tables[0].cell(1, 0)._tc.tcPr.find(qn("w:tcBorders"))
     assert second_row_borders.find(qn("w:top")).get(qn("w:val")) == "single"
+
+
+def test_export_applies_template_indent_and_run_decorations(tmp_path):
+    """项目模板中的悬挂缩进、高亮和上下标应写入最终 DOCX。"""
+    styles = {k: v.model_copy() for k, v in DEFAULT_STYLES.items()}
+    styles["body"].hanging_indent_cm = 0.74
+    styles["body"].first_line_indent_chars = 0.0
+    styles["body"].highlight = "yellow"
+    styles["body"].vert_align = "superscript"
+    template = PaperTemplate(
+        id="decorations-template",
+        name="装饰格式测试模板",
+        styles=styles,
+        meta_fields=[],
+        sections=[{"key": "ch1", "type": SectionType.HEADING1, "title": "第一章"}],
+    )
+    project = WritingProject(
+        id="decorations-project",
+        template_id=template.id,
+        template_name=template.name,
+        sections=[ProjectSection(
+            key="ch1", type=SectionType.HEADING1, title="第一章",
+            paragraphs=[ParagraphBlock(id="ch1-p1", text="参考文献条目")],
+        )],
+    )
+    output_path = tmp_path / "decorations.docx"
+    export_project_to_docx(project, template, str(output_path))
+
+    exported = Document(output_path)
+    paragraph = next(p for p in exported.paragraphs if p.text == "参考文献条目")
+    assert paragraph.paragraph_format.first_line_indent.cm == pytest.approx(-0.74, abs=0.02)
+    run = paragraph.runs[0]
+    assert str(run.font.highlight_color).split(" ")[0] == "YELLOW"
+    assert run.font.superscript is True
+    assert run.font.subscript is False

@@ -40,6 +40,8 @@ class ParagraphBlock(BaseModel):
     bold: bool = False
     italic: bool = False
     underline: bool = False
+    highlight: str | None = None
+    vert_align: str | None = None
     image: ImageBlock | None = None
     table: TableBlock | None = None
 

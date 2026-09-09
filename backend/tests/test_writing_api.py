@@ -911,6 +911,79 @@ def test_fix_project_repairs_bound_template_styles_and_checks_again():
     assert persisted.json()["template_snapshot"]["styles"]["body"]["font_zh"] == "宋体"
 
 
+def test_fix_project_repairs_all_detectable_body_rules_in_custom_section():
+    """手动章节中的所有可自动确定格式都应一次修复并通过复检。"""
+    base = client.get("/api/templates/default-gb7713").json()
+    styles = {key: dict(value) for key, value in base["styles"].items()}
+    styles["body"].update({
+        "font_zh": "仿宋",
+        "font_en": "Arial",
+        "size_pt": 10.0,
+        "line_spacing": 1.0,
+        "space_before_pt": 6.0,
+        "space_after_pt": 8.0,
+        "first_line_indent_chars": 0.0,
+        "align": "left",
+        "bold": True,
+        "italic": True,
+        "underline": True,
+        "color": "FF0000",
+        "highlight": "yellow",
+        "vert_align": "superscript",
+    })
+    created = client.post("/api/templates", json={
+        **base, "id": "", "name": "全量一键修复测试", "styles": styles,
+    })
+    assert created.status_code == 201, created.text
+    proj = client.post("/api/projects", json={
+        "template_id": created.json()["id"], "title": "全量修复测试",
+    })
+    assert proj.status_code == 201, proj.text
+    proj_id = proj.json()["id"]
+
+    current = client.get(f"/api/projects/{proj_id}").json()
+    sections = [{"key": section["key"], "type": section["type"],
+                 "title": section["title"], "required": section["required"]}
+                for section in current["sections"]]
+    sections.append({"key": "doc_heading_6_2", "type": "heading2",
+                     "title": "6.2 系统功能测试", "required": False})
+    structure = client.put(f"/api/projects/{proj_id}/sections", json={"sections": sections})
+    assert structure.status_code == 200, structure.text
+    update = client.put(f"/api/projects/{proj_id}/section/doc_heading_6_2", json={
+        "title": "6.2 系统功能测试",
+        "paragraphs": [{"id": "p-6-2", "type": "paragraph", "text": "测试正文。",
+                        "bold": True, "italic": True, "underline": True,
+                        "highlight": "yellow", "vert_align": "superscript"}],
+    })
+    assert update.status_code == 200, update.text
+
+    before = client.get(f"/api/projects/{proj_id}/check?pack=GB-T-7713-1-2006")
+    assert before.status_code == 200, before.text
+    assert any(f["section_key"] == "doc_heading_6_2" for f in before.json()["findings"])
+    assert any("行距" in f["message"] for f in before.json()["findings"])
+    assert any("首行" in f["message"] for f in before.json()["findings"])
+    assert any("两端对齐" in f["message"] for f in before.json()["findings"])
+
+    fixed = client.post(f"/api/projects/{proj_id}/fix", json={
+        "base_revision": update.json()["revision"],
+    })
+    assert fixed.status_code == 200, fixed.text
+    data = fixed.json()
+    assert data["fixed_count"] >= 15, data["fixed_rule_ids"]
+    assert not data["report"]["findings"], data["report"]["findings"]
+    body_style = data["project"]["template_snapshot"]["styles"]["body"]
+    assert body_style["line_spacing"] == 1.5
+    assert body_style["first_line_indent_chars"] == 2.0
+    assert body_style["align"] == "justify"
+    assert body_style["highlight"] is None
+    assert body_style["vert_align"] is None
+    custom = next(section for section in data["project"]["sections"]
+                  if section["key"] == "doc_heading_6_2")
+    assert custom["paragraphs"][0]["bold"] is False
+    assert custom["paragraphs"][0]["highlight"] is None
+    assert custom["paragraphs"][0]["vert_align"] is None
+
+
 def test_check_project_abstract_does_not_use_body_rules():
     """摘要不应被 GB/T 正文样式规则误报。"""
     proj_id = _create_project_instantiates_sections()

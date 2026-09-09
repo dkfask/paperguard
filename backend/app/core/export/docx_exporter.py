@@ -21,6 +21,7 @@ from pathlib import Path
 from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.enum.text import WD_COLOR_INDEX
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -32,6 +33,24 @@ _IMAGE_WIDTH_CM = 14.0
 _IMAGE_MAX_HEIGHT_CM = 13.5
 
 _LOGGER = logging.getLogger("paperguard.export")
+
+_HIGHLIGHT_COLORS = {
+    "yellow": WD_COLOR_INDEX.YELLOW,
+    "green": WD_COLOR_INDEX.BRIGHT_GREEN,
+    "cyan": WD_COLOR_INDEX.TURQUOISE,
+    "magenta": WD_COLOR_INDEX.PINK,
+    "blue": WD_COLOR_INDEX.BLUE,
+    "red": WD_COLOR_INDEX.RED,
+    "darkblue": WD_COLOR_INDEX.DARK_BLUE,
+    "darkcyan": WD_COLOR_INDEX.TEAL,
+    "darkgreen": WD_COLOR_INDEX.GREEN,
+    "darkmagenta": WD_COLOR_INDEX.VIOLET,
+    "darkred": WD_COLOR_INDEX.DARK_RED,
+    "darkyellow": WD_COLOR_INDEX.DARK_YELLOW,
+    "lightgray": WD_COLOR_INDEX.GRAY_25,
+    "darkgray": WD_COLOR_INDEX.GRAY_50,
+    "black": WD_COLOR_INDEX.BLACK,
+}
 
 # 章节类型 → Word 内置标题样式
 _HEADING_STYLE = {
@@ -109,6 +128,32 @@ def _apply_run_font(run, style: TextStyle) -> None:
     # 颜色: 模板指定则用模板色, 否则显式置黑(避免继承 python-docx 默认标题蓝)
     color = (style.color or "").strip().lstrip("#")
     run.font.color.rgb = RGBColor.from_string(color) if _is_hex_color(color) else RGBColor(0, 0, 0)
+    _apply_run_decoration(run, style.highlight, style.vert_align)
+
+
+def _apply_run_decoration(run, highlight: str | None, vert_align: str | None) -> None:
+    """Apply optional highlight and baseline shift to a run."""
+    _apply_run_highlight(run, highlight)
+    _apply_run_vertical_alignment(run, vert_align)
+
+
+def _apply_run_highlight(run, highlight: str | None) -> None:
+    if highlight:
+        run.font.highlight_color = _HIGHLIGHT_COLORS.get(highlight.lower(), WD_COLOR_INDEX.YELLOW)
+    else:
+        run.font.highlight_color = None
+
+
+def _apply_run_vertical_alignment(run, vert_align: str | None) -> None:
+    if vert_align == "superscript":
+        run.font.superscript = True
+        run.font.subscript = False
+    elif vert_align == "subscript":
+        run.font.superscript = False
+        run.font.subscript = True
+    elif vert_align is None:
+        run.font.superscript = False
+        run.font.subscript = False
 
 
 def _is_hex_color(value: str) -> bool:
@@ -124,8 +169,12 @@ def _apply_paragraph_format(par, style: TextStyle) -> None:
         pf.line_spacing = style.line_spacing          # 倍数
     pf.space_before = Pt(style.space_before_pt)
     pf.space_after = Pt(style.space_after_pt)
-    if style.first_line_indent_chars:
+    if style.hanging_indent_cm:
+        pf.first_line_indent = Cm(-style.hanging_indent_cm)
+    elif style.first_line_indent_chars:
         pf.first_line_indent = Pt(style.first_line_indent_chars * style.size_pt)
+    else:
+        pf.first_line_indent = Pt(0)
 
 
 def _add_text_paragraph(doc: Document, text: str, style: TextStyle,
@@ -651,7 +700,8 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
                         and not text.lower().startswith("key words"):
                     text = f"{prefix}{text}"
                 p_clone = ParagraphBlock(id=par.id, type=par.type, text=text,
-                                         bold=par.bold, italic=par.italic, underline=par.underline)
+                                         bold=par.bold, italic=par.italic, underline=par.underline,
+                                         highlight=par.highlight, vert_align=par.vert_align)
                 _export_paragraph(doc, p_clone, style, template, numbering)
             return
 
@@ -718,6 +768,10 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
         run.font.italic = True
     if par.underline:
         run.font.underline = True
+    if par.highlight is not None:
+        _apply_run_highlight(run, par.highlight)
+    if par.vert_align is not None:
+        _apply_run_vertical_alignment(run, par.vert_align)
 
 
 def _export_image(doc: Document, img, template: PaperTemplate | None,
