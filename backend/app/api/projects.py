@@ -148,6 +148,10 @@ class UpdateSectionRequest(BaseModel):
     base_revision: int | None = None
 
 
+class ProjectFixRequest(BaseModel):
+    base_revision: int | None = None
+
+
 class SectionStructureItem(BaseModel):
     key: str
     type: str
@@ -555,6 +559,47 @@ def check_project(proj_id: str, pack: str | None = None,
     _ensure_requirement_snapshot(proj, tpl, store)
     from app.services.project_check import check_project as run_check
     return run_check(proj, tpl, pack=pack, store=store, performed_by=user["id"])
+
+
+@router.post("/{proj_id}/fix")
+def fix_project(proj_id: str, req: ProjectFixRequest,
+                store: Store = Depends(get_store),
+                user: dict = Depends(current_user)) -> dict:
+    """在写作工作台修复检查结果中可自动处理的警告/错误并复检。"""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    tpl = _project_template(proj, store)
+    _ensure_requirement_snapshot(proj, tpl, store)
+
+    expected_revision = proj.revision if req.base_revision is None else req.base_revision
+    if req.base_revision is not None and req.base_revision != proj.revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "项目内容已被更新, 请刷新后重试", "revision": proj.revision},
+        )
+
+    from app.services.project_check import apply_project_fixes, check_project as run_check
+    report = run_check(proj, tpl, store=None, performed_by=user["id"])
+    fixed_count, fixed_rule_ids = apply_project_fixes(proj, report)
+
+    if fixed_count:
+        saved = store.update_project_if_revision(proj, expected_revision)
+        if saved is None:
+            raise HTTPException(
+                status_code=409,
+                detail={"message": "项目内容已被更新, 请刷新后重试"},
+            )
+        proj = saved
+        report = run_check(proj, tpl, store=None, performed_by=user["id"])
+
+    return {
+        "project": proj.model_dump(mode="json"),
+        "report": report,
+        "fixed_count": fixed_count,
+        "fixed_rule_ids": fixed_rule_ids,
+    }
 
 
 class WaiverRequest(BaseModel):

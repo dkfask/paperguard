@@ -34,14 +34,14 @@ _STYLE_ID = {
 }
 
 
-def project_to_ir(project: WritingProject, template: PaperTemplate
-                  ) -> tuple[Document, list[str]]:
+def project_to_ir(project: WritingProject, template: PaperTemplate, *, include_block_ids: bool = False):
     """项目 → IR Document, 同时返回 IR 段落索引 → 章节 key 的映射表。
 
     run 的字体属性按模板样式填充, 避免"模板未设置"被误报为违规。
     """
     paragraphs: list[Paragraph] = []
     index_to_section: list[str] = []
+    index_to_block: list[str | None] = []
     proj_map = {s.key: s for s in project.sections}
     table_no = 0
 
@@ -57,6 +57,7 @@ def project_to_ir(project: WritingProject, template: PaperTemplate
             if sec.title and sec.title.strip():
                 paragraphs.append(_heading_par(sec.title, stype, template))
                 index_to_section.append(sec.key)
+                index_to_block.append(None)
             stype = "body"
 
         body_style = template.styles.get(stype) or template.styles.get("body")
@@ -73,12 +74,14 @@ def project_to_ir(project: WritingProject, template: PaperTemplate
             if par.type.value == "paragraph" and par.text.strip():
                 paragraphs.append(_body_par(par.text, par, template, body_style, style_id))
                 index_to_section.append(sec.key)
+                index_to_block.append(par.id)
             elif par.type.value == "table" and par.table:
                 for r, row in enumerate(par.table.cells):
                     for c, cell in enumerate(row):
                         if str(cell).strip():
                             paragraphs.append(_cell_par(str(cell), table_no, r, c, template))
                             index_to_section.append(sec.key)
+                            index_to_block.append(None)
                 table_no += 1
             # 图片块跳过(无文本检查项)
 
@@ -93,6 +96,8 @@ def project_to_ir(project: WritingProject, template: PaperTemplate
         paragraphs=tuple(paragraphs),
         metadata=DocumentMetadata(title=project.title),
     )
+    if include_block_ids:
+        return ir, index_to_section, index_to_block
     return ir, index_to_section
 
 
@@ -128,7 +133,7 @@ def check_project(project: WritingProject, template: PaperTemplate,
                   performed_by: str = "") -> dict:
     """运行模板格式 + 项目规范检查，返回统一、带来源的报告。"""
     started = time.perf_counter()
-    ir, index_to_section = project_to_ir(project, template)
+    ir, index_to_section, index_to_block = project_to_ir(project, template, include_block_ids=True)
     snapshot = project.requirement_snapshot or {}
     pack_ids = [pack] if pack else list(dict.fromkeys(
         (snapshot.get("rule_packs") or template.rule_packs or ["GB-T-7713-1-2006"])
@@ -156,6 +161,7 @@ def check_project(project: WritingProject, template: PaperTemplate,
                     "paragraph_index": f.location.paragraph_index,
                     "text_snippet": f.location.text_snippet,
                     "section_key": None,
+                    "block_id": None,
                 },
                 "actual": f.actual,
                 "expected": f.expected,
@@ -174,6 +180,7 @@ def check_project(project: WritingProject, template: PaperTemplate,
             if idx is not None and 0 <= idx < len(index_to_section):
                 item["section_key"] = index_to_section[idx]
                 item["location"]["section_key"] = index_to_section[idx]
+                item["location"]["block_id"] = index_to_block[idx]
             result.append(item)
 
     policy_sources = snapshot.get("policy_sets", [])
@@ -273,6 +280,46 @@ def check_project(project: WritingProject, template: PaperTemplate,
         store.save_project(project)
         report["run_id"] = run.id
     return report
+
+
+_PROJECT_FIX_TARGETS = {
+    "runs.*.bold": "bold",
+    "run.bold": "bold",
+    "runs.*.italic": "italic",
+    "run.italic": "italic",
+    "runs.*.underline": "underline",
+    "run.underline": "underline",
+}
+
+
+def apply_project_fixes(project: WritingProject, report: dict) -> tuple[int, list[str]]:
+    """Apply only safe inline-format fixes that belong to writing content blocks."""
+    sections = {section.key: section for section in project.sections}
+    fixed_rule_ids: list[str] = []
+
+    for finding in report.get("findings", []):
+        fix = finding.get("fix") or {}
+        if fix.get("action") != "set":
+            continue
+        field = _PROJECT_FIX_TARGETS.get(fix.get("target"))
+        location = finding.get("location") or {}
+        section = sections.get(location.get("section_key") or finding.get("section_key"))
+        block_id = location.get("block_id")
+        if not field or not block_id or section is None:
+            continue
+
+        block = next((item for item in section.paragraphs if item.id == block_id), None)
+        block_type = getattr(getattr(block, "type", None), "value", getattr(block, "type", None))
+        if block is None or block_type != "paragraph":
+            continue
+
+        value = bool(fix.get("value"))
+        if getattr(block, field) == value:
+            continue
+        setattr(block, field, value)
+        fixed_rule_ids.append(finding.get("rule_id", ""))
+
+    return len(fixed_rule_ids), fixed_rule_ids
 
 
 def _heading_par(title: str, stype: str, template: PaperTemplate) -> Paragraph:

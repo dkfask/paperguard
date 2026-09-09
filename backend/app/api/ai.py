@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -94,6 +95,92 @@ def _normalize_base_url(raw: str) -> str:
     return raw.strip().rstrip("/")
 
 
+def _is_anthropic_base_url(base_url: str) -> bool:
+    """通过 Base URL 的路径识别 Anthropic 兼容服务。"""
+    path = urlsplit(base_url).path.rstrip("/")
+    return path.endswith("/anthropic") or path.endswith("/anthropic/v1")
+
+
+def _anthropic_messages_url(base_url: str) -> str:
+    """将 Anthropic Base URL 规范化为 Messages API 地址。"""
+    parts = urlsplit(_normalize_base_url(base_url))
+    path = parts.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = f"{path}/messages"
+    else:
+        path = f"{path}/v1/messages"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+
+
+def _anthropic_payload(cfg: dict, messages: list[dict], temperature: float) -> dict:
+    """把内部的 system/user 消息转换为 Anthropic Messages 请求格式。"""
+    system_parts = [
+        str(message["content"])
+        for message in messages
+        if message.get("role") == "system" and message.get("content")
+    ]
+    anthropic_messages = [
+        {"role": message["role"], "content": message["content"]}
+        for message in messages
+        if message.get("role") != "system"
+    ]
+    payload = {
+        "model": cfg["model"],
+        "messages": anthropic_messages,
+        "temperature": temperature,
+        "max_tokens": 4000,
+    }
+    if system_parts:
+        payload["system"] = "\n\n".join(system_parts)
+    return payload
+
+
+def _anthropic_response_text(data: dict) -> str:
+    """从 Anthropic content 内容块中提取正文, 忽略 thinking 等非正文块。"""
+    if not isinstance(data, dict):
+        raise ValueError("响应不是 JSON 对象")
+    content = data.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        text_parts = [
+            str(block["text"])
+            for block in content
+            if isinstance(block, dict)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+        ]
+        if text_parts:
+            return "\n".join(text_parts).strip()
+    raise ValueError("响应中没有可用的文本内容")
+
+
+def _anthropic_completion(cfg: dict, messages: list[dict], temperature: float) -> str:
+    """调用 Anthropic Messages API, 兼容 MiniMax /anthropic 地址。"""
+    url = _anthropic_messages_url(cfg["base_url"])
+    headers = {
+        "Content-Type": "application/json",
+        "X-Api-Key": cfg["api_key"],
+        "anthropic-version": "2023-06-01",
+    }
+    payload = _anthropic_payload(cfg, messages, temperature)
+    timeout = float(os.environ.get("PAPERGUARD_AI_TIMEOUT", "60"))
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(url, json=payload, headers=headers)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="AI 服务响应超时, 请稍后重试") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="无法连接 AI 服务, 请检查 Base URL") from exc
+
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=502, detail=_parse_error_detail(resp))
+    try:
+        return _anthropic_response_text(resp.json())
+    except (TypeError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=502, detail="AI 服务返回了无法解析的内容") from exc
+
+
 def _request_cfg(req: AiConfigRequest, fallback_cfg: dict | None = None) -> dict:
     """构造请求配置, 空密钥仅允许沿用服务端已有配置。"""
     base_url = _normalize_base_url(req.base_url)
@@ -134,12 +221,18 @@ def _parse_error_detail(resp: httpx.Response) -> str:
 
 
 def _chat_completion(cfg: dict, messages: list[dict], temperature: float) -> str:
-    """调用 OpenAI 兼容 /chat/completions, 返回回复文本。测试中会被替换。
+    """调用配置对应的 AI 协议, 返回回复文本。测试中会被替换。
 
-    支持 Base URL 自动容错:
+    Anthropic Base URL (路径以 /anthropic 结尾) 走 /v1/messages;
+    其他地址走 OpenAI 兼容 /chat/completions。
+
+    OpenAI 兼容地址支持自动容错:
     若直接用 base_url 访问时返回非 JSON 网页(如返回 200 HTML 或 404),
     且 base_url 不以 /v1 结尾, 自动尝试 fallback 到 base_url + '/v1'。
     """
+    if _is_anthropic_base_url(cfg["base_url"]):
+        return _anthropic_completion(cfg, messages, temperature)
+
     timeout = float(os.environ.get("PAPERGUARD_AI_TIMEOUT", "60"))
     base_url = _normalize_base_url(cfg["base_url"])
     candidate_urls = [f"{base_url}/chat/completions"]

@@ -73,7 +73,7 @@
       <div class="modal card">
         <h3 style="margin-top:0">⚙️ 系统默认 AI 模型设置</h3>
         <p class="hint" style="font-size: 13px; margin-top: 0">
-          管理员配置全站默认的 OpenAI 兼容模型，所有未自带 API Key 的用户都将默认使用该配置。
+          管理员配置全站默认模型，支持 OpenAI 兼容接口和 MiniMax Anthropic 接口；所有未自带 API Key 的用户都将默认使用该配置。
           <br />
           <template v-if="adminAiInfo.configured">
             当前来源: {{ adminAiInfo.source === 'database' ? '数据库 (管理员自定义)' : '环境变量 (PAPERGUARD_AI_*)' }}
@@ -83,14 +83,14 @@
           </template>
         </p>
         <label class="field">Base URL
-          <input v-model="adminAiForm.base_url" placeholder="如 https://api.openai.com/v1" />
+          <input v-model="adminAiForm.base_url" placeholder="如 https://api.openai.com/v1 或 https://api.minimax.cn/anthropic" />
         </label>
         <label class="field">API Key
           <input v-model="adminAiForm.api_key" type="password" autocomplete="new-password"
                  :placeholder="adminAiInfo.configured ? '已配置 ' + adminAiInfo.api_key_masked + ' (留空则沿用)' : '必填, 如 sk-xxx'" />
         </label>
         <label class="field">模型
-          <input v-model="adminAiForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
+          <input v-model="adminAiForm.model" placeholder="如 gpt-4o-mini / MiniMax-M2.7" />
         </label>
         <p v-if="adminAiInfo.message" :class="adminAiInfo.ok ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
           {{ adminAiInfo.ok ? '✅' : '⚠' }} {{ adminAiInfo.message }}
