@@ -112,7 +112,12 @@ def _anthropic_messages_url(base_url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
 
-def _anthropic_payload(cfg: dict, messages: list[dict], temperature: float) -> dict:
+def _anthropic_payload(
+    cfg: dict,
+    messages: list[dict],
+    temperature: float,
+    max_tokens: int = 4000,
+) -> dict:
     """把内部的 system/user 消息转换为 Anthropic Messages 请求格式。"""
     system_parts = [
         str(message["content"])
@@ -128,7 +133,7 @@ def _anthropic_payload(cfg: dict, messages: list[dict], temperature: float) -> d
         "model": cfg["model"],
         "messages": anthropic_messages,
         "temperature": temperature,
-        "max_tokens": 4000,
+        "max_tokens": max_tokens,
     }
     if system_parts:
         payload["system"] = "\n\n".join(system_parts)
@@ -155,7 +160,12 @@ def _anthropic_response_text(data: dict) -> str:
     raise ValueError("响应中没有可用的文本内容")
 
 
-def _anthropic_completion(cfg: dict, messages: list[dict], temperature: float) -> str:
+def _anthropic_completion(
+    cfg: dict,
+    messages: list[dict],
+    temperature: float,
+    max_tokens: int = 4000,
+) -> str:
     """调用 Anthropic Messages API, 兼容 MiniMax /anthropic 地址。"""
     url = _anthropic_messages_url(cfg["base_url"])
     headers = {
@@ -163,7 +173,7 @@ def _anthropic_completion(cfg: dict, messages: list[dict], temperature: float) -
         "X-Api-Key": cfg["api_key"],
         "anthropic-version": "2023-06-01",
     }
-    payload = _anthropic_payload(cfg, messages, temperature)
+    payload = _anthropic_payload(cfg, messages, temperature, max_tokens)
     timeout = float(os.environ.get("PAPERGUARD_AI_TIMEOUT", "60"))
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -220,7 +230,12 @@ def _parse_error_detail(resp: httpx.Response) -> str:
     return f"AI 服务调用失败 (HTTP {resp.status_code})"
 
 
-def _chat_completion(cfg: dict, messages: list[dict], temperature: float) -> str:
+def _chat_completion(
+    cfg: dict,
+    messages: list[dict],
+    temperature: float,
+    max_tokens: int = 4000,
+) -> str:
     """调用配置对应的 AI 协议, 返回回复文本。测试中会被替换。
 
     Anthropic Base URL (路径以 /anthropic 结尾) 走 /v1/messages;
@@ -231,7 +246,7 @@ def _chat_completion(cfg: dict, messages: list[dict], temperature: float) -> str
     且 base_url 不以 /v1 结尾, 自动尝试 fallback 到 base_url + '/v1'。
     """
     if _is_anthropic_base_url(cfg["base_url"]):
-        return _anthropic_completion(cfg, messages, temperature)
+        return _anthropic_completion(cfg, messages, temperature, max_tokens)
 
     timeout = float(os.environ.get("PAPERGUARD_AI_TIMEOUT", "60"))
     base_url = _normalize_base_url(cfg["base_url"])
@@ -243,7 +258,7 @@ def _chat_completion(cfg: dict, messages: list[dict], temperature: float) -> str
         "model": cfg["model"],
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": 4000,
+        "max_tokens": max_tokens,
     }
     headers = {"Authorization": f"Bearer {cfg['api_key']}"}
 

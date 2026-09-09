@@ -228,6 +228,13 @@ export async function uploadPolicyDocument(id, file) {
   return resp.json()
 }
 
+export async function importPolicyWithAi(file) {
+  const form = new FormData(); form.append('file', file)
+  const resp = await api(`${API_BASE}/policies/import`, { method: 'POST', body: form })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), 'AI 导入规范失败'))
+  return resp.json()
+}
+
 export async function deletePolicyDocument(id, documentId) {
   const resp = await api(`${API_BASE}/policies/${id}/documents/${documentId}`, { method: 'DELETE' })
   if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '删除规范文档失败'))

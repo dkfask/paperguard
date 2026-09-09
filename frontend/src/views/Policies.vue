@@ -6,7 +6,15 @@
         <h1>写作规范</h1>
         <p>把论文内容要求与排版模板分开管理，项目创建时会冻结当前版本。</p>
       </div>
-      <button v-if="canManage" class="primary" @click="newPolicy">新建规范</button>
+      <div v-if="canManage" class="policy-head-actions">
+        <button class="primary" @click="newPolicy">新建规范</button>
+        <button class="ai-import-button" :disabled="importing" @click="openAiImport">
+          <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+          {{ importing ? 'AI 解析中…' : 'AI 导入规范' }}
+        </button>
+        <input ref="aiImportFile" class="file-input-hidden" type="file"
+               accept=".docx,.pdf,.md,.markdown,.txt" :disabled="importing" @change="importWithAi" />
+      </div>
     </div>
 
     <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}</div>
@@ -236,18 +244,20 @@ import { computed, onMounted, ref } from 'vue'
 import { auth, isManager } from '../auth'
 import {
   archivePolicy, createPolicyVersion, deletePolicyDocument, downloadPolicyDocument, fetchPolicies, fetchPolicy,
-  publishPolicy, savePolicy, submitPolicyReview, upgradePolicyProjects, uploadPolicyDocument,
+  importPolicyWithAi, publishPolicy, savePolicy, submitPolicyReview, upgradePolicyProjects, uploadPolicyDocument,
 } from '../api'
 
 const policies = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const bulkBusy = ref(false)
+const importing = ref(false)
 const error = ref('')
 const savedMessage = ref('')
 const editing = ref(false)
 const draft = ref(emptyPolicy())
 const docFile = ref(null)
+const aiImportFile = ref(null)
 const cloneModal = ref(false)
 const cloneVersionInput = ref('')
 const canManage = computed(() => isManager() && (auth.user?.role === 'admin' || auth.user?.status === 'active'))
@@ -324,6 +334,10 @@ function addItem() {
 function addBinding() {
   draft.value.bindings = draft.value.bindings || []
   draft.value.bindings.push({ id: `binding-${Date.now()}`, scope_type: 'global', scope_id: '', priority: 0, enabled: true, note: '' })
+}
+
+function openAiImport() {
+  aiImportFile.value?.click()
 }
 
 function payload() {
@@ -428,6 +442,21 @@ async function uploadDocument(event) {
   finally { saving.value = false; if (docFile.value) docFile.value.value = '' }
 }
 
+async function importWithAi(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  importing.value = true; error.value = ''; savedMessage.value = ''
+  try {
+    const result = await importPolicyWithAi(file)
+    const imported = result.policy || result
+    draft.value = { ...imported, items: (imported.items || []).map(formItem) }
+    editing.value = true
+    await loadPolicies()
+    savedMessage.value = `AI 已生成草稿：识别 ${result.analysis?.detected_rule_count ?? draft.value.items.length} 条要求，请核对后发布`
+  } catch (e) { error.value = e.message || 'AI 导入规范失败' }
+  finally { importing.value = false; if (aiImportFile.value) aiImportFile.value.value = '' }
+}
+
 async function removeDocument(document) {
   if (!window.confirm(`删除参考文档「${document.filename}」？`)) return
   try {
@@ -465,6 +494,10 @@ onMounted(loadPolicies)
 <style scoped>
 .policy-page { padding: 28px 0; }
 .policy-page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-bottom: 22px; }
+.policy-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; position: relative; }
+.ai-import-button { display: inline-flex; align-items: center; gap: 5px; }
+.ai-import-button .material-symbols-outlined { font-size: 18px; }
+.file-input-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .eyebrow { color: var(--primary); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 .policy-page-head h1 { margin: 5px 0 4px; font-size: 28px; }
 .policy-page-head p, .section-heading p, .empty-editor p { color: var(--muted); font-size: 13px; }

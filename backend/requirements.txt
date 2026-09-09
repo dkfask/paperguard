@@ -1,5 +1,6 @@
 # PaperGuard Web 后端依赖
 python-docx>=1.0.0
+pypdf>=5.0.0
 lxml>=4.9.0
 pyyaml>=6.0
 json-logic-qubit>=0.9.1

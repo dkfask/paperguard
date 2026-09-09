@@ -17,17 +17,27 @@ from app.db import Store, new_id
 from app.models.policy import (
     PolicyAuditEvent,
     RequirementBinding,
+    RequirementDocument,
     RequirementLevel,
     RequirementSet,
     RequirementStatus,
 )
 from app.models.organization import OrganizationType
 from app.services.policy_resolver import content_hash, hydrate_requirement_set
+from app.services.policy_import import (
+    AI_IMPORT_EXTENSIONS,
+    build_policy_import_messages,
+    build_policy_import_retry_messages,
+    extract_policy_text,
+    normalize_ai_policy,
+)
 from app.core.engine.loader import load_pack
+from app.api import ai as ai_api
 
 router = APIRouter(prefix="/api/policies", tags=["policies"])
 _DOCUMENT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "policy-documents"
 _MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
+_IMPORT_MAX_TOKENS = 8000
 _ALLOWED_DOCUMENT_EXTENSIONS = {".md", ".markdown", ".txt", ".pdf", ".doc", ".docx"}
 _VALID_BINDING_TYPES = {"global", "school", "college", "major", "course", "batch", "teacher", "student", "project"}
 
@@ -174,6 +184,20 @@ def _audit(store: Store, policy_id: str, action: str, user: dict, detail: dict |
     ))
 
 
+def _default_import_scope(user: dict) -> tuple[RequirementLevel, str, str, list[RequirementBinding]]:
+    if user["role"] == "admin":
+        return RequirementLevel.SCHOOL, "global", "", []
+    context = user.get("organization_context") or {}
+    if user["role"] == "college_admin":
+        college_id = str(context.get("college_id") or "").strip()
+        if not college_id:
+            raise HTTPException(status_code=422, detail="学院管理员需要先绑定学院，才能导入写作规范")
+        return RequirementLevel.COLLEGE, "college", college_id, [RequirementBinding(
+            id=new_id("binding"), scope_type="college", scope_id=college_id,
+        )]
+    return RequirementLevel.TEACHER, "teacher", user["id"], []
+
+
 @router.get("")
 def list_policies(store: Store = Depends(get_store), user: dict = Depends(current_user)) -> list[dict]:
     return [
@@ -181,6 +205,108 @@ def list_policies(store: Store = Depends(get_store), user: dict = Depends(curren
         for requirement_set in store.list_requirement_sets()
         if _is_visible(requirement_set, user, store)
     ]
+
+
+@router.post("/import", status_code=201)
+async def import_policy_with_ai(
+    file: UploadFile = File(...),
+    store: Store = Depends(get_store),
+    user: dict = Depends(require_manager),
+) -> dict:
+    """上传写作规范文档，经 AI 转换为可编辑草稿并保存原始附件。"""
+    filename = Path(file.filename or "写作规范").name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in AI_IMPORT_EXTENSIONS:
+        raise HTTPException(status_code=415, detail="AI 导入只支持 .docx、.pdf、.md、.markdown 或 .txt 文件")
+    resolved = ai_api._resolve_cfg(store, user)
+    if not resolved:
+        raise HTTPException(status_code=503, detail="AI 功能未启用，请先配置用户模型或联系管理员配置系统默认模型")
+    content = await file.read(_MAX_DOCUMENT_BYTES + 1)
+    if len(content) > _MAX_DOCUMENT_BYTES:
+        raise HTTPException(status_code=413, detail="规范文档不能超过 20 MB")
+    extracted_text, truncated = extract_policy_text(content, filename)
+    cfg, _source = resolved
+    import_retried = False
+    try:
+        raw_result = ai_api._chat_completion(
+            cfg,
+            build_policy_import_messages(filename, extracted_text),
+            0.1,
+            max_tokens=_IMPORT_MAX_TOKENS,
+        )
+        normalized, analysis = normalize_ai_policy(raw_result, filename)
+    except ValueError:
+        import_retried = True
+        try:
+            raw_result = ai_api._chat_completion(
+                cfg,
+                build_policy_import_retry_messages(filename, extracted_text),
+                0.1,
+                max_tokens=_IMPORT_MAX_TOKENS,
+            )
+            normalized, analysis = normalize_ai_policy(raw_result, filename)
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail=f"AI 返回的规范结果无法转换: {exc}") from exc
+    analysis["ai_retried"] = import_retried
+
+    level, scope, scope_id, bindings = _default_import_scope(user)
+    policy_id = new_id("policy")
+    requirement_set = RequirementSet(
+        id=policy_id,
+        family_id=policy_id,
+        name=normalized["name"],
+        level=level,
+        scope=scope,
+        scope_id=scope_id,
+        owner_id=user["id"] if user["role"] == "teacher" else None,
+        status=RequirementStatus.DRAFT,
+        version=normalized["version"],
+        description=normalized["description"],
+        markdown_content=normalized["markdown_content"],
+        items=normalized["items"],
+        bindings=bindings,
+    )
+    document_id = new_id("doc")
+    storage_key = f"{document_id}{suffix}"
+    path = _policy_document_path(policy_id, storage_key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    requirement_set.documents.append(RequirementDocument(
+        id=document_id,
+        filename=filename,
+        version=requirement_set.version,
+        summary="AI 导入源文档",
+        sort_order=0,
+        storage_key=storage_key,
+        content_type=file.content_type or "application/octet-stream",
+        size_bytes=len(content),
+        checksum="sha256:" + hashlib.sha256(content).hexdigest(),
+    ))
+    try:
+        requirement_set = hydrate_requirement_set(requirement_set)
+        _validate_policy(requirement_set)
+        saved = store.save_requirement_set(requirement_set)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    _audit(store, saved.id, "ai_imported", user, {
+        "document_id": document_id,
+        "filename": filename,
+        "source_characters": len(extracted_text),
+        "source_truncated": truncated,
+        "detected_rule_count": analysis["detected_rule_count"],
+        "auto_rule_count": analysis["auto_rule_count"],
+        "manual_rule_count": analysis["manual_rule_count"],
+    })
+    return {
+        "policy": saved,
+        "analysis": {
+            **analysis,
+            "source_characters": len(extracted_text),
+            "source_truncated": truncated,
+            "status": saved.status.value,
+        },
+    }
 
 
 @router.get("/{policy_id}")

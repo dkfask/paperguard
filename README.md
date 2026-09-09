@@ -136,6 +136,7 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 | POST | `/api/policies/{id}/archive` | 停用规范版本 |
 | POST | `/api/policies/{id}/versions` | 从已发布规范创建新版本草稿 |
 | POST | `/api/policies/{id}/documents` | 上传规范参考文档 |
+| POST | `/api/policies/import` | 上传规范文档，AI 解析并创建可编辑草稿 |
 | GET | `/api/policies/{id}/audit` | 查看规范审计记录 |
 | GET | `/api/organizations` | 组织层级与作用域 |
 | GET | `/api/projects/{id}/check` | 按模板快照和项目规范生成统一检查报告 |
