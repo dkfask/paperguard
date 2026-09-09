@@ -825,6 +825,36 @@ def test_check_project_realtime():
     assert any(f["section_key"] == "ch1" for f in data["findings"]), data["findings"]
 
 
+def test_fix_project_repairs_writing_findings_and_checks_revision():
+    """一键修复正文格式问题后持久化，并拒绝旧 revision 覆盖。"""
+    proj_id = _create_project_instantiates_sections()
+    update = client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "title": "第一章 绪论",
+        "paragraphs": [{"id": "p1", "type": "paragraph", "text": "不应加粗的正文。",
+                        "bold": True, "italic": False, "underline": False}],
+    })
+    assert update.status_code == 200
+    assert update.json()["revision"] == 1
+
+    resp = client.post(f"/api/projects/{proj_id}/fix", json={"base_revision": 1})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["fixed_count"] >= 1
+    assert data["project"]["revision"] == 2
+    ch1 = next(section for section in data["project"]["sections"] if section["key"] == "ch1")
+    assert ch1["paragraphs"][0]["bold"] is False
+    assert not any(f["rule_id"] == "PG-BODY-NO-BOLD" for f in data["report"]["findings"])
+
+    persisted = client.get(f"/api/projects/{proj_id}")
+    assert persisted.status_code == 200
+    assert persisted.json()["revision"] == 2
+    assert next(section for section in persisted.json()["sections"] if section["key"] == "ch1")["paragraphs"][0]["bold"] is False
+
+    stale = client.post(f"/api/projects/{proj_id}/fix", json={"base_revision": 1})
+    assert stale.status_code == 409
+    assert client.get(f"/api/projects/{proj_id}").json()["revision"] == 2
+
+
 def test_check_project_abstract_does_not_use_body_rules():
     """摘要不应被 GB/T 正文样式规则误报。"""
     proj_id = _create_project_instantiates_sections()

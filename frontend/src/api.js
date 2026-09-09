@@ -402,6 +402,16 @@ export async function checkProject(projectId, pack = null) {
   return resp.json()
 }
 
+export async function fixProject(projectId, baseRevision) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/fix`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base_revision: baseRevision }),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '一键修复失败'))
+  return resp.json()
+}
+
 export async function listProjectCheckRuns(projectId) {
   const resp = await api(`${API_BASE}/projects/${projectId}/check-runs`)
   if (!resp.ok) throw new Error('获取检查历史失败')

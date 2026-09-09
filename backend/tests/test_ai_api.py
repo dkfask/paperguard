@@ -250,6 +250,69 @@ def test_base_url_fallback_and_error_parsing(monkeypatch):
     ]
 
 
+def test_minimax_anthropic_base_url_uses_messages_contract(monkeypatch):
+    """MiniMax /anthropic 地址走 /v1/messages、X-Api-Key 与 content 文本块。"""
+    captured = {}
+
+    def mock_post(url, json=None, headers=None):
+        captured.update(url=url, json=json, headers=headers)
+        return httpx.Response(
+            200,
+            json={
+                "type": "message",
+                "content": [
+                    {"type": "thinking", "thinking": "内部推理"},
+                    {"type": "text", "text": "MiniMax 返回内容"},
+                ],
+            },
+        )
+
+    client_mock = unittest.mock.MagicMock()
+    client_mock.__enter__.return_value.post = mock_post
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client_mock)
+
+    result = ai_module._chat_completion(
+        {"base_url": "https://api.minimax.cn/anthropic", "api_key": "k", "model": "MiniMax-M2.7"},
+        [
+            {"role": "system", "content": "系统提示"},
+            {"role": "user", "content": "请继续写作"},
+        ],
+        0.7,
+    )
+
+    assert result == "MiniMax 返回内容"
+    assert captured["url"] == "https://api.minimax.cn/anthropic/v1/messages"
+    assert captured["headers"]["X-Api-Key"] == "k"
+    assert captured["headers"]["anthropic-version"] == "2023-06-01"
+    assert captured["json"] == {
+        "model": "MiniMax-M2.7",
+        "messages": [{"role": "user", "content": "请继续写作"}],
+        "system": "系统提示",
+        "temperature": 0.7,
+        "max_tokens": 4000,
+    }
+
+
+def test_anthropic_v1_base_url_does_not_duplicate_version(monkeypatch):
+    """已填写 /anthropic/v1 时直接追加 /messages。"""
+    calls = []
+
+    def mock_post(url, json=None, headers=None):
+        calls.append(url)
+        return httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
+
+    client_mock = unittest.mock.MagicMock()
+    client_mock.__enter__.return_value.post = mock_post
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client_mock)
+
+    assert ai_module._chat_completion(
+        {"base_url": "https://api.minimax.cn/anthropic/v1/", "api_key": "k", "model": "m"},
+        [{"role": "user", "content": "hi"}],
+        0.0,
+    ) == "ok"
+    assert calls == ["https://api.minimax.cn/anthropic/v1/messages"]
+
+
 def test_admin_ai_config_crud_and_permissions(monkeypatch):
     """测试管理员配置系统默认模型的权限、CRUD、三级回退与学生继承。"""
     student_client = _new_student("student_adm_test")

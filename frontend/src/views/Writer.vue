@@ -31,6 +31,11 @@
           <span class="material-symbols-outlined">rule</span>
           <span>检查</span>
         </button>
+        <button class="writer-fix-action" :disabled="fixing || checking || exporting || loading" @click="runOneClickFix"
+                title="修复检查结果中可自动处理的警告和错误">
+          <span class="material-symbols-outlined">build</span>
+          <span>{{ fixing ? '修复中…' : '一键修复' }}</span>
+        </button>
         <button class="primary writer-export-action" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">
           <span class="material-symbols-outlined">download</span>
           <span>{{ exporting ? '导出中…' : '导出' }}</span>
@@ -100,6 +105,7 @@
     <section class="editor-pane">
       <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}</div>
       <div v-if="templateNotice" class="notice-banner">✅ {{ templateNotice }}</div>
+      <div v-if="fixNotice" class="notice-banner" role="status">{{ fixNotice }}</div>
 
       <!-- 导出缺失清单 -->
       <div v-if="missing.length" class="missing-panel">
@@ -347,7 +353,7 @@
           </div>
           <p class="hint" style="font-size: 13px; margin-top: 4px">
             <template v-if="aiTab === 'user'">
-              配置自己的 OpenAI 兼容模型, 仅对本账号生效, 优先于系统默认。
+              配置自己的模型, 支持 OpenAI 兼容接口和 MiniMax Anthropic 接口, 仅对本账号生效, 优先于系统默认。
               <br />
               <template v-if="aiEnabled">
                 当前: {{ aiSource === 'user' ? '自有模型' : '系统默认模型' }} ({{ aiModel }})
@@ -355,7 +361,7 @@
               <template v-else>当前 AI 功能未启用</template>
             </template>
             <template v-else>
-              配置全站默认 OpenAI 兼容模型, 全体未自带 Key 的用户将默认使用该配置。
+              配置全站默认模型, 支持 OpenAI 兼容接口和 MiniMax Anthropic 接口, 全体未自带 Key 的用户将默认使用该配置。
               <br />
               <template v-if="adminAiInfo.configured">
                 当前默认来源: {{ adminAiInfo.source === 'database' ? '数据库 (管理员自定义)' : '环境变量 (PAPERGUARD_AI_*)' }}
@@ -367,14 +373,14 @@
           <!-- 个人模型表单 -->
           <template v-if="aiTab === 'user'">
             <label class="field">Base URL
-              <input v-model="aiCfgForm.base_url" placeholder="如 https://api.openai.com/v1" />
+              <input v-model="aiCfgForm.base_url" placeholder="如 https://api.openai.com/v1 或 https://api.minimax.cn/anthropic" />
             </label>
             <label class="field">API Key
               <input v-model="aiCfgForm.api_key" type="password" autocomplete="new-password"
                      :placeholder="aiCfgInfo.configured ? '已保存 ' + aiCfgInfo.api_key_masked + ' (留空则沿用)' : '必填, 如 sk-xxx'" />
             </label>
             <label class="field">模型
-              <input v-model="aiCfgForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
+              <input v-model="aiCfgForm.model" placeholder="如 gpt-4o-mini / MiniMax-M2.7" />
             </label>
             <p v-if="aiCfgInfo.message" :class="aiCfgInfo.ok ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
               {{ aiCfgInfo.ok ? '✅' : '⚠' }} {{ aiCfgInfo.message }}
@@ -394,14 +400,14 @@
           <!-- 管理员全站默认模型表单 -->
           <template v-else>
             <label class="field">Base URL
-              <input v-model="adminAiForm.base_url" placeholder="如 https://api.openai.com/v1" />
+              <input v-model="adminAiForm.base_url" placeholder="如 https://api.openai.com/v1 或 https://api.minimax.cn/anthropic" />
             </label>
             <label class="field">API Key
               <input v-model="adminAiForm.api_key" type="password" autocomplete="new-password"
                      :placeholder="adminAiInfo.configured ? '已配置 ' + adminAiInfo.api_key_masked + ' (留空则沿用)' : '必填, 如 sk-xxx'" />
             </label>
             <label class="field">模型
-              <input v-model="adminAiForm.model" placeholder="如 gpt-4o-mini / glm-4-flash" />
+              <input v-model="adminAiForm.model" placeholder="如 gpt-4o-mini / MiniMax-M2.7" />
             </label>
             <p v-if="adminAiInfo.message" :class="adminAiInfo.ok ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
               {{ adminAiInfo.ok ? '✅' : '⚠' }} {{ adminAiInfo.message }}
@@ -497,7 +503,7 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth, isManager } from '../auth'
 import {
   fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, exportProject,
-  checkProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
+  checkProject, fixProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
   acknowledgeRequirements, assistRequirement, listRequirementWaivers, listRequirementDisputes, previewRequirementUpgrade,
   requestRequirementWaiver, requestRequirementDispute, upgradeRequirements, decideRequirementWaiver, decideRequirementDispute,
   aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
@@ -526,8 +532,10 @@ const templateLoading = ref(false)
 const templateBusy = ref('')
 const templateError = ref('')
 const templateNotice = ref('')
+const fixNotice = ref('')
 const checkResult = ref(null)
 const checking = ref(false)
+const fixing = ref(false)
 const checkError = ref('')
 const checkStale = ref(false)
 const checkOpen = ref(true)
@@ -1249,6 +1257,7 @@ function onMetaInput(key, value) {
 
 function scheduleCheck() {
   checkStale.value = true
+  fixNotice.value = ''
   clearTimeout(scheduleCheck.timer)
   scheduleCheck.timer = setTimeout(() => void runCheckNow(), 2500)
 }
@@ -1333,7 +1342,7 @@ async function saveMeta() {
 
 // ---------- 实时检查 ----------
 async function runCheckNow() {
-  if (!project.value || loading.value || checking.value) return
+  if (!project.value || loading.value || checking.value || fixing.value) return
   const generation = ++checkGeneration
   try {
     await flushPendingSaves()
@@ -1352,6 +1361,35 @@ async function runCheckNow() {
     if (generation === checkGeneration) checkError.value = e.message || '检查失败'
   } finally {
     if (generation === checkGeneration) checking.value = false
+  }
+}
+
+async function runOneClickFix() {
+  if (!project.value || fixing.value || checking.value || loading.value) return
+  clearTimeout(scheduleCheck.timer)
+  checkGeneration += 1
+  fixing.value = true
+  error.value = ''
+  fixNotice.value = ''
+  try {
+    await flushPendingSaves()
+    const result = await fixProject(projectId, project.value.revision)
+    project.value = result.project
+    checkResult.value = result.report
+    checkStale.value = false
+    checkOpen.value = true
+    savedAt.value = new Date().toLocaleTimeString()
+    if (result.fixed_count > 0) {
+      fixNotice.value = `已一键修复 ${result.fixed_count} 项警告/错误，并完成复检。`
+    } else if (result.report?.findings?.length) {
+      fixNotice.value = '当前警告/错误无法自动确定修复内容，请按右侧检查结果处理。'
+    } else {
+      fixNotice.value = '当前没有需要修复的警告或错误。'
+    }
+  } catch (e) {
+    error.value = e.message || '一键修复失败'
+  } finally {
+    fixing.value = false
   }
 }
 
@@ -1715,8 +1753,9 @@ button.tiny.danger { color: var(--error); }
 .writer-save-status { display: inline-flex; align-items: center; gap: 6px; }
 .save-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
 .writer-save-status.pending .save-dot { background: var(--tertiary); }
-.writer-review-action, .writer-export-action { display: inline-flex; align-items: center; gap: 5px; }
+.writer-review-action, .writer-fix-action, .writer-export-action { display: inline-flex; align-items: center; gap: 5px; }
 .writer-review-action { color: var(--primary); border-color: var(--primary-fixed); background: var(--surface-container-low); }
+.writer-fix-action { color: #b45309; border-color: #fcd34d; background: #fffbeb; }
 .writer-command-bar .icon-action { flex-shrink: 0; }
 
 .writer-columns {
@@ -1808,6 +1847,8 @@ button.tiny.danger { color: var(--error); }
   .writer-command-metrics { display: none; }
   .writer-review-action span:last-child { display: none; }
   .writer-review-action { width: 34px; padding: 6px 8px; justify-content: center; }
+  .writer-fix-action span:last-child { display: none; }
+  .writer-fix-action { width: 34px; padding: 6px 8px; justify-content: center; }
   .writer-export-action { padding: 6px 10px; }
   .writer-columns { display: flex; flex-direction: column; margin: 0 -24px -40px; }
   .writer-columns > .sidebar { width: 100%; min-height: auto; max-height: none; position: static; border-right: 0; border-bottom: 1px solid var(--border); padding: 14px 16px; }
