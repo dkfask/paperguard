@@ -119,7 +119,8 @@
         </div>
       </div>
 
-      <div v-if="waiverTarget" class="modal-mask" @click.self="waiverTarget = null">
+      <Teleport to="body">
+      <div v-if="waiverTarget" class="modal-mask writer-modal-mask" @click.self="waiverTarget = null">
         <div class="modal card">
           <h3>申请规范豁免</h3>
           <p class="hint">{{ waiverTarget.message }}</p>
@@ -128,7 +129,7 @@
         </div>
       </div>
 
-      <div v-if="disputeTarget" class="modal-mask" @click.self="disputeTarget = null">
+      <div v-if="disputeTarget" class="modal-mask writer-modal-mask" @click.self="disputeTarget = null">
         <div class="modal card">
           <h3>提交规范申诉</h3>
           <p class="hint">{{ disputeTarget.message }}</p>
@@ -137,7 +138,7 @@
         </div>
       </div>
 
-      <div v-if="upgradePreview" class="modal-mask" @click.self="upgradePreview = null">
+      <div v-if="upgradePreview" class="modal-mask writer-modal-mask" @click.self="upgradePreview = null">
         <div class="modal card upgrade-modal">
           <h3>规范版本更新</h3>
           <p class="hint">当前版本 {{ upgradePreview.from_snapshot_hash?.slice(0, 18) }}…，可升级到 {{ upgradePreview.to_snapshot_hash?.slice(0, 18) }}…。</p>
@@ -147,7 +148,7 @@
         </div>
       </div>
 
-      <div v-if="upgradeConfirm" class="modal-mask" @click.self="upgradeConfirm = false">
+      <div v-if="upgradeConfirm" class="modal-mask writer-modal-mask" @click.self="upgradeConfirm = false">
         <div class="modal card">
           <h3>确认更新规范</h3>
           <p class="hint">应用后，项目后续检查将使用最新规范版本；已有论文内容不会被修改。</p>
@@ -155,9 +156,10 @@
         </div>
       </div>
 
-      <div v-if="assistResult" class="modal-mask" @click.self="assistResult = null">
+      <div v-if="assistResult" class="modal-mask writer-modal-mask" @click.self="assistResult = null">
         <div class="modal card"><h3>AI 人工检查辅助</h3><p class="hint">AI 结果只提供证据线索，不会改变自动检查结果。</p><div class="assist-result">{{ assistResult.suggestion }}</div><div class="form-row"><button @click="assistResult = null">关闭</button></div></div>
       </div>
+      </Teleport>
 
       <!-- 封面 -->
       <div v-if="currentSection && currentSection.type === 'cover'">
@@ -305,8 +307,9 @@
       </div>
     </aside>
 
+      <Teleport to="body">
       <!-- AI 对照选择弹窗 -->
-      <div v-if="aiDiff" class="modal-mask" @click.self="cancelAiDiff">
+      <div v-if="aiDiff" class="modal-mask writer-modal-mask" @click.self="cancelAiDiff">
         <div class="modal card diff-modal">
           <h3 style="margin-top:0; display:flex; align-items:center; gap:8px">
             <span>{{ aiDiff.action === 'continue' ? '▶ AI 续写对照' : '✨ AI 润色对照' }}</span>
@@ -346,7 +349,7 @@
       </div>
 
       <!-- AI 设置弹窗 -->
-      <div v-if="showAiSettings" class="modal-mask" @click.self="showAiSettings = false">
+      <div v-if="showAiSettings" class="modal-mask writer-modal-mask" @click.self="showAiSettings = false">
         <div class="modal card">
           <h3 style="margin-top:0">✨ AI 设置</h3>
           <div v-if="isAdmin" class="ai-tab-row">
@@ -433,7 +436,7 @@
       </div>
 
       <!-- 更换模板弹窗 -->
-      <div v-if="showTemplateModal" class="modal-mask" @click.self="showTemplateModal = false">
+      <div v-if="showTemplateModal" class="modal-mask writer-modal-mask" @click.self="showTemplateModal = false">
         <div class="modal card">
           <h3 style="margin-top: 0">🔀 更换模板</h3>
           <p class="hint" style="margin-top: 0">
@@ -463,7 +466,7 @@
       </div>
 
       <!-- 添加章节弹窗 -->
-      <div v-if="showAddSectionModal" class="modal-mask" @click.self="showAddSectionModal = false">
+      <div v-if="showAddSectionModal" class="modal-mask writer-modal-mask" @click.self="showAddSectionModal = false">
         <div class="modal card">
           <h3 style="margin-top: 0">➕ 添加新章节</h3>
           <p class="hint" style="margin-top: 0">导师已允许自定义增删章节框架。请选择章节名称、类型和插入位置：</p>
@@ -499,6 +502,7 @@
           </div>
         </div>
       </div>
+      </Teleport>
     </div>
   </div>
 </template>
@@ -1589,6 +1593,7 @@ onBeforeUnmount(() => {
 
 /* AI 设置与对比弹窗 */
 .modal-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.writer-modal-mask { z-index: 120; }
 .modal { width: min(480px, 92vw); text-align: left; max-height: 88vh; overflow-y: auto; }
 .modal.diff-modal { width: min(720px, 94vw); }
 .diff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
