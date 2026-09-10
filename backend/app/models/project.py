@@ -72,6 +72,8 @@ class WritingProject(BaseModel):
     requirement_disputes: list[dict] = []
     requirement_acknowledgements: list[dict] = []
     requirement_upgrades: list[dict] = []
+    # 每条人工规范检查项保留一份最新的 AI 辅助结果, 按 requirement_item_id 对应。
+    ai_assist_results: list[dict] = []
     check_run_ids: list[str] = []
     meta: dict[str, str] = {}          # 封面字段值 key -> value
     sections: list[ProjectSection] = []

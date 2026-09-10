@@ -157,7 +157,13 @@
       </div>
 
       <div v-if="assistResult" class="modal-mask writer-modal-mask" @click.self="assistResult = null">
-        <div class="modal card"><h3>AI 人工检查辅助</h3><p class="hint">AI 结果只提供证据线索，不会改变自动检查结果。</p><div class="assist-result">{{ assistResult.suggestion }}</div><div class="form-row"><button @click="assistResult = null">关闭</button></div></div>
+        <div class="modal card">
+          <h3>AI 人工检查辅助</h3>
+          <p class="hint">AI 结果只提供证据线索，不会改变自动检查结果。</p>
+          <p v-if="assistResult.saved || assistResult.saved_at" class="assist-saved-location">已保存到：规范检查 · {{ assistResult.requirement_item_id }}</p>
+          <div class="assist-result">{{ assistResult.suggestion }}</div>
+          <div class="form-row"><button @click="assistResult = null">关闭</button></div>
+        </div>
       </div>
       </Teleport>
 
@@ -301,7 +307,13 @@
           <strong>未自动检查项</strong>
           <span v-for="item in checkResult.not_checked" :key="item.id" class="not-checked-item">
             <span>{{ item.description }} · {{ item.source }}</span>
-            <button v-if="item.type === 'manual'" class="tiny" @click.stop="openAssist(item)">AI 辅助</button>
+            <template v-if="item.type === 'manual'">
+              <span v-if="assistResultFor(item.id)" class="assist-saved-tag">已保存</span>
+              <button v-if="assistResultFor(item.id)" class="tiny" @click.stop="showAssistResult(assistResultFor(item.id))">查看</button>
+              <button class="tiny" :disabled="!!assistBusy" @click.stop="openAssist(item)">
+                {{ assistBusy === item.id ? 'AI处理中…' : (assistResultFor(item.id) ? '重新 AI 辅助' : 'AI 辅助') }}
+              </button>
+            </template>
           </span>
         </div>
       </div>
@@ -558,7 +570,7 @@ const autoRequirementCount = computed(() => (requirementSnapshot.value?.resolved
 const hasAcknowledged = computed(() => (project.value?.requirement_acknowledgements || []).some((item) => item.user_id === auth.user?.id && item.snapshot_hash === requirementSnapshot.value?.content_hash))
 const waiverTarget = ref(null); const waiverReason = ref(''); const waiverBusy = ref(false)
 const disputeTarget = ref(null); const disputeReason = ref(''); const disputeBusy = ref(false)
-const upgradePreview = ref(null); const upgradeBusy = ref(false); const upgradeConfirm = ref(false); const assistResult = ref(null)
+const upgradePreview = ref(null); const upgradeBusy = ref(false); const upgradeConfirm = ref(false); const assistResult = ref(null); const assistBusy = ref('')
 const waivers = ref([])
 const disputes = ref([])
 const pendingWaivers = computed(() => waivers.value.filter((item) => item.status === 'pending'))
@@ -1492,9 +1504,27 @@ async function confirmUpgrade() {
   } catch (e) { error.value = e.message || '应用规范升级失败' }
   finally { upgradeBusy.value = false }
 }
+function assistResultFor(itemId) {
+  return [...(project.value?.ai_assist_results || [])].reverse().find((item) => item.requirement_item_id === itemId) || null
+}
+
+function showAssistResult(result) {
+  assistResult.value = result
+}
+
 async function openAssist(item) {
-  try { assistResult.value = await assistRequirement(projectId, item.id, item.description) }
-  catch (e) { error.value = e.message || 'AI 辅助检查失败' }
+  if (assistBusy.value) return
+  assistBusy.value = item.id
+  error.value = ''
+  try {
+    await flushPendingSaves()
+    const result = await assistRequirement(projectId, item.id, item.description)
+    const previous = project.value.ai_assist_results || []
+    project.value.ai_assist_results = previous.filter((saved) => saved.requirement_item_id !== item.id).concat(result)
+    if (Number.isInteger(result.project_revision)) project.value.revision = result.project_revision
+    assistResult.value = result
+  } catch (e) { error.value = e.message || 'AI 辅助检查失败' }
+  finally { assistBusy.value = '' }
 }
 
 function jumpTo(f) { if (f.section_key) current.value = f.section_key }
@@ -1608,6 +1638,8 @@ onBeforeUnmount(() => {
 .diff-box.generated { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
 .diff-preview-pane { margin-top: 12px; }
 .diff-box.preview { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; max-height: 180px; }
+.assist-saved-location { margin: 0 0 10px; color: var(--success, #15803d); font-size: 13px; }
+.assist-saved-tag { color: var(--success, #15803d); font-size: 12px; white-space: nowrap; }
 .modal .field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .modal .field input { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
 .structure-select { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--card); color: var(--text); }

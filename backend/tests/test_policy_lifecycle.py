@@ -6,6 +6,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+from app.api import ai as ai_module
 from app.main import app
 
 
@@ -70,6 +71,46 @@ def test_organization_binding_is_inherited_by_student_project():
     snapshot = project.json()["requirement_snapshot"]
     assert any(item["id"] == policy["id"] for item in snapshot["policy_sets"])
     assert snapshot["context"]["major_id"] == f"major-{suffix}"
+
+
+def test_requirement_ai_assist_is_saved_to_matching_item(monkeypatch):
+    admin = _admin_headers()
+    suffix = uuid.uuid4().hex[:8]
+    policy_id = f"assist-policy-{suffix}"
+    item_id = f"assist-manual-{suffix}"
+    policy = _policy(admin, policy_id=policy_id, scope_id="", items=[{
+        "id": item_id, "type": "manual", "target": "document", "checker": "",
+        "params": {}, "severity": "warning", "enforce": "soft", "description": "人工核对论文内容",
+    }])
+    template = client.get("/api/templates/default-gb7713", headers=admin).json()
+    template.update({"id": f"assist-template-{suffix}", "name": "AI 辅助保存模板", "requirement_set_ids": [policy["id"]]})
+    assert client.post("/api/templates", headers=admin, json=template).status_code == 201
+    project = client.post("/api/projects", headers=admin, json={
+        "template_id": template["id"], "title": "AI 辅助保存项目",
+    })
+    assert project.status_code == 201, project.text
+    project_id = project.json()["id"]
+    section = next(section for section in project.json()["sections"] if section["type"] not in ("cover", "toc"))
+    content = client.put(f"/api/projects/{project_id}/section/{section['key']}", headers=admin, json={
+        "paragraphs": [{"id": "assist-content", "text": "这是一段用于人工规范检查的论文正文。"}],
+    })
+    assert content.status_code == 200, content.text
+
+    monkeypatch.setattr(ai_module, "_chat_completion", lambda cfg, messages, temperature: "已观察到正文证据；建议人工确认。")
+    response = client.post(f"/api/projects/{project_id}/requirements/{item_id}/assist", headers=admin, json={
+        "question": "请核对正文内容",
+    })
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["saved"] is True
+    assert result["requirement_item_id"] == item_id
+    assert result["suggestion"] == "已观察到正文证据；建议人工确认。"
+    assert result["project_revision"] >= content.json()["revision"] + 1
+
+    saved_project = client.get(f"/api/projects/{project_id}", headers=admin).json()
+    assert len(saved_project["ai_assist_results"]) == 1
+    assert saved_project["ai_assist_results"][0]["requirement_item_id"] == item_id
+    assert saved_project["ai_assist_results"][0]["suggestion"] == result["suggestion"]
 
 
 def test_policy_document_version_and_audit_lifecycle():

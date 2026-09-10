@@ -914,10 +914,37 @@ def assist_requirement_check(proj_id: str, item_id: str, req: RequirementAssistR
         {"role": "user", "content": f"检查要求：{question}\n\n论文内容：\n{content[:11000]}"},
     ]
     suggestion = _chat_completion(cfg, messages, 0.2)
+    # AI 请求可能耗时较长, 重新读取项目后再按 revision 保存, 避免把期间的正文编辑覆盖掉。
+    saved = None
+    for _ in range(2):
+        latest = store.get_project(proj_id)
+        if latest is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        _ensure_access(latest, user)
+        _ensure_requirement_item(latest, item_id)
+        saved_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        record = {
+            "id": new_id("assist"),
+            "requirement_item_id": item_id,
+            "question": question,
+            "suggestion": suggestion,
+            "requested_by": user["id"],
+            "saved_at": saved_at,
+        }
+        latest.ai_assist_results = [
+            item for item in latest.ai_assist_results
+            if item.get("requirement_item_id") != item_id
+        ] + [record]
+        saved = store.update_project_if_revision(latest, latest.revision)
+        if saved is not None:
+            break
+    if saved is None:
+        raise HTTPException(status_code=409, detail="项目内容已被更新, AI 结果未保存, 请重试")
     return {
-        "requirement_item_id": item_id,
-        "suggestion": suggestion,
+        **record,
         "is_authoritative": False,
+        "saved": True,
+        "project_revision": saved.revision,
         "message": "AI 结果仅供人工参考，不会自动改变合规判定。",
     }
 
