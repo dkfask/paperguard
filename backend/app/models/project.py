@@ -64,6 +64,7 @@ class WritingProject(BaseModel):
     owner_id: str = ""             # 归属用户 (空 = 旧数据, 视为公开/管理员)
     revision: int = Field(default=0, ge=0)
     template_snapshot: dict | None = None
+    template_source_snapshot: dict | None = None
     requirement_snapshot: dict | None = None  # 项目创建时冻结的有效规范与版本
     organization_context: dict[str, str] = {}  # school/college/major/batch/course 等作用域
     stage: str = ""

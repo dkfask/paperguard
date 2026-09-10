@@ -539,6 +539,30 @@ def _apply_section_layout(section, layout) -> None:
         sect_pr.append(copy.deepcopy(child))
 
 
+def _apply_policy_layout(section, layout: dict[str, float] | None) -> None:
+    """Apply page constraints parsed from the active writing standard."""
+    if not layout:
+        return
+    attributes = {
+        "page_width_cm": "page_width",
+        "page_height_cm": "page_height",
+        "top_margin_cm": "top_margin",
+        "bottom_margin_cm": "bottom_margin",
+        "left_margin_cm": "left_margin",
+        "right_margin_cm": "right_margin",
+        "header_distance_cm": "header_distance",
+        "footer_distance_cm": "footer_distance",
+    }
+    for key, attribute in attributes.items():
+        value = layout.get(key)
+        if value is None:
+            continue
+        try:
+            setattr(section, attribute, Cm(float(value)))
+        except (TypeError, ValueError):
+            continue
+
+
 def _layout_has_page_field(doc: Document, layout) -> bool:
     """源文档节是否引用了带 PAGE 域的页脚。"""
     if layout is None:
@@ -583,6 +607,8 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
         section.page_width, section.page_height = Cm(21.0), Cm(29.7)
         section.top_margin = section.bottom_margin = Cm(2.54)
         section.left_margin = section.right_margin = Cm(3.17)
+
+    _apply_policy_layout(doc.sections[0], template.page_layout)
 
     # 无源模板时保留旧行为: 先创建一个页脚, 后续分节继承它。
     if not from_template and not doc.sections[0]._sectPr.findall(qn("w:footerReference")):
@@ -634,6 +660,7 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             if is_front:
                 section = _start_section(doc, suppress_previous_footer=True)
                 _apply_section_layout(section, front_layout)
+                _apply_policy_layout(section, template.page_layout)
                 _set_page_number_format(section, "upperRoman")
                 if not section._sectPr.findall(qn("w:footerReference")):
                     _add_page_number_footer(doc, section)
@@ -643,6 +670,7 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
                 ensure_toc()
                 section = _start_section(doc, suppress_previous_footer=True)
                 _apply_section_layout(section, body_layout)
+                _apply_policy_layout(section, template.page_layout)
                 _set_page_number_format(section, "decimal")
                 if not section._sectPr.findall(qn("w:footerReference")):
                     _add_page_number_footer(doc, section)
@@ -654,6 +682,7 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             ensure_toc()
             section = _start_section(doc)
             _apply_section_layout(section, body_layout)
+            _apply_policy_layout(section, template.page_layout)
             _set_page_number_format(section, "decimal")
             if not had_front and not section._sectPr.findall(qn("w:footerReference")):
                 _add_page_number_footer(doc, section)
@@ -681,8 +710,9 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             if style.page_break_before and not section_started:
                 doc.add_page_break()
             _add_text_paragraph(doc, proj_sec.title, style)
-            # 摘要正文用正文样式, 不能沿用标题样式(否则正文变成大字居中)
-            body_style = _style_for(template, "body", None)
+            # 摘要正文使用独立样式; 规范中的摘要约束优先于模板默认正文样式。
+            body_style_key = "abstract_body" if section_type is SectionType.ABSTRACT else "english_abstract_body"
+            body_style = _style_for(template, body_style_key, None)
             for par in proj_sec.paragraphs:
                 # 关键词段落写在摘要里时, 按模板的关键词样式排版
                 par_style = _keyword_style_for(par.text, template) or body_style

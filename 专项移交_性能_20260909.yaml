@@ -1,0 +1,17 @@
+axis: performance
+feature: 'PaperGuard 多层级规范解析和批量升级'
+source_identity: 'main 工作树 2026-09-09'
+target_identity: '本地 API 与独立压测环境'
+environment: '需要可复现的独立压测环境、规模化组织/规范/项目数据和监控'
+role_account: '压测专用管理员与学生账号，不使用真实生产账号'
+device_viewport: '服务端压测，不适用'
+allowed_writes: '仅允许隔离测试库和临时附件目录'
+owner: '运维与测试'
+stop_conditions: '发现跨租户数据、快照不一致或错误率超过阈值立即停止'
+execution_status: partial
+local_baseline: '隔离 SQLite 单进程：100 次项目检查 P95 29.22 ms；100 个旧快照升级 P95 1.68 ms；错误 0'
+todo: '补充并发用户数、数据规模、P95/P99 阈值和压测环境后执行生产并发压测'
+scenarios:
+  - '并发创建项目并解析学校到教师五层规范'
+  - '批量升级一千个旧快照项目并核对升级记录'
+acceptance: '记录吞吐、P95、P99、错误率和数据库锁等待；不以本地 pytest 代替专项结果'

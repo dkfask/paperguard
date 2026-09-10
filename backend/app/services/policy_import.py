@@ -14,6 +14,14 @@ from docx.text.paragraph import Paragraph
 from docx.oxml.ns import qn
 from fastapi import HTTPException
 
+from app.services.policy_format import (
+    extract_format_overrides,
+    extract_layout_overrides,
+    format_override_count,
+    merge_format_overrides,
+    normalize_layout_overrides,
+)
+
 
 AI_IMPORT_EXTENSIONS = {".md", ".markdown", ".txt", ".pdf", ".docx"}
 MAX_POLICY_TEXT_CHARS = 30000
@@ -47,6 +55,12 @@ _CHECKER_ALIASES = {
 
 _SUPPORTED_CHECKERS = set(_CHECKER_ALIASES.values()) | {"cover.field_present"}
 _KNOWN_RULE_PACKS = {"GB-T-7713-1-2006", "GB-T-7714-1-2015", "SIM-UNIV-generic"}
+_FORMAT_TERM_RE = re.compile(
+    r"字体|字号|行距|首行缩进|缩进|对齐|分页|另起一页|章前|换页|页边距|页眉|页脚|页码|段前|段后|"
+    r"宋体|黑体|仿宋|楷体|隶书|Times\s*New\s*Roman|小二|小三|小四|小五|四号|五号|六号|"
+    r"单倍|两端对齐|居中|居右|左对齐|右对齐|左顶格|顶格|加粗|斜体|下划线|磅|pt|cm|倍行距",
+    re.IGNORECASE,
+)
 _PARAM_KEYS = {
     "section_key", "section_keys", "min", "max", "min_count", "min_ratio",
     "years", "current_year", "count_mode", "prefix_pattern", "field_key",
@@ -141,6 +155,20 @@ def build_policy_import_messages(filename: str, text: str) -> list[dict[str, str
         "version": "1",
         "description": "面向使用者的简短说明",
         "markdown_content": "整理后的规范正文，保留重要原文和上下文",
+        "format_overrides": {
+            "body": {"font_zh": "宋体", "font_en": "Times New Roman", "size_pt": 12,
+                      "line_spacing": 1.5, "first_line_indent_chars": 2, "align": "justify"}
+        },
+        "layout_overrides": {
+            "page_width_cm": 21,
+            "page_height_cm": 29.7,
+            "top_margin_cm": 2.5,
+            "bottom_margin_cm": 2.5,
+            "left_margin_cm": 2.5,
+            "right_margin_cm": 2.5,
+            "header_distance_cm": 1.5,
+            "footer_distance_cm": 1.75
+        },
         "items": [
             {
                 "id": "稳定的英文或数字规则 ID",
@@ -161,7 +189,10 @@ def build_policy_import_messages(filename: str, text: str) -> list[dict[str, str
         f"可用 checker：{allowed}\n"
         "规则映射要求：明确写出数值的字数、关键词、参考文献要求可以转成 auto；"
         "只有在文档给出准确章节 key 时才使用 section.exists 或 chapter.page_break；"
-        "无法安全映射的要求必须保留为 manual，不要猜测。不要生成规则包 ID。\n"
+        "无法安全映射的要求必须保留为 manual，不要猜测。不要生成规则包 ID。"
+        "不得遗漏任何明确的格式条款，包括中文字体、西文字体、字号、加粗、行距、段前段后、"
+        "首行缩进、对齐方式、页眉页脚、页码、分页和页边距。格式条款必须在 items 中逐条作为 manual，"
+        "description 要保留具体字体名称、数值和适用对象；markdown_content 不得只写总结，必须保留原文要点。\n"
         f"目标 JSON 结构示例：{json.dumps(schema, ensure_ascii=False)}\n\n"
         "请分析以下规范文档：\n\n" + text
     )
@@ -179,6 +210,8 @@ def build_policy_import_retry_messages(filename: str, text: str) -> list[dict[st
         "上一次结果不完整，请重新整理以下规范。只保留有明确依据的要求；无法安全自动检查的要求使用 manual。"
         "markdown_content 只保留 3000 字以内的要点摘要。每条规则必须包含 id、type、target、checker、params、"
         "severity、enforce、description、source；type 只能是 auto、manual、doc，checker 不确定时留空。"
+        "不得遗漏字体、字号、行距、缩进、对齐、页眉页脚、页码、分页和页边距等格式条款，"
+        "description 必须保留具体名称、数值和适用对象。"
         "输出结构：{\"name\":\"\",\"version\":\"1\",\"description\":\"\","
         "\"markdown_content\":\"\",\"items\":[]}。\n\n"
         "规范原文：\n" + text
@@ -312,6 +345,49 @@ def _section_key_values(params: dict[str, Any]) -> list[str]:
     return [str(value).strip() for value in values if str(value).strip()]
 
 
+def _format_requirement_items(source_text: str, filename: str, used: set[str]) -> list[dict[str, Any]]:
+    """从原文兜底提取明确排版条款，避免模型摘要遗漏字体等关键信息。"""
+    if not source_text.strip():
+        return []
+    paragraphs: list[str] = []
+    seen: set[str] = set()
+    for raw in re.split(r"\n{2,}", source_text):
+        paragraph = re.sub(r"[ \t]*\n[ \t]*", " ", raw)
+        paragraph = re.sub(r"\s+", " ", paragraph).strip()
+        if not paragraph or paragraph in seen or not _FORMAT_TERM_RE.search(paragraph):
+            continue
+        seen.add(paragraph)
+        paragraphs.append(paragraph)
+
+    items: list[dict[str, Any]] = []
+    for index, paragraph in enumerate(paragraphs, start=1):
+        description = paragraph[:800]
+        if len(paragraph) > 800:
+            description += "..."
+        items.append({
+            "id": _clean_id(f"source-format-{index}", index, used),
+            "type": "manual",
+            "target": "document",
+            "checker": "",
+            "params": {"format_override": True},
+            "severity": "warning",
+            "enforce": "soft",
+            "description": f"原文格式要求：{description}",
+            "source": f"{filename}（格式条款）",
+            "rule_pack_id": "",
+            "rule_pack_params": {},
+        })
+    return items
+
+
+def _append_source_markdown(markdown: str, source_text: str) -> str:
+    """把上传文档原文附加到规范正文，保证原始格式信息可见可编辑。"""
+    source = source_text.strip()
+    if not source or source in markdown:
+        return markdown
+    return f"{markdown.rstrip()}\n\n## 上传规范原文\n\n{source}\n"
+
+
 def _deduplicate_auto_items(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     """避免模型重复生成同一检查器，且不丢失原始要求。"""
     seen: dict[tuple[str, str], dict[str, Any]] = {}
@@ -348,7 +424,11 @@ def _deduplicate_auto_items(items: list[dict[str, Any]]) -> tuple[list[dict[str,
     return normalized, duplicate_count
 
 
-def normalize_ai_policy(raw_text: str, filename: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def normalize_ai_policy(
+    raw_text: str,
+    filename: str,
+    source_text: str = "",
+) -> tuple[dict[str, Any], dict[str, Any]]:
     data = _json_object(raw_text)
     stem = Path(filename or "写作规范").stem or "写作规范"
     name = str(data.get("name") or data.get("title") or stem).strip()[:200]
@@ -360,20 +440,39 @@ def normalize_ai_policy(raw_text: str, filename: str) -> tuple[dict[str, Any], d
     used: set[str] = set()
     items = [_normalize_item(value, index, filename, used) for index, value in enumerate(raw_items, start=1)]
     items, duplicate_rule_count = _deduplicate_auto_items(items)
+    format_items = _format_requirement_items(source_text, filename, used)
+    items.extend(format_items)
     markdown = str(data.get("markdown_content") or data.get("markdown") or "").strip()
     if not markdown:
         markdown = _generated_markdown(name, description, items)
+    markdown = _append_source_markdown(markdown, source_text)
+    # 模型结果只作补充，原文解析结果最后合并，保证规范原文优先于模型猜测。
+    format_overrides = merge_format_overrides(
+        data.get("format_overrides"),
+        extract_format_overrides(source_text or markdown),
+    )
+    layout_overrides = normalize_layout_overrides(data.get("layout_overrides"))
+    layout_overrides.update(extract_layout_overrides(source_text or markdown))
+    source = source_text.strip()
+    source_text_preserved = bool(source and source in markdown)
     analysis = {
         "source_filename": filename,
         "detected_rule_count": len(items),
         "auto_rule_count": sum(item["type"] == "auto" for item in items),
         "manual_rule_count": sum(item["type"] != "auto" for item in items),
         "duplicate_rule_count": duplicate_rule_count,
+        "format_rule_count": len(format_items),
+        "format_override_count": format_override_count(format_overrides),
+        "layout_override_count": len(layout_overrides),
+        "source_text_preserved": source_text_preserved,
+        "preserved_source_characters": len(source) if source_text_preserved else 0,
     }
     return {
         "name": name,
         "version": version,
         "description": description,
         "markdown_content": markdown,
+        "format_overrides": format_overrides,
+        "layout_overrides": layout_overrides,
         "items": items,
     }, analysis

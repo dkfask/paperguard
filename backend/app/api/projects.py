@@ -31,7 +31,11 @@ from app.services.image_cleanup import cleanup_orphan_images, remove_project_ima
 from app.services.project_validation import validate_project_completeness
 from app.services.template_compare import compare_project_to_template
 from app.services.projects import create_project_from_template
-from app.services.policy_resolver import build_requirement_snapshot
+from app.services.policy_resolver import (
+    apply_requirement_format_overrides,
+    build_requirement_snapshot,
+    hydrate_snapshot_format_overrides,
+)
 from app.services.template_source import resolve_template_source
 from app.services.upload_security import IMAGE_MAX_BYTES, validate_image
 
@@ -114,6 +118,7 @@ def get_project(proj_id: str, store: Store = Depends(get_store),
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
+    _project_template(proj, store)
     return proj
 
 
@@ -389,21 +394,38 @@ def delete_project(proj_id: str, store: Store = Depends(get_store),
 
 
 def _project_template(proj: WritingProject, store: Store) -> PaperTemplate:
-    """优先使用项目创建时冻结的模板快照, 兼容旧项目回退到当前模板。"""
-    if proj.template_snapshot:
-        return PaperTemplate.model_validate(proj.template_snapshot)
-    tpl = store.get_template(proj.template_id)
-    if tpl is None:
+    """返回项目当前有效模板：冻结模板为基底，规范排版覆盖其样式。"""
+    if proj.template_source_snapshot:
+        base_template = PaperTemplate.model_validate(proj.template_source_snapshot)
+    elif proj.template_snapshot:
+        base_template = PaperTemplate.model_validate(proj.template_snapshot)
+    else:
+        base_template = store.get_template(proj.template_id)
+    if base_template is None:
         raise HTTPException(status_code=404, detail="项目绑定的模板不存在, 请联系管理员迁移")
-    proj.template_snapshot = tpl.model_dump(mode="json")
-    store.save_project(proj)
-    return tpl
+
+    snapshot = hydrate_snapshot_format_overrides(proj.requirement_snapshot)
+    effective_template = apply_requirement_format_overrides(base_template, snapshot)
+    snapshot_changed = snapshot != (proj.requirement_snapshot or {})
+    template_payload = effective_template.model_dump(mode="json")
+    template_changed = template_payload != (proj.template_snapshot or {})
+    if snapshot_changed:
+        proj.requirement_snapshot = snapshot
+    if template_changed:
+        proj.template_snapshot = template_payload
+    if snapshot_changed or template_changed:
+        store.save_project(proj)
+    return effective_template
 
 
 def _ensure_requirement_snapshot(proj: WritingProject, tpl: PaperTemplate, store: Store) -> dict:
     """为旧项目补建规范快照；新项目始终在创建时生成。"""
     if proj.requirement_snapshot:
-        return proj.requirement_snapshot
+        hydrated = hydrate_snapshot_format_overrides(proj.requirement_snapshot)
+        if hydrated != proj.requirement_snapshot:
+            proj.requirement_snapshot = hydrated
+            store.save_project(proj)
+        return hydrated
     owner = store.get_user(proj.owner_id) if proj.owner_id else None
     proj.requirement_snapshot = build_requirement_snapshot(
         store,
@@ -414,6 +436,7 @@ def _ensure_requirement_snapshot(proj: WritingProject, tpl: PaperTemplate, store
         project_id=proj.id,
         stage=proj.stage,
     )
+    proj.template_snapshot = apply_requirement_format_overrides(tpl, proj.requirement_snapshot).model_dump(mode="json")
     store.save_project(proj)
     return proj.requirement_snapshot
 
@@ -462,6 +485,7 @@ def _rebind_template(proj: WritingProject, tpl: PaperTemplate) -> WritingProject
     proj.template_id = tpl.id
     proj.template_name = tpl.name
     proj.template_snapshot = tpl.model_dump(mode="json")
+    proj.template_source_snapshot = tpl.model_dump(mode="json")
     # 补齐新模板的封面字段, 已填写的值保留
     for field in tpl.meta_fields:
         proj.meta.setdefault(field.key, "")
@@ -495,6 +519,7 @@ def switch_project_template(proj_id: str, req: SwitchTemplateRequest,
         project_id=proj.id,
         stage=proj.stage,
     )
+    proj.template_snapshot = apply_requirement_format_overrides(tpl, proj.requirement_snapshot).model_dump(mode="json")
     store.save_project(proj)
     return proj
 
@@ -523,6 +548,7 @@ def refresh_project_template(proj_id: str,
         project_id=proj.id,
         stage=proj.stage,
     )
+    proj.template_snapshot = apply_requirement_format_overrides(tpl, proj.requirement_snapshot).model_dump(mode="json")
     store.save_project(proj)
     return proj
 
@@ -536,6 +562,8 @@ def check_project_template(proj_id: str,
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
+    tpl = _project_template(proj, store)
+    _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
     findings, context = compare_project_to_template(proj, tpl)
     from app.core.reporters.json_reporter import JSONReporter
@@ -559,6 +587,7 @@ def check_project(proj_id: str, pack: str | None = None,
     _ensure_access(proj, user)
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
+    tpl = _project_template(proj, store)
     from app.services.project_check import check_project as run_check
     return run_check(proj, tpl, pack=pack, store=store, performed_by=user["id"])
 
@@ -574,6 +603,7 @@ def fix_project(proj_id: str, req: ProjectFixRequest,
     _ensure_access(proj, user)
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
+    tpl = _project_template(proj, store)
 
     expected_revision = proj.revision if req.base_revision is None else req.base_revision
     if req.base_revision is not None and req.base_revision != proj.revision:
@@ -590,6 +620,7 @@ def fix_project(proj_id: str, req: ProjectFixRequest,
         # Formatting fixes can update the project-bound template rather than a
         # content block; persist both through the same revision-checked write.
         proj.template_snapshot = tpl.model_dump(mode="json")
+        proj.template_source_snapshot = tpl.model_dump(mode="json")
         saved = store.update_project_if_revision(proj, expected_revision)
         if saved is None:
             raise HTTPException(
@@ -597,6 +628,7 @@ def fix_project(proj_id: str, req: ProjectFixRequest,
                 detail={"message": "项目内容已被更新, 请刷新后重试"},
             )
         proj = saved
+        tpl = _project_template(proj, store)
         report = run_check(proj, tpl, store=None, performed_by=user["id"])
 
     return {
@@ -899,6 +931,7 @@ def preview_requirement_upgrade(proj_id: str, store: Store = Depends(get_store),
     _ensure_access(proj, user)
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
+    tpl = _project_template(proj, store)
     new_snapshot = _current_requirement_snapshot(proj, tpl, store)
     return {
         "from_snapshot_hash": proj.requirement_snapshot.get("content_hash", ""),
@@ -920,6 +953,7 @@ def upgrade_requirements(proj_id: str, req: RequirementUpgradeRequest,
         raise HTTPException(status_code=403, detail="只有教师或管理员可以升级项目规范")
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
+    tpl = _project_template(proj, store)
     if req.expected_snapshot_hash and req.expected_snapshot_hash != proj.requirement_snapshot.get("content_hash"):
         raise HTTPException(status_code=409, detail="项目规范已发生变化，请重新预览")
     new_snapshot = _current_requirement_snapshot(proj, tpl, store)
@@ -941,6 +975,10 @@ def upgrade_requirements(proj_id: str, req: RequirementUpgradeRequest,
         )
         proj.requirement_upgrades.append(upgrade.model_dump(mode="json"))
         proj.requirement_snapshot = new_snapshot
+        base_template = PaperTemplate.model_validate(
+            proj.template_source_snapshot or tpl.model_dump(mode="json")
+        )
+        proj.template_snapshot = apply_requirement_format_overrides(base_template, new_snapshot).model_dump(mode="json")
         store.save_project(proj)
     return {"project": proj, "diff": diff}
 
@@ -978,6 +1016,7 @@ def compliance_report(proj_id: str, store: Store = Depends(get_store),
     _ensure_access(proj, user)
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
+    tpl = _project_template(proj, store)
     from app.services.project_check import check_project as run_check
     report = run_check(proj, tpl, pack=None, store=store, performed_by=user["id"])
     report["report_type"] = "compliance"
@@ -1004,6 +1043,7 @@ def export_docx(proj_id: str, force: bool = False,
     _ensure_access(proj, user)
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
+    tpl = _project_template(proj, store)
 
     if not force:
         missing = validate_project_completeness(proj, tpl)

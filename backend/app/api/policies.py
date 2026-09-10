@@ -234,7 +234,7 @@ async def import_policy_with_ai(
             0.1,
             max_tokens=_IMPORT_MAX_TOKENS,
         )
-        normalized, analysis = normalize_ai_policy(raw_result, filename)
+        normalized, analysis = normalize_ai_policy(raw_result, filename, extracted_text)
     except ValueError:
         import_retried = True
         try:
@@ -244,7 +244,7 @@ async def import_policy_with_ai(
                 0.1,
                 max_tokens=_IMPORT_MAX_TOKENS,
             )
-            normalized, analysis = normalize_ai_policy(raw_result, filename)
+            normalized, analysis = normalize_ai_policy(raw_result, filename, extracted_text)
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=f"AI 返回的规范结果无法转换: {exc}") from exc
     analysis["ai_retried"] = import_retried
@@ -263,6 +263,7 @@ async def import_policy_with_ai(
         version=normalized["version"],
         description=normalized["description"],
         markdown_content=normalized["markdown_content"],
+        format_overrides=normalized.get("format_overrides") or {},
         items=normalized["items"],
         bindings=bindings,
     )

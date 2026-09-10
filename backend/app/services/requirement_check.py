@@ -122,6 +122,7 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
     findings: list[dict] = []
     not_checked: list[dict] = []
     sections = {section.key: section for section in project.sections}
+    format_item_ids = set(snapshot.get("format_item_ids") or [])
 
     for item in snapshot.get("resolved_items", []):
         checker = item.get("checker", "")
@@ -138,6 +139,8 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
             "sources": item.get("sources", []),
             "fixable": False,
         }
+        if item.get("id") in format_item_ids:
+            continue
         if item_type != "auto":
             not_checked.append({
                 **{key: descriptor[key] for key in ("id", "description", "type", "severity", "enforce", "source", "source_version", "sources")},

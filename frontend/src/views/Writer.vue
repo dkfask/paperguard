@@ -175,17 +175,18 @@
       <div v-else-if="currentSection && isHeading(currentSection.type)">
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
-          <span class="hint">标题排版由模板锁定, 下方为本章正文(可插图片/表格)</span>
+          <span class="hint">标题排版按规范优先生效, 下方为本章正文(可插图片/表格)</span>
           <button class="small" @click="toggleSectionInputMode">
             {{ sectionInputMode === 'blocks' ? '整节输入' : '逐段编辑' }}
           </button>
         </div>
         <input v-model="currentSection.title" class="heading-input"
-               :class="'type-' + currentSection.type" @input="scheduleSave" />
+               :class="'type-' + currentSection.type" :style="editorStyle(currentSection.type, true)" @input="scheduleSave" />
         <section-text-editor v-if="sectionInputMode === 'section'" v-model="sectionText"
-                             :reset-key="currentSection.key" @apply="applySectionText" />
+                             :reset-key="currentSection.key" :style-vars="editorStyle(currentSection.type)" @apply="applySectionText" />
         <block-list v-else :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
+                    :style-vars="editorStyle(currentSection.type)"
                     :chapter="chapterOf(currentSection.key)"
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
       </div>
@@ -194,7 +195,7 @@
       <div v-else-if="currentSection">
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
-          <span class="hint">字体/字号/行距/缩进由模板自动控制, 可插图片/表格</span>
+          <span class="hint">字体/字号/行距/缩进按规范优先生效, 可插图片/表格</span>
           <button class="small" @click="toggleSectionInputMode">
             {{ sectionInputMode === 'blocks' ? '整节输入' : '逐段编辑' }}
           </button>
@@ -204,11 +205,12 @@
           </button>
         </div>
         <input v-model="currentSection.title" class="heading-input" :class="'type-' + currentSection.type"
-               @input="scheduleSave" />
+               :style="editorStyle(currentSection.type, true)" @input="scheduleSave" />
         <section-text-editor v-if="sectionInputMode === 'section'" v-model="sectionText"
-                             :reset-key="currentSection.key" @apply="applySectionText" />
+                             :reset-key="currentSection.key" :style-vars="editorStyle(currentSection.type)" @apply="applySectionText" />
         <block-list v-else :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
+                    :style-vars="editorStyle(currentSection.type)"
                     :chapter="chapterOf(currentSection.key)"
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
       </div>
@@ -251,6 +253,10 @@
             <span>格式规则 · {{ packId }}</span>
           </div>
         </div>
+        <p v-if="requirementSnapshot.format_override_count" class="format-resolution">
+          <span class="material-symbols-outlined">verified</span>
+          规范优先 · 已应用 {{ requirementSnapshot.format_override_count }} 项排版约束
+        </p>
         <p class="requirements-foot">自动检查 {{ autoRequirementCount }} 项<span v-if="checkResult"> · 未自动判定 {{ checkResult.summary.not_checked || 0 }} 项</span></p>
       </div>
 
@@ -1204,6 +1210,33 @@ function typeLabel(type) {
   }[type] || type
 }
 
+function editorStyle(type, heading = false) {
+  const headingTypes = ['heading1', 'heading2', 'heading3']
+  let styleKey = type
+  if (!heading && headingTypes.includes(type)) styleKey = 'body'
+  if (!heading && type === 'abstract') styleKey = 'abstract_body'
+  if (!heading && type === 'english_abstract') styleKey = 'english_abstract_body'
+  const styles = template.value?.styles || {}
+  const style = styles[styleKey] || styles.body || {}
+  const fontNames = [style.font_zh, style.font_en, 'sans-serif']
+    .filter(Boolean)
+    .map((name) => `"${String(name).replace(/"/g, '')}"`)
+    .join(', ')
+  const align = { left: 'left', center: 'center', right: 'right', justify: 'justify' }[style.align] || 'left'
+  return {
+    fontFamily: fontNames,
+    fontSize: style.size_pt ? `${style.size_pt}pt` : undefined,
+    fontWeight: style.bold ? '700' : '400',
+    fontStyle: style.italic ? 'italic' : 'normal',
+    textDecoration: style.underline ? 'underline' : 'none',
+    textAlign: align,
+    lineHeight: style.line_spacing_rule === 'auto'
+      ? String(style.line_spacing || 1.5)
+      : (style.line_spacing ? `${style.line_spacing}pt` : undefined),
+    textIndent: style.first_line_indent_chars ? `${style.first_line_indent_chars}em` : '0',
+  }
+}
+
 async function select(node) {
   if (node.key === current.value) return
   try {
@@ -1824,6 +1857,8 @@ button.tiny.danger { color: var(--error); }
 .context-panel .requirements-sources { gap: 5px; }
 .context-panel .source-chip { width: 100%; min-width: 0; padding: 4px 6px; font-size: 11px; }
 .context-panel .source-chip span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-panel .format-resolution { display: flex; align-items: center; gap: 4px; margin: 8px 0 0; color: var(--primary); font-size: 11px; }
+.context-panel .format-resolution .material-symbols-outlined { font-size: 15px; }
 .context-panel .requirements-foot { font-size: 11px; }
 .context-section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(195, 198, 215, .4); color: var(--on-surface); font-size: 12px; font-weight: 600; }
 .context-section-title > span { display: inline-flex; align-items: center; gap: 5px; }

@@ -30,6 +30,7 @@
       <!-- 文本段落 -->
       <textarea v-if="par.type !== 'image' && par.type !== 'table'"
                 v-model="par.text" rows="4" class="para-text" :class="styleClass"
+                :style="styleVars"
                 :placeholder="'第 ' + (i + 1) + ' 段正文…'" @input="emitChange" @paste="onTextPaste($event, i)" />
 
       <!-- 图片块 -->
@@ -88,6 +89,7 @@ const props = defineProps({
   paragraphs: { type: Array, required: true },
   projectId: { type: String, required: true },
   styleClass: { type: String, default: '' },
+  styleVars: { type: Object, default: () => ({}) },
   sectionTitle: { type: String, default: '' },
   chapter: { type: Number, default: 0 },   // 所属章号(题注自动编号用)
   aiEnabled: { type: Boolean, default: false },

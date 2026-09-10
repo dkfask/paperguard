@@ -4,12 +4,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
 from app.db import Store
 from app.models.policy import RequirementLevel, RequirementSet, RequirementStatus
-from app.models.template import PaperTemplate
+from app.models.template import PaperTemplate, TextStyle
+from app.services.policy_format import (
+    extract_format_overrides,
+    extract_layout_overrides,
+    format_override_count,
+    is_format_requirement,
+    merge_format_overrides,
+    normalize_format_overrides,
+    normalize_layout_overrides,
+)
 from app.services.policy_parser import items_from_markdown
 
 
@@ -119,6 +129,8 @@ def _latest_effective_set(store: Store, requirement_set: RequirementSet, now: da
 
 
 def _item_key(item: dict) -> str:
+    if (item.get("params") or {}).get("format_override"):
+        return f"format|{item.get('id') or 'unnamed'}"
     return f"{item.get('target') or 'document'}|{item.get('checker') or ''}"
 
 
@@ -193,6 +205,98 @@ def _merge_items(items: list[dict]) -> tuple[list[dict], list[dict]]:
     return clean, conflicts
 
 
+def _requirement_format_overrides(requirement_set: RequirementSet) -> dict[str, dict[str, Any]]:
+    """Return explicit format fields, supplemented by the preserved source text."""
+    return merge_format_overrides(
+        requirement_set.format_overrides,
+        extract_format_overrides(requirement_set.markdown_content),
+    )
+
+
+def _requirement_layout_overrides(requirement_set: RequirementSet) -> dict[str, float]:
+    """Return explicit page settings, supplemented by the preserved source text."""
+    result = normalize_layout_overrides(requirement_set.layout_overrides)
+    result.update(extract_layout_overrides(requirement_set.markdown_content))
+    return result
+
+
+def apply_requirement_format_overrides(
+    template: PaperTemplate,
+    snapshot: dict | None,
+) -> PaperTemplate:
+    """Apply frozen policy styles over a template without mutating the stored template."""
+    overrides = normalize_format_overrides((snapshot or {}).get("format_overrides"))
+    layout_overrides = normalize_layout_overrides((snapshot or {}).get("layout_overrides"))
+    if not overrides and not layout_overrides:
+        return template
+
+    payload = template.model_dump(mode="json")
+    styles = payload.setdefault("styles", {})
+    for style_key, fields in overrides.items():
+        base = dict(styles.get(style_key) or styles.get("body") or TextStyle().model_dump(mode="json"))
+        base.update(fields)
+        styles[style_key] = TextStyle.model_validate(base).model_dump(mode="json")
+    if layout_overrides:
+        page_layout = dict(payload.get("page_layout") or {})
+        page_layout.update(layout_overrides)
+        payload["page_layout"] = page_layout
+
+    # Imported templates may put a one-off style on a section node. Apply the
+    # same policy to that node so a node-level template exception cannot win.
+    def apply_to_nodes(nodes: list[dict]) -> None:
+        for node in nodes:
+            style_key = str(node.get("type") or "")
+            if style_key in overrides and node.get("style"):
+                node_style = dict(node["style"])
+                node_style.update(overrides[style_key])
+                node["style"] = TextStyle.model_validate(node_style).model_dump(mode="json")
+            apply_to_nodes(node.get("children") or [])
+
+    apply_to_nodes(payload.get("sections") or [])
+    return PaperTemplate.model_validate(payload)
+
+
+def hydrate_snapshot_format_overrides(snapshot: dict | None) -> dict:
+    """Backfill format metadata for projects created before policy styles existed."""
+    result = deepcopy(snapshot or {})
+    if not result:
+        return result
+    overrides = normalize_format_overrides(result.get("format_overrides"))
+    layout_overrides = normalize_layout_overrides(result.get("layout_overrides"))
+    format_item_ids = list(result.get("format_item_ids") or [])
+    for policy in result.get("policy_sets", []):
+        policy_overrides = merge_format_overrides(policy.get("format_overrides"))
+        policy_text = str(policy.get("markdown_content") or "")
+        layout_overrides.update(normalize_layout_overrides(policy.get("layout_overrides")))
+        layout_overrides.update(extract_layout_overrides(policy_text))
+        for item in policy.get("items", []):
+            description = item.get("description") or ""
+            if (item.get("params") or {}).get("format_override") or is_format_requirement(description):
+                if item.get("id") and item["id"] not in format_item_ids:
+                    format_item_ids.append(item["id"])
+            policy_text += f"\n{description}"
+        overrides = merge_format_overrides(
+            overrides,
+            policy_overrides,
+            extract_format_overrides(policy_text),
+        )
+    result["format_overrides"] = overrides
+    result["layout_overrides"] = layout_overrides
+    result["layout_override_count"] = len(layout_overrides)
+    result["format_override_count"] = format_override_count(overrides)
+    result["format_item_ids"] = format_item_ids
+    result.setdefault("format_override_sources", {})
+    result.setdefault("format_resolution", {
+        "policy_over_template": True,
+        "description": "已明确的规范排版要求优先于模板样式",
+    })
+    if result.get("content_hash"):
+        hash_payload = dict(result)
+        hash_payload.pop("content_hash", None)
+        result["content_hash"] = content_hash(hash_payload)
+    return result
+
+
 def build_requirement_snapshot(
     store: Store,
     template: PaperTemplate,
@@ -242,6 +346,10 @@ def build_requirement_snapshot(
 
     policy_snapshots: list[dict] = []
     all_items: list[dict] = []
+    all_format_overrides: dict[str, dict[str, Any]] = {}
+    all_layout_overrides: dict[str, float] = {}
+    format_override_sources: dict[str, list[dict[str, Any]]] = {}
+    format_item_ids: list[str] = []
     rule_pack_refs: list[str] = []
     rule_pack_overrides: dict[str, dict[str, Any]] = {}
     for requirement_set in sorted(sets, key=lambda value: _LEVEL_RANK.get(value.level.value, 0)):
@@ -261,6 +369,9 @@ def build_requirement_snapshot(
             "effective_to": requirement_set.effective_to,
             "stage": requirement_set.stage,
             "deadline_at": requirement_set.deadline_at,
+            "markdown_content": requirement_set.markdown_content,
+            "format_overrides": _requirement_format_overrides(requirement_set),
+            "layout_overrides": _requirement_layout_overrides(requirement_set),
             "binding_ids": matched_bindings.get(requirement_set.id, []),
             "items": [item.model_dump(mode="json") for item in requirement_set.items],
             "documents": [doc.model_dump(mode="json") for doc in requirement_set.documents],
@@ -272,12 +383,19 @@ def build_requirement_snapshot(
             "version": requirement_set.version,
             "rank": _LEVEL_RANK.get(requirement_set.level.value, 0),
         }
+        set_format_overrides = _requirement_format_overrides(requirement_set)
+        all_format_overrides = merge_format_overrides(all_format_overrides, set_format_overrides)
+        all_layout_overrides.update(_requirement_layout_overrides(requirement_set))
+        for style_key in set_format_overrides:
+            format_override_sources.setdefault(style_key, []).append(source_detail)
         for item in requirement_set.items:
             item_payload = item.model_dump(mode="json")
             item_payload["source_detail"] = source_detail
             item_payload["source"] = requirement_set.name
             item_payload["source_version"] = requirement_set.version
             all_items.append(item_payload)
+            if item.params.get("format_override") or is_format_requirement(item.description):
+                format_item_ids.append(item.id)
             if item.rule_pack_id:
                 rule_pack_refs.append(item.rule_pack_id)
                 if item.rule_pack_params:
@@ -299,6 +417,16 @@ def build_requirement_snapshot(
         "rule_pack_overrides": rule_pack_overrides,
         "policy_sets": policy_snapshots,
         "resolved_items": resolved_items,
+        "format_overrides": all_format_overrides,
+        "layout_overrides": all_layout_overrides,
+        "layout_override_count": len(all_layout_overrides),
+        "format_override_sources": format_override_sources,
+        "format_override_count": format_override_count(all_format_overrides),
+        "format_item_ids": list(dict.fromkeys(format_item_ids)),
+        "format_resolution": {
+            "policy_over_template": True,
+            "description": "已明确的规范排版要求优先于模板样式",
+        },
         "conflicts": conflicts,
         "student_id": student_id or "",
         "teacher_id": teacher_id or "",
@@ -307,4 +435,10 @@ def build_requirement_snapshot(
     return snapshot
 
 
-__all__ = ["build_requirement_snapshot", "content_hash", "hydrate_requirement_set"]
+__all__ = [
+    "apply_requirement_format_overrides",
+    "build_requirement_snapshot",
+    "content_hash",
+    "hydrate_requirement_set",
+    "hydrate_snapshot_format_overrides",
+]

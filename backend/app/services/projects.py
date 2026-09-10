@@ -11,7 +11,7 @@ from app.models.template import (
     SectionType,
     TemplateSection,
 )
-from app.services.policy_resolver import build_requirement_snapshot
+from app.services.policy_resolver import apply_requirement_format_overrides, build_requirement_snapshot
 
 
 def default_template() -> PaperTemplate:
@@ -108,20 +108,23 @@ def create_project_from_template(
         walk(root)
 
     project_id = new_id("proj")
+    requirement_snapshot = build_requirement_snapshot(
+        store,
+        template,
+        teacher_id=teacher_id,
+        student_id=owner_id,
+        organization_context=organization_context,
+        project_id=project_id,
+        stage=stage,
+    )
+    effective_template = apply_requirement_format_overrides(template, requirement_snapshot)
     return WritingProject(
         id=project_id,
         template_id=template.id,
         template_name=template.name,
-        template_snapshot=template.model_dump(mode="json"),
-        requirement_snapshot=build_requirement_snapshot(
-            store,
-            template,
-            teacher_id=teacher_id,
-            student_id=owner_id,
-            organization_context=organization_context,
-            project_id=project_id,
-            stage=stage,
-        ),
+        template_snapshot=effective_template.model_dump(mode="json"),
+        template_source_snapshot=template.model_dump(mode="json"),
+        requirement_snapshot=requirement_snapshot,
         title=template.name,
         meta={f.key: "" for f in template.meta_fields},
         sections=sections,

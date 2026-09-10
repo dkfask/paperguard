@@ -112,6 +112,10 @@ class RequirementSet(BaseModel):
     stage: str = ""
     deadline_at: str = ""
     applies_to: dict[str, Any] = Field(default_factory=dict)
+    # 规范解析出的排版约束；项目生效时覆盖模板同名样式字段。
+    format_overrides: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # 规范解析出的文档级页面约束；项目导出时覆盖模板页面设置。
+    layout_overrides: dict[str, float] = Field(default_factory=dict)
     items: list[RequirementItem] = Field(default_factory=list)
     documents: list[RequirementDocument] = Field(default_factory=list)
     bindings: list[RequirementBinding] = Field(default_factory=list)

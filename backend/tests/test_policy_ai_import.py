@@ -190,6 +190,35 @@ def test_ai_import_merges_duplicate_section_checks(monkeypatch):
     assert response.json()["analysis"]["duplicate_rule_count"] == 1
 
 
+def test_ai_import_preserves_explicit_format_requirements(monkeypatch):
+    _enable_ai(monkeypatch)
+    result = json.dumps({
+        "name": "格式规范",
+        "markdown_content": "# 格式规范\n\n仅有摘要。",
+        "items": [{"id": "body-min", "type": "auto", "checker": "word_count", "target": "body", "params": {"min": 8000}}],
+    }, ensure_ascii=False)
+    monkeypatch.setattr(ai_api, "_chat_completion", lambda *_args, **_kwargs: result)
+
+    source = "正文中文字体应为宋体，西文字体应为 Times New Roman。\n\n正文行距应为 1.5 倍，首行缩进 2 字符。"
+    response = client.post(
+        "/api/policies/import",
+        headers=_admin_headers(),
+        files={"file": ("format.md", source, "text/markdown")},
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert "上传规范原文" in body["policy"]["markdown_content"]
+    assert "宋体" in body["policy"]["markdown_content"]
+    format_items = [item for item in body["policy"]["items"] if item["id"].startswith("source-format-")]
+    assert len(format_items) == 2
+    assert any("Times New Roman" in item["description"] for item in format_items)
+    assert any("1.5 倍" in item["description"] for item in format_items)
+    assert body["analysis"]["format_rule_count"] == 2
+    assert body["analysis"]["source_text_preserved"] is True
+    assert body["analysis"]["preserved_source_characters"] == len(source)
+
+
 def test_ai_import_does_not_save_policy_when_model_returns_invalid_json(monkeypatch):
     _enable_ai(monkeypatch)
     monkeypatch.setattr(ai_api, "_chat_completion", lambda *_args, **_kwargs: "这不是 JSON")

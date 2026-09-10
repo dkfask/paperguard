@@ -10,6 +10,7 @@
     <textarea
       v-model="text"
       class="section-textarea"
+      :style="styleVars"
       rows="10"
       placeholder="可在这里一次性输入或粘贴本节全部内容。不同自然段之间请空一行。"
     />
@@ -23,6 +24,7 @@ import { ref, watch } from 'vue'
 const props = defineProps({
   modelValue: { type: String, default: '' },
   resetKey: { type: String, default: '' },
+  styleVars: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['update:modelValue', 'apply'])
 const text = ref(props.modelValue)

@@ -1,0 +1,247 @@
+meta:
+  source_markmap: '测试用例_markmap.md'
+  extracted_at: '2026-09-09'
+  strategy_ref: '测试策略.md'
+modules:
+  - module: '1. 规范生命周期'
+    shared_preconditions: ['测试服务已启动']
+  - module: '2. 规范解析与合并'
+    shared_preconditions: ['已有组织和规范数据']
+  - module: '3. 项目检查与处置'
+    shared_preconditions: ['学生项目已创建并保存规范快照']
+  - module: '4. 版本升级与组织治理'
+    shared_preconditions: ['项目已有旧快照']
+  - module: '5. UI 与兼容性冒烟'
+    shared_preconditions: ['前端开发服务已启动']
+cases:
+  - id: 'TC-01-01'
+    title: '创建并发布学校规范'
+    module: '1. 规范生命周期'
+    priority: P0
+    type: functional
+    execution_model: dev-collab
+    smoke: SMOKE-1
+    preconditions: ['管理员已打开写作规范页面']
+    steps: ['创建学校规范', '添加摘要自动硬性规则', '保存草稿并发布']
+    expected: ['规范状态正确流转并可读取']
+    test_data: {'规则 ID': 'abstract-min', '最小值': 100}
+    risk_ref: ['R2']
+    code_refs: ['backend/app/api/policies.py:171', 'frontend/src/views/Policies.vue:178']
+    evidence: {level: E3, source: '本地实现与 API 回归', confidence: high}
+    tags: ['[集成]']
+    automation: {supported: partial, framework: api}
+    status: active
+  - id: 'TC-01-02'
+    title: '已发布规范创建新版本并复制附件'
+    module: '1. 规范生命周期'
+    priority: P1
+    type: state
+    execution_model: dev-collab
+    preconditions: ['版本 1 已发布且有参考文档']
+    steps: ['创建版本 2', '查看附件并发布']
+    expected: ['版本 1 不可编辑，版本 2 继承附件并可审计']
+    test_data: {'新版本号': '2', '附件': 'guide.md'}
+    risk_ref: ['R2']
+    code_refs: ['backend/app/api/policies.py:230', 'backend/app/api/policies.py:393']
+    evidence: {level: E3, source: '本地 API 生命周期回归', confidence: high}
+    tags: ['[迁移]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-01-03'
+    title: '角色与组织范围限制规范操作'
+    module: '1. 规范生命周期'
+    priority: P0
+    type: permission
+    execution_model: dev-collab
+    smoke: SMOKE-2
+    preconditions: ['两个学院已建立且管理员作用域已分配']
+    steps: ['学院管理员访问本学院规范', '访问其他学院草稿', '学生创建学校规范', '学院管理员创建模板']
+    expected: ['本范围成功，越权操作全部拒绝']
+    test_data: {'第一个学院': 'college-a', '第二个学院': 'college-b'}
+    risk_ref: ['R1']
+    code_refs: ['backend/app/api/policies.py:62', 'backend/app/api/templates.py:94']
+    evidence: {level: E3, source: '本地权限回归', confidence: high}
+    tags: ['[安全]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-02-01'
+    title: '项目创建时继承组织与教师要求'
+    module: '2. 规范解析与合并'
+    priority: P0
+    type: data
+    execution_model: dev-collab
+    smoke: SMOKE-3
+    preconditions: ['学生组织和指导教师上下文已设置']
+    steps: ['发布专业规范', '发布教师要求', '创建项目并查看快照']
+    expected: ['快照包含命中规范、来源绑定和组织上下文']
+    test_data: {'专业 ID': 'major-a', '教师 ID': 'teacher-a'}
+    risk_ref: ['R2']
+    code_refs: ['backend/app/services/policy_resolver.py:194', 'backend/app/api/projects.py:82']
+    evidence: {level: E3, source: '本地快照回归', confidence: high}
+    tags: ['[集成]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-02-02'
+    title: '多层同项取更严格值并保留来源'
+    module: '2. 规范解析与合并'
+    priority: P0
+    type: functional
+    execution_model: dev-collab
+    smoke: SMOKE-4
+    preconditions: ['学校和教师规则均命中同一项目']
+    steps: ['创建项目', '查看合并规则', '执行检查']
+    expected: ['下限取 100，硬性级别保留，两个来源均可见']
+    test_data: {'学校最小值': 50, '教师最小值': 100}
+    risk_ref: ['R3']
+    code_refs: ['backend/app/services/policy_resolver.py:127', 'backend/app/services/project_check.py:177']
+    evidence: {level: E3, source: '本地规则合并回归', confidence: high}
+    tags: ['[集成]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-02-03'
+    title: '生效时间和阶段筛选正确'
+    module: '2. 规范解析与合并'
+    priority: P1
+    type: boundary
+    execution_model: dev-collab
+    preconditions: ['规范族存在当前、未来和失效版本']
+    steps: ['创建 final 阶段项目', '查看快照', '调整版本生效时间并预览升级']
+    expected: ['只命中当前有效版本，升级需显式确认']
+    test_data: {'阶段': 'final', '未来生效时间': '2099-01-01T00:00:00Z'}
+    risk_ref: ['R2']
+    code_refs: ['backend/app/services/policy_resolver.py:34', 'backend/app/api/projects.py:729']
+    evidence: {level: E3, source: '本地版本回归', confidence: high}
+    tags: ['[迁移]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-03-01'
+    title: '统一检查报告拦截硬性失败并保存运行记录'
+    module: '3. 项目检查与处置'
+    priority: P0
+    type: functional
+    execution_model: dev-collab
+    smoke: SMOKE-5
+    preconditions: ['摘要为空且存在摘要硬性规则']
+    steps: ['执行项目检查', '尝试正常导出', '查看检查历史']
+    expected: ['显示硬性失败，导出被拒绝，运行记录包含快照哈希和执行人']
+    test_data: {'摘要': '', '最小值': 100}
+    risk_ref: ['R3', 'R4']
+    code_refs: ['backend/app/services/project_check.py:126', 'backend/app/api/projects.py:908']
+    evidence: {level: E3, source: '本地检查和导出回归', confidence: high}
+    tags: ['[集成]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-03-02'
+    title: '人工项、参考文档和冲突显式显示未检查'
+    module: '3. 项目检查与处置'
+    priority: P1
+    type: functional
+    execution_model: dev-collab
+    preconditions: ['项目快照包含人工项、参考文档和冲突']
+    steps: ['执行项目检查', '展开未检查清单', '请求 AI 辅助']
+    expected: ['内容显示未检查原因，面板不报全部通过，AI 标为非权威']
+    test_data: {'人工项': 'methodology-review', '附件': 'guide.md'}
+    risk_ref: ['R4']
+    code_refs: ['backend/app/services/requirement_check.py:83', 'backend/app/api/projects.py:689']
+    evidence: {level: E3, source: '本地统一报告回归', confidence: high}
+    tags: ['[集成]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-03-03'
+    title: '豁免审核后解除对应门禁并留痕'
+    module: '3. 项目检查与处置'
+    priority: P0
+    type: state
+    execution_model: dev-collab
+    smoke: SMOKE-6
+    preconditions: ['项目存在硬性失败']
+    steps: ['提交豁免', '管理员同意', '重新检查并查看历史']
+    expected: ['对应项进入已豁免，硬性失败下降，申请和审核字段完整']
+    test_data: {'理由': '研究对象特殊，导师已确认', '状态': 'approved'}
+    risk_ref: ['R4']
+    code_refs: ['backend/app/api/projects.py:607', 'backend/app/services/project_check.py:214']
+    evidence: {level: E3, source: '本地豁免闭环回归', confidence: high}
+    tags: ['[安全]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-03-04'
+    title: '接受申诉不自动绕过自动门禁'
+    module: '3. 项目检查与处置'
+    priority: P1
+    type: state
+    execution_model: dev-collab
+    preconditions: ['项目存在摘要硬性失败']
+    steps: ['学生提交申诉', '管理员接受申诉', '重新执行检查']
+    expected: ['申诉记录为 accepted，但硬性失败仍存在']
+    test_data: {'申诉理由': '特殊格式需人工复核', '状态': 'accepted'}
+    risk_ref: ['R4']
+    code_refs: ['backend/app/api/projects.py:689', 'backend/app/api/projects.py:723']
+    evidence: {level: E3, source: '本地申诉边界回归', confidence: high}
+    tags: ['[安全]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-04-01'
+    title: '项目规范显式升级检查哈希并记录变更'
+    module: '4. 版本升级与组织治理'
+    priority: P1
+    type: state
+    execution_model: dev-collab
+    preconditions: ['项目使用旧版本且新版本已发布']
+    steps: ['预览升级差异', '确认升级', '查看升级记录']
+    expected: ['使用新快照并记录旧新哈希、操作人、理由和变更 ID']
+    test_data: {'旧版本': '1', '新版本': '2'}
+    risk_ref: ['R2']
+    code_refs: ['backend/app/api/projects.py:827', 'backend/app/api/projects.py:562']
+    evidence: {level: E3, source: '本地升级回归', confidence: high}
+    tags: ['[迁移]']
+    automation: {supported: yes, framework: api}
+    status: active
+  - id: 'TC-04-02'
+    title: '批次组织树和批量升级范围正确'
+    module: '4. 版本升级与组织治理'
+    priority: P1
+    type: data
+    execution_model: dev-collab
+    preconditions: ['组织树和两个旧快照项目已建立']
+    steps: ['建立批次组织', '发布新版本', '执行批量升级', '查看项目记录']
+    expected: ['父子类型正确，只升级目标规范旧项目，最新项目跳过']
+    test_data: {'批次 ID': 'batch-2026', '升级理由': '批次统一切换'}
+    risk_ref: ['R1', 'R2']
+    code_refs: ['backend/app/api/policies.py:496', 'backend/app/api/organizations.py:19']
+    evidence: {level: E3, source: '本地组织和批量升级回归', confidence: high}
+    tags: ['[集成]']
+    automation: {supported: partial, framework: api}
+    status: active
+  - id: 'TC-05-01'
+    title: '未登录访问受保护页面回到登录页'
+    module: '5. UI 与兼容性冒烟'
+    priority: P0
+    type: compatibility
+    execution_model: ui
+    smoke: SMOKE-7
+    preconditions: ['浏览器没有登录状态']
+    steps: ['打开规范页面', '等待页面跳转']
+    expected: ['800 毫秒内回到登录页并保留目标路径']
+    test_data: {'目标路径': '/policies'}
+    risk_ref: ['R1']
+    code_refs: ['frontend/src/router.js:1', 'frontend/src/auth.js:1']
+    evidence: {level: E2, source: '本地浏览器未登录冒烟', confidence: medium}
+    tags: ['[兼容]']
+    automation: {supported: yes, framework: playwright}
+    status: active
+  - id: 'TC-05-02'
+    title: '规范编辑器在窄屏保持可操作'
+    module: '5. UI 与兼容性冒烟'
+    priority: P1
+    type: compatibility
+    execution_model: ui
+    preconditions: ['管理员已登录，浏览器宽度 390 像素']
+    steps: ['打开规范页面', '新建规范', '滚动绑定、规则和附件区域', '保存草稿']
+    expected: ['单列显示且无重叠，所有输入和保存状态可操作可见']
+    test_data: {'视口宽度': '390 像素', '规范名称': '窄屏测试规范'}
+    risk_ref: ['R4']
+    code_refs: ['frontend/src/views/Policies.vue:439']
+    evidence: {level: E1, source: '前端构建与静态响应式检查', confidence: medium}
+    tags: ['[兼容]']
+    automation: {supported: partial, framework: playwright}
+    status: active

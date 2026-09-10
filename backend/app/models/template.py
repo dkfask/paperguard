@@ -100,6 +100,7 @@ class PaperTemplate(BaseModel):
     updated_at: str = ""
     sections: list[TemplateSection] = []
     styles: dict[str, TextStyle] = {}       # SectionType.value -> 默认样式
+    page_layout: dict[str, float] = {}      # 页面尺寸/页边距/页眉页脚距离(cm)
     meta_fields: list[MetaField] = []
     cover_blocks: list[CoverBlock] = []     # 封面版式(为空时按 meta_fields 逐行渲染)
     source_docx: str = ""                   # 导入时的模板 docx 文件名(导出以此为基底)
@@ -122,8 +123,8 @@ DEFAULT_STYLES: dict[str, TextStyle] = {
     "abstract": TextStyle(font_zh="黑体", size_pt=18.0, bold=True, align=Align.CENTER,
                           space_before_pt=24.0, space_after_pt=18.0,
                           page_break_before=True),
-    "english_abstract": TextStyle(font_zh="Times New Roman", font_en="Times New Roman", size_pt=12.0,
-                                   align=Align.JUSTIFY, line_spacing=1.5, first_line_indent_chars=2.0),
+    "english_abstract": TextStyle(font_zh="Times New Roman", font_en="Times New Roman", size_pt=18.0,
+                                   align=Align.CENTER, line_spacing=1.0),
     "keywords": TextStyle(font_zh="宋体", font_en="Times New Roman", size_pt=10.5,
                           align=Align.JUSTIFY, line_spacing=1.5),
     "english_keywords": TextStyle(font_zh="Times New Roman", font_en="Times New Roman", size_pt=10.5,
@@ -153,4 +154,6 @@ DEFAULT_STYLES: dict[str, TextStyle] = {
     "table_caption": TextStyle(font_zh="宋体", size_pt=10.5, align=Align.CENTER,
                                space_before_pt=12.0, space_after_pt=6.0),
     "table_cell": TextStyle(font_zh="宋体", size_pt=10.5, align=Align.CENTER),
+    "code": TextStyle(font_zh="宋体", font_en="Times New Roman", size_pt=10.5,
+                      line_spacing=1.25),
 }

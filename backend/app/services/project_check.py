@@ -16,6 +16,7 @@ from app.db import Store, new_id
 from app.models.policy import CheckRun
 from app.models.project import WritingProject
 from app.models.template import PaperTemplate, SectionType, TextStyle
+from app.services.policy_format import normalize_format_overrides
 from app.services.requirement_check import check_requirements
 
 # 模板节类型 → 检查引擎 style_id
@@ -87,18 +88,23 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *,
                 index_to_block.append(None)
                 index_to_style.append(_style_key_for(stype, template))
 
-        # 标题/摘要的内容段落都按导出时的正文样式检查; 关键词段落使用关键词样式。
-        content_type = "body" if stype in _HEADING_TYPES or stype in {
-            "abstract", "english_abstract",
-        } else stype
+        # 标题内容按正文检查; 摘要标题和摘要正文使用不同样式, 与导出保持一致。
+        if stype in _HEADING_TYPES:
+            content_type = "body"
+        elif stype == "abstract":
+            content_type = "abstract_body" if "abstract_body" in template.styles else "body"
+        elif stype == "english_abstract":
+            content_type = "english_abstract_body" if "english_abstract_body" in template.styles else "body"
+        else:
+            content_type = stype
 
         # 内容块
         for par in sec.paragraphs:
             if par.type.value == "paragraph" and par.text.strip():
                 paragraph_type = content_type
                 rule_type = "body" if stype in _HEADING_TYPES else stype
-                if content_type in {"abstract", "english_abstract"} and _is_keyword_paragraph(par.text):
-                    paragraph_type = "keywords" if content_type == "abstract" else "english_keywords"
+                if stype in {"abstract", "english_abstract"} and _is_keyword_paragraph(par.text):
+                    paragraph_type = "keywords" if stype == "abstract" else "english_keywords"
                     rule_type = paragraph_type
                 body_style = template.styles.get(paragraph_type) or template.styles.get("body")
                 paragraphs.append(_body_par(
@@ -179,6 +185,7 @@ def check_project(project: WritingProject, template: PaperTemplate,
     result = []
     sources = []
     rule_pack_overrides = snapshot.get("rule_pack_overrides") or {}
+    format_overrides = normalize_format_overrides(snapshot.get("format_overrides"))
     for pack_id in dict.fromkeys(pack_ids):
         pack_params = rule_pack_overrides.get(pack_id) or {}
         rule_pack = load_pack(pack_id, params=pack_params)
@@ -214,6 +221,10 @@ def check_project(project: WritingProject, template: PaperTemplate,
                 "checker": f.rule_id,
             }
             idx = f.location.paragraph_index
+            style_key = index_to_style[idx] if idx is not None and 0 <= idx < len(index_to_style) else ""
+            format_field = _FORMAT_FIX_FIELDS.get(f.fix.target) if f.fix else None
+            if style_key and format_field in format_overrides.get(style_key, {}):
+                continue
             if idx is not None and 0 <= idx < len(index_to_section):
                 item["section_key"] = index_to_section[idx]
                 item["location"]["section_key"] = index_to_section[idx]
@@ -230,6 +241,21 @@ def check_project(project: WritingProject, template: PaperTemplate,
         "version": item.get("version"),
     } for item in policy_sources)
     requirement_findings, not_checked = check_requirements(project, snapshot, template)
+    applied = []
+    format_item_ids = set(snapshot.get("format_item_ids") or [])
+    for item in snapshot.get("resolved_items", []):
+        if item.get("id") in format_item_ids:
+            applied.append({
+                "id": item.get("id", ""),
+                "description": item.get("description") or "规范排版约束",
+                "type": "format",
+                "severity": item.get("severity", "info"),
+                "enforce": item.get("enforce", "soft"),
+                "source": item.get("source", "规范要求"),
+                "source_version": item.get("source_version", ""),
+                "reason": "format_override_applied",
+                "applied": True,
+            })
     for policy in policy_sources:
         for document in policy.get("documents", []):
             not_checked.append({
@@ -284,11 +310,13 @@ def check_project(project: WritingProject, template: PaperTemplate,
             "warning": sum(1 for r in result if r["severity"] == "warning"),
             "info": sum(1 for r in result if r["severity"] == "info"),
             "not_checked": len(not_checked),
+            "applied": len(applied),
             "hard_failures": sum(1 for r in result if r.get("enforce") == "hard" and r["severity"] == "error"),
             "waived": len(waived),
         },
         "findings": result,
         "not_checked": not_checked,
+        "applied": applied,
         "waived": waived,
         "sources": sources,
         "context": {
@@ -299,6 +327,11 @@ def check_project(project: WritingProject, template: PaperTemplate,
             "requirement_snapshot_hash": snapshot.get("content_hash", ""),
             "organization_context": snapshot.get("context", {}),
             "conflict_count": len(snapshot.get("conflicts", [])),
+            "format_override_count": snapshot.get("format_override_count", len(format_overrides)),
+            "format_resolution": snapshot.get("format_resolution", {
+                "policy_over_template": True,
+                "description": "已明确的规范排版要求优先于模板样式",
+            }),
         },
     }
     report["context"]["duration_ms"] = round((time.perf_counter() - started) * 1000, 2)
@@ -363,6 +396,26 @@ _TEMPLATE_FIX_TARGETS = {
     "run.highlight": "highlight",
     "runs.*.vert_align": "vert_align",
     "run.vert_align": "vert_align",
+}
+
+
+_FORMAT_FIX_FIELDS = {
+    "paragraph.line_spacing": "line_spacing",
+    "paragraph.first_line_indent_cm": "first_line_indent_chars",
+    "paragraph.alignment": "align",
+    "paragraph.space_before_pt": "space_before_pt",
+    "paragraph.space_after_pt": "space_after_pt",
+    "paragraph.hanging_indent_cm": "hanging_indent_cm",
+    "paragraph.is_page_break_before": "page_break_before",
+    "paragraph.page_break_before": "page_break_before",
+    "runs.*.font_eastasia": "font_zh",
+    "run.font_eastasia": "font_zh",
+    "runs.*.font_ascii": "font_en",
+    "run.font_ascii": "font_en",
+    "runs.*.font_hansi": "font_en",
+    "run.font_hansi": "font_en",
+    "runs.*.font_size_pt": "size_pt",
+    "run.font_size_pt": "size_pt",
 }
 
 

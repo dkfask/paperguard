@@ -1,0 +1,17 @@
+axis: accessibility
+feature: '规范编辑器、组织页面和项目检查面板'
+source_identity: 'main 工作树 2026-09-09'
+target_identity: '接入 axe 的浏览器测试环境'
+environment: '桌面 Chromium 与 390 像素移动视口，启用键盘导航和辅助技术检查'
+role_account: '测试管理员与学生账号'
+device_viewport: '桌面 1440x900；移动 390x844'
+allowed_writes: '仅允许隔离测试账号和本地浏览器状态'
+owner: '前端测试'
+stop_conditions: '关键操作无法键盘完成、焦点丢失或出现严重级别无障碍违规'
+execution_status: partial
+local_baseline: '已使用隔离账号完成认证浏览器 UAT；桌面 1440x900 与移动 390x844 的规范、组织、项目页面辅助树可读取，重点页面 scrollWidth 与视口宽度一致，无水平溢出；登录页能识别标题、用户名/密码字段和登录按钮'
+todo: '接入 axe 扫描，补充认证页面和重点工作台的焦点顺序、键盘完成度、表单标签、状态播报和对比度结果；使用真实设备复核'
+scenarios:
+  - '规范编辑器创建、规则编辑、附件上传和保存'
+  - '项目检查面板展开未检查项、申请豁免和查看 AI 辅助结果'
+acceptance: '严重和高等级违规为零，关键流程全程可键盘操作，异步状态可被辅助技术感知'
