@@ -278,43 +278,86 @@
       </div>
 
       <div v-if="checking || checkResult || checkError" class="check-panel context-panel" :class="{ clean: checkResult && checkResult.summary.total === 0 && checkResult.summary.not_checked === 0 && checkResult.summary.waived === 0 && !(requirementSnapshot?.conflicts?.length) }">
-        <div class="context-section-title">
-          <span><span class="material-symbols-outlined">fact_check</span>规范检查</span>
-          <button class="tiny" :disabled="checking" @click="runCheckNow">重新检查</button>
+        <div class="check-panel-head">
+          <div class="check-panel-title">
+            <span class="check-panel-icon material-symbols-outlined">fact_check</span>
+            <div>
+              <span class="check-panel-kicker">FORMATTING REVIEW</span>
+              <strong>规范检查</strong>
+            </div>
+          </div>
+          <button class="check-refresh-btn" :disabled="checking" @click="runCheckNow">
+            <span class="material-symbols-outlined">refresh</span>
+            <span>重新检查</span>
+          </button>
         </div>
-        <div class="check-head" @click="checkOpen = !checkOpen">
-          <span v-if="checking">⏳ 检查中…</span>
-          <span v-else-if="checkError">⚠ 检查失败: {{ checkError }}</span>
-          <span v-else-if="checkStale">⚠ 内容已变化, 检查结果可能过期</span>
-          <span v-else-if="checkResult.context && checkResult.summary.total === 0 && checkResult.summary.not_checked === 0 && checkResult.summary.waived === 0 && !(requirementSnapshot?.conflicts?.length)">✅ 当前检查通过</span>
-          <span v-else>⚠ {{ checkResult.summary.total }} 个问题 · {{ checkResult.summary.not_checked || 0 }} 项未检查</span>
+
+        <button class="check-summary" type="button" :aria-expanded="checkOpen" @click="checkOpen = !checkOpen">
+          <span class="check-summary-leading">
+            <span class="check-summary-icon material-symbols-outlined">{{ checking ? 'progress_activity' : (checkError || checkStale ? 'warning' : 'warning') }}</span>
+            <span v-if="checking" class="check-summary-text">检查中…</span>
+            <span v-else-if="checkError" class="check-summary-text">检查失败: {{ checkError }}</span>
+            <span v-else-if="checkStale" class="check-summary-text">内容已变化, 检查结果可能过期</span>
+            <span v-else-if="checkResult.context && checkResult.summary.total === 0 && checkResult.summary.not_checked === 0 && checkResult.summary.waived === 0 && !(requirementSnapshot?.conflicts?.length)" class="check-summary-text">当前检查通过</span>
+            <span v-else class="check-summary-text">{{ checkResult.summary.total }} 个问题 · {{ checkResult.summary.not_checked || 0 }} 项未检查</span>
+          </span>
           <span class="material-symbols-outlined context-chevron">{{ checkOpen ? 'expand_less' : 'expand_more' }}</span>
-        </div>
+        </button>
+
         <div v-if="checkOpen && checkResult && checkResult.findings.length" class="check-list">
           <div v-for="(f, i) in checkResult.findings" :key="f.rule_id + ':' + (f.section_key || '') + ':' + i" class="check-item"
                :class="'severity-' + f.severity" @click="jumpTo(f)">
-            <span class="badge" :class="f.severity">{{ { error: '错', warning: '警', info: '提' }[f.severity] }}</span>
-            <span class="check-msg">{{ f.message }}</span>
-            <span class="check-sec" v-if="f.section_key || f.location?.section_key">{{ sectionTitle(f.section_key || f.location.section_key) }} →</span>
-            <template v-if="f.source_type === 'requirement'"><button class="tiny waiver-btn" @click.stop="openWaiver(f)">申请豁免</button><button class="tiny dispute-btn" @click.stop="openDispute(f)">申诉</button></template>
+            <div class="check-item-body">
+              <div class="check-item-message">
+                <span class="severity-marker" :class="f.severity">
+                  <span class="material-symbols-outlined">{{ f.severity === 'error' ? 'error' : f.severity === 'info' ? 'info' : 'warning' }}</span>
+                  <span>{{ { error: '错', warning: '警', info: '提' }[f.severity] }}</span>
+                </span>
+                <span class="check-msg">{{ f.message }}</span>
+              </div>
+              <div class="check-item-actions">
+                <span class="check-sec" v-if="f.section_key || f.location?.section_key">{{ sectionTitle(f.section_key || f.location.section_key) }} →</span>
+                <template v-if="f.source_type === 'requirement'">
+                  <button class="check-action-btn" @click.stop="openWaiver(f)">
+                    <span class="material-symbols-outlined">gavel</span>申请豁免
+                  </button>
+                  <button class="check-action-btn" @click.stop="openDispute(f)">
+                    <span class="material-symbols-outlined">feedback</span>申诉
+                  </button>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
+
         <div v-if="checkOpen && checkResult && checkResult.waived?.length" class="waived-list">
           <strong>已豁免</strong>
           <span v-for="item in checkResult.waived" :key="item.rule_id">{{ item.message }} · {{ item.waiver?.reason }}</span>
         </div>
+
         <div v-if="checkOpen && checkResult && checkResult.not_checked?.length" class="not-checked-list">
-          <strong>未自动检查项</strong>
-          <span v-for="item in checkResult.not_checked" :key="item.id" class="not-checked-item">
-            <span>{{ item.description }} · {{ item.source }}</span>
+          <div class="not-checked-heading">
+            <span><span class="material-symbols-outlined">fact_check</span>未自动检查项</span>
+            <span class="not-checked-count">{{ checkResult.not_checked.length }} 项</span>
+          </div>
+          <div v-for="item in checkResult.not_checked" :key="item.id" class="not-checked-item">
+            <div class="not-checked-copy">
+              <span class="manual-dot"></span>
+              <span>{{ item.description }}<span class="not-checked-source"> · {{ item.source }}</span></span>
+            </div>
             <template v-if="item.type === 'manual'">
-              <span v-if="assistResultFor(item.id)" class="assist-saved-tag">已保存</span>
-              <button v-if="assistResultFor(item.id)" class="tiny" @click.stop="showAssistResult(assistResultFor(item.id))">查看</button>
-              <button class="tiny" :disabled="!!assistBusy" @click.stop="openAssist(item)">
-                {{ assistBusy === item.id ? 'AI处理中…' : (assistResultFor(item.id) ? '重新 AI 辅助' : 'AI 辅助') }}
-              </button>
+              <div class="not-checked-actions">
+                <span v-if="assistResultFor(item.id)" class="assist-saved-tag"><span class="material-symbols-outlined">check_circle</span>已保存</span>
+                <button v-if="assistResultFor(item.id)" class="check-action-btn secondary" @click.stop="showAssistResult(assistResultFor(item.id))">
+                  <span class="material-symbols-outlined">visibility</span>查看
+                </button>
+                <button class="check-action-btn assist-action" :disabled="!!assistBusy" @click.stop="openAssist(item)">
+                  <span class="material-symbols-outlined">auto_awesome</span>
+                  {{ assistBusy === item.id ? 'AI处理中…' : (assistResultFor(item.id) ? '重新 AI 辅助' : 'AI 辅助') }}
+                </button>
+              </div>
             </template>
-          </span>
+          </div>
         </div>
       </div>
     </aside>
@@ -1733,25 +1776,75 @@ button.tiny.danger { color: var(--error); }
 
 /* 实时检查面板 */
 .check-panel {
-  border: 1px solid #fecaca; background: #fff7f7; border-radius: 10px;
-  padding: 10px 14px; margin-bottom: 16px;
+  border: 1px solid #efc7cb; background: #fff8f8; border-radius: 8px;
+  padding: 14px; margin-bottom: 16px; color: #17263d;
 }
-.check-panel.clean { border-color: #bbf7d0; background: #f0fdf4; }
-.check-head { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
-.check-head .tiny { margin-left: auto; }
-.check-list { margin-top: 8px; border-top: 1px solid #fee2e2; padding-top: 8px; max-height: 220px; overflow-y: auto; }
-.check-item { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.check-item:hover { background: #fff; }
-.check-item .badge { font-size: 11px; padding: 1px 8px; }
-.check-msg { flex: 1; }
-.check-source { color: #475569; font-size: 11px; white-space: nowrap; }
-.check-sec { color: var(--primary); white-space: nowrap; }
-.not-checked-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; border-top: 1px solid #e2e8f0; margin-top: 8px; padding-top: 8px; color: var(--muted); font-size: 12px; }
-.not-checked-list strong { color: #475569; }
-.not-checked-item { display: inline-flex; align-items: center; gap: 5px; }
-.waived-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; border-top: 1px solid #bbf7d0; margin-top: 8px; padding-top: 8px; color: #166534; font-size: 12px; }
+.check-panel.clean { border-color: #b9dfc8; background: #f4fbf6; }
+.check-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.check-panel-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.check-panel-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 30px; height: 30px; border: 1px solid #b9ccf3; border-radius: 6px;
+  background: #edf3ff; color: #155eef; font-size: 18px;
+}
+.check-panel-kicker { display: block; margin-bottom: 1px; color: #7a8494; font-size: 9px; font-weight: 700; letter-spacing: .1em; line-height: 1.2; }
+.check-panel-title strong { display: block; color: #152640; font-size: 15px; line-height: 1.35; }
+.check-refresh-btn {
+  flex: 0 0 auto; min-height: 31px; padding: 5px 9px; border: 1px solid #d5dce8;
+  border-radius: 6px; background: #fff; color: #20324b; font-size: 12px; font-weight: 650;
+}
+.check-refresh-btn:hover:not(:disabled) { border-color: #8ba8df; background: #f5f8ff; color: #155eef; }
+.check-refresh-btn .material-symbols-outlined { font-size: 15px; }
+.check-summary {
+  display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px;
+  margin-top: 13px; padding: 11px 0; border: 0; border-top: 1px solid #f0dfe0; border-bottom: 1px solid #f0dfe0;
+  border-radius: 0; background: transparent; color: #27374d; text-align: left; cursor: pointer;
+}
+.check-summary:hover { background: rgba(255, 255, 255, .62); }
+.check-panel button:focus-visible { outline: 2px solid #155eef; outline-offset: 2px; }
+.check-summary-leading { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.check-summary-icon { flex: 0 0 auto; color: #c5525c; font-size: 18px; }
+.check-panel.clean .check-summary-icon { color: #20834b; }
+.check-summary-text { min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.check-panel .context-chevron { flex: 0 0 auto; color: #7d8796; font-size: 18px; }
+.check-summary-icon.material-symbols-outlined { transition: color .15s ease; }
+.check-list { margin-top: 0; padding: 0; }
+.check-item { padding: 13px 0; border-bottom: 1px solid #f0dfe0; cursor: pointer; }
+.check-item:last-child { border-bottom: 0; }
+.check-item:hover { margin: 0 -6px; padding-right: 6px; padding-left: 6px; border-radius: 6px; background: rgba(255, 255, 255, .64); }
+.check-item-message { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.severity-marker { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 31px; padding-top: 2px; color: #b74a55; font-size: 12px; font-weight: 700; }
+.severity-marker.error { color: #b42318; }
+.severity-marker.info { color: #155eef; }
+.severity-marker .material-symbols-outlined { font-size: 15px; }
+.check-msg { min-width: 0; flex: 1; color: #17263d; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.check-item-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 9px 0 0 39px; }
+.check-action-btn {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 4px 8px;
+  border: 1px solid #d2dbe9; border-radius: 6px; background: #fff; color: #155eef;
+  font-size: 12px; font-weight: 650; line-height: 1.2; white-space: nowrap;
+}
+.check-action-btn:hover:not(:disabled) { border-color: #8ba8df; background: #f3f7ff; color: #0b4cc4; }
+.check-action-btn.secondary { color: #44546b; }
+.check-action-btn.assist-action { color: #155eef; }
+.check-action-btn .material-symbols-outlined { font-size: 14px; }
+.check-sec { flex: 1 1 100%; min-width: 0; color: #7a8494; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.not-checked-list { margin-top: 4px; padding-top: 15px; border-top: 1px solid #e4dfe0; color: #46566c; font-size: 12px; }
+.not-checked-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.not-checked-heading > span:first-child { display: inline-flex; align-items: center; gap: 6px; color: #30425b; font-size: 13px; font-weight: 700; }
+.not-checked-heading .material-symbols-outlined { color: #155eef; font-size: 16px; }
+.not-checked-count { color: #7a8494; font-size: 11px; white-space: nowrap; }
+.not-checked-item { padding: 12px 0; border-bottom: 1px solid #ebe6e6; }
+.not-checked-item:last-child { border-bottom: 0; padding-bottom: 2px; }
+.not-checked-copy { display: flex; align-items: flex-start; gap: 8px; color: #26364c; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.manual-dot { flex: 0 0 auto; width: 7px; height: 7px; margin-top: 7px; border-radius: 50%; background: #d79a27; }
+.not-checked-source { color: #8a93a0; font-size: 11px; }
+.not-checked-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 0 15px; }
+.waived-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 3px; padding: 12px 0 2px 39px; border-top: 1px solid #cde8d6; color: #166534; font-size: 12px; line-height: 1.5; }
 .waiver-btn { flex-shrink: 0; }
 .dispute-btn { flex-shrink: 0; }
+.assist-saved-tag { display: inline-flex; align-items: center; gap: 3px; color: #168344; font-size: 11px; white-space: nowrap; }
+.assist-saved-tag .material-symbols-outlined { font-size: 14px; }
 .upgrade-summary { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-container-low); color: var(--muted); }
 .assist-result { white-space: pre-wrap; border: 1px solid var(--border); border-radius: 8px; padding: 12px; max-height: 420px; overflow: auto; line-height: 1.7; }
 
@@ -1785,10 +1878,10 @@ button.tiny.danger { color: var(--error); }
 
 @media (max-width: 480px) {
   .sidebar-head, .sidebar-foot { gap: 8px; flex-wrap: wrap; }
-  .check-head { align-items: flex-start; flex-wrap: wrap; }
-  .check-head .tiny { margin-left: 0; }
-  .check-sec { display: none; }
-  .check-source { display: none; }
+  .check-panel-head { align-items: flex-start; }
+  .check-refresh-btn { padding-right: 7px; padding-left: 7px; }
+  .check-item-actions { margin-left: 0; }
+  .not-checked-actions { margin-left: 15px; }
   .caption-row { align-items: stretch; flex-direction: column; gap: 4px; }
   .caption-num { width: max-content; }
   .requirements-head { flex-direction: column; }
@@ -1897,15 +1990,12 @@ button.tiny.danger { color: var(--error); }
 .context-panel .format-resolution { display: flex; align-items: center; gap: 4px; margin: 8px 0 0; color: var(--primary); font-size: 11px; }
 .context-panel .format-resolution .material-symbols-outlined { font-size: 15px; }
 .context-panel .requirements-foot { font-size: 11px; }
-.context-section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(195, 198, 215, .4); color: var(--on-surface); font-size: 12px; font-weight: 600; }
-.context-section-title > span { display: inline-flex; align-items: center; gap: 5px; }
-.context-section-title .material-symbols-outlined { color: var(--primary); font-size: 16px; }
-.context-panel .check-head { gap: 5px; margin-top: 8px; font-size: 11px; line-height: 1.4; }
-.context-chevron { flex-shrink: 0; color: var(--outline); font-size: 16px; }
-.context-panel .check-list { max-height: 320px; overflow-y: auto; }
-.context-panel .check-item { align-items: flex-start; flex-wrap: wrap; padding: 7px 2px; font-size: 11px; }
-.context-panel .check-msg { min-width: 0; }
-.context-panel .check-sec { width: 100%; padding-left: 20px; font-size: 10px; }
+.context-panel.check-panel { padding: 14px; }
+.context-panel .check-panel-kicker { font-size: 8px; }
+.context-panel .check-list { max-height: none; overflow: visible; }
+.context-panel .check-msg, .context-panel .not-checked-copy { font-size: 12px; }
+.context-panel .check-item-actions { gap: 5px 6px; }
+.context-panel .check-action-btn { padding-right: 7px; padding-left: 7px; }
 .context-panel .waived-list, .context-panel .not-checked-list { font-size: 11px; }
 
 @media (max-width: 1180px) {
