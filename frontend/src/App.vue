@@ -1,50 +1,21 @@
 <template>
   <div>
-    <header v-if="auth.token">
+    <header v-if="auth.token" class="app-shell-header">
       <div class="header-inner">
-        <!-- Stitch Brand Logo -->
         <div class="brand-section">
+          <button class="shell-menu-button" type="button" aria-label="打开导航" title="打开导航" aria-controls="role-sidebar" :aria-expanded="sidebarOpen" @click="sidebarOpen = !sidebarOpen">
+            <IconMaterialSymbolsMenu />
+          </button>
           <RouterLink to="/" class="brand-logo">
             <img alt="PaperGuard Logo" src="/logo.png" />
             <span class="brand-title">PaperGuard</span>
           </RouterLink>
         </div>
 
-        <!-- Stitch Nav Links -->
-        <nav class="nav-links">
-          <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && (!$route.query.tab || $route.query.tab === 'projects') }" @click="setTab('projects')">
-            {{ t('navProjects') }}
-          </RouterLink>
-          <RouterLink to="/policies" class="stitch-nav-link" :class="{ active: $route.path.startsWith('/policies') }">
-            {{ t('navWriting') }}
-          </RouterLink>
-          <RouterLink to="/templates" class="stitch-nav-link" :class="{ active: $route.path.startsWith('/templates') }">
-            {{ t('navStandards') }}
-          </RouterLink>
-          <RouterLink to="/" class="stitch-nav-link" :class="{ active: $route.path === '/' && $route.query.tab === 'check' }" @click="setTab('check')">
-            {{ t('navDashboard') }}
-          </RouterLink>
-          <RouterLink v-if="auth.user?.role === 'admin' || auth.user?.role === 'college_admin'" to="/organizations" class="stitch-nav-link" :class="{ active: $route.path.startsWith('/organizations') }">
-            组织与作用域
-          </RouterLink>
-          <button v-if="auth.user?.role === 'admin' || (auth.user?.role === 'teacher' && auth.user?.status === 'active')"
-                  class="small" style="background: var(--surface-container-low); border-color: var(--primary-fixed);"
-                  @click="openTeacherModal">
-            {{ t('navTeacher') }}
-          </button>
-          <button v-if="auth.user?.role === 'admin'" class="small" @click="openUserAdminModal">
-            {{ t('navUserAdmin') }}
-          </button>
-          <button v-if="auth.user?.role === 'admin'" class="small" @click="openAdminAiModal">
-            {{ t('navAdminAi') }}
-          </button>
-        </nav>
-
-        <!-- Stitch Trailing User Avatar & Lang Switcher -->
         <div class="user-tray">
-          <!-- 中英文切换按钮 -->
+          <span class="scope-context">{{ roleLabel(auth.user?.role) }}</span>
           <button class="lang-switch-btn" @click="toggleLang" title="切换语言 / Switch Language">
-            <span class="material-symbols-outlined" style="font-size: 15px">translate</span>
+            <IconMaterialSymbolsTranslate />
             <span>{{ lang === 'zh' ? 'EN' : '中文' }}</span>
           </button>
 
@@ -64,7 +35,20 @@
     <div v-if="auth.user?.role === 'teacher' && auth.user.status === 'pending'" class="pending-bar">
       <span>📢 您的教师账号正在等待管理员认证审核中，通过后将开通模板管理等教师权限。</span>
     </div>
-    <main>
+    <div v-if="auth.token" class="app-shell">
+      <RoleSidebar
+        :user="auth.user"
+        :open="sidebarOpen"
+        @close-mobile="sidebarOpen = false"
+        @open-teacher="openTeacherModal"
+        @open-users="openUserAdminModal"
+        @open-ai="openAdminAiModal"
+      />
+      <main class="app-shell-main" @click="sidebarOpen = false">
+        <RouterView />
+      </main>
+    </div>
+    <main v-else>
       <RouterView />
     </main>
 
@@ -355,6 +339,16 @@
       </div>
     </div>
   </div>
+  <ConfirmDialog
+    :open="studentConfirm.open"
+    :title="studentConfirm.title"
+    :description="studentConfirm.description"
+    :confirm-label="studentConfirm.confirmLabel"
+    :danger="studentConfirm.danger"
+    :busy="studentConfirmBusy"
+    @confirm="confirmStudentAction"
+    @cancel="closeStudentConfirm"
+  />
 </template>
 
 <script setup>
@@ -362,6 +356,11 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, clearAuth } from './auth'
 import { useI18n } from './i18n'
+import ConfirmDialog from './components/ConfirmDialog.vue'
+import RoleSidebar from './components/RoleSidebar.vue'
+// unplugin-icons 图标
+import IconMaterialSymbolsMenu from '~icons/material-symbols/menu'
+import IconMaterialSymbolsTranslate from '~icons/material-symbols/translate'
 import {
   logoutApi, getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
   getAdminUsers, updateAdminUserRoleStatus,
@@ -370,6 +369,7 @@ import {
 
 const router = useRouter()
 const { lang, setLang, t } = useI18n()
+const sidebarOpen = ref(false)
 
 function toggleLang() {
   setLang(lang.value === 'zh' ? 'en' : 'zh')
@@ -533,6 +533,8 @@ const importDefaultPw = ref('Student123456')
 const importForceChange = ref(true)
 const importingStudents = ref(false)
 const importResult = ref(null)
+const studentConfirmBusy = ref(false)
+const studentConfirm = reactive({ open: false, title: '', description: '', confirmLabel: '确认', danger: false, action: null })
 
 async function fetchTeacherStudents() {
   loadingStudents.value = true
@@ -558,33 +560,44 @@ async function openTeacherModal() {
 }
 
 async function resetStudentPw(student) {
-  if (!confirm(`确定要为学生 ${student.display_name}（${student.username}）重置密码为 Student123456 吗？`)) return
-  teacherMsg.value = ''
-  try {
-    await resetTeacherStudentPassword(student.id, {
-      new_password: 'Student123456',
-      force_change_password: true,
-    })
-    teacherOk.value = true
-    teacherMsg.value = `已为学生 ${student.display_name} 重置密码为 Student123456（首次登录强制改密）`
-  } catch (e) {
-    teacherOk.value = false
-    teacherMsg.value = e.message || '重置密码失败'
-  }
+  Object.assign(studentConfirm, {
+    open: true,
+    title: `重置学生密码`,
+    description: `将把 ${student.display_name}（${student.username}）的密码重置为临时密码，并要求首次登录修改。`,
+    confirmLabel: '确认重置',
+    danger: true,
+    action: async () => {
+      teacherMsg.value = ''
+      await resetTeacherStudentPassword(student.id, { new_password: 'Student123456', force_change_password: true })
+      teacherOk.value = true
+      teacherMsg.value = `已为学生 ${student.display_name} 重置密码为 Student123456（首次登录强制改密）`
+    },
+  })
 }
 
-async function unbindStudent(student) {
-  if (!confirm(`确定解除对学生 ${student.display_name}（${student.username}）的指导关系吗？`)) return
-  teacherMsg.value = ''
-  try {
-    await unbindTeacherStudent(student.id)
-    teacherOk.value = true
-    teacherMsg.value = `已解除与学生 ${student.display_name} 的指导关系`
-    await fetchTeacherStudents()
-  } catch (e) {
-    teacherOk.value = false
-    teacherMsg.value = e.message || '解绑失败'
-  }
+function unbindStudent(student) {
+  Object.assign(studentConfirm, {
+    open: true,
+    title: '解除指导关系',
+    description: `将解除你与学生 ${student.display_name}（${student.username}）的指导关系。`,
+    confirmLabel: '确认解除',
+    danger: true,
+    action: async () => {
+      teacherMsg.value = ''
+      await unbindTeacherStudent(student.id)
+      teacherOk.value = true
+      teacherMsg.value = `已解除与学生 ${student.display_name} 的指导关系`
+      await fetchTeacherStudents()
+    },
+  })
+}
+
+function closeStudentConfirm() { if (studentConfirmBusy.value) return; studentConfirm.open = false; studentConfirm.action = null }
+async function confirmStudentAction() {
+  const action = studentConfirm.action
+  if (!action || studentConfirmBusy.value) return
+  studentConfirmBusy.value = true
+  try { await action() } catch (e) { teacherOk.value = false; teacherMsg.value = e.message || '操作失败' } finally { studentConfirmBusy.value = false; closeStudentConfirm() }
 }
 
 async function handleBulkImport() {
@@ -644,9 +657,11 @@ function copyCredentials() {
   lines.push('登录地址: https://paper.thunderuni.com')
   const content = lines.join('\n')
   navigator.clipboard.writeText(content).then(() => {
-    alert('✅ 学生账号密码清单已成功复制到剪贴板，可直接发送至班级群！')
+    teacherOk.value = true
+    teacherMsg.value = '学生账号密码清单已复制到剪贴板'
   }).catch(() => {
-    alert('复制失败，请手动在下方表格中复制')
+    teacherOk.value = false
+    teacherMsg.value = '复制失败，请手动在下方表格中复制'
   })
 }
 </script>

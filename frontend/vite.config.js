@@ -1,8 +1,21 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import Icons from 'unplugin-icons/vite'
+import { FileSystemIconLoader } from 'unplugin-icons/loaders'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    Icons({
+      compiler: 'vue3',
+      autoInstall: true,
+      // 支持多个图标集
+      customCollections: {
+        // 可选：自定义 SVG 图标目录
+        custom: FileSystemIconLoader('./src/assets/icons'),
+      },
+    }),
+  ],
   server: {
     port: 5173,
     proxy: {
