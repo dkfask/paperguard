@@ -108,7 +108,16 @@ import { getDocumentProjectEditor, renderDocumentProject, updateDocumentProject,
 const route = useRoute()
 const { t } = useI18n()
 const editor = ref(null)
-const draft = reactive({ title: '', revision: 0, field_values: {}, sections: {} })
+const draft = reactive({
+  title: '',
+  revision: 0,
+  template_version_id: '',
+  spec_version_id: '',
+  renderer_version: '',
+  rule_engine_version: '',
+  field_values: {},
+  sections: {},
+})
 const loading = ref(true)
 const saving = ref(false)
 const validating = ref(false)
@@ -122,6 +131,10 @@ const editableSections = computed(() => (editor.value?.editor_schema.sections ||
 function applyProject(project) {
   draft.title = project.title || ''
   draft.revision = project.revision
+  draft.template_version_id = project.template_version_id || ''
+  draft.spec_version_id = project.spec_version_id || ''
+  draft.renderer_version = project.renderer_version || ''
+  draft.rule_engine_version = project.rule_engine_version || ''
   draft.field_values = JSON.parse(JSON.stringify(project.field_values || {}))
   draft.sections = JSON.parse(JSON.stringify(project.sections || {}))
 }
