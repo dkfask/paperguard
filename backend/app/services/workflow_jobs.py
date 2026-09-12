@@ -79,7 +79,7 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
 
 def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> dict[str, Any]:
     """Claim and execute durable project export jobs outside the web process."""
-    from app.services.export_jobs import EXPORT_JOB_TYPE, run_project_export
+    from app.services.export_jobs import EXPORT_ID_RE, EXPORT_JOB_TYPE, run_project_export
     from app.api.workflow import _now
 
     repository = WorkflowRepository(store)
@@ -90,6 +90,14 @@ def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 
     succeeded: list[str] = []
     failed: list[dict[str, str]] = []
     for job in claimed:
+        if not EXPORT_ID_RE.fullmatch(str(job.get("resource_id", ""))):
+            rejected = repository.fail_job(
+                job["id"], error="导出任务资源标识不合法",
+                lease_token=job.get("lease_token", ""), retry_delay_seconds=60,
+            )
+            if rejected:
+                failed.append({"job_id": job["id"], "state": rejected["state"], "error": rejected.get("last_error") or ""})
+            continue
         job_context = RequestContext(actor_id="system", role="system", request_id=f"job-{job['id']}")
         log_event(
             LOGGER, "job.started", context=job_context, job_id=job["id"],

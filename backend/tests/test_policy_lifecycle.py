@@ -14,6 +14,11 @@ from app.main import app
 client = TestClient(app)
 
 
+def _random_password(prefix: str) -> str:
+    """随机生成符合策略(≥12 位、含字母数字)的测试口令, 避免静态凭据。"""
+    return f"{prefix}-{uuid.uuid4().hex}-A1"
+
+
 def _login(username: str, password: str) -> dict[str, str]:
     response = client.post("/api/auth/login", json={"username": username, "password": password})
     assert response.status_code == 200, response.text
@@ -26,7 +31,7 @@ def _admin_headers() -> dict[str, str]:
 
 def _new_student(suffix: str) -> tuple[str, dict[str, str]]:
     username = f"lifecycle-student-{suffix}"
-    password = "StudentPassword123"
+    password = _random_password("student")
     registered = client.post("/api/auth/register", json={
         "username": username, "password": password, "display_name": "生命周期学生",
     })
@@ -102,7 +107,7 @@ def test_requirement_ai_assist_is_saved_to_matching_item(monkeypatch):
         "_resolve_cfg",
         lambda store, user: ({
             "base_url": "http://test.invalid/v1",
-            "api_key": "test-key",
+            "api_key": f"key-{uuid.uuid4().hex}",
             "model": "test-model",
         }, "test"),
     )
@@ -280,12 +285,13 @@ def test_college_admin_can_manage_scoped_policy_but_not_template():
     assert client.post("/api/organizations", headers=admin, json={"id": school_id, "name": "权限大学", "type": "school"}).status_code == 201
     assert client.post("/api/organizations", headers=admin, json={"id": college_id, "name": "权限学院", "type": "college", "parent_id": school_id}).status_code == 201
     teacher_username = f"college-admin-{suffix}"
-    registered = client.post("/api/auth/register", json={"username": teacher_username, "password": "TeacherPassword123", "display_name": "学院管理员", "role": "teacher"})
+    teacher_password = _random_password("teacher")
+    registered = client.post("/api/auth/register", json={"username": teacher_username, "password": teacher_password, "display_name": "学院管理员", "role": "teacher"})
     assert registered.status_code == 201
     teacher_id = registered.json()["id"]
     assert client.put(f"/api/auth/admin/users/{teacher_id}/role-status", headers=admin, json={"role": "college_admin", "status": "active"}).status_code == 200
     assert client.put(f"/api/organizations/users/{teacher_id}/context", headers=admin, json={"organization_context": {"school_id": school_id, "college_id": college_id}}).status_code == 200
-    college_admin = _login(teacher_username, "TeacherPassword123")
+    college_admin = _login(teacher_username, teacher_password)
     policy = client.post("/api/policies", headers=college_admin, json={
         "name": "学院补充规范", "level": "college", "version": "1", "status": "draft",
         "bindings": [{"id": f"binding-{suffix}", "scope_type": "college", "scope_id": college_id}],
@@ -399,12 +405,13 @@ def test_unbound_school_policy_is_global_but_college_admin_cannot_create_global_
     assert client.post("/api/organizations", headers=admin, json={"id": school_id, "name": "全局大学", "type": "school"}).status_code == 201
     assert client.post("/api/organizations", headers=admin, json={"id": college_id, "name": "全局学院", "type": "college", "parent_id": school_id}).status_code == 201
     username = f"global-college-admin-{suffix}"
-    registered = client.post("/api/auth/register", json={"username": username, "password": "TeacherPassword123", "display_name": "学院管理员", "role": "teacher"})
+    teacher_password = _random_password("teacher")
+    registered = client.post("/api/auth/register", json={"username": username, "password": teacher_password, "display_name": "学院管理员", "role": "teacher"})
     assert registered.status_code == 201
     college_admin_id = registered.json()["id"]
     assert client.put(f"/api/auth/admin/users/{college_admin_id}/role-status", headers=admin, json={"role": "college_admin", "status": "active"}).status_code == 200
     assert client.put(f"/api/organizations/users/{college_admin_id}/context", headers=admin, json={"organization_context": {"school_id": school_id, "college_id": college_id}}).status_code == 200
-    college_admin = _login(username, "TeacherPassword123")
+    college_admin = _login(username, teacher_password)
     denied = client.post("/api/policies", headers=college_admin, json={
         "name": "学院越权全局规范", "level": "college", "version": "1", "status": "draft",
         "bindings": [{"id": f"global-binding-{suffix}", "scope_type": "global", "scope_id": ""}],

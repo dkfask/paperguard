@@ -35,6 +35,16 @@ _IMAGE_MAX_HEIGHT_CM = 13.5
 
 _LOGGER = logging.getLogger("paperguard.export")
 
+
+def _parse_untrusted_xml(data: bytes):
+    """解析用户提交的 XML 片段(公式/表格): 禁止 DOCTYPE、外部实体与网络访问, 阻断 XXE。"""
+    if b"<!DOCTYPE" in data or b"<!ENTITY" in data:
+        raise ValueError("XML 片段不允许包含 DOCTYPE/ENTITY 定义")
+    return etree.fromstring(
+        data,
+        etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False),
+    )
+
 _HIGHLIGHT_COLORS = {
     "yellow": WD_COLOR_INDEX.YELLOW,
     "green": WD_COLOR_INDEX.BRIGHT_GREEN,
@@ -790,7 +800,7 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
         p = doc.add_paragraph()
         _apply_paragraph_format(p, style)
         try:
-            node = etree.fromstring(par.equation.omml.encode("utf-8"))
+            node = _parse_untrusted_xml(par.equation.omml.encode("utf-8"))
             if etree.QName(node).localname != "oMath":
                 raise ValueError("公式节点类型不正确")
             p._p.append(node)
@@ -866,7 +876,7 @@ def _export_table(doc: Document, tbl, template: PaperTemplate | None,
 
     if tbl.source_xml:
         try:
-            source = etree.fromstring(tbl.source_xml.encode("utf-8"))
+            source = _parse_untrusted_xml(tbl.source_xml.encode("utf-8"))
             if etree.QName(source).localname != "tbl":
                 raise ValueError("表格节点类型不正确")
             body = doc._body._element

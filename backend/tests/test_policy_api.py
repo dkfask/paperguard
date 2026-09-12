@@ -12,6 +12,11 @@ from app.main import app
 client = TestClient(app)
 
 
+def _random_password(prefix: str) -> str:
+    """随机生成符合策略(≥12 位、含字母数字)的测试口令, 避免静态凭据。"""
+    return f"{prefix}-{uuid.uuid4().hex}-A1"
+
+
 def _admin_headers() -> dict[str, str]:
     login = client.post(
         "/api/auth/login",
@@ -120,14 +125,15 @@ def test_policy_publish_snapshot_and_unchecked_items():
 def test_student_cannot_manage_school_policy():
     headers = _admin_headers()
     username = f"policy-student-{uuid.uuid4().hex[:8]}"
+    password = _random_password("student")
     register = client.post(
         "/api/auth/register",
-        json={"username": username, "password": "StudentPassword123", "display_name": "规范学生"},
+        json={"username": username, "password": password, "display_name": "规范学生"},
     )
     assert register.status_code == 201, register.text
     login = client.post(
         "/api/auth/login",
-        json={"username": username, "password": "StudentPassword123"},
+        json={"username": username, "password": password},
     )
     student_headers = {"Authorization": f"Bearer {login.json()['token']}"}
     denied = client.post(
@@ -143,7 +149,7 @@ def test_teacher_requirement_is_frozen_for_guided_student():
     admin_headers = _admin_headers()
     suffix = uuid.uuid4().hex[:8]
     teacher_username = f"policy-teacher-{suffix}"
-    teacher_password = "TeacherPassword123"
+    teacher_password = _random_password("teacher")
     registered = client.post(
         "/api/auth/register",
         json={
@@ -191,18 +197,19 @@ def test_teacher_requirement_is_frozen_for_guided_student():
     assert policy.json()["owner_id"] == teacher_id
 
     student_username = f"policy-student-{suffix}"
+    student_password = _random_password("student")
     imported = client.post(
         "/api/teacher/students/import",
         headers=teacher_headers,
         json={
             "students": [{"username": student_username, "display_name": "被指导学生"}],
-            "default_password": "StudentPassword123",
+            "default_password": student_password,
         },
     )
     assert imported.status_code == 200, imported.text
     student_login = client.post(
         "/api/auth/login",
-        json={"username": student_username, "password": "StudentPassword123"},
+        json={"username": student_username, "password": student_password},
     )
     student_headers = {"Authorization": f"Bearer {student_login.json()['token']}"}
     project = client.post(
