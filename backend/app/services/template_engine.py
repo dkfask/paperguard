@@ -38,6 +38,7 @@ class TemplateParseCandidate(BaseModel):
     candidate_id: str = Field(min_length=1)
     template_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
+    version: str = Field(default="1", min_length=1)
     filename: str = ""
     parser_version: str = "docx-template-engine@1"
     definition: TemplateDefinition
