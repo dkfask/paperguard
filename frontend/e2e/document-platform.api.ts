@@ -8,7 +8,7 @@ export const API_BASE_URL = process.env.E2E_API_BASE_URL
   ?? process.env.TEST_BASE_URL
   ?? `http://127.0.0.1:${backendPort}`
 export const TEMPLATE_PATH = process.env.E2E_TEMPLATE_PATH
-  ?? resolve(process.cwd(), '../backend/tests/fixtures/templates/minimal.docx')
+  ?? resolve(process.cwd(), '../backend/tests/fixtures/templates/generic-anchored.docx')
 export const E2E_ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? ''
 
 function markdownSpec(specName: string) {
@@ -39,6 +39,7 @@ export type PublishedPackage = {
   packageId: string
   templateName: string
   specName: string
+  adminToken: string
   managerToken: string
   managerUser: Record<string, unknown>
 }
@@ -77,28 +78,18 @@ export async function publishFixturePackage(api: APIRequestContext): Promise<Pub
     },
   })
   const templateCandidate = await jsonOrThrow(templateResponse, 'parse DOCX template')
-  templateCandidate.definition.fields.push(
-    {
-      key: 'summary',
-      label: '摘要',
-      type: 'textarea',
-      required: false,
-      location: 'metadata',
-      section_key: '',
-      constraints: {},
-      source: 'E2E schema fixture',
-    },
-    {
-      key: 'category',
-      label: '类别',
-      type: 'select',
-      required: false,
-      location: 'metadata',
-      section_key: '',
-      constraints: { options: ['A', 'B'] },
-      source: 'E2E schema fixture',
-    },
-  )
+  const summaryField = templateCandidate.definition.fields.find((field: { key: string }) => field.key === 'summary')
+  const categoryField = templateCandidate.definition.fields.find((field: { key: string }) => field.key === 'category')
+  if (!summaryField || !categoryField) throw new Error('anchored fixture fields were not detected')
+  Object.assign(summaryField, {
+    type: 'textarea',
+    source: 'E2E schema fixture',
+  })
+  Object.assign(categoryField, {
+    type: 'select',
+    constraints: { options: ['A', 'B'] },
+    source: 'E2E schema fixture',
+  })
 
   const specResponse = await api.post('/api/specs/parse', {
     headers,
@@ -155,6 +146,7 @@ export async function publishFixturePackage(api: APIRequestContext): Promise<Pub
     packageId: bundle.package.id,
     templateName: bundle.template.name,
     specName,
+    adminToken: login.token,
     managerToken: managerLogin.token,
     managerUser: managerLogin.user,
   }

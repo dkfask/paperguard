@@ -22,6 +22,15 @@ export class DocumentProjectEditorPage {
     await expect(this.page.getByRole('status')).toContainText(/已保存|Saved/)
   }
 
+  async fillFieldAndWaitForSave(key: string, value: string) {
+    const saved = this.page.waitForResponse((response) => response.url().includes('/api/document-projects/')
+      && response.request().method() === 'PUT'
+      && response.status() === 200)
+    await this.page.locator(`[data-test="document-field-${key}"]`).fill(value)
+    await saved
+    await expect(this.page.getByRole('status')).toContainText(/已保存|Saved/)
+  }
+
   async reload(templateName: string) {
     await this.page.reload()
     await this.expectLoaded(templateName)

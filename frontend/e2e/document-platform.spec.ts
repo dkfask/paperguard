@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test'
 import { DocumentProjectEditorPage } from './pages/document-project-editor.page'
@@ -38,6 +39,20 @@ test.describe('generic document platform', () => {
     return { account, editorPage }
   }
 
+  function assertAnchoredDocx(filePath: string, expectedSummary: string, expectedBody: string) {
+    const documentXml = execFileSync('unzip', ['-p', filePath, 'word/document.xml'], { encoding: 'utf8' })
+    const headerXml = execFileSync('unzip', ['-p', filePath, 'word/header1.xml'], { encoding: 'utf8' })
+    const footerXml = execFileSync('unzip', ['-p', filePath, 'word/footer1.xml'], { encoding: 'utf8' })
+    expect(documentXml).toContain(expectedSummary)
+    expect(documentXml).toContain(expectedBody)
+    expect(documentXml).toContain('静态模板内容：此段必须在导出文件中保留。')
+    expect(documentXml).toContain('PaperGuard fixture')
+    expect(documentXml).not.toContain('{{summary}}')
+    expect(documentXml).not.toContain('{{section:body}}')
+    expect(headerXml).toContain('固定页眉：PaperGuard 通用模板')
+    expect(footerXml).toContain('固定页脚：模板版本 1')
+  }
+
   test('manager publishes a package from the browser workflow', async ({ page }) => {
     await page.addInitScript(({ token, user }) => {
       sessionStorage.setItem('pg_token', token)
@@ -49,6 +64,10 @@ test.describe('generic document platform', () => {
     await page.locator('[data-test="template-file"]').setInputFiles(TEMPLATE_PATH)
     await page.locator('[data-test="template-parse"]').click()
     await expect(page.locator('[data-test="template-confirm"]')).toBeEnabled()
+    await page.locator('[data-test="template-candidate-name"]').fill('通用项目申请书')
+    const categoryReview = page.locator('[data-test="template-field-category"]')
+    await categoryReview.locator('select').selectOption('select')
+    await categoryReview.locator('[data-test="template-field-options"]').fill('A, B')
     await page.locator('[data-test="template-confirm"]').click()
     await expect(page.locator('[data-test="template-confirm"]')).toBeDisabled()
 
@@ -86,6 +105,61 @@ rules:
     await page.locator('[data-test="publish"]').click()
     await expect(page.locator('.success-panel')).toContainText('文档包发布成功')
     await expect(page.locator('.success-panel')).toContainText(specName)
+
+    const account = await createStudent(api, 'browser-full-chain')
+    const studentPage = await page.context().newPage()
+    await new LoginPage(studentPage).login(account.username, account.password)
+    const projectsPage = new DocumentProjectsPage(studentPage)
+    await projectsPage.goto()
+    await projectsPage.expectPublishedPackage('通用项目申请书', specName)
+    await projectsPage.startProject('通用项目申请书', specName, account.projectTitle)
+    const editorPage = new DocumentProjectEditorPage(studentPage)
+    await editorPage.expectLoaded('通用项目申请书')
+    const summary = `字段摘要 ${account.projectTitle}`
+    const body = `可导出的通用文档内容 ${account.projectTitle}`
+    await editorPage.fillFieldAndWaitForSave('summary', summary)
+    await studentPage.locator('[data-test="document-field-category"]').selectOption('A')
+    await editorPage.fillFirstContentAndWaitForSave(body)
+    await editorPage.reload('通用项目申请书')
+    expect(await editorPage.firstContentValue()).toBe(body)
+    await expect(studentPage.locator('[data-test="document-field-summary"]')).toHaveValue(summary)
+    await editorPage.validate()
+    await editorPage.expectNoFindings()
+    const download = await editorPage.exportDocx()
+    const filePath = await download.path()
+    expect(filePath).toBeTruthy()
+    assertAnchoredDocx(filePath as string, summary, body)
+
+    const studentLogin = await api.post('/api/auth/login', {
+      data: { username: account.username, password: account.password },
+    })
+    const studentToken = (await studentLogin.json()).token
+    const projectId = studentPage.url().split('/').pop() as string
+    const reopened = await api.get(`/api/document-projects/${projectId}`, {
+      headers: { Authorization: `Bearer ${studentToken}` },
+    })
+    expect(reopened.ok()).toBeTruthy()
+    expect((await reopened.json()).field_values.summary).toBe(summary)
+
+    const other = await createStudent(api, 'browser-isolation')
+    const otherLogin = await api.post('/api/auth/login', {
+      data: { username: other.username, password: other.password },
+    })
+    const forbidden = await api.get(`/api/document-projects/${projectId}`, {
+      headers: { Authorization: `Bearer ${(await otherLogin.json()).token}` },
+    })
+    expect(forbidden.status()).toBe(404)
+    const audit = await api.get('/api/audit', {
+      headers: { Authorization: `Bearer ${publishedPackage.adminToken}` },
+      params: { resource_id: projectId },
+    })
+    expect(audit.ok()).toBeTruthy()
+    const actions = new Set((await audit.json()).map((event: { action: string }) => event.action))
+    expect(actions.has('document.project.created')).toBeTruthy()
+    expect(actions.has('document.project.updated')).toBeTruthy()
+    expect(actions.has('document.project.validated')).toBeTruthy()
+    expect(actions.has('document.project.rendered')).toBeTruthy()
+    await studentPage.close()
   })
 
   test('published package opens an editor from its parsed section schema', async ({ page }) => {
@@ -128,6 +202,8 @@ rules:
 
   test('valid content exports as a DOCX download', async ({ page }) => {
     const { account, editorPage } = await openEditor(page, 'export')
+    await editorPage.fillFieldAndWaitForSave('summary', `字段摘要 ${account.projectTitle}`)
+    await page.locator('[data-test="document-field-category"]').selectOption('A')
     await editorPage.fillFirstContentAndWaitForSave(`可导出的通用文档内容 ${account.projectTitle}`)
     await editorPage.validate()
     await editorPage.expectNoFindings()
@@ -138,5 +214,6 @@ rules:
     const bytes = await readFile(filePath as string)
     expect(bytes.subarray(0, 2).toString('ascii')).toBe('PK')
     expect(bytes.length).toBeGreaterThan(0)
+    assertAnchoredDocx(filePath as string, `字段摘要 ${account.projectTitle}`, `可导出的通用文档内容 ${account.projectTitle}`)
   })
 })

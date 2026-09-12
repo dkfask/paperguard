@@ -97,7 +97,7 @@
             </div>
             <div v-if="templateCandidate.definition.fields.length" class="detected-list">
               <h3>{{ t('documentPackagePublisher.reviewFields') }}</h3>
-              <div v-for="field in templateCandidate.definition.fields" :key="field.key" class="field-editor">
+              <div v-for="field in templateCandidate.definition.fields" :key="field.key" class="field-editor" :data-test="`template-field-${field.key}`">
                 <input :value="field.key" :aria-label="`${t('documentPackagePublisher.fieldKey')}: ${field.key}`" readonly />
                 <input data-test="template-field-label" v-model.trim="field.label" :aria-label="t('documentPackagePublisher.fieldLabel')" :disabled="templateCandidate.status === 'confirmed'" />
                 <select v-model="field.type" :aria-label="t('documentPackagePublisher.fieldType')" :disabled="templateCandidate.status === 'confirmed'">
@@ -105,7 +105,17 @@
                   <option value="textarea">textarea</option>
                   <option value="date">date</option>
                   <option value="number">number</option>
+                  <option value="select">select</option>
+                  <option value="enum">enum</option>
                 </select>
+                <input
+                  v-if="['select', 'enum'].includes(field.type)"
+                  data-test="template-field-options"
+                  :value="choiceOptions(field).join(', ')"
+                  :aria-label="t('documentPackagePublisher.fieldOptions')"
+                  :disabled="templateCandidate.status === 'confirmed'"
+                  @input="setChoiceOptions(field, $event)"
+                />
                 <label class="check-editor">
                   <input v-model="field.required" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
                   {{ t('documentPackagePublisher.required') }}
@@ -339,6 +349,17 @@ async function loadSavedCandidates() {
 function statusLabel(status) {
   if (status === 'confirmed') return t('documentPackagePublisher.confirmed')
   return t('documentPackagePublisher.needsConfirmation')
+}
+
+function choiceOptions(field) {
+  return Array.isArray(field.constraints?.options) ? field.constraints.options : []
+}
+
+function setChoiceOptions(field, event) {
+  field.constraints = {
+    ...(field.constraints || {}),
+    options: event.target.value.split(',').map(value => value.trim()).filter(Boolean),
+  }
 }
 
 function selectTemplate(event) {
