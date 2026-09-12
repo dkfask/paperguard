@@ -79,6 +79,8 @@ async def _lifespan(_app: FastAPI):
         recover_pending_archives(store)
         from app.services.export_jobs import recover_pending_exports
         recover_pending_exports(store)
+        from app.services.document_render_jobs import recover_pending_document_render_jobs
+        recover_pending_document_render_jobs(store)
         cleanup_orphan_images(store, grace_seconds=24 * 60 * 60)
     except Exception as exc:
         import logging

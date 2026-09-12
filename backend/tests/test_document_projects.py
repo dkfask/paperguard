@@ -24,6 +24,11 @@ rules:
 # 通用实验报告规范
 """
 
+HARD_SPEC = SPEC.replace(
+    "    description: 正文不少于 10 字",
+    "    severity: error\n    enforce: hard\n    description: 正文不少于 10 字",
+)
+
 
 def _admin_headers(client: TestClient) -> dict[str, str]:
     login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
@@ -31,7 +36,7 @@ def _admin_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {login.json()['token']}"}
 
 
-def _published_package(client: TestClient, headers: dict[str, str]) -> dict:
+def _published_package(client: TestClient, headers: dict[str, str], spec_content: str = SPEC) -> dict:
     template = client.post(
         "/api/templates/parse",
         headers=headers,
@@ -40,7 +45,7 @@ def _published_package(client: TestClient, headers: dict[str, str]) -> dict:
     assert template.status_code == 200, template.text
     template_confirmed = client.post("/api/templates/parse/confirm", headers=headers, json=template.json())
     assert template_confirmed.status_code == 200, template_confirmed.text
-    spec = client.post("/api/specs/parse", headers=headers, files={"file": ("spec.md", SPEC.encode(), "text/markdown")})
+    spec = client.post("/api/specs/parse", headers=headers, files={"file": ("spec.md", spec_content.encode(), "text/markdown")})
     assert spec.status_code == 200, spec.text
     spec_confirmed = client.post("/api/specs/parse/confirm", headers=headers, json=spec.json())
     assert spec_confirmed.status_code == 200, spec_confirmed.text
@@ -190,3 +195,59 @@ def test_document_project_render_returns_docx_artifact() -> None:
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     assert response.content[:2] == b"PK"
+
+
+def test_document_project_render_job_is_durable_idempotent_and_downloadable(tmp_path, monkeypatch) -> None:
+    from app.services.document_render_jobs import artifact_dir
+    from app.worker import run_once
+
+    monkeypatch.setenv("PAPERGUARD_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    package = _published_package(client, headers, HARD_SPEC)
+    created = client.post(
+        "/api/document-projects",
+        headers=headers,
+        json={"package_id": package["id"], "title": "异步实验报告"},
+    )
+    assert created.status_code == 201, created.text
+    project_id = created.json()["id"]
+
+    blocked = client.post(f"/api/document-projects/{project_id}/render-jobs", headers=headers)
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["run_id"]
+
+    queued = client.post(f"/api/document-projects/{project_id}/render-jobs?force=true", headers=headers)
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+    assert task["status"] == "queued"
+    assert "snapshot" not in task and "last_error" not in task
+    duplicate = client.post(f"/api/document-projects/{project_id}/render-jobs?force=true", headers=headers)
+    assert duplicate.status_code == 202, duplicate.text
+    assert duplicate.json()["id"] == task["id"]
+
+    result = run_once()
+    assert task["job_id"] in result["document_renders"]["succeeded"]
+    completed = client.get(f"/api/document-projects/{project_id}/render-jobs/{task['id']}", headers=headers)
+    assert completed.status_code == 200, completed.text
+    completed_body = completed.json()
+    assert completed_body["status"] == "succeeded"
+    assert completed_body["artifact"]["filename"] == "异步实验报告.docx"
+    assert "storage_key" not in completed_body["artifact"]
+
+    downloaded = client.get(
+        f"/api/document-projects/{project_id}/render-jobs/{task['id']}/artifact",
+        headers=headers,
+    )
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content[:2] == b"PK"
+    audit = client.get("/api/audit", headers=headers, params={"resource_type": "document_render_job"})
+    assert audit.status_code == 200, audit.text
+    assert {item["action"] for item in audit.json() if item["resource_id"] == task["id"]} >= {
+        "document.project.render.queued",
+        "document.project.render.succeeded",
+    }
+    artifact = artifact_dir() / completed_body["artifact"]["id"]
+    artifact = artifact.with_suffix(".docx")
+    if artifact.exists():
+        artifact.unlink()

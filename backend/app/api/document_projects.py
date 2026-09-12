@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
-from app.auth import current_user
+from app.auth import can_manage, current_user
 from app.db import Store, new_id
 from app.domain.documents.schemas import ContentBlock, DocumentProject, ValidationRun
 from app.services.document_project_engine import (
@@ -24,7 +24,16 @@ from app.services.document_project_engine import (
     validate_section_content,
 )
 from app.services.document_validation_engine import validate_document_project
+from app.services.document_render_jobs import (
+    create_document_render_job,
+    get_document_artifact,
+    get_document_render_job,
+    render_job_view,
+    resolve_document_artifact,
+)
 from app.services.generic_docx_renderer import GenericDocxRenderError, render_document_project_to_docx
+from app.repositories.workflow_repository import WorkflowRepository
+from app.domain.workflow_states import transition_state
 
 router = APIRouter(prefix="/api/document-projects", tags=["document-projects"])
 
@@ -300,6 +309,157 @@ def render_project(
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         background=BackgroundTask(shutil.rmtree, temp_dir, True),
     )
+
+
+def _render_job_for_project(store: Store, project: DocumentProject, render_job_id: str) -> dict[str, Any]:
+    record = get_document_render_job(store, render_job_id)
+    if not record or record.get("project_id") != project.id:
+        raise HTTPException(status_code=404, detail="渲染任务不存在")
+    return record
+
+
+@router.post("/{project_id}/render-jobs", status_code=202)
+def create_render_job(
+    project_id: str,
+    force: bool = False,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Queue a version-frozen generic DOCX render request."""
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(project, user)
+    bundle = _project_package(store, project)
+    run = _create_validation_run(store, user, project, bundle)
+    if run.summary.get("hard_failures") and not force:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "存在硬性规范问题, 无法排队导出",
+                "run_id": run.id,
+                "summary": run.summary,
+            },
+        )
+    record = create_document_render_job(
+        store,
+        project,
+        bundle,
+        force=force,
+        actor_id=user["id"],
+    )
+    artifact = get_document_artifact(store, record.get("artifact_id", "")) if record.get("artifact_id") else None
+    return render_job_view(record, artifact)
+
+
+@router.get("/{project_id}/render-jobs")
+def list_render_jobs(
+    project_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> list[dict[str, Any]]:
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(project, user)
+    records = [
+        item for item in store.list_workflow_records("document_render_job")
+        if item.get("project_id") == project.id
+    ]
+    return [
+        render_job_view(
+            item,
+            get_document_artifact(store, item.get("artifact_id", "")) if item.get("artifact_id") else None,
+        )
+        for item in records
+    ]
+
+
+@router.get("/{project_id}/render-jobs/{render_job_id}")
+def get_render_job(
+    project_id: str,
+    render_job_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(project, user)
+    record = _render_job_for_project(store, project, render_job_id)
+    artifact = get_document_artifact(store, record.get("artifact_id", "")) if record.get("artifact_id") else None
+    return render_job_view(record, artifact)
+
+
+@router.post("/{project_id}/render-jobs/{render_job_id}/retry")
+def retry_render_job(
+    project_id: str,
+    render_job_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可以重试渲染任务")
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(project, user)
+    record = _render_job_for_project(store, project, render_job_id)
+    if record.get("status") not in {"failed", "queued"}:
+        raise HTTPException(status_code=409, detail="当前渲染任务不可重试")
+    repository = WorkflowRepository(store)
+    with store.workflow_transaction() as conn:
+        if record.get("status") == "failed":
+            record["status"] = transition_state("document_render_job", "failed", "queued")
+            record["error_code"] = ""
+            record["last_error"] = ""
+            record["artifact_id"] = ""
+            saved = repository.save_in_transaction(
+                conn,
+                "document_render_job",
+                record,
+                expected_revision=record.get("revision", 0),
+            )
+            if saved is None:
+                raise HTTPException(status_code=409, detail="渲染任务已被其他操作更新, 请刷新后重试")
+            record = saved
+        job = repository.retry_job_conn(conn, record.get("job_id", ""), "管理员手动重试通用文档渲染")
+        if job is None:
+            if repository.get_job_in_transaction(conn, record.get("job_id", "")) is not None:
+                raise HTTPException(status_code=409, detail="渲染任务队列状态不允许重试")
+            repository.create_job_in_transaction(
+                conn,
+                job_id=record.get("job_id") or new_id("job"),
+                job_type="document.render",
+                resource_type="document_render_job",
+                resource_id=record["id"],
+                max_attempts=5,
+            )
+    artifact = get_document_artifact(store, record.get("artifact_id", "")) if record.get("artifact_id") else None
+    return render_job_view(record, artifact)
+
+
+@router.get("/{project_id}/render-jobs/{render_job_id}/artifact")
+def download_render_artifact(
+    project_id: str,
+    render_job_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> FileResponse:
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(project, user)
+    record = _render_job_for_project(store, project, render_job_id)
+    if record.get("status") != "succeeded" or not record.get("artifact_id"):
+        raise HTTPException(status_code=409, detail="渲染产物尚未完成")
+    artifact = get_document_artifact(store, record["artifact_id"])
+    if artifact is None or artifact.project_id != project.id or artifact.render_job_id != render_job_id:
+        raise HTTPException(status_code=404, detail="渲染产物不存在")
+    path = resolve_document_artifact(artifact)
+    if path is None:
+        raise HTTPException(status_code=404, detail="渲染产物文件不存在")
+    return FileResponse(path, filename=artifact.filename, media_type=artifact.content_type)
 
 
 @router.get("/{project_id}/validations")
