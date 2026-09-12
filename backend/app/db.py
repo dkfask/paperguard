@@ -28,6 +28,7 @@ SCHEMA_MIGRATIONS = (
     "0003_audit_ledger",
     "0004_document_packages",
     "0005_document_projects",
+    "0006_validation_runs",
 )
 
 
@@ -138,6 +139,14 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS idx_document_projects_owner_updated
                     ON document_projects (owner_id, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS validation_runs (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_validation_runs_project_created
+                    ON validation_runs (project_id, created_at DESC);
                 CREATE TABLE IF NOT EXISTS organization_units (
                     id TEXT PRIMARY KEY,
                     data TEXT NOT NULL,
@@ -740,6 +749,44 @@ class Store:
                     "SELECT data FROM document_projects ORDER BY updated_at DESC"
                 ).fetchall()
         return [DocumentProject.model_validate_json(row["data"]) for row in rows]
+
+    # -------------------------- validation runs -------------------------
+
+    def save_validation_run(self, run):
+        """Insert immutable generic validation evidence."""
+        from app.domain.documents.schemas import ValidationRun
+
+        if not isinstance(run, ValidationRun):
+            run = ValidationRun.model_validate(run)
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO validation_runs (id, project_id, data, created_at) VALUES (?, ?, ?, ?)",
+                    (run.id, run.project_id, run.model_dump_json(), run.created_at),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("validation run already exists") from exc
+        return run
+
+    def list_validation_runs(self, project_id: str, limit: int = 20) -> list:
+        from app.domain.documents.schemas import ValidationRun
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT data FROM validation_runs WHERE project_id = ? "
+                "ORDER BY created_at DESC, id DESC LIMIT ?",
+                (project_id, max(1, min(int(limit), 100))),
+            ).fetchall()
+        return [ValidationRun.model_validate_json(row["data"]) for row in rows]
+
+    def get_validation_run(self, run_id: str):
+        from app.domain.documents.schemas import ValidationRun
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM validation_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+        return ValidationRun.model_validate_json(row["data"]) if row else None
 
     # ------------------------- organization units ------------------------
 

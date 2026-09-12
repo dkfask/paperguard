@@ -221,4 +221,44 @@ class DocumentProject(BaseModel):
     updated_at: str = ""
 
 
+class ValidationFinding(BaseModel):
+    """A deterministic result produced from one frozen specification rule."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str = Field(min_length=1)
+    checker: str = ""
+    severity: str = "warning"
+    enforce: str = "soft"
+    message: str = Field(min_length=1)
+    actual: Any = None
+    expected: Any = None
+    section_key: str = ""
+    fixable: bool = False
+    source: str = ""
+    source_version: str = ""
+
+
+class ValidationRun(BaseModel):
+    """Immutable validation evidence for one project revision."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1)
+    project_id: str = Field(min_length=1)
+    package_id: str = Field(min_length=1)
+    template_version_id: str = Field(min_length=1)
+    spec_version_id: str = Field(min_length=1)
+    renderer_version: str = Field(min_length=1)
+    rule_engine_version: str = Field(min_length=1)
+    project_revision: int = Field(default=0, ge=0)
+    content_hash: str = ""
+    status: str = "completed"
+    summary: dict[str, Any] = Field(default_factory=dict)
+    findings: list[ValidationFinding] = Field(default_factory=list)
+    not_checked: list[dict[str, Any]] = Field(default_factory=list)
+    performed_by: str = ""
+    created_at: str = ""
+
+
 TemplateSection.model_rebuild()

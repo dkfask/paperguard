@@ -127,3 +127,49 @@ def test_document_project_is_owner_scoped_and_package_reference_is_frozen() -> N
     assert project["spec_version_id"] == package["spec_version_id"]
     assert project["renderer_version"] == package["renderer_version"]
     assert project["rule_engine_version"] == package["rule_engine_version"]
+
+
+def test_document_project_validation_is_deterministic_and_persisted() -> None:
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    package = _published_package(client, headers)
+    created = client.post(
+        "/api/document-projects",
+        headers=headers,
+        json={"package_id": package["id"], "title": "待检查报告"},
+    )
+    assert created.status_code == 201, created.text
+    project = created.json()
+
+    first = client.post(f"/api/document-projects/{project['id']}/validate", headers=headers)
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    assert first_body["project_revision"] == 0
+    assert first_body["summary"]["total"] == 1
+    assert first_body["findings"][0]["rule_id"] == "body-min"
+
+    sections = project["sections"]
+    first_key = next(iter(sections))
+    sections[first_key][0]["text"] = "这是一段满足最小长度要求的正文内容"
+    updated = client.put(
+        f"/api/document-projects/{project['id']}",
+        headers=headers,
+        json={"sections": sections, "base_revision": 0},
+    )
+    assert updated.status_code == 200, updated.text
+
+    second = client.post(f"/api/document-projects/{project['id']}/validate", headers=headers)
+    assert second.status_code == 200, second.text
+    second_body = second.json()
+    assert second_body["project_revision"] == 1
+    assert second_body["summary"]["total"] == 0
+    assert second_body["content_hash"] != first_body["content_hash"]
+
+    history = client.get(f"/api/document-projects/{project['id']}/validations", headers=headers)
+    assert history.status_code == 200, history.text
+    assert {item["id"] for item in history.json()} == {second_body["id"], first_body["id"]}
+    detail = client.get(
+        f"/api/document-projects/{project['id']}/validations/{first_body['id']}",
+        headers=headers,
+    )
+    assert detail.status_code == 200, detail.text

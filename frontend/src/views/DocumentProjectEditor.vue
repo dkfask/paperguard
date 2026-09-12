@@ -12,13 +12,34 @@
           <input v-model="draft.title" class="title-input" :aria-label="t('documentProjects.projectTitle')" maxlength="300" @input="scheduleSave" />
           <p class="editor-subtitle">{{ editor.template.name }} · {{ editor.package.document_type_id }} · {{ editor.project.template_version_id }}</p>
         </div>
-        <div class="save-status" :class="{ saving }" role="status" aria-live="polite">
-          <span class="status-dot" :class="saving ? 'working' : 'ok'"></span>
-          {{ saving ? t('documentProjects.saving') : t('documentProjects.saved', { revision: draft.revision }) }}
+        <div class="editor-actions">
+          <button class="validate-action" type="button" :disabled="validating || saving" @click="runValidation">
+            <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
+            {{ validating ? t('documentProjects.validating') : t('documentProjects.validate') }}
+          </button>
+          <div class="save-status" :class="{ saving }" role="status" aria-live="polite">
+            <span class="status-dot" :class="saving ? 'working' : 'ok'"></span>
+            {{ saving ? t('documentProjects.saving') : t('documentProjects.saved', { revision: draft.revision }) }}
+          </div>
         </div>
       </header>
 
       <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+
+      <section v-if="validation" class="validation-panel" aria-live="polite">
+        <div class="validation-heading">
+          <div><p class="workspace-kicker">{{ t('documentProjects.validationEyebrow') }}</p><h2>{{ t('documentProjects.validationTitle') }}</h2></div>
+          <strong :class="validation.findings.length ? 'has-findings' : 'clean'">{{ validation.findings.length ? t('documentProjects.issueCount', { count: validation.findings.length }) : t('documentProjects.noFindings') }}</strong>
+        </div>
+        <ul v-if="validation.findings.length" class="finding-list">
+          <li v-for="finding in validation.findings" :key="`${finding.rule_id}:${finding.section_key}`" :class="finding.severity">
+            <span class="finding-severity">{{ finding.severity }}</span>
+            <span>{{ finding.message }}</span>
+            <small v-if="finding.section_key">{{ finding.section_key }}</small>
+          </li>
+        </ul>
+        <p v-if="validation.not_checked.length" class="not-checked">{{ t('documentProjects.notChecked', { count: validation.not_checked.length }) }}</p>
+      </section>
 
       <div class="editor-layout">
         <aside class="editor-aside">
@@ -78,7 +99,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '../i18n'
-import { getDocumentProjectEditor, updateDocumentProject } from '../api.js'
+import { getDocumentProjectEditor, updateDocumentProject, validateDocumentProject } from '../api.js'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -86,6 +107,8 @@ const editor = ref(null)
 const draft = reactive({ title: '', revision: 0, field_values: {}, sections: {} })
 const loading = ref(true)
 const saving = ref(false)
+const validating = ref(false)
+const validation = ref(null)
 const error = ref('')
 let saveTimer = null
 
@@ -128,10 +151,23 @@ async function save() {
       base_revision: draft.revision,
     })
     applyProject(updated)
+    await runValidation()
   } catch (exception) {
     error.value = exception.message
   } finally {
     saving.value = false
+  }
+}
+
+async function runValidation() {
+  validating.value = true
+  error.value = ''
+  try {
+    validation.value = await validateDocumentProject(route.params.id)
+  } catch (exception) {
+    error.value = exception.message
+  } finally {
+    validating.value = false
   }
 }
 
@@ -153,7 +189,12 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .back-link .material-symbols-outlined { font-size: 18px; }
 .title-input { display: block; width: min(720px, 100%); margin: 14px 0 6px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--on-surface); font-size: 30px; font-weight: 700; }
 .editor-subtitle { margin: 0; color: var(--on-surface-variant); font-size: 13px; }
-.save-status { display: flex; align-items: center; gap: 7px; flex: none; color: var(--on-surface-variant); font-size: 12px; }
+.editor-actions { display: flex; align-items: center; gap: 14px; flex: none; }
+.validate-action { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--primary); cursor: pointer; font: inherit; font-size: 12px; }
+.validate-action:hover:not(:disabled) { border-color: var(--primary); }
+.validate-action:disabled { cursor: wait; opacity: .6; }
+.validate-action .material-symbols-outlined { font-size: 18px; }
+.save-status { display: flex; align-items: center; gap: 7px; color: var(--on-surface-variant); font-size: 12px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success, #2f7d4a); }
 .status-dot.working { background: var(--tertiary, #a56a00); }
 .editor-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 30px; padding-top: 26px; }
@@ -168,6 +209,19 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .rule-kind { flex: none; padding: 2px 5px; border-radius: 4px; background: color-mix(in srgb, var(--primary) 12%, var(--surface)); color: var(--primary); font-size: 10px; }
 .rule-kind.manual { background: color-mix(in srgb, var(--tertiary) 13%, var(--surface)); color: var(--tertiary); }
 .editor-main { min-width: 0; }
+.validation-panel { padding: 18px 20px; margin: 22px 0 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.validation-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.validation-heading h2 { margin: 3px 0 0; font-size: 18px; }
+.validation-heading strong { font-size: 12px; font-weight: 600; }
+.validation-heading .clean { color: var(--success, #2f7d4a); }
+.validation-heading .has-findings { color: var(--error, #b3261e); }
+.finding-list { display: grid; gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+.finding-list li { display: flex; align-items: baseline; gap: 8px; padding: 9px 10px; border-left: 3px solid var(--tertiary, #a56a00); background: color-mix(in srgb, var(--tertiary) 7%, var(--surface)); font-size: 13px; }
+.finding-list li.error { border-left-color: var(--error, #b3261e); }
+.finding-list li.info { border-left-color: var(--primary); }
+.finding-severity { flex: none; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.finding-list small { margin-left: auto; color: var(--on-surface-variant); font-size: 11px; }
+.not-checked { margin: 14px 0 0; color: var(--on-surface-variant); font-size: 12px; }
 .editor-section { padding-bottom: 30px; margin-bottom: 26px; border-bottom: 1px solid var(--border); }
 .section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
 .section-heading h2 { margin: 3px 0 0; font-size: 20px; }
@@ -180,5 +234,5 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .block-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--on-surface-variant); font-size: 11px; }
 .icon-action { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--primary); cursor: pointer; }
 .icon-action:hover { border-color: var(--primary); }
-@media (max-width: 780px) { .editor-page { padding: 14px 14px 42px; } .editor-header { align-items: flex-start; flex-direction: column; } .title-input { font-size: 26px; } .editor-layout { display: block; } .editor-aside { position: static; margin-bottom: 26px; } .field-grid { grid-template-columns: 1fr; } }
+@media (max-width: 780px) { .editor-page { padding: 14px 14px 42px; } .editor-header { align-items: flex-start; flex-direction: column; } .editor-actions { width: 100%; justify-content: space-between; } .title-input { font-size: 26px; } .editor-layout { display: block; } .editor-aside { position: static; margin-bottom: 26px; } .field-grid { grid-template-columns: 1fr; } }
 </style>

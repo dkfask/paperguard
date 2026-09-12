@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import current_user
 from app.db import Store, new_id
-from app.domain.documents.schemas import ContentBlock, DocumentProject
+from app.domain.documents.schemas import ContentBlock, DocumentProject, ValidationRun
 from app.services.document_project_engine import (
     DocumentProjectError,
     editor_schema,
@@ -18,6 +18,7 @@ from app.services.document_project_engine import (
     validate_field_values,
     validate_section_content,
 )
+from app.services.document_validation_engine import validate_document_project
 
 router = APIRouter(prefix="/api/document-projects", tags=["document-projects"])
 
@@ -56,6 +57,28 @@ def _package_visible(bundle: dict[str, Any], user: dict) -> bool:
 def _ensure_project_access(project: DocumentProject, user: dict) -> None:
     if user.get("role") != "admin" and project.owner_id != user.get("id"):
         raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+
+
+def _project_package(store: Store, project: DocumentProject) -> dict[str, Any]:
+    bundle = store.get_document_package_bundle(project.package_id)
+    if bundle is None:
+        raise HTTPException(status_code=409, detail="项目引用的文档包已失效")
+    package = bundle["package"]
+    references = (
+        package.template_version_id,
+        package.spec_version_id,
+        package.renderer_version,
+        package.rule_engine_version,
+    )
+    pinned = (
+        project.template_version_id,
+        project.spec_version_id,
+        project.renderer_version,
+        project.rule_engine_version,
+    )
+    if references != pinned:
+        raise HTTPException(status_code=409, detail="项目版本快照与文档包不一致")
+    return bundle
 
 
 def _audit(store: Store, user: dict, *, action: str, project_id: str, result: str = "success", reason: str = "") -> None:
@@ -145,9 +168,7 @@ def get_document_project_editor(
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(project, user)
-    bundle = store.get_document_package_bundle(project.package_id)
-    if bundle is None:
-        raise HTTPException(status_code=409, detail="项目引用的文档包已失效")
+    bundle = _project_package(store, project)
     return {
         "project": project,
         "package": bundle["package"],
@@ -172,9 +193,7 @@ def update_document_project(
     expected_revision = project.revision if request.base_revision is None else request.base_revision
     if expected_revision != project.revision:
         raise HTTPException(status_code=409, detail={"message": "项目内容已被更新, 请刷新后重试", "revision": project.revision})
-    bundle = store.get_document_package_bundle(project.package_id)
-    if bundle is None:
-        raise HTTPException(status_code=409, detail="项目引用的文档包已失效")
+    bundle = _project_package(store, project)
     definition = bundle["template_version"].definition
     try:
         if request.field_values is not None:
@@ -192,6 +211,64 @@ def update_document_project(
         raise HTTPException(status_code=409, detail={"message": "项目内容已被更新, 请刷新后重试"})
     _audit(store, user, action="document.project.updated", project_id=saved.id)
     return saved
+
+
+@router.post("/{project_id}/validate")
+def validate_project(
+    project_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> ValidationRun:
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(project, user)
+    bundle = _project_package(store, project)
+    run = validate_document_project(
+        project,
+        bundle["template_version"].definition,
+        bundle["spec_version"],
+        run_id=new_id("validation"),
+        performed_by=user["id"],
+        created_at=_now(),
+        rule_engine_version=project.rule_engine_version,
+    )
+    try:
+        saved = store.save_validation_run(run)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="检查记录已存在, 请重试") from exc
+    _audit(store, user, action="document.project.validated", project_id=project.id, reason=f"run:{saved.id}")
+    return saved
+
+
+@router.get("/{project_id}/validations")
+def list_project_validations(
+    project_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> list[ValidationRun]:
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(project, user)
+    return store.list_validation_runs(project_id)
+
+
+@router.get("/{project_id}/validations/{run_id}")
+def get_project_validation(
+    project_id: str,
+    run_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> ValidationRun:
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(project, user)
+    run = store.get_validation_run(run_id)
+    if run is None or run.project_id != project_id:
+        raise HTTPException(status_code=404, detail="检查记录不存在")
+    return run
 
 
 __all__ = ["router"]

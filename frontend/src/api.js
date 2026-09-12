@@ -1214,3 +1214,11 @@ export async function updateDocumentProject(projectId, payload) {
   if (!resp.ok) throw await responseError(resp, '保存通用文档项目失败')
   return resp.json()
 }
+
+export async function validateDocumentProject(projectId) {
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/validate`, {
+    method: 'POST',
+  })
+  if (!resp.ok) throw await responseError(resp, '检查通用文档项目失败')
+  return resp.json()
+}
