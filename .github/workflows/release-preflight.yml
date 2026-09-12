@@ -26,7 +26,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref || github.sha }}
+          ref: ${{ inputs.source_ref || github.event.pull_request.head.sha || github.sha }}
 
       - name: Generate isolated preflight password
         run: |
@@ -59,11 +59,11 @@ jobs:
         if: always()
         env:
           RELEASE_ID: ${{ inputs.release_id || format('pr-{0}', github.event.pull_request.number || github.run_number) }}
-          SOURCE_REF: ${{ inputs.source_ref || github.ref }}
+          SOURCE_REF: ${{ inputs.source_ref || github.event.pull_request.head.ref || github.ref }}
         run: |
-          compose_images='[]'
-          if docker compose -p paperguard-release-preflight -f docker-compose.yml images --format json > compose-images.json 2>/dev/null; then
-            compose_images=$(jq -s '.' compose-images.json)
+          compose_images=$(docker compose -p paperguard-release-preflight -f docker-compose.yml images --format json 2>/dev/null || printf '%s\n' '[]')
+          if ! jq -e 'type == "array"' >/dev/null 2>&1 <<< "$compose_images"; then
+            compose_images=$(jq -s '.' <<< "$compose_images")
           fi
           jq -n \
             --arg release_id "$RELEASE_ID" \
