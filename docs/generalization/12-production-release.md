@@ -75,18 +75,18 @@ recovery.
   `ops/validate-release-manifest.py`; a valid manifest was accepted and a
   manifest with `production_deployment: true` was rejected.
 - `deploy.sh` shell syntax: PASS locally.
-- Hosted disposable production-topology preflight run `34679655510`:
-  **success** on executable source revision
-  `86367f6218ff266b97c8603d7096ede9a7f7bb8a`; production Compose config,
-  three-image build/start, live/ready probes, disposable migration ledger,
-  secret-free manifest generation, identity/log capture, artifact upload, and
-  teardown all passed.
+- Hosted disposable production-topology preflight run `34689290843`:
+  **success** on final executable source revision
+  `37588c6d2c4926a78df6d2ce6187343404caffe6`; production Compose config,
+  three-image build/start, live/ready probes, real package migration command,
+  manifest generation plus JSON Schema validation, secret-free identity/log
+  capture, artifact upload, and teardown all passed.
 - The uploaded manifest was independently parsed and checked for its required
   fields; it records three image entries and `production_deployment: false`.
-- Hosted staging run `34679655592`: **success**; probes, clean migration,
+- Hosted staging run `34689290861`: **success**; probes, clean migration,
   desktop/mobile generic E2E, capture, upload, and teardown passed.
-- Hosted standalone generic E2E run `34679655502`: **success**.
-- Existing CI matrix run `34679762298`: **success**; frontend build and Python
+- Hosted standalone generic E2E run `34689290881`: **success**.
+- Existing CI matrix run `34689305741`: **success**; frontend build and Python
   3.11/3.12 backend tests all passed.
 - Production image registry push and immutable digest capture: **NOT RUN**.
 - Target-host backup, representative restore, and rollback rehearsal:

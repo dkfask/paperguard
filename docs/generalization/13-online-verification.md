@@ -59,21 +59,18 @@ plan.
 - Script syntax and input fail-closed behavior: validated locally.
 - Full verifier contract against a local loopback mock: **PASS**; all 8
   non-destructive checks passed and the mock service was stopped afterward.
-- Hosted evidence for the current PR #20 implementation head
-  `6db008643b202f8b2f6f38de6b9a0d191ae4cdeb`:
-  - CI run `34688030395`: **success**; Python 3.11/3.12 backend tests,
+- Hosted evidence for the final executable source revision
+  `37588c6d2c4926a78df6d2ce6187343404caffe6`:
+  - CI run `34689305741`: **success**; Python 3.11/3.12 backend tests,
     frontend build, and loopback verifier contract passed.
-  - Generic document E2E `34688030117`: **success**.
-  - Disposable staging `34688030461`: **success**; probes, clean migration,
+  - Generic document E2E `34689290881`: **success**.
+  - Disposable staging `34689290861`: **success**; probes, clean migration,
     built-frontend desktop/mobile E2E, evidence capture, and teardown passed.
-  - Production-topology preflight `34688146464`: **success**; it was
-    explicitly dispatched with `source_ref=phase/13-online-verification` and
-    completed the production Compose build/start, probes, migration ledger,
-    manifest, capture, upload, and teardown.
-  - A first manual preflight dispatch `34688030108` used the workflow's
-    default `source_ref=main`; it failed while building that non-target branch
-    and is excluded from acceptance evidence. The correctly scoped rerun above
-    is the authoritative preflight result.
+  - Production-topology preflight `34689290843`: **success**; it completed
+    the production Compose build/start, real migration CLI, manifest creation
+    and JSON Schema validation, capture, upload, and teardown.
+- This documentation-only evidence update follows the tested executable
+  revision; it does not change runtime behavior.
 - Actual authorized online verification: **NOT RUN**; no target URL or
   out-of-band credentials were supplied.
 - Production deployment: **NOT RUN** by authorization.
