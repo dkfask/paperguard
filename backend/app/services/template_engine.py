@@ -15,6 +15,7 @@ from app.domain.documents.schemas import (
     StyleDefinition,
 )
 from app.services.import_template import (
+    extract_cover_blocks,
     extract_meta_fields,
     extract_section_tree,
     import_template_styles,
@@ -136,6 +137,7 @@ def parse_docx_template(
             for key, style in (imported_styles.get("styles") or {}).items()
         },
         source_docx=source_asset.storage_key if source_asset else "",
+        cover_blocks=[block.model_dump(mode="json") for block in extract_cover_blocks(path)],
     )
     return TemplateParseCandidate(
         candidate_id=candidate_id,

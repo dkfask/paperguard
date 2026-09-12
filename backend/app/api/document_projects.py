@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import shutil
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
 from app.auth import current_user
@@ -19,6 +24,7 @@ from app.services.document_project_engine import (
     validate_section_content,
 )
 from app.services.document_validation_engine import validate_document_project
+from app.services.generic_docx_renderer import GenericDocxRenderError, render_document_project_to_docx
 
 router = APIRouter(prefix="/api/document-projects", tags=["document-projects"])
 
@@ -107,6 +113,24 @@ def _summary(project: DocumentProject) -> dict[str, Any]:
         "updated_at": project.updated_at,
         "section_count": len(project.sections),
     }
+
+
+def _create_validation_run(store: Store, user: dict, project: DocumentProject, bundle: dict[str, Any]) -> ValidationRun:
+    run = validate_document_project(
+        project,
+        bundle["template_version"].definition,
+        bundle["spec_version"],
+        run_id=new_id("validation"),
+        performed_by=user["id"],
+        created_at=_now(),
+        rule_engine_version=project.rule_engine_version,
+    )
+    try:
+        saved = store.save_validation_run(run)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="检查记录已存在, 请重试") from exc
+    _audit(store, user, action="document.project.validated", project_id=project.id, reason=f"run:{saved.id}")
+    return saved
 
 
 @router.get("")
@@ -224,21 +248,58 @@ def validate_project(
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(project, user)
     bundle = _project_package(store, project)
-    run = validate_document_project(
-        project,
-        bundle["template_version"].definition,
-        bundle["spec_version"],
-        run_id=new_id("validation"),
-        performed_by=user["id"],
-        created_at=_now(),
-        rule_engine_version=project.rule_engine_version,
-    )
+    return _create_validation_run(store, user, project, bundle)
+
+
+@router.post("/{project_id}/render")
+def render_project(
+    project_id: str,
+    force: bool = False,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> FileResponse:
+    """Render a generic project through the existing DOCX export adapter."""
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(project, user)
+    bundle = _project_package(store, project)
+    run = _create_validation_run(store, user, project, bundle)
+    if run.summary.get("hard_failures") and not force:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "存在硬性规范问题, 无法导出",
+                "run_id": run.id,
+                "summary": run.summary,
+            },
+        )
+
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"paperguard-generic-{project.id}-"))
+    output = temp_dir / "document.docx"
     try:
-        saved = store.save_validation_run(run)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail="检查记录已存在, 请重试") from exc
-    _audit(store, user, action="document.project.validated", project_id=project.id, reason=f"run:{saved.id}")
-    return saved
+        render_document_project_to_docx(
+            project,
+            bundle["package"],
+            bundle["template"],
+            bundle["template_version"],
+            bundle["spec_version"],
+            output,
+        )
+    except GenericDocxRenderError as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+    _audit(store, user, action="document.project.rendered", project_id=project.id, reason=f"run:{run.id}")
+    safe_title = (project.title or "document").replace("/", "_").replace("\\", "_").strip()[:120] or "document"
+    return FileResponse(
+        output,
+        filename=f"{safe_title}.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        background=BackgroundTask(shutil.rmtree, temp_dir, True),
+    )
 
 
 @router.get("/{project_id}/validations")
