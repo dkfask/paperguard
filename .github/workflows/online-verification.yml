@@ -1,0 +1,36 @@
+name: PaperGuard online verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: HTTPS base URL of the explicitly authorized environment
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Read-only online verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run read-only online verifier
+        run: bash ops/online-verify.sh
+        env:
+          PAPERGUARD_ONLINE_BASE_URL: ${{ inputs.target_url }}
+          PAPERGUARD_ONLINE_ADMIN_USERNAME: ${{ secrets.PAPERGUARD_ONLINE_ADMIN_USERNAME }}
+          PAPERGUARD_ONLINE_ADMIN_PASSWORD: ${{ secrets.PAPERGUARD_ONLINE_ADMIN_PASSWORD }}
+          PAPERGUARD_ONLINE_EVIDENCE_PATH: ${{ runner.temp }}/online-verification-evidence.json
+          PAPERGUARD_ONLINE_SOURCE_REVISION: ${{ github.sha }}
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperguard-online-verification
+          path: ${{ runner.temp }}/online-verification-evidence.json
+          if-no-files-found: ignore
