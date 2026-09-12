@@ -17,6 +17,25 @@ const e2eEnvironment = {
   PAPERGUARD_TEMPLATE_DIR: process.env.E2E_TEMPLATE_DIR ?? join(e2eDataDir, 'templates'),
   PAPERGUARD_ARTIFACT_DIR: process.env.E2E_ARTIFACT_DIR ?? join(e2eDataDir, 'artifacts'),
 }
+const localWebServers = [
+  {
+    command: `cd ../backend && ${pythonBin} -m uvicorn app.main:app --host 127.0.0.1 --port ${backendPort}`,
+    url: `http://127.0.0.1:${backendPort}/openapi.json`,
+    env: e2eEnvironment,
+    reuseExistingServer: Boolean(process.env.TEST_REUSE_SERVER),
+    timeout: 120_000,
+  },
+  {
+    command: `npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
+    url: `http://127.0.0.1:${frontendPort}`,
+    env: {
+      ...process.env,
+      VITE_API_PROXY_TARGET: `http://127.0.0.1:${backendPort}`,
+    },
+    reuseExistingServer: Boolean(process.env.TEST_REUSE_SERVER),
+    timeout: 120_000,
+  },
+]
 
 export default defineConfig({
   testDir: './e2e',
@@ -34,23 +53,5 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile-chrome', use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } } },
   ],
-  webServer: [
-    {
-      command: `cd ../backend && ${pythonBin} -m uvicorn app.main:app --host 127.0.0.1 --port ${backendPort}`,
-      url: `http://127.0.0.1:${backendPort}/openapi.json`,
-      env: e2eEnvironment,
-      reuseExistingServer: Boolean(process.env.TEST_REUSE_SERVER),
-      timeout: 120_000,
-    },
-    {
-      command: `npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
-      url: `http://127.0.0.1:${frontendPort}`,
-      env: {
-        ...process.env,
-        VITE_API_PROXY_TARGET: `http://127.0.0.1:${backendPort}`,
-      },
-      reuseExistingServer: Boolean(process.env.TEST_REUSE_SERVER),
-      timeout: 120_000,
-    },
-  ],
+  ...(process.env.TEST_BASE_URL ? {} : { webServer: localWebServers }),
 })

@@ -4,7 +4,9 @@ import { basename, resolve } from 'node:path'
 import type { APIRequestContext } from '@playwright/test'
 
 const backendPort = process.env.E2E_BACKEND_PORT ?? '8000'
-export const API_BASE_URL = process.env.E2E_API_BASE_URL ?? `http://127.0.0.1:${backendPort}`
+export const API_BASE_URL = process.env.E2E_API_BASE_URL
+  ?? process.env.TEST_BASE_URL
+  ?? `http://127.0.0.1:${backendPort}`
 export const TEMPLATE_PATH = process.env.E2E_TEMPLATE_PATH
   ?? resolve(process.cwd(), '../backend/tests/fixtures/templates/minimal.docx')
 export const E2E_ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? ''
