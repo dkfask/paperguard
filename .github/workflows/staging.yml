@@ -1,0 +1,83 @@
+name: PaperGuard staging
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    name: Disposable Docker staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend test dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Generate isolated staging password
+        run: |
+          staging_password="E2e7$(openssl rand -hex 18)"
+          echo "::add-mask::$staging_password"
+          echo "PAPERGUARD_STAGING_ADMIN_PASSWORD=$staging_password" >> "$GITHUB_ENV"
+
+      - name: Build and start staging
+        run: docker compose -p paperguard-staging -f docker-compose.staging.yml up -d --build
+
+      - name: Verify staging probes
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/api/health/live >/dev/null \
+              && curl -fsS http://127.0.0.1:18080/api/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -p paperguard-staging -f docker-compose.staging.yml ps
+          exit 1
+
+      - name: Verify clean migration ledger
+        run: docker compose -p paperguard-staging -f docker-compose.staging.yml exec -T backend python -m app.cli.main migrate
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run built-frontend generic E2E
+        working-directory: frontend
+        run: npm run test:e2e -- e2e/document-platform.spec.ts --project=chromium --project=mobile-chrome
+        env:
+          TEST_BASE_URL: http://127.0.0.1:18080
+          E2E_API_BASE_URL: http://127.0.0.1:18080
+          E2E_ADMIN_PASSWORD: ${{ env.PAPERGUARD_STAGING_ADMIN_PASSWORD }}
+
+      - name: Capture staging identity and logs
+        if: always()
+        run: |
+          docker compose -p paperguard-staging -f docker-compose.staging.yml ps
+          docker compose -p paperguard-staging -f docker-compose.staging.yml images
+          docker compose -p paperguard-staging -f docker-compose.staging.yml logs --no-color --tail=200
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperguard-staging-playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+
+      - name: Tear down disposable staging
+        if: always()
+        run: docker compose -p paperguard-staging -f docker-compose.staging.yml down -v --remove-orphans
