@@ -83,8 +83,10 @@ Verification completed locally for this phase:
 - Frontend production build: `PASS`.
 - Python compile check: `PASS`.
 - `git diff --check`: `PASS`.
-- Hosted GitHub Actions for the Phase 8 branch: NOT RUN yet; it is required
-  after the phase branch and PR are published.
+- Hosted GitHub Actions run `34676536664` for PR `#15`: `PASS`; Python 3.11,
+  Python 3.12, and frontend build all passed for remote head
+  `6915ae1b229f6f7342293e247df19ba32618e7e2`. GitHub emitted only the
+  existing Node.js 20 action deprecation annotations.
 - Staging/production deployment and online verification: NOT RUN by scope and
   authorization policy.
 
