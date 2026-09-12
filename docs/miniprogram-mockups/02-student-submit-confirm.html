@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>提交确认 - 学术任务流管理系统</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-tertiary-fixed-variant": "#005320",
+            "on-error": "#ffffff",
+            "secondary-fixed-dim": "#b4c5ff",
+            "inverse-primary": "#b4c5ff",
+            "on-error-container": "#93000a",
+            "inverse-on-surface": "#ebf1ff",
+            "tertiary": "#00481b",
+            "outline-variant": "#c3c6d6",
+            "surface-tint": "#1b55d0",
+            "secondary-container": "#316bf3",
+            "on-secondary-fixed": "#00174b",
+            "error-container": "#ffdad6",
+            "background": "#f8f9ff",
+            "on-tertiary": "#ffffff",
+            "tertiary-container": "#006228",
+            "inverse-surface": "#213146",
+            "surface-variant": "#d3e3ff",
+            "on-surface": "#0b1c30",
+            "surface-container-highest": "#d3e3ff",
+            "outline": "#737685",
+            "surface-bright": "#f8f9ff",
+            "surface-dim": "#cbdbf6",
+            "primary-fixed-dim": "#b4c5ff",
+            "on-primary-container": "#b8c8ff",
+            "surface-container-lowest": "#ffffff",
+            "primary-container": "#004ac6",
+            "on-primary": "#ffffff",
+            "error": "#ba1a1a",
+            "on-primary-fixed": "#00174b",
+            "tertiary-fixed-dim": "#62df7d",
+            "surface": "#f8f9ff",
+            "on-secondary-container": "#fefcff",
+            "surface-container-high": "#dde9ff",
+            "secondary": "#0051d5",
+            "primary-fixed": "#dbe1ff",
+            "on-primary-fixed-variant": "#003ea8",
+            "on-secondary-fixed-variant": "#003ea8",
+            "tertiary-fixed": "#7ffc97",
+            "primary": "#003594",
+            "on-tertiary-container": "#64e17f",
+            "on-surface-variant": "#434654",
+            "on-background": "#0b1c30",
+            "secondary-fixed": "#dbe1ff",
+            "on-tertiary-fixed": "#002109",
+            "surface-container-low": "#eff4ff",
+            "on-secondary": "#ffffff",
+            "surface-container": "#e6eeff"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-sm": "0.5rem",
+            "gutter": "1rem",
+            "space-2xs": "0.125rem",
+            "space-xl": "2rem",
+            "space-xs": "0.25rem",
+            "space-md": "0.75rem",
+            "space-2xl": "3rem",
+            "space-base": "1rem",
+            "margin-lg": "2rem",
+            "space-lg": "1.5rem",
+            "margin-md": "1.5rem",
+            "margin": "1rem",
+            "gutter-lg": "1.5rem"
+          },
+          "fontFamily": {
+            "body-md": ["Geist", "-apple-system", "BlinkMacSystemFont", "PingFang SC", "Segoe UI", "sans-serif"],
+            "headline-lg": ["Newsreader", "Songti SC", "serif"],
+            "body-lg": ["Geist", "-apple-system", "BlinkMacSystemFont", "PingFang SC", "Segoe UI", "sans-serif"],
+            "body-sm": ["Geist", "-apple-system", "BlinkMacSystemFont", "PingFang SC", "Segoe UI", "sans-serif"],
+            "label-sm": ["Geist", "-apple-system", "BlinkMacSystemFont", "PingFang SC", "Segoe UI", "sans-serif"],
+            "headline-sm": ["Geist", "-apple-system", "BlinkMacSystemFont", "PingFang SC", "Segoe UI", "sans-serif"],
+            "headline-md": ["Geist", "-apple-system", "BlinkMacSystemFont", "PingFang SC", "Segoe UI", "sans-serif"],
+            "label-md": ["Geist", "-apple-system", "BlinkMacSystemFont", "PingFang SC", "Segoe UI", "sans-serif"],
+            "display-lg": ["Newsreader", "Songti SC", "serif"],
+            "code-sm": ["JetBrains Mono", "SF Mono", "Courier New", "monospace"]
+          },
+          "fontSize": {
+            "body-md": ["0.875rem", { "lineHeight": "1.5rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "letterSpacing": "-0.015em", "fontWeight": "500" }],
+            "body-lg": ["1rem", { "lineHeight": "1.625rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "body-sm": ["0.8125rem", { "lineHeight": "1.25rem", "letterSpacing": "0.005em", "fontWeight": "400" }],
+            "label-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "headline-sm": ["1.0625rem", { "lineHeight": "1.5rem", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "headline-md": ["1.25rem", { "lineHeight": "1.75rem", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "letterSpacing": "0.01em", "fontWeight": "500" }],
+            "display-lg": ["2.25rem", { "lineHeight": "2.75rem", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+            "code-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0em", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      background-color: #f8f9ff;
+      color: #0b1c30;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .material-symbols-outlined.fill-1 {
+      font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+    }
+    .academic-card {
+      background-color: #ffffff;
+      border: 1px solid rgba(195, 198, 214, 0.35);
+      box-shadow: 0 1px 2px 0 rgba(11, 28, 48, 0.03), 0 1px 3px 0 rgba(11, 28, 48, 0.02);
+    }
+    /* iOS Safe area padding utility */
+    .pb-safe {
+      padding-bottom: env(safe-area-inset-bottom, 16px);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background font-body-md text-on-surface antialiased min-h-screen flex justify-center">
+<!-- Mobile Screen Frame Container (Max 430px for standard Mobile emulation) -->
+<div class="w-full max-w-md min-h-screen bg-background flex flex-col relative pb-40">
+<!-- 1. 微信小程序顶部导航栏 (Fixed Header) -->
+<header class="fixed top-0 left-0 right-0 max-w-md mx-auto z-50 bg-surface-container-lowest/95 backdrop-blur-md px-space-base h-14 flex items-center justify-between border-b border-outline-variant/30">
+<!-- Back Action -->
+<button aria-label="返回" class="w-8 h-8 -ml-1.5 flex items-center justify-center text-on-surface hover:bg-surface-container rounded-full active:opacity-70 transition-colors" type="button">
+<span class="material-symbols-outlined text-[24px]">chevron_left</span>
+</button>
+<!-- Center Title -->
+<h1 class="text-headline-sm font-headline-sm text-on-surface font-semibold tracking-tight">提交确认</h1>
+<!-- WeChat Mini Program Capsule Mockup -->
+<div class="flex items-center bg-surface-container-lowest border border-outline-variant/50 rounded-full h-8 px-2.5 space-x-2">
+<button aria-label="小程序更多操作" class="flex items-center justify-center text-on-surface/80" type="button">
+<span class="material-symbols-outlined text-[16px]">more_horiz</span>
+</button>
+<span class="w-[1px] h-3.5 bg-outline-variant/40"></span>
+<button aria-label="关闭小程序" class="flex items-center justify-center text-on-surface/80" type="button">
+<span class="material-symbols-outlined text-[16px] text-primary">radio_button_checked</span>
+</button>
+</div>
+</header>
+<!-- Content Spacer for fixed top bar -->
+<div class="h-14"></div>
+<!-- 2. 阶段与时效说明条 (Stage & Deadline Strip) -->
+<section class="bg-surface-container-low px-space-base py-2.5 flex items-center justify-between border-b border-outline-variant/20">
+<div class="flex items-center space-x-2 min-w-0">
+<span class="material-symbols-outlined text-primary text-[18px] shrink-0">calendar_today</span>
+<div class="truncate">
+<span class="text-label-md font-label-md font-semibold text-primary">初稿阶段</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant ml-1.5">首次提交截止 2026-09-20 23:59</span>
+</div>
+</div>
+<span class="shrink-0 text-label-sm font-label-sm text-primary font-medium bg-surface-container px-2 py-0.5 rounded text-[11px]">
+        剩余 8 天
+      </span>
+</section>
+<!-- Main Workspace Container -->
+<main class="p-space-base space-y-3.5 flex-1">
+<!-- 3. 阻断项警示卡 (Blocking Warning Banner) -->
+<section class="academic-card rounded-xl border-rose-300 border-l-[5px] border-l-error p-space-base bg-surface-container-lowest">
+<div class="flex items-start justify-between gap-3">
+<div class="flex items-start space-x-2.5">
+<span class="material-symbols-outlined text-error text-[22px] mt-0.5 fill-1">error</span>
+<div>
+<div class="flex items-center space-x-2">
+<h2 class="text-headline-sm font-headline-sm text-error font-semibold text-[15px]">1 项阻断，暂不能提交</h2>
+<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[11px] font-label-sm bg-rose-50 text-rose-700 border border-rose-200">
+                  强制门禁
+                </span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-1.5 leading-relaxed">
+                存在未关闭的阻断批注：<span class="font-medium text-on-surface font-code-sm">3.2 实验分析</span>（教师重点批注）
+              </p>
+</div>
+</div>
+</div>
+<div class="mt-3 pt-2.5 border-t border-outline-variant/20 flex items-center justify-between">
+<span class="text-label-sm font-label-sm text-outline flex items-center">
+<span class="material-symbols-outlined text-[15px] mr-1">history_edu</span>
+            指导教师：林启明 教授
+          </span>
+<a class="inline-flex items-center text-label-md font-label-md text-error hover:text-error/80 font-medium active:opacity-75 transition-opacity" href="javascript:void(0)">
+            去处理
+            <span class="material-symbols-outlined text-[16px] ml-0.5">chevron_right</span>
+</a>
+</div>
+</section>
+<!-- 4. 候选版本信息卡 (Candidate Version & Cryptographic Hash) -->
+<section class="academic-card rounded-xl p-space-base">
+<div class="flex items-center justify-between pb-2.5 border-b border-outline-variant/20">
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-primary text-[19px]">description</span>
+<h2 class="text-headline-sm font-headline-sm text-on-surface font-semibold text-[15px]">候选版本信息</h2>
+</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-label-sm bg-surface-container text-on-surface-variant font-code-sm">
+            DOCX · 8.4 MB
+          </span>
+</div>
+<div class="mt-3 space-y-2">
+<div class="flex items-baseline justify-between">
+<div class="text-headline-sm font-headline-sm text-on-surface font-semibold">
+              版本 V12 <span class="text-body-sm font-body-sm text-on-surface-variant font-normal ml-1">· 生成于 09-12 14:30</span>
+</div>
+<span class="text-label-sm font-label-sm text-secondary font-medium">已定稿快照</span>
+</div>
+<!-- Content Hash Digest Row -->
+<div class="bg-surface p-2.5 rounded-lg border border-outline-variant/25 flex items-center justify-between">
+<div class="flex items-center space-x-2 overflow-hidden">
+<span class="material-symbols-outlined text-outline text-[17px] shrink-0">fingerprint</span>
+<div class="truncate">
+<span class="text-label-sm font-label-sm text-on-surface-variant">内容摘要 (SHA-256): </span>
+<span class="font-code-sm text-code-sm text-on-surface font-medium">3f8a92b0…c21e7804</span>
+</div>
+</div>
+<span class="text-[10px] text-outline font-label-sm shrink-0 bg-surface-container-lowest px-1.5 py-0.5 rounded border border-outline-variant/30">
+              提交后不可变
+            </span>
+</div>
+</div>
+</section>
+<!-- 5. 门禁清单卡 (Checklist Card) -->
+<section class="academic-card rounded-xl p-space-base">
+<div class="flex items-center justify-between pb-2.5 border-b border-outline-variant/20">
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-primary text-[20px]">fact_check</span>
+<h2 class="text-headline-sm font-headline-sm text-on-surface font-semibold text-[15px]">提交前门禁校验</h2>
+</div>
+<span class="text-label-sm font-label-sm text-outline">
+            已完成 2 / 4
+          </span>
+</div>
+<!-- Verification Items List -->
+<div class="divide-y divide-outline-variant/15 mt-1">
+<!-- Item 1: 自动格式检查 (Passed) -->
+<div class="py-3 flex items-center justify-between">
+<div class="flex items-center space-x-2.5 min-w-0 pr-2">
+<div class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px]">spellcheck</span>
+</div>
+<div class="truncate">
+<p class="text-body-md font-body-md font-medium text-on-surface truncate">自动格式检查</p>
+<p class="text-label-sm font-label-sm text-outline">排版标准、字数、引用规范检测无误</p>
+</div>
+</div>
+<!-- Triple Signaling: Color + Icon + Text -->
+<div class="inline-flex items-center px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-label-sm font-label-sm shrink-0">
+<span class="material-symbols-outlined text-[15px] mr-1 fill-1 text-emerald-700">check_circle</span>
+              已通过
+            </div>
+</div>
+<!-- Item 2: 必交材料 (Uploaded) -->
+<div class="py-3 flex items-center justify-between">
+<div class="flex items-center space-x-2.5 min-w-0 pr-2">
+<div class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px]">attach_file</span>
+</div>
+<div class="truncate">
+<p class="text-body-md font-body-md font-medium text-on-surface truncate">必交材料 开题报告.pdf</p>
+<p class="text-label-sm font-label-sm text-outline font-code-sm">2.1 MB · 导师已盖章签署</p>
+</div>
+</div>
+<!-- Triple Signaling: Color + Icon + Text -->
+<div class="inline-flex items-center px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-label-sm font-label-sm shrink-0">
+<span class="material-symbols-outlined text-[15px] mr-1 fill-1 text-emerald-700">check_circle</span>
+              已上传
+            </div>
+</div>
+<!-- Item 3: 教师人工确认项 (Pending) -->
+<div class="py-3 flex items-center justify-between">
+<div class="flex items-center space-x-2.5 min-w-0 pr-2">
+<div class="w-7 h-7 rounded-lg bg-amber-50 text-amber-800 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px]">person_check</span>
+</div>
+<div class="truncate">
+<div class="flex items-center space-x-1.5">
+<p class="text-body-md font-body-md font-medium text-on-surface truncate">教师人工确认项</p>
+<span class="text-[11px] text-outline-variant bg-surface px-1.5 py-0.2 rounded border border-outline-variant/30 shrink-0">可先行送审</span>
+</div>
+<p class="text-label-sm font-label-sm text-outline">论文主干与代码仓库完备度导师审核</p>
+</div>
+</div>
+<!-- Triple Signaling: Color + Icon + Text -->
+<div class="inline-flex items-center px-2 py-1 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-label-sm font-label-sm shrink-0">
+<span class="material-symbols-outlined text-[15px] mr-1 text-amber-700">schedule</span>
+              待确认
+            </div>
+</div>
+<!-- Item 4: 学术诚信声明 (Unchecked interactive checklist) -->
+<div class="pt-3 pb-1">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-2.5 min-w-0 pr-2">
+<div class="w-7 h-7 rounded-lg bg-surface-container text-on-surface-variant flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[18px]">verified_user</span>
+</div>
+<div>
+<div class="flex items-center space-x-2">
+<p class="text-body-md font-body-md font-medium text-on-surface">学术诚信声明</p>
+<span class="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-label-sm font-label-sm" id="pledgeBadge">
+<span class="material-symbols-outlined text-[14px] mr-1 text-amber-700">help</span>
+                      未勾选
+                    </span>
+</div>
+<p class="text-label-sm font-label-sm text-outline mt-0.5">我郑重承诺该成果由本人独立完成，无学术造假与侵权违规。</p>
+</div>
+</div>
+</div>
+<!-- Interactive Agreement Box -->
+<label class="mt-2.5 flex items-start space-x-2.5 p-2.5 rounded-lg border border-outline-variant/40 bg-surface hover:bg-surface-container-low transition-colors cursor-pointer" id="pledgeLabel">
+<input class="mt-0.5 w-4 h-4 rounded text-primary focus:ring-primary/20 border-outline-variant" id="pledgeCheckbox" type="checkbox"/>
+<span class="text-body-sm font-body-sm text-on-surface leading-snug select-none">
+                本人已仔细阅读并确认签署《研究生学位论文独创性声明与诚信承诺书》
+              </span>
+</label>
+</div>
+</div>
+</section>
+<!-- Academic Metadata Summary (Small subtle note card) -->
+<section class="p-3 rounded-lg border border-outline-variant/20 bg-surface-container-low flex items-center space-x-2">
+<span class="material-symbols-outlined text-outline text-[18px] shrink-0">info</span>
+<p class="text-label-sm font-label-sm text-on-surface-variant">
+          系统将在确认提交瞬间对全文内容与附件完成时间戳存证。
+        </p>
+</section>
+</main>
+<!-- 6. 底部固定操作条 (Fixed Bottom Action Bar - Semantic Shell Suppressed per Destination Rule) -->
+<aside class="fixed bottom-0 left-0 right-0 max-w-md mx-auto z-50 bg-surface-container-lowest/95 backdrop-blur-md px-space-base pt-3 pb-safe border-t border-outline-variant/30 shadow-[0_-4px_16px_rgba(11,28,48,0.05)]">
+<!-- Primary / Secondary Action Buttons Container -->
+<div class="flex items-center space-x-3">
+<!-- Secondary: 重新预检 -->
+<button class="w-1/3 h-10 px-3 bg-surface-container-lowest text-primary border border-outline-variant hover:bg-surface-container hover:border-primary/40 rounded-lg text-label-md font-label-md font-medium transition-colors flex items-center justify-center space-x-1 active:scale-[0.98]" type="button">
+<span class="material-symbols-outlined text-[17px]">refresh</span>
+<span>重新预检</span>
+</button>
+<!-- Primary: 确认正式提交 (Disabled State) -->
+<button class="w-2/3 h-10 px-4 rounded-lg bg-slate-200 text-slate-400 font-medium text-label-md font-label-md cursor-not-allowed transition-all flex items-center justify-center space-x-1.5 shadow-none" disabled="" id="submitBtn" type="button">
+<span class="material-symbols-outlined text-[18px]">lock</span>
+<span>确认正式提交</span>
+</button>
+</div>
+<!-- Helper explanatory text below buttons -->
+<div class="mt-2 text-center space-y-1">
+<p class="text-label-sm font-label-sm text-error/90 font-medium flex items-center justify-center">
+<span class="material-symbols-outlined text-[13px] mr-1">priority_high</span>
+          完成阻断项与声明确认后可提交
+        </p>
+<p class="text-[11px] leading-tight text-outline font-label-sm pb-1">
+          提交成功后将生成唯一提交编号，重复点击不会产生重复提交
+        </p>
+</div>
+</aside>
+</div>
+<!-- Interactive JavaScript for micro-interaction toggle demo -->
+<script>
+    const pledgeCheckbox = document.getElementById('pledgeCheckbox');
+    const pledgeBadge = document.getElementById('pledgeBadge');
+
+    pledgeCheckbox.addEventListener('change', function() {
+      if (this.checked) {
+        // Change badge to Approved/Signed state
+        pledgeBadge.className = 'inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-label-sm font-label-sm';
+        pledgeBadge.innerHTML = '<span class="material-symbols-outlined text-[14px] mr-1 fill-1 text-emerald-700">check_circle</span>已签署';
+      } else {
+        // Reset to pending
+        pledgeBadge.className = 'inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-label-sm font-label-sm';
+        pledgeBadge.innerHTML = '<span class="material-symbols-outlined text-[14px] mr-1 text-amber-700">help</span>未勾选';
+      }
+    });
+  </script>
+</body></html>

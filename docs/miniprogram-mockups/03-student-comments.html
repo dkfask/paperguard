@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>审阅意见 - 学术审阅系统</title>
+<!-- Material Symbols Outlined Font -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "primary-fixed-dim": "#b4c5ff",
+            "tertiary": "#00481b",
+            "on-primary": "#ffffff",
+            "secondary-fixed": "#dbe1ff",
+            "on-surface-variant": "#434654",
+            "surface": "#f8f9ff",
+            "on-tertiary-fixed-variant": "#005320",
+            "on-secondary-fixed-variant": "#003ea8",
+            "surface-container-lowest": "#ffffff",
+            "on-primary-fixed-variant": "#003ea8",
+            "tertiary-fixed-dim": "#62df7d",
+            "on-tertiary-container": "#64e17f",
+            "on-tertiary": "#ffffff",
+            "on-secondary-fixed": "#00174b",
+            "surface-variant": "#d3e3ff",
+            "on-tertiary-fixed": "#002109",
+            "inverse-primary": "#b4c5ff",
+            "on-secondary-container": "#fefcff",
+            "tertiary-fixed": "#7ffc97",
+            "inverse-on-surface": "#ebf1ff",
+            "surface-bright": "#f8f9ff",
+            "surface-container-high": "#dde9ff",
+            "primary": "#003594",
+            "error": "#ba1a1a",
+            "tertiary-container": "#006228",
+            "surface-container-low": "#eff4ff",
+            "secondary-fixed-dim": "#b4c5ff",
+            "primary-container": "#004ac6",
+            "surface-tint": "#1b55d0",
+            "on-primary-fixed": "#00174b",
+            "surface-container-highest": "#d3e3ff",
+            "inverse-surface": "#213146",
+            "secondary-container": "#316bf3",
+            "outline-variant": "#c3c6d6",
+            "surface-dim": "#cbdbf6",
+            "primary-fixed": "#dbe1ff",
+            "error-container": "#ffdad6",
+            "on-error": "#ffffff",
+            "surface-container": "#e6eeff",
+            "on-secondary": "#ffffff",
+            "on-primary-container": "#b8c8ff",
+            "on-background": "#0b1c30",
+            "on-surface": "#0b1c30",
+            "secondary": "#0051d5",
+            "outline": "#737685",
+            "on-error-container": "#93000a",
+            "background": "#f8f9ff"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-base": "1rem",
+            "space-md": "0.75rem",
+            "gutter": "1rem",
+            "space-sm": "0.5rem",
+            "space-lg": "1.5rem",
+            "margin-lg": "2rem",
+            "margin-md": "1.5rem",
+            "space-xl": "2rem",
+            "space-2xs": "0.125rem",
+            "space-xs": "0.25rem",
+            "space-2xl": "3rem",
+            "margin": "1rem",
+            "gutter-lg": "1.5rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Geist", "sans-serif"],
+            "label-sm": ["Geist", "sans-serif"],
+            "display-lg": ["Newsreader", "serif"],
+            "body-lg": ["Geist", "sans-serif"],
+            "headline-lg": ["Newsreader", "serif"],
+            "code-sm": ["JetBrains Mono", "monospace"],
+            "body-sm": ["Geist", "sans-serif"],
+            "headline-md": ["Geist", "sans-serif"],
+            "label-md": ["Geist", "sans-serif"],
+            "body-md": ["Geist", "sans-serif"]
+          },
+          "fontSize": {
+            "headline-sm": ["1.0625rem", { "lineHeight": "1.5rem", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "label-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "display-lg": ["2.25rem", { "lineHeight": "2.75rem", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+            "body-lg": ["1rem", { "lineHeight": "1.625rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "letterSpacing": "-0.015em", "fontWeight": "500" }],
+            "code-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "body-sm": ["0.8125rem", { "lineHeight": "1.25rem", "letterSpacing": "0.005em", "fontWeight": "400" }],
+            "headline-md": ["1.25rem", { "lineHeight": "1.75rem", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "letterSpacing": "0.01em", "fontWeight": "500" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.5rem", "letterSpacing": "0em", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      vertical-align: middle;
+      display: inline-block;
+      line-height: 1;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface font-body-md antialiased min-h-full flex flex-col justify-between selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Mobile Wrapper Simulation -->
+<div class="w-full max-w-md mx-auto min-h-screen flex flex-col bg-background relative shadow-sm">
+<!-- 微信小程序标准顶部状态及导航栏 (Mini-Program Top Bar) -->
+<header class="sticky top-0 z-40 bg-surface/95 backdrop-blur-md px-space-base pt-8 pb-3 flex items-center justify-between">
+<!-- Back Arrow -->
+<button aria-label="返回" class="w-8 h-8 flex items-center justify-start text-on-surface hover:text-primary active:scale-95 transition-transform duration-150" type="button">
+<span class="material-symbols-outlined text-[22px]">arrow_back_ios_new</span>
+</button>
+<!-- Center Title -->
+<div class="flex-1 text-center">
+<h1 class="font-headline-sm text-headline-sm text-on-surface tracking-tight">审阅意见</h1>
+</div>
+<!-- WeChat Capsule (胶囊按钮模拟) -->
+<div class="h-8 w-20 border border-outline-variant/50 rounded-full flex items-center justify-around px-1.5 bg-surface-container-lowest/80 backdrop-blur-sm shadow-sm">
+<button aria-label="更多" class="w-6 h-6 flex items-center justify-center text-on-surface active:opacity-60" type="button">
+<span class="material-symbols-outlined text-[18px]">more_horiz</span>
+</button>
+<span class="w-[1px] h-3 bg-outline-variant/40"></span>
+<button aria-label="关闭或小程序主页" class="w-6 h-6 flex items-center justify-center text-on-surface active:opacity-60" type="button">
+<span class="material-symbols-outlined text-[16px]">radio_button_checked</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-space-base pt-2 pb-24 space-y-space-base">
+<!-- 1. 提交上下文与统计药丸条 (Context & Triple-Signaling Pill Bar) -->
+<section class="bg-surface-container-lowest rounded-xl p-space-base border border-outline-variant/30 shadow-sm space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-1.5">
+<span class="material-symbols-outlined text-primary text-[18px]">description</span>
+<span class="font-label-md text-label-md text-on-surface font-semibold">针对提交 S2 · 初稿 第2轮</span>
+</div>
+<span class="font-code-sm text-code-sm text-outline px-1.5 py-0.5 rounded bg-surface-container-low border border-outline-variant/20">V2.4</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+          导师已审阅完毕。当前共计 3 处批注反馈，请按学术规范逐一确认与修订。
+        </p>
+<!-- Status Filter Pills -->
+<div class="pt-1 flex items-center gap-2 overflow-x-auto no-scrollbar">
+<!-- 阻断 1 (Red) -->
+<button class="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-error/10 text-error border border-error/20 active:scale-95 transition-transform duration-150">
+<span class="material-symbols-outlined text-[15px]" style="font-variation-settings: 'FILL' 1;">error</span>
+<span class="font-label-sm text-label-sm font-semibold">阻断 1</span>
+</button>
+<!-- 待我回复 1 (Amber / Blue) -->
+<button class="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-700 border border-amber-500/20 active:scale-95 transition-transform duration-150">
+<span class="material-symbols-outlined text-[15px]">pending</span>
+<span class="font-label-sm text-label-sm font-semibold">待我回复 1</span>
+</button>
+<!-- 已解决 2 (Green) -->
+<button class="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-tertiary-container/10 text-tertiary-container border border-tertiary-container/20 active:scale-95 transition-transform duration-150">
+<span class="material-symbols-outlined text-[15px]">check_circle</span>
+<span class="font-label-sm text-label-sm font-semibold">已解决 2</span>
+</button>
+</div>
+</section>
+<!-- 排序与过滤提示信息条 -->
+<div class="flex items-center justify-between px-1 text-on-surface-variant font-label-sm text-label-sm">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">sort</span>
+          按优先级排序（阻断优先）
+        </span>
+<span>显示 3 项批注</span>
+</div>
+<!-- 2. 批注卡片列表 -->
+<div class="space-y-3.5">
+<!-- 卡片 1: 阻断批注卡 (高优先级 Blocked Card) -->
+<article class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 border-l-4 border-l-error shadow-sm p-space-base space-y-3 transition-shadow duration-150">
+<!-- Card Header & Status Badge -->
+<div class="flex items-start justify-between gap-2">
+<div class="space-y-0.5">
+<div class="flex items-center space-x-1.5">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-error text-on-error">
+                  阻断
+                </span>
+<span class="font-label-md text-label-md font-semibold text-on-surface">3.2 实验分析 第2段</span>
+</div>
+</div>
+<!-- Triple Signaling Status -->
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-error bg-error/10 font-label-sm text-label-sm font-semibold border border-error/20">
+<span class="material-symbols-outlined text-[13px]">warning</span>
+              待处理
+            </span>
+</div>
+<!-- Teacher Profile Line -->
+<div class="flex items-center space-x-2 pt-0.5">
+<img class="w-6 h-6 rounded-full object-cover border border-outline-variant/30" data-alt="Close up portrait photograph of an experienced university professor in a formal academic setting with soft natural classroom window light, clean neutral background, professional and authoritative tone." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCi3PXBuEwbQOqNB1ywMijPzOq1Ajq0TJrCRxtU7xSt-Ddz5oD_F1En1pnZCLvtjv15TqWhg4TK5j8NjLR8ZsR1SYs1T3dRgFUmpVMNkBLNILtpzpYvy1mVRFpq_THmf1exdM-kKNo4jAlP5q402ylD-2yiqJaWuqqvZ77GjR7BzEtfX2W3RpvyVFMkh2YN7Ws_x5PLMJFE6fbv_fwSledhIwmL91OaORsDQ4b0iKgq_hQD-5_b3rR_8y4-VsLGDHwV6cCEG_PiJKs"/>
+<div class="flex items-center space-x-1.5 text-on-surface-variant font-label-sm text-label-sm">
+<span class="font-medium text-on-surface">王老师</span>
+<span>·</span>
+<time class="font-code-sm text-code-sm">09-11 16:20</time>
+</div>
+</div>
+<!-- Manuscript Quote Excerpt (Light Yellow Callout) -->
+<div class="bg-amber-50/70 border-l-2 border-amber-400 p-2.5 rounded-r-lg space-y-1">
+<span class="font-label-sm text-label-sm text-amber-900/70 flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">format_quote</span>
+              论文原文摘录
+            </span>
+<p class="font-body-sm text-body-sm text-amber-950 italic">
+              “……实验组准确率较基准提升 12%，显著优于现有主流框架在同等吞吐下的表现……”
+            </p>
+</div>
+<!-- Teacher Comment Body -->
+<div class="space-y-1 text-on-surface">
+<p class="font-body-md text-body-md text-on-surface leading-snug">
+              缺少与基线方法的严谨对照说明，此项推断因果关系尚不成立，请补充对照组消融实验或调整结论措辞。
+            </p>
+</div>
+<!-- Reply Input & Action Area -->
+<div class="pt-2 border-t border-outline-variant/20 space-y-2.5">
+<div class="relative">
+<textarea class="w-full text-on-surface font-body-sm text-body-sm bg-surface rounded-lg p-2.5 border border-outline-variant/40 focus:border-primary-container focus:ring-2 focus:ring-primary-container/20 focus:outline-none placeholder:text-outline resize-none transition-all" placeholder="说明修改情况，支持关联新提交版本…" rows="2"></textarea>
+</div>
+<div class="flex items-center justify-between pt-0.5">
+<button class="inline-flex items-center space-x-1 text-on-surface-variant hover:text-primary-container font-label-sm text-label-sm px-2 py-1 rounded border border-outline-variant/40 bg-surface-container-lowest hover:bg-surface-container active:opacity-80 transition-colors" type="button">
+<span class="material-symbols-outlined text-[15px]">attach_file</span>
+<span>关联修改项 / 附件</span>
+</button>
+<button class="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-primary-container text-on-primary font-label-sm text-label-sm font-semibold shadow-sm hover:bg-primary active:scale-95 transition-all duration-150" type="button">
+<span class="material-symbols-outlined text-[15px]">task_alt</span>
+<span>标记已修改待复核</span>
+</button>
+</div>
+</div>
+</article>
+<!-- 卡片 2: 建议批注卡 (进行中/待复核 In Progress Card) -->
+<article class="bg-surface-container-lowest rounded-xl border border-outline-variant/30 border-l-4 border-l-secondary-container shadow-sm p-space-base space-y-3 transition-shadow duration-150">
+<!-- Card Header & Status Badge -->
+<div class="flex items-start justify-between gap-2">
+<div class="space-y-0.5">
+<div class="flex items-center space-x-1.5">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-secondary-container text-on-primary">
+                  建议
+                </span>
+<span class="font-label-md text-label-md font-semibold text-on-surface">摘要 第1段</span>
+</div>
+</div>
+<!-- Triple Signaling Status -->
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-secondary-container bg-secondary-container/10 font-label-sm text-label-sm font-semibold border border-secondary-container/20">
+<span class="material-symbols-outlined text-[13px]">hourglass_top</span>
+              已回复 · 待教师确认
+            </span>
+</div>
+<!-- Teacher Profile Line -->
+<div class="flex items-center space-x-2 pt-0.5">
+<img class="w-6 h-6 rounded-full object-cover border border-outline-variant/30" data-alt="Portrait photograph of a scholarly professor wearing spectacles and clean academic attire, soft ambient library background, clear natural lighting, minimalist composition." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBu8JN6xWMRDEfYinTZ8lR5BDlaFR03K4LkdomjXlKyFQGXCPzUqq30ak9jL746NKUpIIzA2yaKC6nLKbXvJA6DqFv-VP1OviUL8IMGCNF_oKCW7WSJa2i60noOV1Onu48okOAkp_PFttdM-tpVVTysnscBiM27NFzVpiabyoWsJOItFyXbTCXe2O4d3XwaynK-2wpC87d72YWPQKEoUh_LabbF_msGeCYpGjvlya3U52jrOIb8o07ToPSKT3GvYNUnPIGUADrjrPo"/>
+<div class="flex items-center space-x-1.5 text-on-surface-variant font-label-sm text-label-sm">
+<span class="font-medium text-on-surface">王老师</span>
+<span>·</span>
+<time class="font-code-sm text-code-sm">09-10 14:05</time>
+</div>
+</div>
+<!-- Manuscript Excerpt -->
+<div class="bg-surface-container-low/70 border-l-2 border-outline-variant p-2.5 rounded-r-lg space-y-1">
+<span class="font-label-sm text-label-sm text-outline flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">format_quote</span>
+              论文原文摘录
+            </span>
+<p class="font-body-sm text-body-sm text-on-surface italic">
+              “……基于深度卷积特征抽取的多模态检索模型，旨在解决非结构化学术资源索引难题……”
+            </p>
+</div>
+<!-- Teacher Comment -->
+<div class="space-y-1 text-on-surface">
+<p class="font-body-md text-body-md text-on-surface leading-snug">
+              建议补充关键词检索说明及中英文对照，以便后续国际会议投稿时符合索引范式。
+            </p>
+</div>
+<!-- Student Reply Bubble (已回复展示) -->
+<div class="mt-2 bg-surface-container-low/60 rounded-lg p-3 border border-outline-variant/30 space-y-1.5">
+<div class="flex items-center justify-between text-on-surface-variant font-label-sm text-label-sm">
+<span class="font-medium text-primary flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">reply</span>
+                我的回复记录
+              </span>
+<time class="font-code-sm text-code-sm text-outline">09-11 09:30</time>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface">
+              已在摘要末尾补充 ACM 分类号及 5 个核心检索词，并完成中英文标引核对。
+            </p>
+<div class="pt-1 flex items-center gap-2">
+<span class="inline-flex items-center gap-1 text-[11px] font-code-sm px-1.5 py-0.5 bg-surface-container-lowest rounded border border-outline-variant/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[12px]">description</span>
+                改动追踪: Abstract_v2.docx
+              </span>
+</div>
+</div>
+</article>
+<!-- 卡片 3: 已解决批注卡 (Closed / Resolved Card) -->
+<article class="bg-surface-container-lowest/80 rounded-xl border border-outline-variant/30 border-l-4 border-l-tertiary-container shadow-sm p-space-base space-y-2.5 opacity-90">
+<!-- Card Header & Status Badge -->
+<div class="flex items-start justify-between gap-2">
+<div class="space-y-0.5">
+<div class="flex items-center space-x-1.5">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-surface-container-high text-on-surface-variant">
+                  阻断
+                </span>
+<span class="font-label-md text-label-md font-semibold text-on-surface line-through decoration-outline-variant">2.1 研究背景 第3段</span>
+</div>
+</div>
+<!-- Triple Signaling Status: Approved / Resolved -->
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-tertiary-container bg-tertiary-container/10 font-label-sm text-label-sm font-semibold border border-tertiary-container/20">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>
+              已解决
+            </span>
+</div>
+<!-- Teacher Profile Line -->
+<div class="flex items-center space-x-2">
+<span class="material-symbols-outlined text-tertiary-container text-[18px]">verified</span>
+<div class="flex items-center space-x-1.5 text-on-surface-variant font-label-sm text-label-sm">
+<span class="font-medium text-on-surface">王老师</span>
+<span>·</span>
+<time class="font-code-sm text-code-sm">09-08 11:20 提出 · 09-09 教师已确认结项</time>
+</div>
+</div>
+<!-- Teacher Comment -->
+<div class="text-on-surface-variant">
+<p class="font-body-sm text-body-sm leading-snug">
+              文献引用格式不符合 GB/T 7714 规范，多处序号未闭合且缺少作者首字母。
+            </p>
+</div>
+<!-- History Collapse / Summary Info -->
+<div class="bg-surface-container-low/40 rounded-lg px-2.5 py-2 border border-outline-variant/20 flex items-center justify-between text-on-surface-variant font-label-sm text-label-sm">
+<span class="flex items-center gap-1 text-tertiary-container">
+<span class="material-symbols-outlined text-[14px]">done_all</span>
+              已解决 · 引用文献格式已重排并通过自动校验
+            </span>
+<span class="material-symbols-outlined text-[16px] text-outline">expand_more</span>
+</div>
+</article>
+</div>
+</main>
+<!-- 3. 悬浮底栏 (Bottom Persistent Notification Dock / Action Bar) -->
+<aside class="sticky bottom-0 z-30 w-full bg-surface-container-lowest/95 backdrop-blur-md px-space-base py-3 border-t border-outline-variant/20 shadow-[0_-2px_10px_rgba(11,28,48,0.04)]">
+<div class="flex items-center justify-between gap-3">
+<div class="flex items-center space-x-2">
+<div class="w-2 h-2 rounded-full bg-error animate-pulse"></div>
+<p class="font-body-sm text-body-sm text-on-surface">
+            共 <span class="font-semibold">3</span> 条批注，尚有 <span class="text-error font-semibold">1</span> 条阻断需闭环
+          </p>
+</div>
+<button class="px-3.5 py-1.5 rounded-lg bg-surface-container-high text-outline font-label-sm text-label-sm font-semibold cursor-not-allowed transition-all" disabled="" type="button">
+          提交复审
+        </button>
+</div>
+</aside>
+</div>
+</body></html>

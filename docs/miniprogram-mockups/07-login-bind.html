@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>校内账号绑定 - PaperGuard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-bright": "#f8f9ff",
+            "primary-fixed": "#dbe1ff",
+            "outline": "#737685",
+            "inverse-surface": "#213146",
+            "tertiary-container": "#006228",
+            "error": "#ba1a1a",
+            "tertiary-fixed": "#7ffc97",
+            "on-tertiary-container": "#64e17f",
+            "tertiary-fixed-dim": "#62df7d",
+            "primary": "#003594",
+            "on-background": "#0b1c30",
+            "surface-variant": "#d3e3ff",
+            "background": "#f8f9ff",
+            "on-tertiary": "#ffffff",
+            "on-primary-fixed": "#00174b",
+            "on-secondary-fixed": "#00174b",
+            "on-error": "#ffffff",
+            "tertiary": "#00481b",
+            "primary-fixed-dim": "#b4c5ff",
+            "surface-container-lowest": "#ffffff",
+            "inverse-primary": "#b4c5ff",
+            "surface-container": "#e6eeff",
+            "on-surface-variant": "#434654",
+            "inverse-on-surface": "#ebf1ff",
+            "on-primary-container": "#b8c8ff",
+            "on-secondary": "#ffffff",
+            "secondary-container": "#316bf3",
+            "surface-dim": "#cbdbf6",
+            "surface": "#f8f9ff",
+            "on-error-container": "#93000a",
+            "on-primary-fixed-variant": "#003ea8",
+            "on-primary": "#ffffff",
+            "secondary-fixed-dim": "#b4c5ff",
+            "on-surface": "#0b1c30",
+            "secondary-fixed": "#dbe1ff",
+            "surface-container-highest": "#d3e3ff",
+            "primary-container": "#004ac6",
+            "surface-container-high": "#dde9ff",
+            "secondary": "#0051d5",
+            "on-tertiary-fixed": "#002109",
+            "outline-variant": "#c3c6d6",
+            "surface-container-low": "#eff4ff",
+            "on-secondary-fixed-variant": "#003ea8",
+            "on-secondary-container": "#fefcff",
+            "error-container": "#ffdad6",
+            "on-tertiary-fixed-variant": "#005320",
+            "surface-tint": "#1b55d0"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-xl": "2rem",
+            "space-sm": "0.5rem",
+            "gutter": "1rem",
+            "space-2xs": "0.125rem",
+            "space-lg": "1.5rem",
+            "space-xs": "0.25rem",
+            "space-md": "0.75rem",
+            "margin": "1rem",
+            "margin-lg": "2rem",
+            "gutter-lg": "1.5rem",
+            "space-base": "1rem",
+            "margin-md": "1.5rem",
+            "space-2xl": "3rem"
+          },
+          "fontFamily": {
+            "display-lg": ["Newsreader"],
+            "body-md": ["Geist", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+            "headline-sm": ["Geist", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+            "headline-lg": ["Newsreader", "serif"],
+            "label-sm": ["Geist", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+            "body-sm": ["Geist", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+            "label-md": ["Geist", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+            "headline-md": ["Geist", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+            "body-lg": ["Geist", "PingFang SC", "Microsoft YaHei", "sans-serif"],
+            "code-sm": ["JetBrains Mono", "monospace"]
+          },
+          "fontSize": {
+            "display-lg": ["2.25rem", { lineHeight: "2.75rem", letterSpacing: "-0.02em", fontWeight: "500" }],
+            "body-md": ["0.875rem", { lineHeight: "1.5rem", letterSpacing: "0em", fontWeight: "400" }],
+            "headline-sm": ["1.0625rem", { lineHeight: "1.5rem", letterSpacing: "-0.005em", fontWeight: "600" }],
+            "headline-lg": ["1.75rem", { lineHeight: "2.25rem", letterSpacing: "-0.015em", fontWeight: "500" }],
+            "label-sm": ["0.75rem", { lineHeight: "1rem", letterSpacing: "0.02em", fontWeight: "500" }],
+            "body-sm": ["0.8125rem", { lineHeight: "1.25rem", letterSpacing: "0.005em", fontWeight: "400" }],
+            "label-md": ["0.8125rem", { lineHeight: "1.125rem", letterSpacing: "0.01em", fontWeight: "500" }],
+            "headline-md": ["1.25rem", { lineHeight: "1.75rem", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "body-lg": ["1rem", { lineHeight: "1.625rem", letterSpacing: "0em", fontWeight: "400" }],
+            "code-sm": ["0.75rem", { lineHeight: "1rem", letterSpacing: "0em", fontWeight: "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      -webkit-tap-highlight-color: transparent;
+      font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .capsule-btn {
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface antialiased min-h-screen flex flex-col justify-between selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Mobile View Container: Simulated WeChat Mini-Program Canvas -->
+<div class="w-full max-w-md mx-auto min-h-screen flex flex-col bg-surface relative shadow-sm">
+<!-- TopAppBar (Shared Component Implementation) -->
+<header class="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-margin h-12 w-full max-w-md mx-auto bg-surface border-b border-outline-variant/30 select-none">
+<!-- Left: Back Action -->
+<button aria-label="返回" class="flex items-center justify-center w-8 h-8 rounded-full hover:bg-surface-container text-on-surface active:opacity-75 transition-opacity duration-150" type="button">
+<span class="material-symbols-outlined text-[20px]">arrow_back</span>
+</button>
+<!-- Center: Title -->
+<div class="text-headline-sm font-headline-sm font-semibold text-on-surface tracking-tight">
+        校内账号绑定
+      </div>
+<!-- Right: WeChat Capsule Mockup (Fulfilling trailing_icon: more_horiz logic & mini program shell) -->
+<div class="flex items-center bg-surface-container-lowest capsule-btn rounded-full px-2.5 py-1 space-x-2 border border-outline-variant/40">
+<button aria-label="更多操作" class="flex items-center justify-center text-on-surface hover:text-primary active:opacity-75 transition-opacity" type="button">
+<span class="material-symbols-outlined text-[17px]">more_horiz</span>
+</button>
+<span class="w-[1px] h-3 bg-outline-variant/50"></span>
+<button aria-label="小程序胶囊关闭" class="flex items-center justify-center text-on-surface hover:text-primary active:opacity-75 transition-opacity" type="button">
+<span class="w-2.5 h-2.5 rounded-full border-[1.5px] border-on-surface inline-block"></span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas (Suppressed BottomNavBar due to Task-Focused first-time onboarding destination) -->
+<main class="flex-1 px-4 pt-16 pb-8 flex flex-col space-y-4">
+<!-- 1. Hero Branding Section -->
+<section class="flex flex-col items-center justify-center pt-3 pb-2 text-center select-none">
+<!-- Academic Precision Shield Geometric Logo -->
+<div class="relative flex items-center justify-center w-14 h-14 rounded-2xl bg-surface-container-lowest border border-outline-variant/40 shadow-sm mb-3">
+<div class="w-10 h-10 rounded-xl bg-primary-container/10 flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined text-[26px]" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+</div>
+<!-- Micro security badge attached -->
+<div class="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-primary-container text-on-primary flex items-center justify-center border-2 border-surface-container-lowest shadow-sm">
+<span class="material-symbols-outlined text-[11px]" style="font-variation-settings: 'FILL' 1;">edit_document</span>
+</div>
+</div>
+<h1 class="text-[21px] leading-7 font-bold text-on-surface tracking-tight">
+          PaperGuard 论文护航
+        </h1>
+<p class="mt-1 text-label-md font-label-md text-on-surface-variant font-normal">
+          论文格式全流程约束系统
+        </p>
+</section>
+<!-- 2. Explanation Card (Cognitive Clarity & Authority) -->
+<section class="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 shadow-sm relative overflow-hidden">
+<!-- Left accent rule -->
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary-container"></div>
+<div class="flex items-start space-x-3">
+<div class="flex-shrink-0 mt-0.5 text-primary-container">
+<span class="material-symbols-outlined text-[19px]">account_balance</span>
+</div>
+<div class="flex-1">
+<h2 class="text-[14px] leading-snug font-semibold text-on-surface">
+              绑定你的校内账号
+            </h2>
+<p class="mt-1 text-body-sm font-body-sm text-on-surface-variant leading-relaxed">
+              微信仅作为登录方式，所有任务、提交与审核数据仍归属你的校内账号；首次使用需验证一次账号口令。
+            </p>
+</div>
+</div>
+</section>
+<!-- 3. Form Card (Standardized Academic SaaS Controls) -->
+<section class="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-4 shadow-sm">
+<form class="space-y-3.5" id="bindForm" onsubmit="event.preventDefault();">
+<!-- Input 1: Student / Faculty ID -->
+<div class="space-y-1.5">
+<label class="block text-label-sm font-label-sm text-on-surface font-medium" for="uid">
+              学号 / 工号或统一认证码
+            </label>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-outline text-[18px] pointer-events-none">
+                badge
+              </span>
+<input class="w-full h-10 pl-9 pr-3 rounded-lg border border-outline-variant/50 bg-surface-container-lowest text-on-surface text-body-md font-body-md placeholder:text-outline-variant focus:outline-none focus:border-primary-container focus:ring-2 focus:ring-primary-container/15 transition-all" id="uid" name="uid" placeholder="请输入学号或教工号" type="text" value="2023110842"/>
+</div>
+</div>
+<!-- Input 2: Password with eye toggle -->
+<div class="space-y-1.5">
+<label class="block text-label-sm font-label-sm text-on-surface font-medium" for="password">
+              统一身份认证密码
+            </label>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-outline text-[18px] pointer-events-none">
+                lock
+              </span>
+<input class="w-full h-10 pl-9 pr-10 rounded-lg border border-error bg-surface-container-lowest text-on-surface text-body-md font-body-md placeholder:text-outline-variant focus:outline-none focus:border-error focus:ring-2 focus:ring-error/15 transition-all" id="password" name="password" placeholder="请输入统一身份认证密码" type="password" value="••••••••••••"/>
+<button aria-label="切换密码可见性" class="absolute right-2.5 p-1 rounded hover:bg-surface text-on-surface-variant focus:outline-none" id="togglePwd" type="button">
+<span class="material-symbols-outlined text-[19px]" id="eyeIcon">visibility</span>
+</button>
+</div>
+<!-- Password Sub-helper row -->
+<div class="flex items-center justify-between pt-0.5 text-label-sm font-label-sm text-on-surface-variant">
+<div class="flex items-center space-x-1">
+<span class="material-symbols-outlined text-[13px] text-outline">info</span>
+<span>忘记密码请联系学院管理员重置</span>
+</div>
+<a class="text-primary hover:underline font-medium" href="javascript:void(0)">
+                重置指引
+              </a>
+</div>
+</div>
+<!-- Error Alert Banner (Triple-Signaling Rule: Color + Icon + Text) -->
+<div class="flex items-center space-x-2 px-3 py-2 rounded-lg bg-[#fff1f0] border border-[#ffccc7] text-[#d93025] text-label-sm font-label-sm animate-pulse-once">
+<span class="material-symbols-outlined text-[16px] flex-shrink-0" style="font-variation-settings: 'FILL' 1;">
+              error
+            </span>
+<span class="leading-tight font-medium">
+              口令不正确，请重试（剩余 4 次尝试）
+            </span>
+</div>
+<!-- 4. Primary Action Button with WeChat authorization symbol -->
+<div class="pt-1">
+<button class="w-full h-11 bg-primary-container hover:bg-secondary text-on-primary rounded-lg font-headline-sm text-[15px] font-semibold flex items-center justify-center space-x-2 shadow-sm active:opacity-90 active:scale-[0.99] transition-all duration-150" type="button">
+<!-- WeChat SVG Icon -->
+<svg class="w-5 h-5 fill-[#07c160] flex-shrink-0" viewbox="0 0 24 24">
+<path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.536 1.99c-.044.163.125.298.267.213l2.425-1.442a.63.63 0 0 1 .48-.063c1.004.28 2.086.435 3.208.435 4.8 0 8.691-3.288 8.691-7.342s-3.891-7.342-8.691-7.342zm10.741 8.52c-.328 0-.649.023-.965.064 2.84 1.776 3.655 4.417 3.655 4.417s-.522-.055-.91-.12c-.525 2.152-2.584 3.738-5.066 3.738-.797 0-1.554-.163-2.242-.45a.573.573 0 0 0-.442.023l-1.636.973c-.097.058-.212-.034-.182-.145l.362-1.344a.406.406 0 0 0-.147-.453C10.73 16.48 10 15.114 10 13.606c0-.236.02-.467.053-.693 2.502-.036 4.707-1.026 6.095-2.584.282.025.568.04.858.04 3.771 0 6.828-2.583 6.828-5.77 0-.022 0-.044-.002-.066 1.488 1.157 2.454 2.766 2.454 4.566 0 1.745-.907 3.315-2.324 4.382a.465.465 0 0 0-.168.525l.423 1.57a.12.12 0 0 1-.164.135l-1.913-1.138a.5.5 0 0 0-.379-.05c-.792.221-1.646.343-2.531.343z"></path>
+</svg>
+<span>绑定并登录</span>
+</button>
+</div>
+</form>
+</section>
+<!-- 5. Footer Trust & Security Structured Cards -->
+<section class="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-3.5 space-y-2.5 text-on-surface">
+<!-- Trust item 1 -->
+<div class="flex items-center space-x-2.5 text-body-sm font-body-sm text-on-surface-variant">
+<div class="w-6 h-6 rounded bg-surface-container flex items-center justify-center text-primary flex-shrink-0">
+<span class="material-symbols-outlined text-[15px]">sync</span>
+</div>
+<span class="text-on-surface text-[13px] font-medium">数据与桌面端完全同步</span>
+</div>
+<!-- Trust item 2 -->
+<div class="flex items-center space-x-2.5 text-body-sm font-body-sm text-on-surface-variant">
+<div class="w-6 h-6 rounded bg-surface-container flex items-center justify-center text-primary flex-shrink-0">
+<span class="material-symbols-outlined text-[15px]">schedule</span>
+</div>
+<span class="text-on-surface text-[13px] font-medium">会话 30 天内免登录</span>
+</div>
+<!-- Trust item 3 -->
+<div class="flex items-center space-x-2.5 text-body-sm font-body-sm text-on-surface-variant">
+<div class="w-6 h-6 rounded bg-surface-container flex items-center justify-center text-primary flex-shrink-0">
+<span class="material-symbols-outlined text-[15px]">link_off</span>
+</div>
+<span class="text-on-surface text-[13px] font-medium">可随时在「我的」中解绑</span>
+</div>
+</section>
+<!-- Legal & Campus Compliance Disclaimer -->
+<footer class="pt-2 text-center select-none pb-2">
+<p class="text-label-sm font-label-sm text-on-surface-variant leading-relaxed">
+          登录即代表您已阅读并同意
+          <a class="text-primary hover:underline font-medium" href="javascript:void(0)">《校园数据安全规范》</a>
+          与
+          <a class="text-primary hover:underline font-medium" href="javascript:void(0)">《隐私政策》</a>
+</p>
+<p class="mt-1 text-[11px] text-outline font-label-sm">
+          认证支持：高校教育网统一认证中心 (CAS)
+        </p>
+</footer>
+</main>
+</div>
+<!-- Interactive script for password visibility toggle & input polish -->
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const toggleBtn = document.getElementById('togglePwd');
+      const pwdInput = document.getElementById('password');
+      const eyeIcon = document.getElementById('eyeIcon');
+
+      if (toggleBtn && pwdInput && eyeIcon) {
+        toggleBtn.addEventListener('click', () => {
+          const isPwd = pwdInput.getAttribute('type') === 'password';
+          pwdInput.setAttribute('type', isPwd ? 'text' : 'password');
+          eyeIcon.textContent = isPwd ? 'visibility_off' : 'visibility';
+        });
+      }
+    });
+  </script>
+</body></html>

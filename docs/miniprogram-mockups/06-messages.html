@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-surface" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/>
+<title>消息中心</title>
+<!-- Fonts & Material Symbols -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Newsreader:ital,wght@0,500;1,500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary-container": "#006228",
+            "on-primary-fixed": "#00174b",
+            "surface-bright": "#f8f9ff",
+            "inverse-on-surface": "#ebf1ff",
+            "secondary-container": "#316bf3",
+            "surface-container-lowest": "#ffffff",
+            "surface-container": "#e6eeff",
+            "on-error-container": "#93000a",
+            "secondary-fixed": "#dbe1ff",
+            "outline": "#737685",
+            "on-tertiary-container": "#64e17f",
+            "inverse-surface": "#213146",
+            "inverse-primary": "#b4c5ff",
+            "surface-container-high": "#dde9ff",
+            "outline-variant": "#c3c6d6",
+            "on-secondary-fixed": "#00174b",
+            "background": "#f8f9ff",
+            "secondary": "#0051d5",
+            "surface-tint": "#1b55d0",
+            "on-surface-variant": "#434654",
+            "on-tertiary": "#ffffff",
+            "on-secondary-fixed-variant": "#003ea8",
+            "on-primary-container": "#b8c8ff",
+            "on-primary": "#ffffff",
+            "on-background": "#0b1c30",
+            "primary-fixed-dim": "#b4c5ff",
+            "error": "#ba1a1a",
+            "primary": "#003594",
+            "on-tertiary-fixed": "#002109",
+            "tertiary-fixed": "#7ffc97",
+            "primary-container": "#004ac6",
+            "on-secondary-container": "#fefcff",
+            "on-secondary": "#ffffff",
+            "surface-dim": "#cbdbf6",
+            "on-surface": "#0b1c30",
+            "surface-container-low": "#eff4ff",
+            "primary-fixed": "#dbe1ff",
+            "on-error": "#ffffff",
+            "tertiary": "#00481b",
+            "tertiary-fixed-dim": "#62df7d",
+            "surface": "#f8f9ff",
+            "surface-container-highest": "#d3e3ff",
+            "secondary-fixed-dim": "#b4c5ff",
+            "on-tertiary-fixed-variant": "#005320",
+            "on-primary-fixed-variant": "#003ea8",
+            "surface-variant": "#d3e3ff",
+            "error-container": "#ffdad6"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "gutter": "1rem",
+            "margin-lg": "2rem",
+            "space-xs": "0.25rem",
+            "margin": "1rem",
+            "space-xl": "2rem",
+            "space-2xs": "0.125rem",
+            "space-2xl": "3rem",
+            "space-md": "0.75rem",
+            "space-lg": "1.5rem",
+            "space-base": "1rem",
+            "gutter-lg": "1.5rem",
+            "space-sm": "0.5rem",
+            "margin-md": "1.5rem"
+          },
+          "fontFamily": {
+            "label-sm": ["Geist"],
+            "headline-sm": ["Geist"],
+            "display-lg": ["Newsreader"],
+            "code-sm": ["JetBrains Mono"],
+            "headline-lg": ["Newsreader"],
+            "body-sm": ["Geist"],
+            "label-md": ["Geist"],
+            "body-md": ["Geist"],
+            "body-lg": ["Geist"],
+            "headline-md": ["Geist"]
+          },
+          "fontSize": {
+            "label-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "headline-sm": ["1.0625rem", { "lineHeight": "1.5rem", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "display-lg": ["2.25rem", { "lineHeight": "2.75rem", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+            "code-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "letterSpacing": "-0.015em", "fontWeight": "500" }],
+            "body-sm": ["0.8125rem", { "lineHeight": "1.25rem", "letterSpacing": "0.005em", "fontWeight": "400" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "letterSpacing": "0.01em", "fontWeight": "500" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.5rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "body-lg": ["1rem", { "lineHeight": "1.625rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-md": ["1.25rem", { "lineHeight": "1.75rem", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .material-symbols-fill {
+      font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    /* iOS Safe area padding utility */
+    .pb-safe {
+      padding-bottom: env(safe-area-inset-bottom, 16px);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="h-full bg-surface text-on-surface font-body-md antialiased selection:bg-surface-container-highest">
+<!-- Mobile Screen Container -->
+<div class="mx-auto flex min-h-full max-w-md flex-col bg-surface shadow-2xl relative">
+<!-- 1. WeChat Mini-Program Header / Status Bar & TopAppBar -->
+<header class="sticky top-0 z-40 bg-surface-container-lowest/90 backdrop-blur-md shadow-sm">
+<!-- Phone Status Bar Mockup -->
+<div class="flex h-11 w-full items-center justify-between px-6 pt-1 text-on-surface">
+<span class="font-code-sm text-code-sm font-medium">09:41</span>
+<div class="flex items-center space-x-1.5 text-on-surface">
+<span class="material-symbols-outlined text-sm">signal_cellular_4_bar</span>
+<span class="material-symbols-outlined text-sm">wifi</span>
+<span class="material-symbols-outlined text-sm">battery_full</span>
+</div>
+</div>
+<!-- WeChat Capsule Navigation Bar -->
+<div class="relative flex h-12 w-full items-center justify-between px-space-base">
+<!-- Leading / Title Cluster -->
+<div class="flex items-center space-x-2">
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-on-surface">消息</h1>
+</div>
+<!-- Center / Right: Read All Button & WeChat Mini-Program Capsule -->
+<div class="flex items-center space-x-3">
+<!-- Text Action: "全部已读" -->
+<button class="font-label-md text-label-md text-primary-container hover:text-primary active:opacity-75 transition-colors duration-150 font-medium py-1 px-1.5 focus:outline-none" id="mark-all-read-btn">
+            全部已读
+          </button>
+<!-- Native WeChat Mini-Program Capsule Control -->
+<div class="flex h-8 items-center rounded-full border border-outline-variant/50 bg-surface-bright/80 px-2 shadow-sm space-x-1.5">
+<button aria-label="小程序更多选项" class="flex items-center justify-center p-1 text-on-surface hover:text-primary active:opacity-75 focus:outline-none">
+<span class="material-symbols-outlined text-base">more_horiz</span>
+</button>
+<div class="h-3.5 w-[1px] bg-outline-variant/60"></div>
+<button aria-label="关闭小程序" class="flex items-center justify-center p-1 text-on-surface hover:text-primary active:opacity-75 focus:outline-none">
+<span class="material-symbols-outlined text-base">radio_button_checked</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Filter Controls: Segmented Pills -->
+<div class="flex items-center justify-between px-space-base py-space-sm border-b border-outline-variant/30 bg-surface-bright">
+<div class="inline-flex rounded-lg bg-surface-container-low p-1 space-x-1 border border-outline-variant/20">
+<!-- Active Pill: 未读 (3) -->
+<button class="inline-flex items-center justify-center rounded-md bg-primary-container px-3 py-1 text-on-primary font-label-sm text-label-sm shadow-sm transition-all duration-150">
+<span>未读</span>
+<span class="ml-1 px-1.5 py-0.2 rounded-full bg-surface-container-lowest text-primary-container font-code-sm text-[10px] font-semibold">3</span>
+</button>
+<!-- Inactive Pill: 全部 -->
+<button class="inline-flex items-center justify-center rounded-md px-3 py-1 text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors duration-150">
+            全部
+          </button>
+</div>
+<div class="flex items-center text-on-surface-variant font-label-sm text-label-sm space-x-1">
+<span class="material-symbols-outlined text-sm text-outline">tune</span>
+<span>按时间</span>
+</div>
+</div>
+</header>
+<!-- 2. Message Center Content Area -->
+<main class="flex-1 px-space-base py-space-md space-y- space-y-3 pb-24">
+<!-- Card 1: 【退回通知】(未读) -->
+<article class="group relative rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-space-base shadow-sm transition-all duration-150 hover:shadow-md hover:border-outline-variant active:scale-[0.99]">
+<!-- Top Metadata Row -->
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-3">
+<!-- Type Icon Container (Triple-signaling: Error red, Icon, Badging) -->
+<div class="relative flex-shrink-0">
+<div class="flex h-10 w-10 items-center justify-center rounded-full bg-error-container/40 text-error">
+<span class="material-symbols-outlined text-[20px]">warning</span>
+</div>
+<!-- Unread Indicator Dot -->
+<span class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary-container ring-2 ring-surface-container-lowest"></span>
+</div>
+<!-- Header and Description -->
+<div>
+<div class="flex items-center space-x-2">
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">初稿 S1 已退回</h2>
+<span class="inline-flex items-center rounded-full bg-error-container/30 px-2 py-0.5 text-[11px] font-medium text-error">
+                  需要修订
+                </span>
+</div>
+<p class="mt-1 font-body-sm text-body-sm text-on-surface-variant line-clamp-2">
+                请补充实验对照分析，修订截止 09-25
+              </p>
+</div>
+</div>
+<!-- Relative Timestamp -->
+<time class="font-label-sm text-label-sm text-outline flex-shrink-0 ml-2">10 分钟前</time>
+</div>
+<!-- Card Footer Action Link -->
+<div class="mt-3 pt-2.5 border-t border-outline-variant/20 flex items-center justify-between">
+<span class="font-code-sm text-[11px] text-outline">DOC-2023-S1</span>
+<a class="inline-flex items-center space-x-1 font-label-md text-label-md text-primary-container hover:text-secondary active:opacity-75 transition-colors duration-150 font-medium" href="#review-feedback">
+<span>查看意见</span>
+<span class="material-symbols-outlined text-[15px]">arrow_forward</span>
+</a>
+</div>
+</article>
+<!-- Card 2: 【截止提醒】(未读) -->
+<article class="group relative rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-space-base shadow-sm transition-all duration-150 hover:shadow-md hover:border-outline-variant active:scale-[0.99]">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-3">
+<!-- Type Icon Container (Triple signaling: Amber, Schedule Icon, Badge) -->
+<div class="relative flex-shrink-0">
+<div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-700">
+<span class="material-symbols-outlined text-[20px]">schedule</span>
+</div>
+<!-- Unread Indicator Dot -->
+<span class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary-container ring-2 ring-surface-container-lowest"></span>
+</div>
+<!-- Content -->
+<div>
+<div class="flex items-center space-x-2">
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">初稿即将截止</h2>
+<span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                  倒计时
+                </span>
+</div>
+<p class="mt-1 font-body-sm text-body-sm text-on-surface-variant">
+                距首次提交截止还有 5 天
+              </p>
+</div>
+</div>
+<time class="font-label-sm text-label-sm text-outline flex-shrink-0 ml-2">今天 08:00</time>
+</div>
+</article>
+<!-- Card 3: 【新提交待审】(未读) -->
+<article class="group relative rounded-xl border border-outline-variant/40 bg-surface-container-lowest p-space-base shadow-sm transition-all duration-150 hover:shadow-md hover:border-outline-variant active:scale-[0.99]">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-3">
+<!-- Type Icon Container (Triple signaling: Blue tint, Description icon, Badge) -->
+<div class="relative flex-shrink-0">
+<div class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-container-low text-primary-container">
+<span class="material-symbols-outlined text-[20px]">description</span>
+</div>
+<!-- Unread Indicator Dot -->
+<span class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary-container ring-2 ring-surface-container-lowest"></span>
+</div>
+<!-- Content -->
+<div>
+<div class="flex items-center space-x-2">
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">陈晓提交了初稿 S1</h2>
+<span class="inline-flex items-center rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-medium text-primary">
+                  待审阅
+                </span>
+</div>
+<p class="mt-1 font-body-sm text-body-sm text-on-surface-variant">
+                点击进入审阅
+              </p>
+</div>
+</div>
+<time class="font-label-sm text-label-sm text-outline flex-shrink-0 ml-2">2 小时前</time>
+</div>
+</article>
+<!-- Card 4: 【批注回复】(已读) -->
+<article class="group relative rounded-xl border border-outline-variant/30 bg-surface-container-lowest/80 p-space-base shadow-sm transition-all duration-150 hover:bg-surface-container-lowest active:scale-[0.99]">
+<div class="flex items-start justify-between opacity-85">
+<div class="flex items-start space-x-3">
+<!-- Type Icon Container (Gray for read status, no blue dot) -->
+<div class="relative flex-shrink-0">
+<div class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-container text-outline">
+<span class="material-symbols-outlined text-[20px]">chat</span>
+</div>
+</div>
+<!-- Content (Subtle tones for read state) -->
+<div>
+<div class="flex items-center space-x-2">
+<h2 class="font-headline-sm text-headline-sm font-medium text-on-surface">李明回复了批注</h2>
+<span class="inline-flex items-center rounded-full bg-surface-container-high px-2 py-0.5 text-[11px] font-medium text-on-surface-variant">
+                  已读
+                </span>
+</div>
+<p class="mt-1 font-body-sm text-body-sm text-on-surface-variant">
+                已修改 3.2 实验分析，等待复核
+              </p>
+</div>
+</div>
+<time class="font-label-sm text-label-sm text-outline flex-shrink-0 ml-2">昨天</time>
+</div>
+</article>
+<!-- Card 5: 【阶段发布】(已读) -->
+<article class="group relative rounded-xl border border-outline-variant/30 bg-surface-container-lowest/80 p-space-base shadow-sm transition-all duration-150 hover:bg-surface-container-lowest active:scale-[0.99]">
+<div class="flex items-start justify-between opacity-85">
+<div class="flex items-start space-x-3">
+<!-- Type Icon Container (Emerald Green for milestone, read) -->
+<div class="relative flex-shrink-0">
+<div class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+<span class="material-symbols-outlined text-[20px]">flag</span>
+</div>
+</div>
+<!-- Content -->
+<div>
+<div class="flex items-center space-x-2">
+<h2 class="font-headline-sm text-headline-sm font-medium text-on-surface">中期阶段已开放</h2>
+<span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
+                  阶段进展
+                </span>
+</div>
+<p class="mt-1 font-body-sm text-body-sm text-on-surface-variant">
+                前置阶段已通过，可查看任务要求
+              </p>
+</div>
+</div>
+<time class="font-label-sm text-label-sm text-outline flex-shrink-0 ml-2">09-08</time>
+</div>
+</article>
+<!-- Bottom Status Note -->
+<div class="pt-4 text-center">
+<p class="font-label-sm text-label-sm text-outline/80">已加载全部通知</p>
+</div>
+</main>
+<!-- 3. BottomNavBar (From Shared Components Blueprint) -->
+<!-- Applying exact active state styles: text-primary font-medium p-space-xs and inactive: text-on-surface-variant -->
+<nav class="fixed bottom-0 left-0 right-0 mx-auto max-w-md z-50 flex justify-around items-center px-space-base py-space-xs bg-surface-container-lowest shadow-sm pb-safe">
+<!-- Tab 1: 消息 (Active lock according to page title and JSON rules) -->
+<a class="flex flex-col items-center justify-center text-primary font-medium p-space-xs transition-colors duration-150 active:scale-95 group focus:outline-none" href="#messages">
+<div class="relative flex items-center justify-center">
+<span class="material-symbols-outlined material-symbols-fill text-[24px]">notifications</span>
+<!-- Unread Badge "3" -->
+<span class="absolute -top-1 -right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-error px-1 text-[10px] font-semibold text-on-error shadow-sm">
+            3
+          </span>
+</div>
+<span class="mt-1 font-label-sm text-label-sm">消息</span>
+</a>
+<!-- Tab 2: 我的任务 (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant p-space-xs transition-colors duration-150 active:scale-95 hover:text-primary focus:outline-none" href="#tasks">
+<div class="relative flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">assignment</span>
+</div>
+<span class="mt-1 font-label-sm text-label-sm">我的任务</span>
+</a>
+<!-- Tab 3: 我的 (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant p-space-xs transition-colors duration-150 active:scale-95 hover:text-primary focus:outline-none" href="#profile">
+<div class="relative flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">person</span>
+</div>
+<span class="mt-1 font-label-sm text-label-sm">我的</span>
+</a>
+</nav>
+</div>
+<!-- Micro-interaction for "全部已读" Action -->
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const readAllBtn = document.getElementById('mark-all-read-btn');
+      if (readAllBtn) {
+        readAllBtn.addEventListener('click', () => {
+          // Remove active unread dots
+          const unreadDots = document.querySelectorAll('.bg-primary-container.rounded-full');
+          unreadDots.forEach(dot => dot.classList.add('hidden'));
+          
+          // Clear badge on bottom tab
+          const badge = document.querySelector('.bg-error.text-on-error');
+          if (badge) {
+            badge.style.display = 'none';
+          }
+          
+          // Soft feedback
+          readAllBtn.textContent = '已标为已读';
+          readAllBtn.classList.remove('text-primary-container');
+          readAllBtn.classList.add('text-outline');
+          readAllBtn.disabled = true;
+        });
+      }
+    });
+  </script>
+</body></html>
