@@ -81,7 +81,8 @@ Executed from the Phase 13 worktree on 2026-09-12:
 | Check | Result |
 |---|---|
 | Generic document E2E, desktop + mobile Chromium | 12 passed in 45.4s |
-| Full backend pytest matrix | 597 passed, 2 warnings in 23.03s |
+| Full local browser regression, including thesis lifecycle and smoke checks | 20 passed, 2 skipped in 2.2m |
+| Full backend pytest matrix | 605 passed, 2 warnings |
 | Frontend unit tests | 28 passed, 10 files |
 | Frontend typecheck | PASS |
 | Frontend production build | PASS |
@@ -92,12 +93,10 @@ Executed from the Phase 13 worktree on 2026-09-12:
 The backend warning output is from the installed FastAPI/Starlette TestClient
 deprecation path; it is not a test failure.
 
-The following were not part of this phase's local execution:
-
-- Existing thesis `full-lifecycle.spec.ts`: **NOT RUN**; it requires private
-  user-provided thesis files and `E2E_ADMIN_PASSWORD` and is intentionally not
-  mixed into the generic document fixture.
-- Staging, production deployment, and online verification: **NOT RUN**.
+The latest local browser execution included the existing thesis
+`full-lifecycle.spec.ts`; its mobile project remains intentionally skipped
+because that scenario is desktop-only. Staging, production deployment, and
+online verification remain **NOT RUN**.
 
 ## Hosted Workflow
 

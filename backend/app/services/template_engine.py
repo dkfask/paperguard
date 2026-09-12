@@ -205,6 +205,13 @@ def validate_template_candidate(candidate: TemplateParseCandidate) -> TemplatePa
             issues.append(TemplateParseIssue(code=code, severity=severity, message=message, path=path))
             seen_issue_keys.add((code, path))
 
+    if candidate.definition.mode not in {"fixed_form", "structured_document", "hybrid"}:
+        add("unsupported_document_mode", "error", f"不支持的文档模式: {candidate.definition.mode}", "definition.mode")
+    if candidate.definition.export_strategy not in {"auto", "source_template", "legacy_adapter"}:
+        add("unsupported_export_strategy", "error", f"不支持的导出策略: {candidate.definition.export_strategy}", "definition.export_strategy")
+    if candidate.definition.export_strategy == "source_template" and not candidate.definition.anchors:
+        add("source_template_anchor_required", "error", "源模板导出策略必须至少配置一个稳定 DOCX 锚点", "definition.anchors")
+
     section_keys: set[str] = set()
 
     def walk(nodes: list[TemplateSection], parent: str = "") -> None:
@@ -215,6 +222,8 @@ def validate_template_candidate(candidate: TemplateParseCandidate) -> TemplatePa
             section_keys.add(node.key)
             if not node.title.strip():
                 add("empty_section_title", "error", "章节标题不能为空", path)
+            if node.style_ref and node.style_ref not in candidate.definition.styles:
+                add("unknown_section_style", "error", f"章节引用未知样式: {node.style_ref}", f"{path}.style_ref")
             if node.parent_key and node.parent_key != parent:
                 add("invalid_parent_key", "error", f"父章节引用不一致: {node.key}", path)
             walk(node.children, node.key)
@@ -231,6 +240,12 @@ def validate_template_candidate(candidate: TemplateParseCandidate) -> TemplatePa
         field_keys.add(field.key)
         if field.section_key and field.section_key not in section_keys:
             add("unknown_field_section", "error", f"字段引用未知章节: {field.section_key}", path)
+        if field.type.lower() in {"select", "enum"}:
+            options = field.constraints.get("options") or field.constraints.get("enum")
+            if not isinstance(options, list) or not options:
+                add("choice_options_required", "error", "选择字段至少需要一个选项", f"{path}.constraints.options")
+            elif len({str(option.get("value", option.get("key", ""))) if isinstance(option, dict) else str(option) for option in options}) != len(options):
+                add("duplicate_choice_option", "error", "选择字段的选项不能重复", f"{path}.constraints.options")
 
     anchor_keys: set[tuple[str, str, str, int]] = set()
     allowed_anchor_kinds = {

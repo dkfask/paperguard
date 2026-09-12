@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
+import uuid
 
 from fastapi.testclient import TestClient
 
@@ -311,3 +312,62 @@ def test_document_project_render_job_is_durable_idempotent_and_downloadable(tmp_
     artifact = artifact.with_suffix(".docx")
     if artifact.exists():
         artifact.unlink()
+
+
+def test_document_project_render_job_can_be_cancelled_and_force_is_role_scoped() -> None:
+    from app.worker import run_once
+
+    client = TestClient(app)
+    admin_headers = _admin_headers(client)
+    package = _published_package(client, admin_headers)
+    created = client.post(
+        "/api/document-projects",
+        headers=admin_headers,
+        json={"package_id": package["id"], "title": "可取消报告"},
+    )
+    assert created.status_code == 201, created.text
+    project_id = created.json()["id"]
+    queued = client.post(f"/api/document-projects/{project_id}/render-jobs", headers=admin_headers)
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+
+    cancelled = client.post(
+        f"/api/document-projects/{project_id}/render-jobs/{task['id']}/cancel",
+        headers=admin_headers,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+    run_result = run_once()
+    assert task["job_id"] not in run_result["document_renders"]["succeeded"]
+    current = client.get(
+        f"/api/document-projects/{project_id}/render-jobs/{task['id']}",
+        headers=admin_headers,
+    )
+    assert current.status_code == 200
+    assert current.json()["status"] == "cancelled"
+
+    username = f"generic_student_{uuid.uuid4().hex[:8]}"
+    registered = client.post(
+        "/api/auth/register",
+        json={"username": username, "password": "StudentPassword123", "display_name": "普通学生", "role": "student"},
+    )
+    assert registered.status_code == 201, registered.text
+    login = client.post("/api/auth/login", json={"username": username, "password": "StudentPassword123"})
+    assert login.status_code == 200, login.text
+    student_headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    student_project = client.post(
+        "/api/document-projects",
+        headers=student_headers,
+        json={"package_id": package["id"], "title": "学生报告"},
+    )
+    assert student_project.status_code == 201, student_project.text
+    force = client.post(
+        f"/api/document-projects/{student_project.json()['id']}/render-jobs?force=true",
+        headers=student_headers,
+    )
+    assert force.status_code == 403, force.text
+
+    audit = client.get("/api/audit", headers=admin_headers, params={"resource_type": "document_render_job"})
+    assert audit.status_code == 200, audit.text
+    actions = {item["action"] for item in audit.json() if item["resource_id"] == task["id"]}
+    assert "document.project.render.cancelled" in actions

@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
 from app.auth import require_manager, require_template_manager
+from app.core.feature_flags import require_general_document_platform
 
 from app.db import Store, new_id
 from app.domain.documents.schemas import TemplateAsset
@@ -173,7 +174,7 @@ async def strip_template_comments(file: UploadFile = File(...),
         raise HTTPException(status_code=422, detail=f"批注清理失败: {exc}") from exc
 
 
-@router.post("/parse", response_model=TemplateParseCandidate)
+@router.post("/parse", response_model=TemplateParseCandidate, dependencies=[Depends(require_general_document_platform)])
 async def parse_docx_template_candidate(file: UploadFile = File(...),
                                         manager: dict = Depends(require_manager),
                                         store: Store = Depends(get_store)) -> TemplateParseCandidate:
@@ -231,7 +232,7 @@ async def parse_docx_template_candidate(file: UploadFile = File(...),
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-@router.get("/parse/candidates", response_model=list[TemplateParseCandidate])
+@router.get("/parse/candidates", response_model=list[TemplateParseCandidate], dependencies=[Depends(require_general_document_platform)])
 def list_docx_template_candidates(
     manager: dict = Depends(require_manager),
     store: Store = Depends(get_store),
@@ -240,7 +241,7 @@ def list_docx_template_candidates(
     return list_candidates(store, TEMPLATE_CANDIDATE_KIND, TemplateParseCandidate, manager)
 
 
-@router.get("/parse/candidates/{candidate_id}", response_model=TemplateParseCandidate)
+@router.get("/parse/candidates/{candidate_id}", response_model=TemplateParseCandidate, dependencies=[Depends(require_general_document_platform)])
 def get_docx_template_candidate(
     candidate_id: str,
     manager: dict = Depends(require_manager),
@@ -253,7 +254,7 @@ def get_docx_template_candidate(
         raise HTTPException(status_code=404, detail="模板候选不存在或无权访问") from exc
 
 
-@router.post("/parse/confirm", response_model=TemplateParseCandidate)
+@router.post("/parse/confirm", response_model=TemplateParseCandidate, dependencies=[Depends(require_general_document_platform)])
 def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
                                     manager: dict = Depends(require_manager),
                                     store: Store = Depends(get_store)) -> TemplateParseCandidate:

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.api import ai as ai_api
 from app.auth import require_manager
+from app.core.feature_flags import require_general_document_platform
 from app.db import Store, new_id
 from app.services.document_candidates import (
     CandidateBindingError,
@@ -28,7 +29,11 @@ from app.services.spec_engine import (
 )
 from app.services.upload_security import read_limited
 
-router = APIRouter(prefix="/api/specs", tags=["specifications"])
+router = APIRouter(
+    prefix="/api/specs",
+    tags=["specifications"],
+    dependencies=[Depends(require_general_document_platform)],
+)
 _MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 
 

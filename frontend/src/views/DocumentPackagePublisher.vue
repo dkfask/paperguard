@@ -68,6 +68,18 @@
                 <input data-test="template-candidate-version" v-model.trim="templateCandidate.version" maxlength="40" :disabled="templateCandidate.status === 'confirmed'" />
               </label>
             </div>
+            <div class="review-editor review-editor-wide">
+              <label>{{ t('documentPackagePublisher.documentMode') }}
+                <select data-test="template-document-mode" v-model="templateCandidate.definition.mode" :disabled="templateCandidate.status === 'confirmed'">
+                  <option v-for="mode in documentModes" :key="mode" :value="mode">{{ mode }}</option>
+                </select>
+              </label>
+              <label>{{ t('documentPackagePublisher.exportStrategy') }}
+                <select data-test="template-export-strategy" v-model="templateCandidate.definition.export_strategy" :disabled="templateCandidate.status === 'confirmed'">
+                  <option v-for="strategy in exportStrategies" :key="strategy" :value="strategy">{{ strategy }}</option>
+                </select>
+              </label>
+            </div>
             <div class="review-summary">
               <span>{{ t('documentPackagePublisher.sections') }}: {{ templateSections.length }}</span>
               <span>{{ t('documentPackagePublisher.fields') }}: {{ templateCandidate.definition.fields.length }}</span>
@@ -83,15 +95,44 @@
             <p v-else class="clean-note"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span>{{ t('documentPackagePublisher.noIssues') }}</p>
             <div v-if="templateSections.length" class="detected-list">
               <h3>{{ t('documentPackagePublisher.detectedSections') }}</h3>
-              <div v-for="section in templateSections" :key="section.node.key" class="detected-row" :style="{ paddingLeft: `${10 + section.depth * 16}px` }">
+              <div v-for="section in templateSections" :key="section.node.key" class="detected-row section-editor" :data-test="`template-section-${section.node.key}`" :style="{ paddingLeft: `${10 + section.depth * 16}px` }">
                 <span class="material-symbols-outlined" aria-hidden="true">account_tree</span>
-                <label class="inline-editor">
+                <label class="inline-editor section-title-editor">
                   <input data-test="template-section-title" v-model.trim="section.node.title" :aria-label="t('documentPackagePublisher.sectionTitle')" :disabled="templateCandidate.status === 'confirmed'" />
                   <small>{{ section.node.key }}</small>
+                </label>
+                <label class="section-setting">
+                  <span>{{ t('documentPackagePublisher.sectionType') }}</span>
+                  <select data-test="template-section-kind" v-model="section.node.kind" :aria-label="t('documentPackagePublisher.sectionType')" :disabled="templateCandidate.status === 'confirmed'">
+                    <option v-for="kind in sectionKindOptions(section.node)" :key="kind" :value="kind">{{ kind }}</option>
+                  </select>
+                </label>
+                <label class="section-setting section-order">
+                  <span>{{ t('documentPackagePublisher.sectionOrder') }}</span>
+                  <input data-test="template-section-order" v-model.number="section.node.order" type="number" min="0" :aria-label="t('documentPackagePublisher.sectionOrder')" :disabled="templateCandidate.status === 'confirmed'" />
+                </label>
+                <label class="section-setting">
+                  <span>{{ t('documentPackagePublisher.styleMapping') }}</span>
+                  <select data-test="template-section-style" v-model="section.node.style_ref" :aria-label="t('documentPackagePublisher.styleMapping')" :disabled="templateCandidate.status === 'confirmed'">
+                    <option value="">{{ t('documentPackagePublisher.noStyleMapping') }}</option>
+                    <option v-for="style in styleOptions(section.node)" :key="style" :value="style">{{ style }}</option>
+                  </select>
                 </label>
                 <label class="check-editor">
                   <input v-model="section.node.required" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
                   {{ t('documentPackagePublisher.required') }}
+                </label>
+                <label class="check-editor">
+                  <input data-test="template-section-repeatable" v-model="section.node.repeatable" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
+                  {{ t('documentPackagePublisher.repeatable') }}
+                </label>
+                <label class="check-editor">
+                  <input data-test="template-section-allow-add" v-model="section.node.allow_user_add" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
+                  {{ t('documentPackagePublisher.allowUserAdd') }}
+                </label>
+                <label class="check-editor">
+                  <input data-test="template-section-allow-delete" v-model="section.node.allow_user_delete" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
+                  {{ t('documentPackagePublisher.allowUserDelete') }}
                 </label>
               </div>
             </div>
@@ -103,8 +144,13 @@
                 <select v-model="field.type" :aria-label="t('documentPackagePublisher.fieldType')" :disabled="templateCandidate.status === 'confirmed'">
                   <option value="text">text</option>
                   <option value="textarea">textarea</option>
+                  <option value="multiline">multiline</option>
+                  <option value="richtext">richtext</option>
                   <option value="date">date</option>
                   <option value="number">number</option>
+                  <option value="email">email</option>
+                  <option value="url">url</option>
+                  <option value="checkbox">checkbox</option>
                   <option value="select">select</option>
                   <option value="enum">enum</option>
                 </select>
@@ -301,6 +347,10 @@ const publishBusy = ref(false)
 const packageResult = ref(null)
 const error = ref('')
 
+const documentModes = ['fixed_form', 'structured_document', 'hybrid']
+const exportStrategies = ['auto', 'source_template', 'legacy_adapter']
+const baseSectionKinds = ['content', 'heading1', 'heading2', 'heading3', 'cover', 'toc', 'abstract', 'keywords', 'references', 'appendix']
+
 const templateReady = computed(() => templateCandidate.value?.status === 'confirmed')
 const specReady = computed(() => specCandidate.value?.status === 'confirmed')
 const readyToPublish = computed(() => canManage.value && templateReady.value && specReady.value && documentTypeId.value.trim())
@@ -353,6 +403,14 @@ function statusLabel(status) {
 
 function choiceOptions(field) {
   return Array.isArray(field.constraints?.options) ? field.constraints.options : []
+}
+
+function sectionKindOptions(section) {
+  return [...new Set([...baseSectionKinds, section.kind].filter(Boolean))]
+}
+
+function styleOptions(section) {
+  return [...new Set([...(Object.keys(templateCandidate.value?.definition?.styles || {})), section.style_ref].filter(Boolean))]
 }
 
 function setChoiceOptions(field, event) {
@@ -511,6 +569,7 @@ onMounted(loadSavedCandidates)
 .review-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .review-heading strong { min-width: 0; overflow-wrap: anywhere; }
 .review-editor { display: grid; grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr); gap: 10px; }
+.review-editor-wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .review-editor label, .full-editor { display: grid; gap: 5px; color: var(--on-surface-variant); font-size: 11px; font-weight: 600; }
 .full-editor textarea { resize: vertical; min-height: 54px; }
 .review-summary { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--on-surface-variant); font-size: 12px; }
@@ -528,6 +587,11 @@ onMounted(loadSavedCandidates)
 .detected-row > span:nth-child(2) { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .detected-row .material-symbols-outlined { color: var(--primary); font-size: 17px; }
 .detected-row small { color: var(--on-surface-variant); font-size: 10px; overflow-wrap: anywhere; }
+.section-editor { align-items: flex-start; flex-wrap: wrap; }
+.section-title-editor { min-width: 180px; }
+.section-setting { display: grid; gap: 4px; flex: 0 1 120px; color: var(--on-surface-variant); font-size: 10px; font-weight: 600; }
+.section-setting select, .section-setting input { box-sizing: border-box; min-width: 0; width: 100%; padding: 5px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--on-surface); font: inherit; font-size: 11px; font-weight: 400; }
+.section-order { flex-basis: 76px; }
 .inline-editor { display: flex; align-items: center; flex: 1; min-width: 0; gap: 7px; }
 .inline-editor input { flex: 1; min-width: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--on-surface); font: inherit; padding: 4px 2px; }
 .inline-editor input:focus { outline: none; border-bottom-color: var(--primary); }
@@ -565,5 +629,5 @@ onMounted(loadSavedCandidates)
 .access-state > .material-symbols-outlined { color: var(--on-surface-variant); font-size: 36px; }
 .access-state h2 { margin: 0; font-size: 20px; }
 .access-state p { margin: 0 0 8px; color: var(--on-surface-variant); }
-@media (max-width: 800px) { .publisher-page { padding: 14px 14px 42px; } .publisher-header { padding-top: 6px; } .publisher-icon { display: none; } .publisher-steps { grid-template-columns: 1fr; } .publish-form { grid-template-columns: 1fr; align-items: stretch; } .publish-form button { width: 100%; } .success-panel { align-items: flex-start; flex-wrap: wrap; } .success-panel a { width: 100%; text-align: center; } .review-editor { grid-template-columns: 1fr; } .field-editor { grid-template-columns: 1fr 1fr; } .field-editor input[readonly] { grid-column: 1 / -1; } .field-editor .check-editor { justify-self: start; } .rule-editor-grid { grid-template-columns: 1fr 1fr; } .rule-editor-grid input:first-child { grid-column: 1 / -1; } .anchor-row { flex-wrap: wrap; } .anchor-row small { width: 100%; margin-left: 24px; text-align: left; } }
+@media (max-width: 800px) { .publisher-page { padding: 14px 14px 42px; } .publisher-header { padding-top: 6px; } .publisher-icon { display: none; } .publisher-steps { grid-template-columns: 1fr; } .publish-form { grid-template-columns: 1fr; align-items: stretch; } .publish-form button { width: 100%; } .success-panel { align-items: flex-start; flex-wrap: wrap; } .success-panel a { width: 100%; text-align: center; } .review-editor, .review-editor-wide { grid-template-columns: 1fr; } .field-editor { grid-template-columns: 1fr 1fr; } .field-editor input[readonly] { grid-column: 1 / -1; } .field-editor .check-editor { justify-self: start; } .rule-editor-grid { grid-template-columns: 1fr 1fr; } .rule-editor-grid input:first-child { grid-column: 1 / -1; } .section-setting, .section-order { flex-basis: calc(50% - 8px); } .section-title-editor { flex-basis: 100%; } .anchor-row { flex-wrap: wrap; } .anchor-row small { width: 100%; margin-left: 24px; text-align: left; } }
 </style>

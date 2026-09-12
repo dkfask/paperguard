@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import hashlib
 import os
 import re
 import shutil
@@ -26,6 +25,7 @@ from app.domain.documents.specs import SpecVersion
 from app.domain.workflow_states import transition_state
 from app.repositories.workflow_repository import WorkflowRepository
 from app.services.generic_docx_renderer import render_document_project_to_docx
+from app.services.storage import LocalStorageAdapter, configured_storage
 from app.services.upload_security import DOCX_MAX_BYTES, validate_docx_bytes
 
 
@@ -34,6 +34,10 @@ ARTIFACT_KIND = "document_artifact"
 RENDER_JOB_TYPE = "document.render"
 _DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "artifacts"
 _SAFE_STORAGE_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.docx$")
+
+
+class DocumentRenderCancelled(RuntimeError):
+    """Raised when an in-flight render is cancelled before publication."""
 
 
 def artifact_dir() -> Path:
@@ -60,6 +64,11 @@ def _artifact_path(storage_key: str) -> Path | None:
     if candidate.parent != base or candidate.suffix.lower() != ".docx":
         return None
     return candidate
+
+
+def artifact_storage() -> LocalStorageAdapter | Any:
+    """Return the configured artifact store while retaining local temp space."""
+    return configured_storage(artifact_dir())
 
 
 def _artifact_view(artifact: Artifact | None) -> dict[str, Any] | None:
@@ -166,8 +175,14 @@ def get_document_artifact(store: Store, artifact_id: str) -> Artifact | None:
 
 
 def resolve_document_artifact(artifact: Artifact) -> Path | None:
-    path = _artifact_path(artifact.storage_key)
-    return path if path is not None and path.is_file() else None
+    storage = artifact_storage()
+    if isinstance(storage, LocalStorageAdapter):
+        return storage.resolve_path(artifact.storage_key)
+    return None
+
+
+def read_document_artifact(artifact: Artifact) -> bytes | None:
+    return artifact_storage().get_bytes(artifact.storage_key)
 
 
 def recover_pending_document_render_jobs(store: Store) -> None:
@@ -225,6 +240,8 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
     raw = running
     temp_dir: Path | None = None
     final_path: Path | None = None
+    storage: LocalStorageAdapter | Any | None = None
+    stored_key = ""
     try:
         snapshot = raw.get("snapshot") or {}
         actual_snapshot_hash = canonical_hash(snapshot)
@@ -249,9 +266,6 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
             renderer_version=project.renderer_version,
             created_at=_now(),
         )
-        final_path = _artifact_path(artifact.storage_key)
-        if final_path is None:
-            raise ValueError("artifact storage key is unsafe")
         base = artifact_dir()
         temp_dir = Path(tempfile.mkdtemp(prefix=f"{raw['id']}-", dir=str(base))).resolve()
         output = temp_dir / "document.docx"
@@ -261,10 +275,23 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
         if output.stat().st_size > DOCX_MAX_BYTES:
             raise ValueError("renderer artifact exceeds the DOCX size limit")
         validate_docx_bytes(output.read_bytes())
-        output.replace(final_path)
+        latest = get_document_render_job(store, render_job_id)
+        if latest and latest.get("status") == "cancelled":
+            raise DocumentRenderCancelled()
+        storage = artifact_storage()
+        stored = storage.put_bytes(
+            artifact.storage_key,
+            output.read_bytes(),
+            artifact.content_type,
+        )
+        stored_key = artifact.storage_key
+        if isinstance(storage, LocalStorageAdapter):
+            final_path = storage.resolve_path(artifact.storage_key)
+            if final_path is None:
+                raise ValueError("artifact storage write did not produce a file")
         artifact = artifact.model_copy(update={
-            "size_bytes": final_path.stat().st_size,
-            "checksum": hashlib.sha256(final_path.read_bytes()).hexdigest(),
+            "size_bytes": stored["size_bytes"],
+            "checksum": stored["checksum"],
         })
         raw["status"] = transition_state(RENDER_JOB_KIND, "running", "succeeded")
         raw["artifact_id"] = artifact.id
@@ -290,8 +317,14 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
                 "created_at": raw["completed_at"],
             })
         return saved
+    except DocumentRenderCancelled:
+        if storage is not None and stored_key:
+            storage.delete(stored_key)
+        return get_document_render_job(store, render_job_id) or raw
     except Exception as exc:
-        if final_path is not None:
+        if storage is not None and stored_key:
+            storage.delete(stored_key)
+        elif final_path is not None:
             final_path.unlink(missing_ok=True)
         raw["status"] = transition_state(RENDER_JOB_KIND, "running", "failed")
         raw["error_code"] = "DOCUMENT_RENDER_FAILED"
@@ -316,14 +349,17 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
 
 __all__ = [
     "ARTIFACT_KIND",
+    "DocumentRenderCancelled",
     "RENDER_JOB_KIND",
     "RENDER_JOB_TYPE",
     "artifact_dir",
+    "artifact_storage",
     "create_document_render_job",
     "get_document_artifact",
     "get_document_render_job",
     "recover_pending_document_render_jobs",
     "render_job_view",
+    "read_document_artifact",
     "resolve_document_artifact",
     "run_document_render_job",
 ]

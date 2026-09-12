@@ -8,7 +8,7 @@ so existing PaperGuard data can be mapped without loss.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -87,9 +87,14 @@ class TemplateSection(BaseModel):
     key: str = Field(min_length=1)
     title: str = ""
     kind: str = "content"
-    order: int = 0
+    order: int = Field(default=0, ge=0)
     parent_key: str = ""
     required: bool = True
+    repeatable: bool = False
+    # Existing generic projects always exposed an add-block affordance; keep
+    # that behavior for snapshots created before these controls existed.
+    allow_user_add: bool = True
+    allow_user_delete: bool = False
     style_ref: str = ""
     style: StyleDefinition | None = None
     fields: list[str] = Field(default_factory=list)
@@ -122,6 +127,8 @@ class TemplateDefinition(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    mode: Literal["fixed_form", "structured_document", "hybrid"] = "hybrid"
+    export_strategy: Literal["auto", "source_template", "legacy_adapter"] = "auto"
     sections: list[TemplateSection] = Field(default_factory=list)
     fields: list[TemplateField] = Field(default_factory=list)
     anchors: list[TemplateAnchor] = Field(default_factory=list)
@@ -310,6 +317,7 @@ class RenderJob(BaseModel):
     updated_at: str = ""
     completed_at: str = ""
     failed_at: str = ""
+    cancelled_at: str = ""
     recovery_reason: str = ""
 
 

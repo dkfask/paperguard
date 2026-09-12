@@ -1228,6 +1228,23 @@ class Store:
             updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._job_row(updated)
 
+    def cancel_job(self, job_id: str, reason: str = "") -> dict | None:
+        with self._connect() as conn:
+            return self.cancel_job_conn(conn, job_id, reason=reason)
+
+    def cancel_job_conn(self, conn: sqlite3.Connection, job_id: str, reason: str = "") -> dict | None:
+        """Cancel a queued or leased job without deleting its audit history."""
+        now = _now()
+        cur = conn.execute(
+            "UPDATE jobs SET state = 'cancelled', lease_until = NULL, lease_token = NULL, "
+            "leased_by = NULL, last_error = ?, updated_at = ? "
+            "WHERE id = ? AND state IN ('queued', 'running', 'failed')",
+            (reason[:2000] if reason else "cancelled", now, job_id),
+        )
+        if cur.rowcount != 1:
+            return None
+        return self._job_row(conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone())
+
     def retry_job(self, job_id: str, reason: str = "") -> dict | None:
         with self._connect() as conn:
             return self.retry_job_conn(conn, job_id, reason)

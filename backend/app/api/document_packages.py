@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.auth import current_user, require_manager
+from app.core.feature_flags import require_general_document_platform
 from app.db import Store
 from app.services.package_engine import PackagePublishError, publish_package_candidates
 from app.services.document_candidates import (
@@ -20,7 +21,11 @@ from app.services.template_engine import TemplateParseCandidate
 from app.services.spec_engine import SpecParseCandidate
 from app.services.document_access import document_context_visible, public_document_bundle
 
-router = APIRouter(prefix="/api/document-packages", tags=["document-packages"])
+router = APIRouter(
+    prefix="/api/document-packages",
+    tags=["document-packages"],
+    dependencies=[Depends(require_general_document_platform)],
+)
 
 
 class PublishPackageRequest(BaseModel):

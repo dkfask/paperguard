@@ -36,7 +36,7 @@ jobs:
         run: python -m pytest -q
 
   frontend:
-    name: Frontend build
+    name: Frontend checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -50,6 +50,9 @@ jobs:
       - name: Install and build
         run: |
           npm ci
+          npm test -- --run
+          npm run typecheck
+          npm run test:paragraphs
           npm run build
 
   online-verifier:

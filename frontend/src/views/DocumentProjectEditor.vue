@@ -54,6 +54,8 @@
               <div><dt>{{ t('documentProjects.specVersion') }}</dt><dd>{{ draft.spec_version_id }}</dd></div>
               <div><dt>{{ t('documentProjects.renderer') }}</dt><dd>{{ draft.renderer_version }}</dd></div>
               <div><dt>{{ t('documentProjects.ruleEngine') }}</dt><dd>{{ draft.rule_engine_version }}</dd></div>
+              <div><dt>{{ t('documentProjects.editorMode') }}</dt><dd>{{ editor.editor_schema.mode }}</dd></div>
+              <div><dt>{{ t('documentProjects.exportStrategy') }}</dt><dd>{{ editor.editor_schema.export_strategy }}</dd></div>
             </dl>
           </div>
           <div class="aside-block">
@@ -87,7 +89,7 @@
           <section v-for="section in editableSections" :key="section.key" class="editor-section">
             <div class="section-heading">
               <div><p class="workspace-kicker">{{ section.kind }}</p><h2>{{ section.title || section.key }}</h2></div>
-              <button class="icon-action" type="button" :title="t('documentProjects.addBlock')" :aria-label="t('documentProjects.addBlock')" @click="addBlock(section.key)">
+              <button v-if="canAddBlock(section)" class="icon-action" type="button" :title="t('documentProjects.addBlock')" :aria-label="t('documentProjects.addBlock')" :data-test="`add-block-${section.key}`" @click="addBlock(section.key)">
                 <span class="material-symbols-outlined" aria-hidden="true">add</span>
               </button>
             </div>
@@ -95,9 +97,14 @@
               <article v-for="(block, index) in draft.sections[section.key]" :key="block.id" class="content-block">
                 <div class="block-label">
                   <span>{{ t('documentProjects.block') }} {{ index + 1 }}</span>
-                  <select :data-test="`block-kind-${block.id}`" v-model="block.kind" :aria-label="t('documentProjects.blockType')" @change="normalizeBlock(block); scheduleSave()">
-                    <option v-for="kind in blockKinds(section)" :key="kind" :value="kind">{{ kind }}</option>
-                  </select>
+                  <div class="block-actions">
+                    <select :data-test="`block-kind-${block.id}`" v-model="block.kind" :aria-label="t('documentProjects.blockType')" @change="normalizeBlock(block); scheduleSave()">
+                      <option v-for="kind in blockKinds(section)" :key="kind" :value="kind">{{ kind }}</option>
+                    </select>
+                    <button v-if="canDeleteBlock(section)" class="icon-action danger" type="button" :title="t('documentProjects.deleteBlock')" :aria-label="t('documentProjects.deleteBlock')" :data-test="`delete-block-${block.id}`" @click="removeBlock(section.key, index)">
+                      <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                    </button>
+                  </div>
                 </div>
                 <textarea v-if="isTextBlock(block)" v-model="block.text" :aria-label="`${section.title || section.key} ${index + 1}`" rows="7" @input="scheduleSave"></textarea>
                 <div v-else-if="isImageBlock(block)" class="block-fields">
@@ -163,7 +170,10 @@ const error = ref('')
 const uploadingBlockId = ref('')
 let saveTimer = null
 
-const editableSections = computed(() => (editor.value?.editor_schema.sections || []).filter((section) => draft.sections[section.key]))
+const editableSections = computed(() => {
+  if (editor.value?.editor_schema.mode === 'fixed_form') return []
+  return (editor.value?.editor_schema.sections || []).filter((section) => draft.sections[section.key])
+})
 
 function applyProject(project) {
   draft.title = project.title || ''
@@ -247,6 +257,21 @@ function addBlock(sectionKey) {
   const kind = blockKinds(section)[0] || 'paragraph'
   draft.sections[sectionKey].push({ id, kind, text: '', data: {}, order: draft.sections[sectionKey].length })
   normalizeBlock(draft.sections[sectionKey][draft.sections[sectionKey].length - 1])
+  scheduleSave()
+}
+
+function canAddBlock(section) {
+  return Boolean(section?.allow_user_add || section?.repeatable)
+}
+
+function canDeleteBlock(section) {
+  return Boolean(section?.allow_user_delete)
+}
+
+function removeBlock(sectionKey, index) {
+  const blocks = draft.sections[sectionKey]
+  if (!Array.isArray(blocks)) return
+  blocks.splice(index, 1)
   scheduleSave()
 }
 
@@ -404,7 +429,10 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .block-list { display: grid; gap: 12px; }
 .content-block { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .block-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--on-surface-variant); font-size: 11px; }
+.block-actions { display: inline-flex; align-items: center; gap: 7px; }
+.block-actions select { min-width: 118px; }
 .icon-action { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--primary); cursor: pointer; }
 .icon-action:hover { border-color: var(--primary); }
+.icon-action.danger { color: var(--error, #b3261e); }
 @media (max-width: 780px) { .editor-page { padding: 14px 14px 42px; } .editor-header { align-items: flex-start; flex-direction: column; } .editor-actions { width: 100%; justify-content: space-between; } .title-input { font-size: 26px; } .editor-layout { display: block; } .editor-aside { position: static; margin-bottom: 26px; } .field-grid { grid-template-columns: 1fr; } .table-editor-toolbar { display: grid; grid-template-columns: 1fr 1fr; } .table-editor-toolbar label { min-width: 0; } .table-editor-toolbar input { width: 100%; } }
 </style>

@@ -165,10 +165,14 @@ def render_document_project_to_docx(
     if source_path is None:
         raise GenericDocxRenderError("template source DOCX is missing or unsafe")
 
+    strategy = template_version.definition.export_strategy
+    if strategy == "source_template" and not template_version.definition.anchors:
+        raise GenericDocxRenderError("source-template export requires stable DOCX anchors")
+
     # Explicit anchors are the high-fidelity path for new generic templates:
     # mutate only declared locations and preserve the original OOXML package.
     # Templates without anchors retain the existing thesis-compatible adapter.
-    if template_version.definition.anchors:
+    if strategy != "legacy_adapter" and template_version.definition.anchors:
         image_paths: dict[str, Path] = {}
         for blocks in project.sections.values():
             for block in blocks:

@@ -82,8 +82,8 @@ The following must be filled with output from the exact branch head before
 declaring the phase complete:
 
 - Compose config validation: PASS locally.
-- Docker image build: **NOT RUN locally**; the Docker registry timed out while
-  resolving `python:3.12-slim` and `nginx:alpine`.
+- Docker image build: **NOT RUN locally**; on 2026-09-12 Docker Hub token
+  requests timed out while resolving `python:3.12-slim` and `nginx:alpine`.
 - Backend live/ready probes through Nginx: **NOT RUN locally**.
 - Staging browser E2E through the built frontend: **NOT RUN locally**.
 - Clean-volume migration: **NOT RUN locally**.
@@ -96,6 +96,11 @@ declaring the phase complete:
   were verified. Docker image/config rollback on a target staging host:
   **NOT RUN**.
 - Production deployment and online verification: **NOT RUN** by authorization
+
+The local disposable Compose project was explicitly named
+`paperguard-local-phase13`, used port `18081` and volume
+`paperguard_local_phase13_data`, and was cleaned up after the failed image
+resolution. No production-style project or volume was used.
 
 ## Hosted Evidence
 
