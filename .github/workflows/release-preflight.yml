@@ -28,6 +28,14 @@ jobs:
         with:
           ref: ${{ inputs.source_ref || github.event.pull_request.head.sha || github.sha }}
 
+      - name: Set up release manifest validator
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install release manifest validator
+        run: python -m pip install --requirement ops/requirements.txt
+
       - name: Generate isolated preflight password
         run: |
           preflight_password="Preflight7$(openssl rand -hex 18)"
@@ -53,7 +61,7 @@ jobs:
           exit 1
 
       - name: Verify disposable migration ledger
-        run: docker compose -p paperguard-release-preflight -f docker-compose.yml exec -T backend python -m app.cli.main migrate
+        run: docker compose -p paperguard-release-preflight -f docker-compose.yml exec -T backend python -m app.cli migrate
 
       - name: Write release manifest
         if: always()
@@ -75,6 +83,10 @@ jobs:
             --argjson images "$compose_images" \
             '{format:"paperguard-release-manifest", format_version:1, release_id:$release_id, source_ref:$source_ref, source_revision:$source_revision, configuration:{compose_sha256:$compose_sha256, backend_dockerfile_sha256:$backend_dockerfile_sha256, frontend_dockerfile_sha256:$frontend_dockerfile_sha256}, disposable_runtime:{compose_project:"paperguard-release-preflight", endpoint:"http://127.0.0.1:8080", images:$images}, production_deployment:false, backup_required:true, rollback_required:true}' \
             > release-manifest.json
+
+      - name: Validate release manifest schema
+        if: always()
+        run: python ops/validate-release-manifest.py release-manifest.json docs/generalization/production-release-manifest.schema.json
 
       - name: Capture preflight identity and logs
         if: always()

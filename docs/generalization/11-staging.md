@@ -87,8 +87,14 @@ declaring the phase complete:
 - Backend live/ready probes through Nginx: **NOT RUN locally**.
 - Staging browser E2E through the built frontend: **NOT RUN locally**.
 - Clean-volume migration: **NOT RUN locally**.
-- Representative existing-data migration/restore: **NOT RUN**
-- Staging rollback rehearsal: **NOT RUN**
+- Representative existing-data migration/restore: **PASS** in an isolated
+  temporary data root. The rehearsal initialized the full migration ledger,
+  stored an existing generic document package and project, restored the
+  database and persisted template asset, and verified both records afterward.
+- Backup-restore rollback rehearsal: **PASS** in the same isolated root; the
+  retained pre-restore state was promoted back and the changed setting/asset
+  were verified. Docker image/config rollback on a target staging host:
+  **NOT RUN**.
 - Production deployment and online verification: **NOT RUN** by authorization
 
 ## Hosted Evidence
@@ -117,9 +123,10 @@ revision.
 
 ## Phase Gate
 
-The disposable staging execution is **GO** on the exact PR head. Phase 11 as a
-production release gate remains **NO-GO** because representative existing-data
-restore and rollback rehearsal are still **NOT RUN**. Phase 12 may prepare the
-release and rollback controls, but production deployment and online verification
-remain blocked until separate authorization, backup, immutable artifact, and
-rollback approvals exist.
+The disposable staging execution is **GO** on the exact PR head. The isolated
+existing-data restore and backup rollback rehearsal are now **PASS**; Phase 11
+as a production release gate remains **NO-GO** because target-host image/config
+rollback, production deployment, and online verification are not authorized or
+executed. Phase 12 may prepare the release controls, but production use still
+requires separate authorization, immutable artifacts, and a named rollback
+owner.

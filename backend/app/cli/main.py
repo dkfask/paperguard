@@ -50,4 +50,8 @@ cli.add_command(restore)
 cli.add_command(migrate)
 
 
+if __name__ == "__main__":
+    cli()
+
+
 __all__ = ["cli"]

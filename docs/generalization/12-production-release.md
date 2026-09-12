@@ -70,9 +70,10 @@ recovery.
 - Production Compose configuration: PASS locally with an ephemeral password.
 - Persisted data-root binding: PASS locally; backend and worker point at the
   mounted `/app/data` volume.
-- Release manifest schema: validated structurally by review; automated JSON
-  Schema validation: **NOT RUN** because no JSON Schema validator is pinned in
-  the repository.
+- Release manifest schema: automated JSON Schema validation **PASS** locally
+  with the pinned `ops/requirements.txt` validator and
+  `ops/validate-release-manifest.py`; a valid manifest was accepted and a
+  manifest with `production_deployment: true` was rejected.
 - `deploy.sh` shell syntax: PASS locally.
 - Hosted disposable production-topology preflight run `34679655510`:
   **success** on executable source revision
@@ -89,7 +90,9 @@ recovery.
   3.11/3.12 backend tests all passed.
 - Production image registry push and immutable digest capture: **NOT RUN**.
 - Target-host backup, representative restore, and rollback rehearsal:
-  **NOT RUN**.
+  **NOT RUN**. The corresponding isolated local backup/restore/rollback
+  rehearsal is recorded in Phase 11; no target host or production data was
+  touched.
 - Production deployment and online verification: **NOT RUN** by authorization.
 
 ## Phase Gate

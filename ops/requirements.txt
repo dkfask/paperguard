@@ -1,0 +1,2 @@
+# Pinned only for release-operations manifest validation; it is not a runtime dependency.
+jsonschema==4.23.0
