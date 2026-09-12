@@ -36,7 +36,7 @@ jobs:
         run: python -m pytest -q
 
   frontend:
-    name: Frontend build
+    name: Frontend checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -46,8 +46,19 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
       - name: Install and build
         run: |
           npm ci
+          npm test -- --run
+          npm run typecheck
+          npm run test:paragraphs
           npm run build
+
+  online-verifier:
+    name: Online verifier contract (loopback)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run loopback contract test
+        run: bash ops/test-online-verify.sh

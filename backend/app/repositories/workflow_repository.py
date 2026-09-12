@@ -64,6 +64,12 @@ class WorkflowRepository:
     def fail_job(self, job_id: str, **values: Any) -> dict | None:
         return self.store.fail_job(job_id, **values)
 
+    def cancel_job(self, job_id: str, reason: str = "") -> dict | None:
+        return self.store.cancel_job(job_id, reason=reason)
+
+    def cancel_job_in_transaction(self, conn: sqlite3.Connection, job_id: str, reason: str = "") -> dict | None:
+        return self.store.cancel_job_conn(conn, job_id, reason=reason)
+
     def get_job_in_transaction(self, conn: sqlite3.Connection, job_id: str):
         return self.store.get_job_conn(conn, job_id)
 

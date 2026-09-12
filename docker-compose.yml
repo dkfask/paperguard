@@ -6,6 +6,8 @@ services:
       - UVICORN_HOST=0.0.0.0
       - PAPERGUARD_ADMIN_PASSWORD=${PAPERGUARD_ADMIN_PASSWORD:?请设置管理员密码}
       - PAPERGUARD_CORS_ORIGINS=${PAPERGUARD_CORS_ORIGINS:-http://localhost:8080}
+      - PAPERGUARD_DATA_DIR=/app/data
+      - PAPERGUARD_DB_PATH=/app/data/paperguard.db
     env_file:
       - path: .env
         required: false
@@ -22,6 +24,8 @@ services:
         required: false
     environment:
       - PAPERGUARD_WORKER_INTERVAL_SECONDS=${PAPERGUARD_WORKER_INTERVAL_SECONDS:-30}
+      - PAPERGUARD_DATA_DIR=/app/data
+      - PAPERGUARD_DB_PATH=/app/data/paperguard.db
     volumes:
       - paperguard_data:/app/data
     depends_on:

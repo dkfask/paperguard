@@ -1,0 +1,108 @@
+name: PaperGuard production release preflight
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Git ref to verify
+        required: true
+        default: main
+        type: string
+      release_id:
+        description: Human-readable release identifier for the manifest
+        required: true
+        default: preflight
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Disposable production-topology preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up release manifest validator
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install release manifest validator
+        run: python -m pip install --requirement ops/requirements.txt
+
+      - name: Generate isolated preflight password
+        run: |
+          preflight_password="Preflight7$(openssl rand -hex 18)"
+          echo "::add-mask::$preflight_password"
+          echo "PAPERGUARD_ADMIN_PASSWORD=$preflight_password" >> "$GITHUB_ENV"
+
+      - name: Validate production Compose configuration
+        run: docker compose -p paperguard-release-preflight -f docker-compose.yml config --quiet
+
+      - name: Build and start disposable production topology
+        run: docker compose -p paperguard-release-preflight -f docker-compose.yml up -d --build
+
+      - name: Verify production topology probes
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/api/health/live >/dev/null \
+              && curl -fsS http://127.0.0.1:8080/api/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -p paperguard-release-preflight -f docker-compose.yml ps
+          exit 1
+
+      - name: Verify disposable migration ledger
+        run: docker compose -p paperguard-release-preflight -f docker-compose.yml exec -T backend python -m app.cli migrate
+
+      - name: Write release manifest
+        if: always()
+        env:
+          RELEASE_ID: ${{ inputs.release_id || format('pr-{0}', github.event.pull_request.number || github.run_number) }}
+          SOURCE_REF: ${{ inputs.source_ref || github.event.pull_request.head.ref || github.ref }}
+        run: |
+          compose_images=$(docker compose -p paperguard-release-preflight -f docker-compose.yml images --format json 2>/dev/null || printf '%s\n' '[]')
+          if ! jq -e 'type == "array"' >/dev/null 2>&1 <<< "$compose_images"; then
+            compose_images=$(jq -s '.' <<< "$compose_images")
+          fi
+          jq -n \
+            --arg release_id "$RELEASE_ID" \
+            --arg source_ref "$SOURCE_REF" \
+            --arg source_revision "$(git rev-parse HEAD)" \
+            --arg compose_sha256 "$(sha256sum docker-compose.yml | awk '{print $1}')" \
+            --arg backend_dockerfile_sha256 "$(sha256sum backend/Dockerfile | awk '{print $1}')" \
+            --arg frontend_dockerfile_sha256 "$(sha256sum frontend/Dockerfile | awk '{print $1}')" \
+            --argjson images "$compose_images" \
+            '{format:"paperguard-release-manifest", format_version:1, release_id:$release_id, source_ref:$source_ref, source_revision:$source_revision, configuration:{compose_sha256:$compose_sha256, backend_dockerfile_sha256:$backend_dockerfile_sha256, frontend_dockerfile_sha256:$frontend_dockerfile_sha256}, disposable_runtime:{compose_project:"paperguard-release-preflight", endpoint:"http://127.0.0.1:8080", images:$images}, production_deployment:false, backup_required:true, rollback_required:true}' \
+            > release-manifest.json
+
+      - name: Validate release manifest schema
+        if: always()
+        run: python ops/validate-release-manifest.py release-manifest.json docs/generalization/production-release-manifest.schema.json
+
+      - name: Capture preflight identity and logs
+        if: always()
+        run: |
+          docker compose -p paperguard-release-preflight -f docker-compose.yml ps
+          docker compose -p paperguard-release-preflight -f docker-compose.yml images
+          docker compose -p paperguard-release-preflight -f docker-compose.yml logs --no-color --tail=200
+
+      - name: Upload release manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperguard-release-manifest
+          path: release-manifest.json
+          if-no-files-found: ignore
+
+      - name: Tear down disposable production topology
+        if: always()
+        run: docker compose -p paperguard-release-preflight -f docker-compose.yml down -v --remove-orphans

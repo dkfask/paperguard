@@ -1,7 +1,7 @@
 <template>
   <div>
     <div v-if="uploadError" class="error-banner" role="alert">⚠ {{ uploadError }}</div>
-    <input ref="imgInput" type="file" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp" hidden @change="onImagePicked" />
+    <input ref="imgInput" type="file" accept=".png,.jpg,.jpeg,.gif,image/png,image/jpeg,image/gif" hidden @change="onImagePicked" />
     <div v-for="(par, i) in paragraphs" :key="par.id" class="para-block">
       <div class="para-toolbar">
         <span class="para-no">{{ t('blockList.block', { number: i + 1 }) }}</span>

@@ -1,0 +1,54 @@
+services:
+  backend:
+    image: paperguard-staging-backend:${PAPERGUARD_STAGING_TAG:-local}
+    pull_policy: build
+    build:
+      context: ./backend
+    environment:
+      PAPERGUARD_ADMIN_PASSWORD: ${PAPERGUARD_STAGING_ADMIN_PASSWORD:?请设置 staging 管理员密码}
+      PAPERGUARD_CORS_ORIGINS: ${PAPERGUARD_STAGING_CORS_ORIGINS:-http://127.0.0.1:18080}
+      PAPERGUARD_LOG_LEVEL: ${PAPERGUARD_STAGING_LOG_LEVEL:-INFO}
+      PAPERGUARD_DATA_DIR: /app/data
+      PAPERGUARD_DB_PATH: /app/data/paperguard.db
+    volumes:
+      - paperguard_staging_data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3)
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    image: paperguard-staging-backend:${PAPERGUARD_STAGING_TAG:-local}
+    environment:
+      PAPERGUARD_WORKER_INTERVAL_SECONDS: ${PAPERGUARD_STAGING_WORKER_INTERVAL_SECONDS:-5}
+      PAPERGUARD_DATA_DIR: /app/data
+      PAPERGUARD_DB_PATH: /app/data/paperguard.db
+    volumes:
+      - paperguard_staging_data:/app/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: paperguard-staging-frontend:${PAPERGUARD_STAGING_TAG:-local}
+    pull_policy: build
+    build:
+      context: ./frontend
+    ports:
+      - "${PAPERGUARD_STAGING_PORT:-18080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  paperguard_staging_data:
+    name: ${PAPERGUARD_STAGING_VOLUME:-paperguard_staging_data}

@@ -6,6 +6,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+from app.api import audit as audit_api
 from app.main import app
 from app.db import Store
 
@@ -21,6 +22,13 @@ def _login(username: str, password: str) -> dict[str, str]:
     response = client.post("/api/auth/login", json={"username": username, "password": password})
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def test_audit_store_does_not_seed_templates(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPERGUARD_DB_PATH", str(tmp_path / "audit-read.db"))
+    store = audit_api.get_store()
+
+    assert store.list_templates() == []
 
 
 def test_audit_center_filters_and_request_correlation():
@@ -49,8 +57,12 @@ def test_audit_center_filters_and_request_correlation():
     assert event["request_id"].startswith("req-")
     assert "content" not in event and "body" not in event and "data" not in event
 
+    scoped = client.get("/api/audit", headers=admin, params={"resource_id": cohort_id})
+    assert scoped.status_code == 200, scoped.text
+    assert scoped.json() and all(item["resource_id"] == cohort_id for item in scoped.json())
+
     exported = client.get("/api/audit/export", headers=admin, params={
-        "resource_type": "cohort", "action": "cohort.create", "organization_id": organization_id,
+        "resource_type": "cohort", "resource_id": cohort_id, "action": "cohort.create", "organization_id": organization_id,
     })
     assert exported.status_code == 200, exported.text
     assert exported.headers["content-type"].startswith("text/csv")

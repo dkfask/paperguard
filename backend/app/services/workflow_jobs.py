@@ -29,6 +29,7 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
         limit=max(1, min(limit, 50)), lease_seconds=300,
     )
     succeeded: list[str] = []
+    cancelled: list[str] = []
     failed: list[dict[str, str]] = []
     for job in claimed:
         job_context = RequestContext(
@@ -63,6 +64,18 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
                     job_id=job["id"], job_type=job["job_type"], state="succeeded",
                 )
             continue
+        if result.get("status") == "cancelled":
+            repository.cancel_job(job["id"], reason="通用文档渲染已取消")
+            cancelled.append(job["id"])
+            log_event(
+                LOGGER,
+                "job.cancelled",
+                context=job_context,
+                job_id=job["id"],
+                job_type=job["job_type"],
+                state="cancelled",
+            )
+            continue
         failed_job = repository.fail_job(
             job["id"], error=result.get("error_code") or "归档生成失败",
             lease_token=job.get("lease_token", ""), retry_delay_seconds=5,
@@ -74,12 +87,12 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
                 job_id=job["id"], job_type=job["job_type"],
                 state=failed_job["state"], error=failed_job.get("last_error") or "",
             )
-    return {"claimed": len(claimed), "succeeded": succeeded, "failed": failed, "at": _now()}
+    return {"claimed": len(claimed), "succeeded": succeeded, "cancelled": cancelled, "failed": failed, "at": _now()}
 
 
 def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> dict[str, Any]:
     """Claim and execute durable project export jobs outside the web process."""
-    from app.services.export_jobs import EXPORT_JOB_TYPE, run_project_export
+    from app.services.export_jobs import EXPORT_ID_RE, EXPORT_JOB_TYPE, run_project_export
     from app.api.workflow import _now
 
     repository = WorkflowRepository(store)
@@ -90,6 +103,14 @@ def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 
     succeeded: list[str] = []
     failed: list[dict[str, str]] = []
     for job in claimed:
+        if not EXPORT_ID_RE.fullmatch(str(job.get("resource_id", ""))):
+            rejected = repository.fail_job(
+                job["id"], error="导出任务资源标识不合法",
+                lease_token=job.get("lease_token", ""), retry_delay_seconds=60,
+            )
+            if rejected:
+                failed.append({"job_id": job["id"], "state": rejected["state"], "error": rejected.get("last_error") or ""})
+            continue
         job_context = RequestContext(actor_id="system", role="system", request_id=f"job-{job['id']}")
         log_event(
             LOGGER, "job.started", context=job_context, job_id=job["id"],
@@ -109,6 +130,72 @@ def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 
         if failed_job:
             failed.append({"job_id": job["id"], "state": failed_job["state"], "error": failed_job.get("last_error") or ""})
             log_event(LOGGER, "job.failed", context=job_context, job_id=job["id"], job_type=job["job_type"], state=failed_job["state"], error=failed_job.get("last_error") or "")
+    return {"claimed": len(claimed), "succeeded": succeeded, "failed": failed, "at": _now()}
+
+
+def consume_document_render_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> dict[str, Any]:
+    """Claim and execute generic DOCX render jobs outside the web process."""
+    from app.api.workflow import _now
+    from app.services.document_render_jobs import RENDER_JOB_TYPE, run_document_render_job
+
+    repository = WorkflowRepository(store)
+    claimed = repository.claim_jobs(
+        job_type=RENDER_JOB_TYPE,
+        consumer_id=consumer_id,
+        limit=max(1, min(limit, 50)),
+        lease_seconds=300,
+    )
+    succeeded: list[str] = []
+    failed: list[dict[str, str]] = []
+    for job in claimed:
+        job_context = RequestContext(
+            actor_id="system", role="system", request_id=f"job-{job['id']}"
+        )
+        log_event(
+            LOGGER,
+            "job.started",
+            context=job_context,
+            job_id=job["id"],
+            job_type=job["job_type"],
+            resource_type=job["resource_type"],
+            resource_id=job["resource_id"],
+            attempt_count=job["attempt_count"],
+            consumer_id=consumer_id,
+        )
+        result = run_document_render_job(store, job["resource_id"], actor_id="system")
+        if result.get("status") == "succeeded":
+            if repository.complete_job(job["id"], lease_token=job.get("lease_token", "")):
+                succeeded.append(job["id"])
+                log_event(
+                    LOGGER,
+                    "job.completed",
+                    context=job_context,
+                    job_id=job["id"],
+                    job_type=job["job_type"],
+                    state="succeeded",
+                )
+            continue
+        failed_job = repository.fail_job(
+            job["id"],
+            error=result.get("error_code") or "通用文档渲染失败",
+            lease_token=job.get("lease_token", ""),
+            retry_delay_seconds=5,
+        )
+        if failed_job:
+            failed.append({
+                "job_id": job["id"],
+                "state": failed_job["state"],
+                "error": failed_job.get("last_error") or "",
+            })
+            log_event(
+                LOGGER,
+                "job.failed",
+                context=job_context,
+                job_id=job["id"],
+                job_type=job["job_type"],
+                state=failed_job["state"],
+                error=failed_job.get("last_error") or "",
+            )
     return {"claimed": len(claimed), "succeeded": succeeded, "failed": failed, "at": _now()}
 
 

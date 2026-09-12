@@ -1,0 +1,46 @@
+name: PaperGuard online verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paperguard-online-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Non-destructive online verification
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: paperguard-online-verification
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          fetch-depth: 1
+
+      - name: Verify protected source identity
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run non-destructive online verifier
+        run: bash ops/online-verify.sh
+        env:
+          PAPERGUARD_ONLINE_BASE_URL: ${{ secrets.PAPERGUARD_ONLINE_BASE_URL }}
+          PAPERGUARD_ONLINE_ADMIN_USERNAME: ${{ secrets.PAPERGUARD_ONLINE_ADMIN_USERNAME }}
+          PAPERGUARD_ONLINE_ADMIN_PASSWORD: ${{ secrets.PAPERGUARD_ONLINE_ADMIN_PASSWORD }}
+          PAPERGUARD_ONLINE_EVIDENCE_PATH: ${{ runner.temp }}/online-verification-evidence.json
+          PAPERGUARD_ONLINE_SOURCE_REVISION: ${{ github.sha }}
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperguard-online-verification
+          path: ${{ runner.temp }}/online-verification-evidence.json
+          if-no-files-found: ignore

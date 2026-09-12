@@ -9,7 +9,17 @@ export class LoginPage {
     await this.page.locator('#password').fill(password)
     await this.page.locator('form.auth-form').getByRole('button').click()
 
-    if (replacementPassword && await this.page.locator('#newPassword').count()) {
+    let requiresPasswordChange = false
+    try {
+      requiresPasswordChange = await Promise.race([
+        this.page.locator('#newPassword').waitFor({ state: 'visible', timeout: 5000 }).then(() => true),
+        this.page.waitForURL((url) => !url.pathname.endsWith('/login'), { timeout: 5000 }).then(() => false),
+      ])
+    } catch {
+      // Keep the final URL assertion as the failure signal for invalid login.
+    }
+
+    if (replacementPassword && requiresPasswordChange) {
       await this.page.locator('#username').fill(username)
       await this.page.locator('#password').fill(password)
       await this.page.locator('#newPassword').fill(replacementPassword)

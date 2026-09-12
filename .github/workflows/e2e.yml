@@ -1,0 +1,61 @@
+name: Generic document E2E
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generic-document:
+    name: Generic document browser flow
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Generate isolated admin password
+        run: |
+          e2e_password="E2e7$(python -c 'import secrets; print(secrets.token_hex(18))')"
+          echo "::add-mask::$e2e_password"
+          echo "E2E_ADMIN_PASSWORD=$e2e_password" >> "$GITHUB_ENV"
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run generic document E2E
+        working-directory: frontend
+        run: npm run test:e2e -- e2e/document-platform.spec.ts --project=chromium --project=mobile-chrome
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generic-document-playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paperguard.example/schemas/production-release-manifest.schema.json",
+  "title": "PaperGuard production release manifest",
+  "type": "object",
+  "required": [
+    "format",
+    "format_version",
+    "release_id",
+    "source_ref",
+    "source_revision",
+    "configuration",
+    "disposable_runtime",
+    "production_deployment",
+    "backup_required",
+    "rollback_required"
+  ],
+  "properties": {
+    "format": { "const": "paperguard-release-manifest" },
+    "format_version": { "const": 1 },
+    "release_id": { "type": "string", "minLength": 1 },
+    "source_ref": { "type": "string", "minLength": 1 },
+    "source_revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "configuration": {
+      "type": "object",
+      "required": [
+        "compose_sha256",
+        "backend_dockerfile_sha256",
+        "frontend_dockerfile_sha256"
+      ],
+      "properties": {
+        "compose_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "backend_dockerfile_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "frontend_dockerfile_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "disposable_runtime": {
+      "type": "object",
+      "required": ["compose_project", "endpoint", "images"],
+      "properties": {
+        "compose_project": { "const": "paperguard-release-preflight" },
+        "endpoint": { "type": "string", "format": "uri" },
+        "images": { "type": "array" }
+      },
+      "additionalProperties": false
+    },
+    "production_deployment": { "const": false },
+    "backup_required": { "const": true },
+    "rollback_required": { "const": true }
+  },
+  "additionalProperties": false
+}

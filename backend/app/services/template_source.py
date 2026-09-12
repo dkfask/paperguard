@@ -56,8 +56,9 @@ def resolve_template_source(name: str) -> Path | None:
     """把模板记录里的文件名解析为存在的绝对路径; 非法或缺失返回 None。"""
     if not is_safe_source_name(name):
         return None
-    path = template_source_dir() / name
-    return path if path.is_file() else None
+    base = template_source_dir().resolve()
+    path = (base / name).resolve()
+    return path if path.parent == base and path.is_file() else None
 
 
 def delete_template_source(name: str) -> None:

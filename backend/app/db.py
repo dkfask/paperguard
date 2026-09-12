@@ -21,13 +21,27 @@ from app.models.organization import OrganizationUnit
 from app.models.policy import CheckRun, PolicyAuditEvent, RequirementSet
 from app.models.template import PaperTemplate
 
+# Keep the default database beside the other persisted runtime assets.  The
+# Docker Compose volume is mounted at /app/data, which corresponds to this
+# repository-level backend/data directory in a source checkout.
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "paperguard.db"
-SCHEMA_MIGRATIONS = ("0001_runtime_schema", "0002_durable_jobs", "0003_audit_ledger")
+SCHEMA_MIGRATIONS = (
+    "0001_runtime_schema",
+    "0002_durable_jobs",
+    "0003_audit_ledger",
+    "0004_document_packages",
+    "0005_document_projects",
+    "0006_validation_runs",
+    "0007_document_scope_indexes",
+)
 
 
 def _default_db_path() -> Path:
-    """数据库路径, 可用环境变量 PAPERGUARD_DB_PATH 覆盖(测试用)。"""
-    return Path(os.environ.get("PAPERGUARD_DB_PATH", str(_DEFAULT_DB_PATH)))
+    """数据库路径, 可用 PAPERGUARD_DB_PATH 覆盖(测试用/运维配置)。"""
+    value = os.environ.get("PAPERGUARD_DB_PATH", "")
+    if value:
+        return Path(value)
+    return Path(os.environ.get("PAPERGUARD_DATA_DIR", str(_DEFAULT_DB_PATH.parent))) / "paperguard.db"
 
 
 def _now() -> str:
@@ -110,6 +124,38 @@ class Store:
                     data TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS document_packages (
+                    id TEXT PRIMARY KEY,
+                    template_version_id TEXT NOT NULL,
+                    spec_version_id TEXT NOT NULL,
+                    renderer_version TEXT NOT NULL,
+                    rule_engine_version TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE (template_version_id, spec_version_id, renderer_version, rule_engine_version)
+                );
+                CREATE INDEX IF NOT EXISTS idx_document_packages_created
+                    ON document_packages (created_at DESC, id DESC);
+                CREATE TABLE IF NOT EXISTS document_projects (
+                    id TEXT PRIMARY KEY,
+                    package_id TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_document_projects_owner_updated
+                    ON document_projects (owner_id, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS validation_runs (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_validation_runs_project_created
+                    ON validation_runs (project_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_document_projects_package_owner
+                    ON document_projects (package_id, owner_id, updated_at DESC);
                 CREATE TABLE IF NOT EXISTS organization_units (
                     id TEXT PRIMARY KEY,
                     data TEXT NOT NULL,
@@ -149,6 +195,8 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS idx_workflow_records_kind_updated
                     ON workflow_records (kind, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_workflow_records_document_project
+                    ON workflow_records (kind, json_extract(data, '$.project_id'), updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_audit_events_created
                     ON audit_events (created_at DESC, id DESC);
                 CREATE INDEX IF NOT EXISTS idx_audit_events_scope
@@ -525,6 +573,231 @@ class Store:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM requirement_sets WHERE id = ?", (set_id,))
             return cur.rowcount > 0
+
+    # ------------------------- document packages -----------------------
+
+    @staticmethod
+    def _document_package_payload(
+        package: DocumentPackage,
+        template: DocumentTemplate,
+        template_version: TemplateVersion,
+        spec_set: SpecSet,
+        spec_version: SpecVersion,
+    ) -> str:
+        return json.dumps({
+            "package": package.model_dump(mode="json"),
+            "template": template.model_dump(mode="json"),
+            "template_version": template_version.model_dump(mode="json"),
+            "spec_set": spec_set.model_dump(mode="json"),
+            "spec_version": spec_version.model_dump(mode="json"),
+        }, ensure_ascii=False, separators=(",", ":"))
+
+    def save_document_package(
+        self,
+        package,
+        template,
+        template_version,
+        spec_set,
+        spec_version,
+    ):
+        """Persist a published package and its immutable aggregate snapshot."""
+        if package.template_version_id != template_version.id:
+            raise ValueError("document package template version mismatch")
+        if package.spec_version_id != spec_version.id:
+            raise ValueError("document package spec version mismatch")
+        if template.current_version_id != template_version.id:
+            raise ValueError("template current version mismatch")
+        if spec_set.current_version_id != spec_version.id:
+            raise ValueError("spec current version mismatch")
+        created_at = _now()
+        payload = self._document_package_payload(
+            package, template, template_version, spec_set, spec_version,
+        )
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO document_packages "
+                    "(id, template_version_id, spec_version_id, renderer_version, rule_engine_version, data, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        package.id,
+                        package.template_version_id,
+                        package.spec_version_id,
+                        package.renderer_version,
+                        package.rule_engine_version,
+                        payload,
+                        created_at,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("document package or version composition already exists") from exc
+        return package
+
+    def get_document_package_bundle(self, package_id: str) -> dict | None:
+        from app.domain.documents.schemas import DocumentPackage, DocumentTemplate, TemplateVersion
+        from app.domain.documents.specs import SpecSet, SpecVersion
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM document_packages WHERE id = ?", (package_id,)
+            ).fetchone()
+        if not row:
+            return None
+        payload = json.loads(row["data"])
+        return {
+            "package": DocumentPackage.model_validate(payload["package"]),
+            "template": DocumentTemplate.model_validate(payload["template"]),
+            "template_version": TemplateVersion.model_validate(payload["template_version"]),
+            "spec_set": SpecSet.model_validate(payload["spec_set"]),
+            "spec_version": SpecVersion.model_validate(payload["spec_version"]),
+        }
+
+    def get_document_package(self, package_id: str):
+        bundle = self.get_document_package_bundle(package_id)
+        return bundle["package"] if bundle else None
+
+    def list_document_package_bundles(self, *, status: str = "") -> list[dict]:
+        from app.domain.documents.schemas import DocumentPackage, DocumentTemplate, TemplateVersion
+        from app.domain.documents.specs import SpecSet, SpecVersion
+
+        with self._connect() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT data FROM document_packages "
+                    "WHERE json_extract(data, '$.package.status') = ? "
+                    "ORDER BY created_at DESC, id DESC",
+                    (status,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT data FROM document_packages ORDER BY created_at DESC, id DESC"
+                ).fetchall()
+        return [
+            {
+                "package": DocumentPackage.model_validate((payload := json.loads(row["data"]))["package"]),
+                "template": DocumentTemplate.model_validate(payload["template"]),
+                "template_version": TemplateVersion.model_validate(payload["template_version"]),
+                "spec_set": SpecSet.model_validate(payload["spec_set"]),
+                "spec_version": SpecVersion.model_validate(payload["spec_version"]),
+            }
+            for row in rows
+        ]
+
+    # -------------------------- document projects -----------------------
+
+    def save_document_project(self, project):
+        """Insert a new generic project; updates must use the revision guard."""
+        from app.domain.documents.schemas import DocumentProject
+
+        if not isinstance(project, DocumentProject):
+            project = DocumentProject.model_validate(project)
+        now = _now()
+        if not project.created_at:
+            project.created_at = now
+        project.updated_at = now
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO document_projects (id, package_id, owner_id, data, revision, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        project.id,
+                        project.package_id,
+                        project.owner_id,
+                        project.model_dump_json(),
+                        project.revision,
+                        project.updated_at,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("document project already exists") from exc
+        return project
+
+    def update_document_project_if_revision(self, project, expected_revision: int):
+        """Persist generic project content only when its revision is current."""
+        from app.domain.documents.schemas import DocumentProject
+
+        if not isinstance(project, DocumentProject):
+            project = DocumentProject.model_validate(project)
+        project.revision = expected_revision + 1
+        project.updated_at = _now()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE document_projects SET data = ?, revision = ?, updated_at = ? "
+                "WHERE id = ? AND revision = ?",
+                (
+                    project.model_dump_json(),
+                    project.revision,
+                    project.updated_at,
+                    project.id,
+                    expected_revision,
+                ),
+            )
+            if cur.rowcount != 1:
+                return None
+        return project
+
+    def get_document_project(self, project_id: str):
+        from app.domain.documents.schemas import DocumentProject
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM document_projects WHERE id = ?", (project_id,)
+            ).fetchone()
+        return DocumentProject.model_validate_json(row["data"]) if row else None
+
+    def list_document_projects(self, *, owner_id: str = "") -> list:
+        from app.domain.documents.schemas import DocumentProject
+
+        with self._connect() as conn:
+            if owner_id:
+                rows = conn.execute(
+                    "SELECT data FROM document_projects WHERE owner_id = ? ORDER BY updated_at DESC",
+                    (owner_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT data FROM document_projects ORDER BY updated_at DESC"
+                ).fetchall()
+        return [DocumentProject.model_validate_json(row["data"]) for row in rows]
+
+    # -------------------------- validation runs -------------------------
+
+    def save_validation_run(self, run):
+        """Insert immutable generic validation evidence."""
+        from app.domain.documents.schemas import ValidationRun
+
+        if not isinstance(run, ValidationRun):
+            run = ValidationRun.model_validate(run)
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO validation_runs (id, project_id, data, created_at) VALUES (?, ?, ?, ?)",
+                    (run.id, run.project_id, run.model_dump_json(), run.created_at),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("validation run already exists") from exc
+        return run
+
+    def list_validation_runs(self, project_id: str, limit: int = 20) -> list:
+        from app.domain.documents.schemas import ValidationRun
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT data FROM validation_runs WHERE project_id = ? "
+                "ORDER BY created_at DESC, id DESC LIMIT ?",
+                (project_id, max(1, min(int(limit), 100))),
+            ).fetchall()
+        return [ValidationRun.model_validate_json(row["data"]) for row in rows]
+
+    def get_validation_run(self, run_id: str):
+        from app.domain.documents.schemas import ValidationRun
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM validation_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+        return ValidationRun.model_validate_json(row["data"]) if row else None
 
     # ------------------------- organization units ------------------------
 
@@ -954,6 +1227,23 @@ class Store:
             )
             updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._job_row(updated)
+
+    def cancel_job(self, job_id: str, reason: str = "") -> dict | None:
+        with self._connect() as conn:
+            return self.cancel_job_conn(conn, job_id, reason=reason)
+
+    def cancel_job_conn(self, conn: sqlite3.Connection, job_id: str, reason: str = "") -> dict | None:
+        """Cancel a queued or leased job without deleting its audit history."""
+        now = _now()
+        cur = conn.execute(
+            "UPDATE jobs SET state = 'cancelled', lease_until = NULL, lease_token = NULL, "
+            "leased_by = NULL, last_error = ?, updated_at = ? "
+            "WHERE id = ? AND state IN ('queued', 'running', 'failed')",
+            (reason[:2000] if reason else "cancelled", now, job_id),
+        )
+        if cur.rowcount != 1:
+            return None
+        return self._job_row(conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone())
 
     def retry_job(self, job_id: str, reason: str = "") -> dict | None:
         with self._connect() as conn:

@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
@@ -7,6 +7,7 @@ RUN npm ci
 
 COPY index.html vite.config.js ./
 COPY src ./src
+COPY public ./public
 RUN npm run build
 
 # 用 nginx 托管构建产物, 并把 /api 代理到后端容器

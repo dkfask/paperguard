@@ -4,16 +4,29 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
-from app.auth import require_template_manager
+from app.auth import require_manager, require_template_manager
+from app.core.feature_flags import require_general_document_platform
 
 from app.db import Store, new_id
+from app.domain.documents.schemas import TemplateAsset
 from app.models.template import PaperTemplate
+from app.services.document_candidates import (
+    CandidateBindingError,
+    TEMPLATE_CANDIDATE_KIND,
+    bind_candidate_for_confirmation,
+    list_candidates,
+    load_candidate,
+    save_confirmed_candidate,
+    save_parsed_candidate,
+)
 from app.services.docx_package_fixer import strip_comments_from_docx
 from app.services.import_template import (
     extract_cover_blocks,
@@ -27,9 +40,19 @@ from app.services.template_source import (
     resolve_template_source,
     save_template_source,
 )
+from app.services.template_engine import (
+    TemplateCandidateError,
+    TemplateParseCandidate,
+    confirm_template_candidate,
+    parse_docx_template as parse_template_candidate,
+)
 from app.services.upload_security import IMPORT_MAX_BYTES, read_limited, validate_docx_bytes
 
 router = APIRouter(prefix="/api/templates")
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def get_store() -> Store:
@@ -149,6 +172,139 @@ async def strip_template_comments(file: UploadFile = File(...),
     except Exception as exc:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=422, detail=f"批注清理失败: {exc}") from exc
+
+
+@router.post("/parse", response_model=TemplateParseCandidate, dependencies=[Depends(require_general_document_platform)])
+async def parse_docx_template_candidate(file: UploadFile = File(...),
+                                        manager: dict = Depends(require_manager),
+                                        store: Store = Depends(get_store)) -> TemplateParseCandidate:
+    """Parse an uploaded DOCX into a generic candidate for human confirmation."""
+    if not file.filename or not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="只支持 .docx 文件")
+    tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-template-engine-"))
+    path = tmp_dir / "template.docx"
+    try:
+        data = read_limited(file, IMPORT_MAX_BYTES)
+        validate_docx_bytes(data)
+        path.write_bytes(data)
+        candidate_id = new_id("tplcand")
+        template_id = new_id("tpl")
+        candidate = parse_template_candidate(
+            path,
+            candidate_id=candidate_id,
+            template_id=template_id,
+            filename=file.filename,
+            name=Path(file.filename).stem,
+        )
+        source_docx = save_template_source(data)
+        stored_path = resolve_template_source(source_docx)
+        if stored_path is None:
+            raise HTTPException(status_code=422, detail="模板源文件保存失败")
+        stored_data = stored_path.read_bytes()
+        source_asset = TemplateAsset(
+            id=f"{candidate_id}:source",
+            storage_key=source_docx,
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            size_bytes=len(stored_data),
+            checksum=hashlib.sha256(stored_data).hexdigest(),
+            purpose="template-source",
+            scan_status="validated",
+        )
+        definition = candidate.definition.model_copy(update={"source_docx": source_docx})
+        candidate = candidate.model_copy(update={"definition": definition, "source_asset": source_asset})
+        store.save_audit_event({
+            "id": f"audit-{candidate_id}-parsed",
+            "actor_id": str(manager.get("id") or ""),
+            "action": "template.candidate.parsed",
+            "resource_type": "template_candidate",
+            "resource_id": candidate_id,
+            "organization_id": str((manager.get("organization_context") or {}).get("school_id") or ""),
+            "result": "success",
+            "created_at": _now(),
+        })
+        save_parsed_candidate(store, TEMPLATE_CANDIDATE_KIND, candidate, manager)
+        return candidate
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"模板解析失败: {exc}") from exc
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.get("/parse/candidates", response_model=list[TemplateParseCandidate], dependencies=[Depends(require_general_document_platform)])
+def list_docx_template_candidates(
+    manager: dict = Depends(require_manager),
+    store: Store = Depends(get_store),
+) -> list[TemplateParseCandidate]:
+    """List recent template candidates available for manager review."""
+    return list_candidates(store, TEMPLATE_CANDIDATE_KIND, TemplateParseCandidate, manager)
+
+
+@router.get("/parse/candidates/{candidate_id}", response_model=TemplateParseCandidate, dependencies=[Depends(require_general_document_platform)])
+def get_docx_template_candidate(
+    candidate_id: str,
+    manager: dict = Depends(require_manager),
+    store: Store = Depends(get_store),
+) -> TemplateParseCandidate:
+    """Restore one scoped template candidate after a page refresh."""
+    try:
+        return load_candidate(store, TEMPLATE_CANDIDATE_KIND, candidate_id, TemplateParseCandidate, manager)
+    except CandidateBindingError as exc:
+        raise HTTPException(status_code=404, detail="模板候选不存在或无权访问") from exc
+
+
+@router.post("/parse/confirm", response_model=TemplateParseCandidate, dependencies=[Depends(require_general_document_platform)])
+def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
+                                    manager: dict = Depends(require_manager),
+                                    store: Store = Depends(get_store)) -> TemplateParseCandidate:
+    """Record human confirmation on a candidate; publishing is a later phase."""
+    try:
+        bound, record = bind_candidate_for_confirmation(
+            store,
+            TEMPLATE_CANDIDATE_KIND,
+            candidate,
+            TemplateParseCandidate,
+            manager,
+        )
+        confirmed = confirm_template_candidate(
+            bound,
+            confirmed_by=str(manager.get("id") or manager.get("username") or ""),
+            confirmed_at=_now(),
+        )
+        save_confirmed_candidate(store, TEMPLATE_CANDIDATE_KIND, confirmed, record)
+        store.save_audit_event({
+            "id": f"audit-{candidate.candidate_id}-confirmed",
+            "actor_id": str(manager.get("id") or ""),
+            "action": "template.candidate.confirmed",
+            "resource_type": "template_candidate",
+            "resource_id": candidate.candidate_id,
+            "organization_id": str((manager.get("organization_context") or {}).get("school_id") or ""),
+            "result": "success",
+            "created_at": confirmed.confirmed_at,
+        })
+        return confirmed
+    except CandidateBindingError as exc:
+        raise HTTPException(status_code=404, detail="模板候选不存在或无权访问") from exc
+    except TemplateCandidateError as exc:
+        store.save_audit_event({
+            "id": f"audit-{candidate.candidate_id}-confirmation-failed",
+            "actor_id": str(manager.get("id") or ""),
+            "action": "template.candidate.confirmation_failed",
+            "resource_type": "template_candidate",
+            "resource_id": candidate.candidate_id,
+            "organization_id": str((manager.get("organization_context") or {}).get("school_id") or ""),
+            "result": "failure",
+            "reason": "blocking_candidate_issues",
+            "created_at": _now(),
+        })
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "模板候选不能确认",
+                "issues": [issue.model_dump(mode="json") for issue in exc.issues],
+            },
+        ) from exc
 
 
 @router.post("/import")
