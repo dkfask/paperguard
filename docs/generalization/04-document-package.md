@@ -70,7 +70,9 @@ Verification recorded for this phase:
 - Frontend paragraph checks: `PASS`.
 - Frontend production build: `PASS`.
 - `git diff --check` after final Phase 4 changes: `PASS`.
-- Hosted CI for the Phase 4 branch: NOT RUN yet.
+- Hosted CI for the Phase 4 branch: `34674196409` **success** on head
+  `81fe84570c9827ad63a42485d0394f17b738ce84` (Python 3.11/3.12 and frontend
+  build).
 - Staging/production deployment and online verification: NOT RUN by scope.
 
 ## Explicit non-goals

@@ -1,6 +1,6 @@
 # Phase 2 Template Engine
 
-状态：本地实现完成，等待独立 PR CI 和审查
+状态：实施完成；独立 PR 的 CI 已通过，等待审查和明确合并授权
 
 分支：`phase/2-template-engine`
 
@@ -27,6 +27,9 @@
 - `tests/test_template_engine.py`：5 passed。
 - 后端移除 AI 环境变量后全量：566 passed，2 warnings。
 - 已覆盖管理员鉴权、DOCX 解析、通用候选、人工确认、无章节/无源文件拒绝、重复 section key 拒绝和审计投影。
+- Phase 2 独立 CI run `34673189759` 已在本阶段提交
+  `3dc62a6745e88823312d85b491d70119d8f20ad2` 上通过，包含前端构建、Python
+  3.11/3.12 后端测试。
 - 前端现有 unit、paragraph、typecheck、build 在本分支未改动前已通过；本阶段不引入前端行为变更。
 - Docker、Playwright E2E、staging、production：`NOT RUN`，不属于本阶段发布范围。
 

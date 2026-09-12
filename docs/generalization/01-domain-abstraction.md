@@ -1,6 +1,6 @@
 # Phase 1 Domain Abstraction
 
-状态：实施完成，等待独立 PR CI 和审查
+状态：实施完成；独立 PR 的 CI 已通过，等待审查和明确合并授权
 
 分支：`phase/1-domain-abstraction`
 
@@ -40,7 +40,9 @@
 - `backend/tests/test_document_domain.py`：7 passed。
 - 后端在移除 `PAPERGUARD_AI_BASE_URL`、`PAPERGUARD_AI_API_KEY`、`PAPERGUARD_AI_MODEL` 后全量：561 passed，2 warnings。
 - 已覆盖 thesis 模板 round-trip、不可变版本、未知 generic section/field、规范 provenance/hash、项目快照冻结、Store adapter 和 package execution version。
-- 前端和 GitHub Actions 结果会在本阶段 PR 完成后回填；不得用 Phase 0 的旧 head 作为本阶段证据。
+- Phase 1 独立 CI run `34672599780` 已在本阶段提交
+  `90805104f8e9a661b4bf47a42da67d6e9056c9a9` 上通过，包含前端构建、Python
+  3.11/3.12 后端测试；不得用 Phase 0 的旧 head 作为本阶段证据。
 
 ## 下一阶段门禁
 

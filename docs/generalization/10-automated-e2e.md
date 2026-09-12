@@ -117,6 +117,7 @@ Hosted evidence for the final Phase 10 head
 
 ## Phase Gate
 
-Local browser and regression checks are green. Phase 10 is **GO pending hosted
-CI** for the exact PR head. Phase 11 must not start until the hosted workflow
-and the existing CI matrix are green on that head.
+Local browser and regression checks are green. Hosted CI run `34678310503` and
+generic E2E run `34678310659` are both **success** for the exact Phase 10 head,
+so Phase 10 is **GO**. Phase 11 was started only after those hosted gates were
+green.
