@@ -10,6 +10,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from app.api import ai as ai_api
 from app.auth import require_manager
 from app.db import Store, new_id
+from app.services.document_candidates import (
+    CandidateBindingError,
+    SPEC_CANDIDATE_KIND,
+    bind_candidate_for_confirmation,
+    save_confirmed_candidate,
+    save_parsed_candidate,
+)
 from app.services.policy_import import AI_IMPORT_EXTENSIONS
 from app.services.spec_engine import (
     SpecCandidateError,
@@ -86,6 +93,7 @@ async def parse_spec_candidate(
         _audit(store, manager, action="spec.candidate.parse_failed", resource_id=candidate_id, result="failure", reason="source_extraction_failed")
         raise
     _audit(store, manager, action="spec.candidate.parsed", resource_id=candidate_id, result="success")
+    save_parsed_candidate(store, SPEC_CANDIDATE_KIND, candidate, manager)
     return candidate
 
 
@@ -97,11 +105,21 @@ def confirm_parsed_spec_candidate(
 ) -> SpecParseCandidate:
     """Confirm a candidate after review; publishing is intentionally later."""
     try:
-        confirmed = confirm_spec_candidate(
+        bound, record = bind_candidate_for_confirmation(
+            store,
+            SPEC_CANDIDATE_KIND,
             candidate,
+            SpecParseCandidate,
+            manager,
+        )
+        confirmed = confirm_spec_candidate(
+            bound,
             confirmed_by=str(manager.get("id") or manager.get("username") or ""),
             confirmed_at=_now(),
         )
+        save_confirmed_candidate(store, SPEC_CANDIDATE_KIND, confirmed, record)
+    except CandidateBindingError as exc:
+        raise HTTPException(status_code=404, detail="规范候选不存在或无权访问") from exc
     except SpecCandidateError as exc:
         _audit(
             store,

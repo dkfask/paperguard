@@ -45,6 +45,12 @@ thesis APIs.
 Publication revalidates both candidates, requires `confirmed` status, requires
 the template source asset to be security-validated and present under the
 controlled template source directory, and emits a metadata-only audit event.
+Parse candidates are persisted as server-owned workflow records. The JSON sent
+back to the browser is only an editable review projection: confirmation binds
+the submitted review to the stored candidate identity and source asset, while
+publication reloads both confirmed candidates from the server. Template and
+specification candidates must also carry the same organization context; the
+published package inherits that context rather than the caller's request body.
 The returned package pins `generic-docx-v1` and `generic-check-v1` by default;
 both can be changed only at publication time and are then immutable.
 

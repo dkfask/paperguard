@@ -10,6 +10,12 @@ from pydantic import BaseModel, Field
 from app.auth import current_user, require_manager
 from app.db import Store
 from app.services.package_engine import PackagePublishError, publish_package_candidates
+from app.services.document_candidates import (
+    CandidateBindingError,
+    SPEC_CANDIDATE_KIND,
+    TEMPLATE_CANDIDATE_KIND,
+    load_confirmed_candidate_with_record,
+)
 from app.services.template_engine import TemplateParseCandidate
 from app.services.spec_engine import SpecParseCandidate
 from app.services.document_access import document_context_visible, public_document_bundle
@@ -75,16 +81,34 @@ def publish_document_package(
     """Publish one exact template/spec composition after both confirmations."""
     package_hint = f"{request.template_candidate.template_id}:{request.spec_candidate.spec_set_id}"
     try:
-        bundle = publish_package_candidates(
+        template_candidate, template_record = load_confirmed_candidate_with_record(
+            store,
+            TEMPLATE_CANDIDATE_KIND,
             request.template_candidate,
+            TemplateParseCandidate,
+            manager,
+        )
+        spec_candidate, spec_record = load_confirmed_candidate_with_record(
+            store,
+            SPEC_CANDIDATE_KIND,
             request.spec_candidate,
+            SpecParseCandidate,
+            manager,
+        )
+        template_context = dict(template_record.get("organization_context") or {})
+        spec_context = dict(spec_record.get("organization_context") or {})
+        if template_context != spec_context:
+            raise CandidateBindingError("模板与规范候选的组织范围不一致")
+        bundle = publish_package_candidates(
+            template_candidate,
+            spec_candidate,
             document_type_id=request.document_type_id.strip(),
             published_by=str(manager.get("id") or ""),
             renderer_version=request.renderer_version.strip(),
             rule_engine_version=request.rule_engine_version.strip(),
             metadata={
                 **request.metadata,
-                "organization_context": dict(manager.get("organization_context") or {}),
+                "organization_context": template_context,
             },
         )
         store.save_document_package(
@@ -94,6 +118,9 @@ def publish_document_package(
             bundle["spec_set"],
             bundle["spec_version"],
         )
+    except CandidateBindingError as exc:
+        _audit(store, manager, action="document.package.publish_failed", package_id=package_hint, result="failure", reason="candidate_binding_failed")
+        raise HTTPException(status_code=404, detail="候选不存在、未确认或无权访问") from exc
     except PackagePublishError as exc:
         _audit(store, manager, action="document.package.publish_failed", package_id=package_hint, result="failure", reason="candidate_not_publishable")
         raise HTTPException(status_code=422, detail=str(exc)) from exc

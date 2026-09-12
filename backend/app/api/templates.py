@@ -17,6 +17,13 @@ from app.auth import require_template_manager
 from app.db import Store, new_id
 from app.domain.documents.schemas import TemplateAsset
 from app.models.template import PaperTemplate
+from app.services.document_candidates import (
+    CandidateBindingError,
+    TEMPLATE_CANDIDATE_KIND,
+    bind_candidate_for_confirmation,
+    save_confirmed_candidate,
+    save_parsed_candidate,
+)
 from app.services.docx_package_fixer import strip_comments_from_docx
 from app.services.import_template import (
     extract_cover_blocks,
@@ -212,6 +219,7 @@ async def parse_docx_template_candidate(file: UploadFile = File(...),
             "result": "success",
             "created_at": _now(),
         })
+        save_parsed_candidate(store, TEMPLATE_CANDIDATE_KIND, candidate, manager)
         return candidate
     except HTTPException:
         raise
@@ -227,11 +235,19 @@ def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
                                     store: Store = Depends(get_store)) -> TemplateParseCandidate:
     """Record human confirmation on a candidate; publishing is a later phase."""
     try:
-        confirmed = confirm_template_candidate(
+        bound, record = bind_candidate_for_confirmation(
+            store,
+            TEMPLATE_CANDIDATE_KIND,
             candidate,
+            TemplateParseCandidate,
+            manager,
+        )
+        confirmed = confirm_template_candidate(
+            bound,
             confirmed_by=str(manager.get("id") or manager.get("username") or ""),
             confirmed_at=_now(),
         )
+        save_confirmed_candidate(store, TEMPLATE_CANDIDATE_KIND, confirmed, record)
         store.save_audit_event({
             "id": f"audit-{candidate.candidate_id}-confirmed",
             "actor_id": str(manager.get("id") or ""),
@@ -243,6 +259,8 @@ def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
             "created_at": confirmed.confirmed_at,
         })
         return confirmed
+    except CandidateBindingError as exc:
+        raise HTTPException(status_code=404, detail="模板候选不存在或无权访问") from exc
     except TemplateCandidateError as exc:
         store.save_audit_event({
             "id": f"audit-{candidate.candidate_id}-confirmation-failed",

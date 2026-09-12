@@ -71,6 +71,16 @@ storage keys. The durable render job already omitted artifact storage keys;
 Phase 9 also validates the rendered artifact as a bounded, structurally valid
 DOCX before publishing it.
 
+## Candidate Trust Boundary
+
+Template and specification parser results are stored as server-owned workflow
+records before they are returned to a manager. Confirmation may accept review
+edits, but it rebinds immutable identifiers and source assets to the stored
+record with an optimistic revision guard. Package publication ignores the
+candidate bodies submitted by the browser and reloads only confirmed,
+scope-visible records. Candidates from different organization contexts cannot
+be composed into one package.
+
 ## Snapshot Integrity
 
 `RenderJob.snapshot_hash` is the canonical SHA-256 hash of the full typed
