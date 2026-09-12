@@ -7,6 +7,10 @@ temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/paperguard-online-contract.XXXXXX")"
 port_file="$temp_dir/port"
 evidence_path="$temp_dir/evidence.json"
 server_log="$temp_dir/server.log"
+# 回环 mock 的口令每次随机生成, 避免在仓库中留下静态凭据
+contract_password="$(python3 -c 'import secrets; print("contract-" + secrets.token_urlsafe(24))')"
+: "${PAPERGUARD_ONLINE_ADMIN_PASSWORD:=$contract_password}"
+export PAPERGUARD_ONLINE_ADMIN_PASSWORD
 
 cleanup() {
   if [[ -n "${server_pid:-}" ]]; then
@@ -18,12 +22,12 @@ cleanup() {
 
 trap cleanup EXIT
 
-python3 - "$port_file" >"$server_log" 2>&1 <<'PY' &
+python3 - "$port_file" "$contract_password" >"$server_log" 2>&1 <<'PY' &
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-port_file = sys.argv[1]
+port_file, contract_password = sys.argv[1], sys.argv[2]
 token = "a" * 64
 
 
@@ -60,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(length) or b"{}")
-        if self.path == "/api/auth/login" and payload.get("password") == "contract-password":
+        if self.path == "/api/auth/login" and payload.get("password") == contract_password:
             self._send(200, {"token": token, "user": {"username": "contract-admin"}}, "application/json")
         else:
             self._send(401, {"error": "unauthorized"}, "application/json")
@@ -88,7 +92,6 @@ fi
 port="$(<"$port_file")"
 PAPERGUARD_ONLINE_BASE_URL="http://127.0.0.1:$port" \
 PAPERGUARD_ONLINE_ADMIN_USERNAME="contract-admin" \
-PAPERGUARD_ONLINE_ADMIN_PASSWORD="contract-password" \
 PAPERGUARD_ONLINE_EVIDENCE_PATH="$evidence_path" \
 PAPERGUARD_ONLINE_SOURCE_REVISION="contract-test" \
 bash "$repo_root/ops/online-verify.sh"
@@ -105,7 +108,6 @@ jq -e '
 failure_evidence_path="$temp_dir/failure-evidence.json"
 if PAPERGUARD_ONLINE_BASE_URL="http://example.invalid" \
   PAPERGUARD_ONLINE_ADMIN_USERNAME="contract-admin" \
-  PAPERGUARD_ONLINE_ADMIN_PASSWORD="contract-password" \
   PAPERGUARD_ONLINE_EVIDENCE_PATH="$failure_evidence_path" \
   bash "$repo_root/ops/online-verify.sh" >/dev/null 2>"$temp_dir/failure.stderr"; then
   printf 'invalid public HTTP target was accepted\n' >&2
