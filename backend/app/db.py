@@ -29,6 +29,7 @@ SCHEMA_MIGRATIONS = (
     "0004_document_packages",
     "0005_document_projects",
     "0006_validation_runs",
+    "0007_document_scope_indexes",
 )
 
 
@@ -147,6 +148,8 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS idx_validation_runs_project_created
                     ON validation_runs (project_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_document_projects_package_owner
+                    ON document_projects (package_id, owner_id, updated_at DESC);
                 CREATE TABLE IF NOT EXISTS organization_units (
                     id TEXT PRIMARY KEY,
                     data TEXT NOT NULL,
@@ -186,6 +189,8 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS idx_workflow_records_kind_updated
                     ON workflow_records (kind, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_workflow_records_document_project
+                    ON workflow_records (kind, json_extract(data, '$.project_id'), updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_audit_events_created
                     ON audit_events (created_at DESC, id DESC);
                 CREATE INDEX IF NOT EXISTS idx_audit_events_scope

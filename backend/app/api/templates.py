@@ -187,12 +187,16 @@ async def parse_docx_template_candidate(file: UploadFile = File(...),
             name=Path(file.filename).stem,
         )
         source_docx = save_template_source(data)
+        stored_path = resolve_template_source(source_docx)
+        if stored_path is None:
+            raise HTTPException(status_code=422, detail="模板源文件保存失败")
+        stored_data = stored_path.read_bytes()
         source_asset = TemplateAsset(
             id=f"{candidate_id}:source",
             storage_key=source_docx,
             content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            size_bytes=len(data),
-            checksum=hashlib.sha256(data).hexdigest(),
+            size_bytes=len(stored_data),
+            checksum=hashlib.sha256(stored_data).hexdigest(),
             purpose="template-source",
             scan_status="validated",
         )

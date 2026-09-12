@@ -31,6 +31,12 @@ from app.services.document_render_jobs import (
     render_job_view,
     resolve_document_artifact,
 )
+from app.services.document_access import (
+    audit_document_access_denied,
+    can_access_document_project,
+    document_context_visible,
+    public_document_bundle,
+)
 from app.services.generic_docx_renderer import GenericDocxRenderError, render_document_project_to_docx
 from app.repositories.workflow_repository import WorkflowRepository
 from app.domain.workflow_states import transition_state
@@ -59,18 +65,20 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _package_visible(bundle: dict[str, Any], user: dict) -> bool:
-    if user.get("role") == "admin":
-        return True
+def _package_visible(store: Store, bundle: dict[str, Any], user: dict) -> bool:
     context = bundle["package"].metadata.get("organization_context") or {}
-    if not context:
-        return True
-    user_context = user.get("organization_context") or {}
-    return bool(set(map(str, context.values())) & set(map(str, user_context.values())))
+    return document_context_visible(store, user, context)
 
 
-def _ensure_project_access(project: DocumentProject, user: dict) -> None:
-    if user.get("role") != "admin" and project.owner_id != user.get("id"):
+def _ensure_project_access(store: Store, project: DocumentProject, user: dict) -> None:
+    if not can_access_document_project(store, user, project):
+        audit_document_access_denied(
+            store,
+            user,
+            resource_type="document_project",
+            resource_id=project.id,
+            context=project.organization_context,
+        )
         raise HTTPException(status_code=404, detail="项目不存在或无权访问")
 
 
@@ -147,8 +155,13 @@ def list_document_projects(
     store: Store = Depends(get_store),
     user: dict = Depends(current_user),
 ) -> list[dict[str, Any]]:
-    projects = store.list_document_projects(owner_id="" if user.get("role") == "admin" else user["id"])
-    return [_summary(project) for project in projects]
+    scoped_listing = user.get("role") in {"admin", "college_admin"}
+    projects = store.list_document_projects(owner_id="" if scoped_listing else user["id"])
+    return [
+        _summary(project)
+        for project in projects
+        if can_access_document_project(store, user, project)
+    ]
 
 
 @router.post("", status_code=201)
@@ -158,7 +171,7 @@ def create_document_project(
     user: dict = Depends(current_user),
 ) -> DocumentProject:
     bundle = store.get_document_package_bundle(request.package_id)
-    if bundle is None or bundle["package"].status.value != "published" or not _package_visible(bundle, user):
+    if bundle is None or bundle["package"].status.value != "published" or not _package_visible(store, bundle, user):
         raise HTTPException(status_code=404, detail="文档包不存在或无权使用")
     definition = bundle["template_version"].definition
     try:
@@ -187,7 +200,7 @@ def get_document_project(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     return project
 
 
@@ -200,14 +213,15 @@ def get_document_project_editor(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     bundle = _project_package(store, project)
+    public_bundle = public_document_bundle(bundle)
     return {
         "project": project,
-        "package": bundle["package"],
-        "template": bundle["template"],
-        "template_version": bundle["template_version"],
-        "spec_version": bundle["spec_version"],
+        "package": public_bundle["package"],
+        "template": public_bundle["template"],
+        "template_version": public_bundle["template_version"],
+        "spec_version": public_bundle["spec_version"],
         "editor_schema": editor_schema(bundle["template_version"].definition),
     }
 
@@ -222,7 +236,7 @@ def update_document_project(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     expected_revision = project.revision if request.base_revision is None else request.base_revision
     if expected_revision != project.revision:
         raise HTTPException(status_code=409, detail={"message": "项目内容已被更新, 请刷新后重试", "revision": project.revision})
@@ -255,7 +269,7 @@ def validate_project(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     bundle = _project_package(store, project)
     return _create_validation_run(store, user, project, bundle)
 
@@ -271,7 +285,7 @@ def render_project(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     bundle = _project_package(store, project)
     run = _create_validation_run(store, user, project, bundle)
     if run.summary.get("hard_failures") and not force:
@@ -329,7 +343,7 @@ def create_render_job(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     bundle = _project_package(store, project)
     run = _create_validation_run(store, user, project, bundle)
     if run.summary.get("hard_failures") and not force:
@@ -361,7 +375,7 @@ def list_render_jobs(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     records = [
         item for item in store.list_workflow_records("document_render_job")
         if item.get("project_id") == project.id
@@ -385,7 +399,7 @@ def get_render_job(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     record = _render_job_for_project(store, project, render_job_id)
     artifact = get_document_artifact(store, record.get("artifact_id", "")) if record.get("artifact_id") else None
     return render_job_view(record, artifact)
@@ -403,7 +417,7 @@ def retry_render_job(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     record = _render_job_for_project(store, project, render_job_id)
     if record.get("status") not in {"failed", "queued"}:
         raise HTTPException(status_code=409, detail="当前渲染任务不可重试")
@@ -449,7 +463,7 @@ def download_render_artifact(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     record = _render_job_for_project(store, project, render_job_id)
     if record.get("status") != "succeeded" or not record.get("artifact_id"):
         raise HTTPException(status_code=409, detail="渲染产物尚未完成")
@@ -471,7 +485,7 @@ def list_project_validations(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     return store.list_validation_runs(project_id)
 
 
@@ -485,7 +499,7 @@ def get_project_validation(
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_project_access(project, user)
+    _ensure_project_access(store, project, user)
     run = store.get_validation_run(run_id)
     if run is None or run.project_id != project_id:
         raise HTTPException(status_code=404, detail="检查记录不存在")

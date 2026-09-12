@@ -12,6 +12,7 @@ from app.db import Store
 from app.services.package_engine import PackagePublishError, publish_package_candidates
 from app.services.template_engine import TemplateParseCandidate
 from app.services.spec_engine import SpecParseCandidate
+from app.services.document_access import document_context_visible, public_document_bundle
 
 router = APIRouter(prefix="/api/document-packages", tags=["document-packages"])
 
@@ -30,10 +31,7 @@ def get_store() -> Store:
 
 
 def _public_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value.model_dump(mode="json")
-        for key, value in bundle.items()
-    }
+    return public_document_bundle(bundle)
 
 
 def _audit(store: Store, manager: dict, *, action: str, package_id: str, result: str, reason: str = "") -> None:
@@ -50,14 +48,9 @@ def _audit(store: Store, manager: dict, *, action: str, package_id: str, result:
     })
 
 
-def _visible(bundle: dict[str, Any], user: dict) -> bool:
-    if user.get("role") == "admin":
-        return True
+def _visible(store: Store, bundle: dict[str, Any], user: dict) -> bool:
     context = bundle["package"].metadata.get("organization_context") or {}
-    if not context:
-        return True
-    user_context = user.get("organization_context") or {}
-    return bool(set(map(str, context.values())) & set(map(str, user_context.values())))
+    return document_context_visible(store, user, context)
 
 
 @router.get("")
@@ -69,7 +62,7 @@ def list_document_packages(
     return [
         _public_bundle(bundle)
         for bundle in store.list_document_package_bundles(status="published")
-        if _visible(bundle, user)
+        if _visible(store, bundle, user)
     ]
 
 
@@ -118,7 +111,7 @@ def get_document_package(
     user: dict = Depends(current_user),
 ) -> dict[str, Any]:
     bundle = store.get_document_package_bundle(package_id)
-    if bundle is None or not _visible(bundle, user):
+    if bundle is None or not _visible(store, bundle, user):
         raise HTTPException(status_code=404, detail="文档包不存在或无权访问")
     return _public_bundle(bundle)
 

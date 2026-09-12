@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 from typing import Any
 
 from app.domain.documents.hashing import canonical_hash
@@ -17,6 +18,7 @@ from app.domain.documents.specs import SpecSet, SpecVersion
 from app.services.spec_engine import SpecParseCandidate, validate_spec_candidate
 from app.services.template_engine import TemplateParseCandidate, validate_template_candidate
 from app.services.template_source import resolve_template_source
+from app.services.upload_security import validate_docx_bytes
 
 
 class PackagePublishError(ValueError):
@@ -57,6 +59,21 @@ def publish_package_candidates(
     source_path = resolve_template_source(source_asset.storage_key)
     if source_path is None:
         raise PackagePublishError("模板源文件不存在或路径不安全")
+    if source_asset.purpose != "template-source":
+        raise PackagePublishError("模板源 asset 用途不合法")
+    if source_asset.content_type != "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        raise PackagePublishError("模板源 asset 类型不合法")
+    if template_candidate.definition.source_docx != source_asset.storage_key:
+        raise PackagePublishError("模板定义与源 asset 引用不一致")
+    source_data = source_path.read_bytes()
+    if source_asset.size_bytes != len(source_data):
+        raise PackagePublishError("模板源 asset 大小校验失败")
+    if not source_asset.checksum or source_asset.checksum != hashlib.sha256(source_data).hexdigest():
+        raise PackagePublishError("模板源 asset checksum 校验失败")
+    try:
+        validate_docx_bytes(source_data)
+    except Exception as exc:
+        raise PackagePublishError("模板源文件内容校验失败") from exc
 
     now = _now()
     template_version_id = f"{template_candidate.template_id}@{template_candidate.version}"
