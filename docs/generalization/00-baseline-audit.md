@@ -14,9 +14,9 @@ PaperGuard 当前已经是一个具备完整论文业务闭环的 Web 应用：�
 
 Phase 0 的 CI 阻塞已定位为测试依赖注入不完整：requirement AI assist 测试只替换了 `_chat_completion`，但请求处理仍先执行 `_resolve_cfg()`；CI 没有 AI 配置，因此路由返回 `503 AI 功能未启用`。修复方式是在测试中同时注入一个不会发起网络请求的测试配置，并继续 mock completion。没有删除测试、跳过检查或依赖真实在线 AI。
 
-本阶段判断：**CONDITIONAL GO**。
+本阶段判断：**GO（Phase 0）/ CONDITIONAL GO（Phase 1）**。
 
-- 可以在 Phase 0 修复提交通过远端 CI 后进入 Phase 1 的设计和实现准备。
+- Phase 0 修复提交已经通过远端 CI，可以进入审查和收口。
 - 不得因为本地矩阵通过就直接进入 Phase 1；必须先确认本 PR 的 Python 3.11/3.12 和前端构建均为绿色，并完成代码审查。
 - 本阶段没有部署到 staging 或 production；生产发布结论为 **NO-GO / NOT IN SCOPE**。
 
@@ -199,6 +199,14 @@ Phase 0 的 CI 阻塞已定位为测试依赖注入不完整：requirement AI as
 
 这样测试覆盖的仍是“AI assist 结果写回匹配 requirement item”的行为，且不要求 CI 配置真实 AI。没有修改生产路径来掩盖缺失配置，也没有降低断言强度。
 
+提交并推送后，PR #7 的 GitHub Actions run `34671687276` 已完成：
+
+- Backend tests (Python 3.11)：**passed**。
+- Backend tests (Python 3.12)：**passed**。
+- Frontend build：**passed**。
+
+GitHub Actions 仍报告 runner 将 Node.js 20 action 强制切换到 Node.js 24 的 deprecation annotation；这不是本次测试失败，但应作为后续 CI 维护项处理。
+
 ## 8. 测试数量、失败原因与修复结果
 
 ### 8.1 已执行并通过
@@ -228,7 +236,7 @@ README 当前仍写着 `552 passed`，与本次实际 `554 passed` 不一致，�
 以下项目在 Phase 0 报告生成时尚未执行，不能标记为通过：
 
 - 本地 Python 3.11 后端矩阵：**NOT RUN**，当前机器没有可用的 Python 3.11 可执行文件。
-- 本修复提交对应的 GitHub Actions post-fix run：**NOT RUN**，需提交并推送后等待 CI。
+- 本修复提交对应的 GitHub Actions post-fix run：已执行，run `34671687276`，Python 3.11/3.12 和前端 build 全部 **passed**。
 - Docker image build / compose 启动验证：**NOT RUN**。
 - Playwright E2E 与完整浏览器回归：**NOT RUN**；已有用户工作区中的历史报告和截图不作为本次验证证据。
 - staging 部署与线上测试：**NOT RUN**。
@@ -310,9 +318,9 @@ Phase 1 目标是 **Domain abstraction**，只建立领域契约和兼容适配�
 | 决策项 | 结论 | 依据 |
 |---|---|---|
 | 继续保留现有 PaperGuard 作为演进基线 | GO | 论文闭环和通用化所需的模板、规范、快照、检查、导出、权限、审计和任务能力都已存在 |
-| 合并 Phase 0 修复 | CONDITIONAL GO | 修复最小、测试不依赖真实 AI；等待本 PR 远端 Python 3.11/3.12 和前端 build 绿灯 |
+| 合并 Phase 0 修复 | GO for review/merge | 修复最小、测试不依赖真实 AI；PR #7 的远端 Python 3.11/3.12 和前端 build 已绿 |
 | 直接进入 Phase 1 | NO-GO，直到 CI/review 完成 | 本报告只完成 Phase 0；必须绑定绿色提交后再开新分支 |
 | 现在进行数据库/全量模型重构 | NO-GO | JSON blob、历史 snapshot、文件资产和 workflow schema 的迁移风险尚未在 Phase 0 解决 |
 | 现在进行 staging/production 部署 | NO-GO / NOT IN SCOPE | 本阶段未执行线上验证，也没有生产部署授权 |
 
-Phase 0 的完成标准是：本报告和最小 CI 测试修复在独立分支/PR 上，远端 CI 全绿，变更经审查后等待用户明确决定是否进入 Phase 1。无论 CI 结果如何，本任务在 Phase 0 停止，不自动开始后续重构。
+Phase 0 的完成标准已达到：本报告和最小 CI 测试修复位于独立分支/PR，远端 CI 全绿。PR #7 仍等待审查和用户明确决定；本任务在 Phase 0 停止，不自动开始后续重构，也不自动合并 PR。
