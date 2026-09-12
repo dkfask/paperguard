@@ -19,9 +19,9 @@ default application volume.
 
 | Identity | Phase 11 value |
 |---|---|
-| Source revision | `61bf742326cb050576e4d47bc17d6ed276e0b9a0` |
-| Target revision | PR #18 head on `phase/11-staging` |
-| Artifact identity | Captured by hosted run `34678853313` before teardown |
+| Source revision | `8ad97a9cbbdc49be6eeeaf171dadbcbdc8b6a009` |
+| Target revision | Executable PR #18 head used for hosted verification |
+| Artifact identity | Captured by hosted run `34679103458` before teardown |
 | Configuration revision | `docker-compose.staging.yml` plus environment variable names only |
 | Schema | Existing migration ledger, clean volume and existing-data path both required |
 | Backup identity | Staging backup manifest recorded before destructive rehearsal, if used |
@@ -95,15 +95,17 @@ frontend image build because `frontend/Dockerfile` omitted the tracked
 `/avatar.png`. The failure was fixed in the one-line Dockerfile change and was
 not bypassed by removing tests.
 
-The final evidence is bound to PR #18 head
-`61bf742326cb050576e4d47bc17d6ed276e0b9a0`:
+The final evidence is bound to the executable PR #18 head used for hosted
+verification, `8ad97a9cbbdc49be6eeeaf171dadbcbdc8b6a009`. The documentation
+commit containing this record is report-only and follows that tested source
+revision.
 
-- Hosted staging run `34678853313`: **success**. Image build/start, live/ready
+- Hosted staging run `34679103458`: **success**. Image build/start, live/ready
   probes, clean migration ledger, built-frontend desktop/mobile generic E2E,
   identity/log capture, report upload, and teardown all passed.
-- Hosted standalone generic E2E run `34678853306`: **success**; the four
+- Hosted standalone generic E2E run `34679103450`: **success**; the four
   generic tests passed in both configured browser projects.
-- Existing CI matrix run `34678984305`: **success**; frontend build and Python
+- Existing CI matrix run `34679215196`: **success**; frontend build and Python
   3.11/3.12 backend tests all passed.
 - The staging runner captured the container/image identity and Playwright
   report before removing the disposable containers and named volume. Password
