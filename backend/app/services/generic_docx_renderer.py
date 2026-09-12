@@ -28,6 +28,7 @@ from app.models.project import (
 )
 from app.models.template import DEFAULT_STYLES, SectionType
 from app.services.template_source import resolve_template_source
+from app.services.docx_anchors import DocxAnchorError, render_anchored_docx
 
 
 _LEGACY_SECTION_KINDS = {item.value for item in SectionType}
@@ -162,6 +163,22 @@ def render_document_project_to_docx(
     source_path = resolve_template_source(template_version.definition.source_docx)
     if source_path is None:
         raise GenericDocxRenderError("template source DOCX is missing or unsafe")
+
+    # Explicit anchors are the high-fidelity path for new generic templates:
+    # mutate only declared locations and preserve the original OOXML package.
+    # Templates without anchors retain the existing thesis-compatible adapter.
+    if template_version.definition.anchors:
+        try:
+            render_anchored_docx(
+                source_path,
+                out_path,
+                template_version.definition.anchors,
+                project.field_values,
+                project.sections,
+            )
+        except DocxAnchorError as exc:
+            raise GenericDocxRenderError(str(exc)) from exc
+        return Path(out_path)
 
     legacy_definition = _legacy_template_definition(template_version.definition)
     legacy_version = template_version.model_copy(update={"definition": legacy_definition})

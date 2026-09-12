@@ -4,7 +4,9 @@
 
 This phase adds the first generic `DocumentProject` to DOCX rendering path.
 It deliberately reuses the existing thesis DOCX exporter through an adapter;
-the thesis export path and its public APIs are unchanged.
+the thesis export path and its public APIs are unchanged. The current
+extension adds an explicit-anchor path for new templates without changing the
+legacy path.
 
 ```text
 DocumentProject + frozen DocumentPackage
@@ -54,6 +56,25 @@ Successful output is returned as a DOCX download, the temporary render
 directory is removed by the response background task, and the render is added
 to the audit ledger.
 
+## Explicit-anchor path
+
+When `TemplateDefinition.anchors` is non-empty, the renderer operates directly
+on the frozen source DOCX package. It replaces only declared locations and
+leaves the source body, styles, headers, footers, numbering, relationships and
+other OOXML parts intact. Supported declarations are:
+
+- `{{field_key}}` placeholders, including placeholders split across Word runs;
+- `{{section:section_key}}` paragraph markers for text content blocks;
+- tagged Content Controls (`pg:field:key` or `pg:section:key`);
+- user bookmarks such as `pg_field_key` and `pg_section_key`; and
+- simple `MERGEFIELD key` fields.
+
+The renderer fails closed when a declared anchor is absent from its recorded
+part. This makes template confirmation reviewable and prevents a best-effort
+text search from silently writing content into the wrong location. Templates
+without explicit anchors continue through the existing thesis-compatible
+adapter and are reported as lower-fidelity during parsing.
+
 ## Frontend flow
 
 The generic editor now exposes an `Export DOCX` action next to deterministic
@@ -64,14 +85,15 @@ in both supported UI languages.
 ## Fidelity boundary
 
 The source DOCX remains the layout base, so styles, themes, page settings,
-headers, footers, and package resources are preserved by the existing exporter.
+headers, footers, and package resources are preserved by the existing exporter
+or the direct anchored package rewrite.
 Cover content recognized by the import parser is also re-emitted from its
-structured cover definition. This phase does not yet provide arbitrary
-placeholder binding or lossless preservation of every static body paragraph,
-unsupported Word object, tracked change, or renderer-specific field. Such
-content requires a dedicated placeholder/asset model and belongs in later
-renderer and storage phases. Unknown section kinds are intentionally rendered
-as body content and should be reviewed during template confirmation.
+structured cover definition. The explicit path does not claim lossless editing
+of every Word object, tracked change, or renderer-specific field. Images/tables
+in anchored section markers currently use their declared text/caption
+representation; rich block round-trip remains a later renderer capability.
+Unknown section kinds in the legacy fallback are intentionally rendered as
+body content and should be reviewed during template confirmation.
 
 ## Tests and verification
 
@@ -94,7 +116,7 @@ Verification completed locally for this phase:
 ## Explicit non-goals
 
 - no replacement of `docx_exporter.py`;
-- no arbitrary Word placeholder engine or full static-body round trip;
+- no implicit/arbitrary text replacement or full static-body editing engine;
 - no generic PDF renderer;
 - no durable generic render queue or artifact catalog;
 - no migration of legacy thesis projects;

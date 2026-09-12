@@ -26,6 +26,8 @@ The engine currently executes these structured checks:
 - character/word count for document, body, and targeted sections;
 - keyword count;
 - required metadata fields and declared AI usage;
+- intrinsic `TemplateField.required` values, emitted as deterministic hard
+  findings even when the uploaded specification contains no matching rule;
 - reference count, recent-reference count/ratio, and conservative reference
   syntax checks.
 
@@ -52,6 +54,11 @@ Validation rejects a corrupted project/package reference instead of silently
 using a different template or specification. Create/update/validate actions
 remain owner-scoped for regular users and admin-readable; validation writes a
 metadata-only audit event.
+
+Draft creation and autosave may keep a required field empty so the editor can
+be completed incrementally. Validation and the render gate expose the missing
+field; `force=true` remains the explicit override for workflows that accept an
+incomplete artifact.
 
 ## Frontend flow
 

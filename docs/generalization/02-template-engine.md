@@ -7,6 +7,7 @@
 ## 已实现
 
 - `backend/app/services/template_engine.py` 将现有 DOCX OOXML 样式、标题树和封面字段解析为通用 `TemplateParseCandidate`。
+- `backend/app/services/docx_anchors.py` 识别显式 `{{field}}`、`{{section:key}}`、Content Control、Bookmark 和 MERGEFIELD，并将部件、选择器和出现次序写入 `TemplateDefinition.anchors`。
 - 候选保留源 DOCX 的 `TemplateAsset` 引用、size、checksum 和扫描状态；解析本身不调用 AI、不发起网络请求。
 - 未映射 Word 样式、未识别章节、未识别字段和未识别样式以结构化 issue 返回，管理员可以在确认前处理。
 - `POST /api/templates/parse` 只允许管理员/已认证教师，返回 `needs_confirmation` 候选并将成功操作写入现有 audit ledger。
@@ -19,6 +20,7 @@
 - 通用 section kind 不强制转换为 thesis `SectionType`；只有 thesis adapter 能表示的结构才能在后续转回旧模型。
 - 源文件仍通过当前受控 `template_source` 存储和上传安全检查处理，Phase 2 不改变路径授权规则。
 - audit 只记录 actor、candidate id、action、resource 和结果，不记录模板正文、文件内容或 checksum。
+- 没有显式锚点的历史模板仍按原有标题/封面启发式识别，并在候选中给出高保真风险提示；新通用模板应在人工确认阶段采用稳定锚点。
 
 ## 验证
 

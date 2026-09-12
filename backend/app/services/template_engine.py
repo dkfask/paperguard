@@ -14,6 +14,7 @@ from app.domain.documents.schemas import (
     TemplateSection,
     StyleDefinition,
 )
+from app.services.docx_anchors import extract_docx_anchors
 from app.services.import_template import (
     extract_cover_blocks,
     extract_meta_fields,
@@ -87,8 +88,26 @@ def parse_docx_template(
     path = Path(docx_path)
     imported_styles = import_template_styles(path)
     raw_sections = extract_section_tree(path)
+    anchors = extract_docx_anchors(path)
     meta_fields = extract_meta_fields(path)
     issues: list[TemplateParseIssue] = []
+
+    section_anchor_keys = list(dict.fromkeys(
+        anchor.section_key or anchor.key
+        for anchor in anchors
+        if anchor.kind in {"section_placeholder", "section_bookmark", "section_content_control"}
+    ))
+    if not raw_sections and section_anchor_keys:
+        raw_sections = [
+            {
+                "key": key,
+                "type": "content",
+                "title": key.replace("_", " ").replace("-", " ").title(),
+                "required": True,
+                "children": [],
+            }
+            for key in section_anchor_keys
+        ]
 
     for style_name in dict.fromkeys(imported_styles.get("unmapped") or []):
         issues.append(TemplateParseIssue(
@@ -103,6 +122,13 @@ def parse_docx_template(
             severity="warning",
             message="未识别到标题章节；确认前需要人工补充章节结构",
             path="definition.sections",
+        ))
+    if not anchors:
+        issues.append(TemplateParseIssue(
+            code="stable_anchors_not_detected",
+            severity="warning",
+            message="未识别到明确的 DOCX 字段/章节锚点；导出将使用兼容渲染器，无法保证陌生模板的原位保真",
+            path="definition.anchors",
         ))
     if not meta_fields:
         issues.append(TemplateParseIssue(
@@ -119,19 +145,38 @@ def parse_docx_template(
             path="definition.styles",
         ))
 
+    fields_by_key: dict[str, TemplateField] = {
+        field.key: TemplateField(
+            key=field.key,
+            label=field.label,
+            type="text",
+            required=field.required,
+            location="metadata",
+            source="docx.cover",
+        )
+        for field in meta_fields
+    }
+    for anchor in anchors:
+        if anchor.kind in {"section_placeholder", "section_bookmark", "section_content_control"}:
+            continue
+        existing = fields_by_key.get(anchor.key)
+        if existing is None:
+            fields_by_key[anchor.key] = TemplateField(
+                key=anchor.key,
+                label=anchor.key.replace("_", " ").replace("-", " ").title(),
+                type="text",
+                required=anchor.required,
+                location="anchor",
+                constraints={"anchor_kind": anchor.kind, "anchor_selector": anchor.selector},
+                source="docx.anchor",
+            )
+        elif anchor.required and not existing.required:
+            fields_by_key[anchor.key] = existing.model_copy(update={"required": True})
+
     definition = TemplateDefinition(
         sections=[_generic_section(section, order) for order, section in enumerate(raw_sections)],
-        fields=[
-            TemplateField(
-                key=field.key,
-                label=field.label,
-                type="text",
-                required=field.required,
-                location="metadata",
-                source="docx.cover",
-            )
-            for field in meta_fields
-        ],
+        fields=list(fields_by_key.values()),
+        anchors=anchors,
         styles={
             key: StyleDefinition.model_validate(style.model_dump(mode="json"))
             for key, style in (imported_styles.get("styles") or {}).items()
@@ -186,6 +231,28 @@ def validate_template_candidate(candidate: TemplateParseCandidate) -> TemplatePa
         field_keys.add(field.key)
         if field.section_key and field.section_key not in section_keys:
             add("unknown_field_section", "error", f"字段引用未知章节: {field.section_key}", path)
+
+    anchor_keys: set[tuple[str, str, str, int]] = set()
+    allowed_anchor_kinds = {
+        "placeholder", "section_placeholder", "content_control", "section_content_control",
+        "bookmark", "section_bookmark", "merge_field",
+    }
+    for anchor in candidate.definition.anchors:
+        path = f"definition.anchors[{anchor.kind}:{anchor.selector}]"
+        identity = (anchor.part, anchor.kind, anchor.selector, anchor.occurrence)
+        if identity in anchor_keys:
+            add("duplicate_anchor", "error", f"DOCX 锚点重复: {anchor.selector}", path)
+        anchor_keys.add(identity)
+        if anchor.kind not in allowed_anchor_kinds:
+            add("unsupported_anchor_kind", "error", f"不支持的 DOCX 锚点类型: {anchor.kind}", path)
+        if not anchor.part.startswith("word/") or not anchor.part.endswith(".xml") or anchor.part.endswith(".rels"):
+            add("invalid_anchor_part", "error", f"DOCX 锚点部件不合法: {anchor.part}", path)
+        if anchor.kind in {"section_placeholder", "section_bookmark", "section_content_control"}:
+            section_key = anchor.section_key or anchor.key
+            if section_key not in section_keys:
+                add("unknown_anchor_section", "error", f"锚点引用未知章节: {section_key}", path)
+        elif anchor.key not in field_keys:
+            add("unknown_anchor_field", "error", f"锚点引用未知字段: {anchor.key}", path)
 
     if candidate.source_asset is None:
         add("source_asset_required", "error", "确认模板必须保留源 DOCX asset", "source_asset")

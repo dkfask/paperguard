@@ -98,6 +98,25 @@ class TemplateSection(BaseModel):
     extensions: dict[str, Any] = Field(default_factory=dict)
 
 
+class TemplateAnchor(BaseModel):
+    """A deterministic location in a DOCX template.
+
+    Anchors are metadata only; the renderer resolves them against the frozen
+    source DOCX.  Keeping the selector and part explicit makes the mapping
+    reviewable and prevents a renderer from guessing against arbitrary text.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    selector: str = Field(min_length=1)
+    part: str = Field(default="word/document.xml", min_length=1)
+    occurrence: int = Field(default=1, ge=1)
+    required: bool = False
+    section_key: str = ""
+
+
 class TemplateDefinition(BaseModel):
     """The normalized, versioned definition used to build an editor."""
 
@@ -105,6 +124,7 @@ class TemplateDefinition(BaseModel):
 
     sections: list[TemplateSection] = Field(default_factory=list)
     fields: list[TemplateField] = Field(default_factory=list)
+    anchors: list[TemplateAnchor] = Field(default_factory=list)
     styles: dict[str, StyleDefinition] = Field(default_factory=dict)
     page_layout: dict[str, float] = Field(default_factory=dict)
     allow_structure_edit: bool = True
