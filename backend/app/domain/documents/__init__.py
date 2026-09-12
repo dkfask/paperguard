@@ -11,8 +11,10 @@ from app.domain.documents.mappers import (
 )
 from app.domain.documents.schemas import (
     DocumentPackage,
+    DocumentProject,
     DocumentTemplate,
     DocumentType,
+    ContentBlock,
     StyleDefinition,
     TemplateAsset,
     TemplateDefinition,
@@ -25,8 +27,10 @@ from app.domain.documents.specs import SpecRule, SpecSet, SpecVersion, requireme
 
 __all__ = [
     "DocumentPackage",
+    "DocumentProject",
     "DocumentTemplate",
     "DocumentType",
+    "ContentBlock",
     "LegacyStoreProjectSnapshotRepository",
     "LegacyStoreSpecRepository",
     "LegacyStoreTemplateRepository",

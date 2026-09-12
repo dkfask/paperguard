@@ -185,4 +185,40 @@ class DocumentPackage(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ContentBlock(BaseModel):
+    """A generic user-authored block; renderers interpret its declared kind."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    kind: str = Field(default="paragraph", min_length=1, max_length=80)
+    text: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+    order: int = Field(default=0, ge=0)
+
+
+class DocumentProject(BaseModel):
+    """A user-authored instance pinned to one immutable document package."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    package_id: str = Field(min_length=1)
+    document_type_id: str = Field(min_length=1)
+    template_version_id: str = Field(min_length=1)
+    spec_version_id: str = Field(min_length=1)
+    renderer_version: str = Field(min_length=1)
+    rule_engine_version: str = Field(min_length=1)
+    owner_id: str = Field(min_length=1)
+    title: str = ""
+    status: str = "draft"
+    revision: int = Field(default=0, ge=0)
+    field_values: dict[str, Any] = Field(default_factory=dict)
+    sections: dict[str, list[ContentBlock]] = Field(default_factory=dict)
+    organization_context: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+
+
 TemplateSection.model_rebuild()

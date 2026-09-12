@@ -1174,3 +1174,43 @@ export async function unbindTeacherStudent(studentId) {
   }
   return resp.json()
 }
+
+// ---------- 通用文档项目 ----------
+
+export async function getDocumentPackages() {
+  const resp = await api(`${API_BASE}/document-packages`)
+  if (!resp.ok) throw await responseError(resp, '获取通用文档模板失败')
+  return resp.json()
+}
+
+export async function getDocumentProjects() {
+  const resp = await api(`${API_BASE}/document-projects`)
+  if (!resp.ok) throw await responseError(resp, '获取通用文档项目失败')
+  return resp.json()
+}
+
+export async function createDocumentProject(payload) {
+  const resp = await api(`${API_BASE}/document-projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw await responseError(resp, '创建通用文档项目失败')
+  return resp.json()
+}
+
+export async function getDocumentProjectEditor(projectId) {
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/editor`)
+  if (!resp.ok) throw await responseError(resp, '读取通用文档项目失败')
+  return resp.json()
+}
+
+export async function updateDocumentProject(projectId, payload) {
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw await responseError(resp, '保存通用文档项目失败')
+  return resp.json()
+}
