@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>微信小程序 - 个人中心</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=JetBrains+Mono&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "secondary-fixed-dim": "#b4c5ff",
+            "outline": "#737685",
+            "on-tertiary-fixed": "#002109",
+            "on-secondary-fixed-variant": "#003ea8",
+            "inverse-surface": "#213146",
+            "tertiary-fixed": "#7ffc97",
+            "on-background": "#0b1c30",
+            "surface-container-low": "#eff4ff",
+            "on-primary-container": "#b8c8ff",
+            "surface-variant": "#d3e3ff",
+            "surface-container-lowest": "#ffffff",
+            "surface-container-highest": "#d3e3ff",
+            "error-container": "#ffdad6",
+            "primary-container": "#004ac6",
+            "surface-container": "#e6eeff",
+            "primary": "#003594",
+            "on-secondary-fixed": "#00174b",
+            "surface": "#f8f9ff",
+            "tertiary": "#00481b",
+            "inverse-primary": "#b4c5ff",
+            "primary-fixed": "#dbe1ff",
+            "secondary-container": "#316bf3",
+            "surface-tint": "#1b55d0",
+            "outline-variant": "#c3c6d6",
+            "secondary": "#0051d5",
+            "on-tertiary-container": "#64e17f",
+            "on-primary-fixed-variant": "#003ea8",
+            "on-secondary": "#ffffff",
+            "surface-container-high": "#dde9ff",
+            "on-secondary-container": "#fefcff",
+            "error": "#ba1a1a",
+            "surface-dim": "#cbdbf6",
+            "tertiary-container": "#006228",
+            "on-tertiary": "#ffffff",
+            "on-surface": "#0b1c30",
+            "on-primary-fixed": "#00174b",
+            "tertiary-fixed-dim": "#62df7d",
+            "background": "#f8f9ff",
+            "on-tertiary-fixed-variant": "#005320",
+            "on-error": "#ffffff",
+            "surface-bright": "#f8f9ff",
+            "on-error-container": "#93000a",
+            "secondary-fixed": "#dbe1ff",
+            "on-primary": "#ffffff",
+            "on-surface-variant": "#434654",
+            "inverse-on-surface": "#ebf1ff",
+            "primary-fixed-dim": "#b4c5ff"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-md": "0.75rem",
+            "margin": "1rem",
+            "space-xl": "2rem",
+            "space-lg": "1.5rem",
+            "margin-md": "1.5rem",
+            "space-sm": "0.5rem",
+            "space-2xs": "0.125rem",
+            "space-2xl": "3rem",
+            "gutter-lg": "1.5rem",
+            "margin-lg": "2rem",
+            "gutter": "1rem",
+            "space-base": "1rem",
+            "space-xs": "0.25rem"
+          },
+          "fontFamily": {
+            "display-lg": ["Newsreader"],
+            "label-md": ["Geist"],
+            "body-lg": ["Geist"],
+            "code-sm": ["JetBrains Mono"],
+            "headline-sm": ["Geist"],
+            "body-sm": ["Geist"],
+            "headline-md": ["Geist"],
+            "headline-lg": ["Newsreader"],
+            "label-sm": ["Geist"],
+            "body-md": ["Geist"]
+          },
+          "fontSize": {
+            "display-lg": ["2.25rem", { "lineHeight": "2.75rem", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "letterSpacing": "0.01em", "fontWeight": "500" }],
+            "body-lg": ["1rem", { "lineHeight": "1.625rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "code-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-sm": ["1.0625rem", { "lineHeight": "1.5rem", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "body-sm": ["0.8125rem", { "lineHeight": "1.25rem", "letterSpacing": "0.005em", "fontWeight": "400" }],
+            "headline-md": ["1.25rem", { "lineHeight": "1.75rem", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "letterSpacing": "-0.015em", "fontWeight": "500" }],
+            "label-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.5rem", "letterSpacing": "0em", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-background font-body-md antialiased selection:bg-primary-container selection:text-on-primary-container pb-24">
+<!-- TopAppBar -->
+<header class="sticky top-0 z-40 bg-surface dark:bg-surface shadow-sm dark:shadow-none">
+<div class="flex justify-between items-center w-full px-4 h-12 max-w-screen-md mx-auto">
+<button class="text-primary dark:text-inverse-primary hover:bg-surface-container-high dark:hover:bg-inverse-surface p-1 rounded-lg transition-colors duration-150 active:opacity-80">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="text-headline-sm font-headline-sm text-on-surface dark:text-inverse-on-surface font-bold tracking-tight">个人中心</h1>
+<button class="text-primary dark:text-inverse-primary hover:bg-surface-container-high dark:hover:bg-inverse-surface p-1 rounded-lg transition-colors duration-150 active:opacity-80">
+<span class="material-symbols-outlined">more_horiz</span>
+</button>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="max-w-screen-md mx-auto px-4 py-space-md space-y-space-md">
+<!-- 顶部个人卡 -->
+<section class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl p-space-lg shadow-[0_1px_2px_0_rgba(11,28,48,0.03),0_1px_3px_0_rgba(11,28,48,0.02)] transition-all hover:shadow-[0_4px_12px_-2px_rgba(11,28,48,0.05)]">
+<div class="flex items-start gap-space-md">
+<!-- 字母头像 -->
+<div class="w-14 h-14 rounded-xl bg-primary-container text-on-primary-container flex items-center justify-center font-display-lg text-xl font-bold shadow-inner">
+          陈
+        </div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-space-sm flex-wrap">
+<h2 class="text-headline-md font-headline-md text-on-background">陈晓</h2>
+<!-- 蓝色徽标 -->
+<span class="inline-flex items-center px-space-xs py-0.5 rounded text-label-sm font-label-sm bg-primary-fixed text-on-primary-fixed font-medium">
+              学生
+            </span>
+</div>
+<p class="text-body-sm text-on-surface-variant font-code-sm mt-0.5">学号: 2023011234</p>
+<p class="text-body-sm text-outline mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">school</span>
+            指导教师:王建国
+          </p>
+</div>
+</div>
+</section>
+<!-- 分组列表：账号与安全 -->
+<section class="space-y-space-xs">
+<h3 class="text-label-md font-label-md text-on-surface-variant px-1 uppercase tracking-wider">账号与安全</h3>
+<div class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl overflow-hidden shadow-[0_1px_2px_0_rgba(11,28,48,0.03)]">
+<!-- 微信绑定 -->
+<div class="flex items-center justify-between px-space-md py-3 border-b border-outline-variant/30 hover:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary">link</span>
+<span class="text-body-lg text-on-background">微信绑定</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-label-sm font-label-sm" style="color: #16a34a; background-color: rgba(22, 163, 74, 0.08);">
+<span class="material-symbols-outlined text-[14px]">replace_image</span>
+              已绑定
+            </span>
+<span class="material-symbols-outlined text-outline text-[18px]">chevron_right</span>
+</div>
+</div>
+<!-- 修改密码 -->
+<div class="flex items-center justify-between px-space-md py-3 border-b border-outline-variant/30 hover:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary">lock_reset</span>
+<span class="text-body-lg text-on-background">修改密码</span>
+</div>
+<span class="material-symbols-outlined text-outline text-[18px]">chevron_right</span>
+</div>
+<!-- 登录会话 -->
+<div class="flex items-center justify-between px-space-md py-3 hover:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary">devices</span>
+<span class="text-body-lg text-on-background">登录会话</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="text-body-sm text-on-surface-variant">30 天免登录</span>
+<span class="material-symbols-outlined text-outline text-[18px]">chevron_right</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 分组列表：写作依据 -->
+<section class="space-y-space-xs">
+<h3 class="text-label-md font-label-md text-on-surface-variant px-1 uppercase tracking-wider">写作依据</h3>
+<div class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl overflow-hidden shadow-[0_1px_2px_0_rgba(11,28,48,0.03)]">
+<!-- 我可见的规范 -->
+<div class="flex items-center justify-between px-space-md py-3 border-b border-outline-variant/30 hover:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary">description</span>
+<span class="text-body-lg text-on-background">我可见的规范</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="text-body-sm text-primary font-medium bg-primary-fixed/50 px-2 py-0.5 rounded">3 份已发布</span>
+<span class="material-symbols-outlined text-outline text-[18px]">chevron_right</span>
+</div>
+</div>
+<!-- 我的批次 -->
+<div class="flex items-center justify-between px-space-md py-3 hover:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary">layers</span>
+<span class="text-body-lg text-on-background">我的批次</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="text-body-sm text-on-surface-variant">2027届本科论文</span>
+<span class="material-symbols-outlined text-outline text-[18px]">chevron_right</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 分组列表：支持 -->
+<section class="space-y-space-xs">
+<h3 class="text-label-md font-label-md text-on-surface-variant px-1 uppercase tracking-wider">支持</h3>
+<div class="bg-surface-container-lowest border border-outline-variant/60 rounded-xl overflow-hidden shadow-[0_1px_2px_0_rgba(11,28,48,0.03)]">
+<!-- 桌面端地址 -->
+<div class="flex items-center justify-between px-space-md py-3 border-b border-outline-variant/30 hover:bg-surface-container-low transition-colors">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary">desktop_windows</span>
+<span class="text-body-lg text-on-background">桌面端地址</span>
+</div>
+<div class="flex items-center gap-space-sm">
+<span class="text-body-sm font-code-sm text-on-surface-variant">edu.saas.platform</span>
+<button class="p-1 rounded hover:bg-surface-container-high text-primary transition-colors" onclick="alert('桌面端链接已复制')" title="复制地址">
+<span class="material-symbols-outlined text-[18px]">content_copy</span>
+</button>
+</div>
+</div>
+<!-- 隐私政策 -->
+<div class="flex items-center justify-between px-space-md py-3 border-b border-outline-variant/30 hover:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary">shield</span>
+<span class="text-body-lg text-on-background">隐私政策</span>
+</div>
+<span class="material-symbols-outlined text-outline text-[18px]">chevron_right</span>
+</div>
+<!-- 关于 -->
+<div class="flex items-center justify-between px-space-md py-3 hover:bg-surface-container-low transition-colors cursor-pointer">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary">info</span>
+<span class="text-body-lg text-on-background">关于</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="text-body-sm text-on-surface-variant">v1.0</span>
+<span class="material-symbols-outlined text-outline text-[18px]">chevron_right</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 底部解绑微信按钮 -->
+<div class="pt-space-sm pb-space-lg">
+<button class="w-full py-3 bg-surface-container-lowest border border-outline-variant/60 rounded-xl text-center text-error font-medium hover:bg-error-container/20 transition-colors shadow-sm" onclick="confirm('确定要解绑微信吗？')">
+        解绑微信
+      </button>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center h-16 px-4 pb-safe bg-surface-container-lowest dark:bg-inverse-surface border-t border-outline-variant dark:border-outline shadow-sm dark:shadow-none">
+<!-- 我的任务 (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-surface-variant py-1 hover:text-primary dark:hover:text-inverse-primary transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined">assignment</span>
+<span class="text-label-sm font-label-sm mt-1">我的任务</span>
+</a>
+<!-- 消息 (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-surface-variant py-1 hover:text-primary dark:hover:text-inverse-primary transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined">chat_bubble</span>
+<span class="text-label-sm font-label-sm mt-1">消息</span>
+</a>
+<!-- 我的 (Active) -->
+<a class="flex flex-col items-center justify-center text-primary dark:text-inverse-primary font-medium py-1 hover:text-primary dark:hover:text-inverse-primary transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">account_circle</span>
+<span class="text-label-sm font-label-sm mt-1">我的</span>
+</a>
+</nav>
+</body></html>
