@@ -59,6 +59,13 @@ plan.
 - Script syntax and input fail-closed behavior: validated locally.
 - Full verifier contract against a local loopback mock: **PASS**; all 8
   non-destructive checks passed and the mock service was stopped afterward.
+- Hosted evidence for the current PR #20 head `c817a09a93323b3b1d4f53fbd1b19514641d36de`:
+  - CI run `34682119668`: **success**; Python 3.11/3.12 backend tests,
+    frontend build, and loopback verifier contract passed.
+  - Production-topology preflight `34682113305`: **success**.
+  - Generic document E2E `34682113306`: **success**.
+  - Disposable staging `34682113338`: **success**; probes, clean migration,
+    built-frontend desktop/mobile E2E, evidence capture, and teardown passed.
 - Actual authorized online verification: **NOT RUN**; no target URL or
   out-of-band credentials were supplied.
 - Production deployment: **NOT RUN** by authorization.
