@@ -123,9 +123,20 @@ Historical hosted evidence for the Phase 10 gate was collected at
 - The workflow masks its generated admin password before exporting it to the
   runner environment; hosted logs show the value as `***`.
 
+Current hosted regression for the Phase 13 executable source
+`e0c889d605e0c77090756130154c2218207f8f08`:
+
+- CI run `34690485516`: success; frontend build, Python 3.11/3.12 backend
+  tests, and loopback verifier contract passed.
+- Generic E2E run `34690470830`: success.
+- Disposable staging run `34690470772`: success; built-frontend desktop/mobile
+  generic E2E, migration, probes, evidence capture, and teardown passed.
+- Production-topology preflight run `34690470963`: success; Compose build,
+  real migration command, manifest schema validation, evidence capture, and
+  teardown passed.
+
 ## Phase Gate
 
-The current local browser and regression checks are green. The historical
-hosted CI and E2E runs above remain valid for the Phase 10 gate; the current
-Phase 13 source changes require the hosted CI refresh recorded in the Phase 13
-release evidence before that source is treated as a remotely verified gate.
+The local browser and regression checks are green. The historical hosted CI and
+E2E runs above remain valid for the Phase 10 gate, and the current executable
+source is additionally covered by the hosted regression runs listed above.
