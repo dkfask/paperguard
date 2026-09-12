@@ -51,6 +51,8 @@ plan.
 ## Status
 
 - Script syntax and input fail-closed behavior: validated locally.
+- Full verifier contract against a local loopback mock: **PASS**; all 9
+  read-only checks passed and the mock service was stopped afterward.
 - Actual authorized online verification: **NOT RUN**; no target URL or
   out-of-band credentials were supplied.
 - Production deployment: **NOT RUN** by authorization.
