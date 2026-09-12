@@ -103,7 +103,7 @@ def test_migrate_cli_is_repeatable_and_reports_schema_ledger(tmp_path, monkeypat
     second_payload = json.loads(second.output)
     assert first_payload["status"] == second_payload["status"] == "ok"
     assert [item["version"] for item in first_payload["migrations"]] == [
-        "0001_runtime_schema", "0002_durable_jobs", "0003_audit_ledger", "0004_document_packages",
+        "0001_runtime_schema", "0002_durable_jobs", "0003_audit_ledger", "0004_document_packages", "0005_document_projects",
     ]
     assert [item["version"] for item in first_payload["migrations"]] == [
         item["version"] for item in second_payload["migrations"]

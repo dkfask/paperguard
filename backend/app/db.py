@@ -27,6 +27,7 @@ SCHEMA_MIGRATIONS = (
     "0002_durable_jobs",
     "0003_audit_ledger",
     "0004_document_packages",
+    "0005_document_projects",
 )
 
 
@@ -127,6 +128,16 @@ class Store:
                 );
                 CREATE INDEX IF NOT EXISTS idx_document_packages_created
                     ON document_packages (created_at DESC, id DESC);
+                CREATE TABLE IF NOT EXISTS document_projects (
+                    id TEXT PRIMARY KEY,
+                    package_id TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_document_projects_owner_updated
+                    ON document_projects (owner_id, updated_at DESC);
                 CREATE TABLE IF NOT EXISTS organization_units (
                     id TEXT PRIMARY KEY,
                     data TEXT NOT NULL,
@@ -651,6 +662,84 @@ class Store:
             }
             for row in rows
         ]
+
+    # -------------------------- document projects -----------------------
+
+    def save_document_project(self, project):
+        """Insert a new generic project; updates must use the revision guard."""
+        from app.domain.documents.schemas import DocumentProject
+
+        if not isinstance(project, DocumentProject):
+            project = DocumentProject.model_validate(project)
+        now = _now()
+        if not project.created_at:
+            project.created_at = now
+        project.updated_at = now
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO document_projects (id, package_id, owner_id, data, revision, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        project.id,
+                        project.package_id,
+                        project.owner_id,
+                        project.model_dump_json(),
+                        project.revision,
+                        project.updated_at,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("document project already exists") from exc
+        return project
+
+    def update_document_project_if_revision(self, project, expected_revision: int):
+        """Persist generic project content only when its revision is current."""
+        from app.domain.documents.schemas import DocumentProject
+
+        if not isinstance(project, DocumentProject):
+            project = DocumentProject.model_validate(project)
+        project.revision = expected_revision + 1
+        project.updated_at = _now()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE document_projects SET data = ?, revision = ?, updated_at = ? "
+                "WHERE id = ? AND revision = ?",
+                (
+                    project.model_dump_json(),
+                    project.revision,
+                    project.updated_at,
+                    project.id,
+                    expected_revision,
+                ),
+            )
+            if cur.rowcount != 1:
+                return None
+        return project
+
+    def get_document_project(self, project_id: str):
+        from app.domain.documents.schemas import DocumentProject
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM document_projects WHERE id = ?", (project_id,)
+            ).fetchone()
+        return DocumentProject.model_validate_json(row["data"]) if row else None
+
+    def list_document_projects(self, *, owner_id: str = "") -> list:
+        from app.domain.documents.schemas import DocumentProject
+
+        with self._connect() as conn:
+            if owner_id:
+                rows = conn.execute(
+                    "SELECT data FROM document_projects WHERE owner_id = ? ORDER BY updated_at DESC",
+                    (owner_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT data FROM document_projects ORDER BY updated_at DESC"
+                ).fetchall()
+        return [DocumentProject.model_validate_json(row["data"]) for row in rows]
 
     # ------------------------- organization units ------------------------
 
