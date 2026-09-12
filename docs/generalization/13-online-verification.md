@@ -77,7 +77,7 @@ authorized target, credentials, and a designated safe test scope. No online
 state has been changed.
 
 The explicit-anchor renderer, intrinsic required-field hardening, and
-server-bound candidate publication follow-up are included in `d3bf522`; the
+server-bound candidate publication follow-up are included in `592724c`; the
 same hosted gates passed for that exact head. Actual online verification and
 production write-path verification remain separately unauthorized and
 unexecuted.
