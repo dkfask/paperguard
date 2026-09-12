@@ -60,11 +60,11 @@ plan.
 - Full verifier contract against a local loopback mock: **PASS**; all 8
   non-destructive checks passed and the mock service was stopped afterward.
 - Hosted evidence for the current PR #20 evidence head:
-  - CI run `34684672255`: **success**; Python 3.11/3.12 backend tests,
+  - CI run `34685633517`: **success**; Python 3.11/3.12 backend tests,
     frontend build, and loopback verifier contract passed.
-  - Production-topology preflight `34684663977`: **success**.
-  - Generic document E2E `34684663989`: **success**.
-  - Disposable staging `34684663975`: **success**; probes, clean migration,
+  - Production-topology preflight `34685617195`: **success**.
+  - Generic document E2E `34685617222`: **success**.
+  - Disposable staging `34685617206`: **success**; probes, clean migration,
     built-frontend desktop/mobile E2E, evidence capture, and teardown passed.
 - Actual authorized online verification: **NOT RUN**; no target URL or
   out-of-band credentials were supplied.
@@ -76,8 +76,8 @@ Phase 13 tooling is **GO**. Phase 13 acceptance is **BLOCKED** pending an
 authorized target, credentials, and a designated safe test scope. No online
 state has been changed.
 
-The explicit-anchor renderer, intrinsic required-field hardening, and
-server-bound candidate publication follow-up are included in the PR #20
-evidence head used by the runs above. Actual online verification and
-production write-path verification remain separately unauthorized and
-unexecuted.
+The explicit-anchor renderer, intrinsic required-field hardening, server-bound
+candidate publication, recoverable candidate inbox, and structured review
+editor are included in the PR #20 evidence head used by the runs above. Actual
+online verification and production write-path verification remain separately
+unauthorized and unexecuted.
