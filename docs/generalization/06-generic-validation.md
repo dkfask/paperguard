@@ -74,7 +74,8 @@ Verification completed for this phase:
 - Frontend production build: `PASS`.
 - Python compile check: `PASS`.
 - `git diff --check`: `PASS`.
-- Hosted CI for the Phase 6 branch: NOT RUN yet.
+- Hosted CI for the Phase 6 implementation branch: `34675351269` green for
+  head `6775e7d`; Python 3.11, Python 3.12, and frontend build all passed.
 - Staging/production deployment and online verification: NOT RUN by scope.
 
 ## Explicit non-goals
