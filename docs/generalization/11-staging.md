@@ -19,9 +19,9 @@ default application volume.
 
 | Identity | Phase 11 value |
 |---|---|
-| Source revision | Recorded after the staging branch commit |
-| Target revision | `phase/11-staging` PR head |
-| Artifact identity | Docker image digests recorded after build |
+| Source revision | `61bf742326cb050576e4d47bc17d6ed276e0b9a0` |
+| Target revision | PR #18 head on `phase/11-staging` |
+| Artifact identity | Captured by hosted run `34678853313` before teardown |
 | Configuration revision | `docker-compose.staging.yml` plus environment variable names only |
 | Schema | Existing migration ledger, clean volume and existing-data path both required |
 | Backup identity | Staging backup manifest recorded before destructive rehearsal, if used |
@@ -60,7 +60,8 @@ fixture then uses the same public staging proxy, so the browser and setup both
 exercise the built frontend route rather than bypassing it.
 
 `.github/workflows/staging.yml` runs the same topology on a disposable GitHub
-runner for the Phase 11 pull request or a later manual dispatch. It builds both images, verifies the two health probes through Nginx,
+runner for the Phase 11 pull request or a later manual dispatch. It builds both
+images, verifies the two health probes through Nginx,
 runs the migration ledger command in the backend container, runs desktop and
 mobile generic E2E through port 18080, captures container identity and logs,
 then removes the disposable containers and volume. This is a staging
@@ -86,10 +87,33 @@ declaring the phase complete:
 - Staging rollback rehearsal: **NOT RUN**
 - Production deployment and online verification: **NOT RUN** by authorization
 
+## Hosted Evidence
+
+The first Phase 11 staging run `34678675574` failed during the production
+frontend image build because `frontend/Dockerfile` omitted the tracked
+`frontend/public` directory. Vite therefore could not resolve `/logo.png` and
+`/avatar.png`. The failure was fixed in the one-line Dockerfile change and was
+not bypassed by removing tests.
+
+The final evidence is bound to PR #18 head
+`61bf742326cb050576e4d47bc17d6ed276e0b9a0`:
+
+- Hosted staging run `34678853313`: **success**. Image build/start, live/ready
+  probes, clean migration ledger, built-frontend desktop/mobile generic E2E,
+  identity/log capture, report upload, and teardown all passed.
+- Hosted standalone generic E2E run `34678853306`: **success**; the four
+  generic tests passed in both configured browser projects.
+- Existing CI matrix run `34678984305`: **success**; frontend build and Python
+  3.11/3.12 backend tests all passed.
+- The staging runner captured the container/image identity and Playwright
+  report before removing the disposable containers and named volume. Password
+  output remained masked.
+
 ## Phase Gate
 
-Phase 11 is **NO-GO** until the disposable staging compose, health probes,
-generic browser flow, clean migration, and rollback evidence are recorded on
-the exact PR head. Phase 12 production release remains blocked until separate
-production authorization, backup, immutable artifact, and rollback approvals
-exist.
+The disposable staging execution is **GO** on the exact PR head. Phase 11 as a
+production release gate remains **NO-GO** because representative existing-data
+restore and rollback rehearsal are still **NOT RUN**. Phase 12 may prepare the
+release and rollback controls, but production deployment and online verification
+remain blocked until separate authorization, backup, immutable artifact, and
+rollback approvals exist.
