@@ -59,7 +59,7 @@ plan.
 - Script syntax and input fail-closed behavior: validated locally.
 - Full verifier contract against a local loopback mock: **PASS**; all 8
   non-destructive checks passed and the mock service was stopped afterward.
-- Hosted evidence for the current PR #20 verification head `64dd74a`:
+- Hosted evidence for the current PR #20 evidence head:
   - CI run `34684672255`: **success**; Python 3.11/3.12 backend tests,
     frontend build, and loopback verifier contract passed.
   - Production-topology preflight `34684663977`: **success**.
@@ -77,7 +77,7 @@ authorized target, credentials, and a designated safe test scope. No online
 state has been changed.
 
 The explicit-anchor renderer, intrinsic required-field hardening, and
-server-bound candidate publication follow-up are included in `64dd74a`; the
-same hosted gates passed for that exact head. Actual online verification and
+server-bound candidate publication follow-up are included in the PR #20
+evidence head used by the runs above. Actual online verification and
 production write-path verification remain separately unauthorized and
 unexecuted.
