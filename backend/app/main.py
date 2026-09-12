@@ -156,7 +156,10 @@ app.include_router(operations_router)
 app.include_router(audit_router)
 
 # 通过 API 鉴权读取项目图片, 不再公开挂载整个 uploads 目录。
-_uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
+_uploads_dir = Path(os.environ.get(
+    "PAPERGUARD_DATA_DIR",
+    str(Path(__file__).resolve().parent.parent / "data"),
+)) / "uploads"
 _uploads_dir.mkdir(parents=True, exist_ok=True)
 
 

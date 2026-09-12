@@ -21,6 +21,9 @@ from app.models.organization import OrganizationUnit
 from app.models.policy import CheckRun, PolicyAuditEvent, RequirementSet
 from app.models.template import PaperTemplate
 
+# Keep the default database beside the other persisted runtime assets.  The
+# Docker Compose volume is mounted at /app/data, which corresponds to this
+# repository-level backend/data directory in a source checkout.
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "paperguard.db"
 SCHEMA_MIGRATIONS = (
     "0001_runtime_schema",
@@ -34,8 +37,11 @@ SCHEMA_MIGRATIONS = (
 
 
 def _default_db_path() -> Path:
-    """数据库路径, 可用环境变量 PAPERGUARD_DB_PATH 覆盖(测试用)。"""
-    return Path(os.environ.get("PAPERGUARD_DB_PATH", str(_DEFAULT_DB_PATH)))
+    """数据库路径, 可用 PAPERGUARD_DB_PATH 覆盖(测试用/运维配置)。"""
+    value = os.environ.get("PAPERGUARD_DB_PATH", "")
+    if value:
+        return Path(value)
+    return Path(os.environ.get("PAPERGUARD_DATA_DIR", str(_DEFAULT_DB_PATH.parent))) / "paperguard.db"
 
 
 def _now() -> str:

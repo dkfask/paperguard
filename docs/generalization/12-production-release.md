@@ -15,6 +15,11 @@ endpoint, or invoke `deploy.sh`. It only validates the production topology as
 a disposable release candidate and uploads a manifest containing
 source/configuration hashes and local image identity.
 
+The production Compose services explicitly bind the application data root and
+SQLite database to `/app/data` (`PAPERGUARD_DATA_DIR` and
+`PAPERGUARD_DB_PATH`). This is required because the named volume is mounted at
+that path; a release must not fall back to an image-layer database.
+
 ## Release Identity
 
 Every real release must bind the following values before approval:
@@ -63,6 +68,8 @@ recovery.
 ## Test And Evidence Status
 
 - Production Compose configuration: PASS locally with an ephemeral password.
+- Persisted data-root binding: PASS locally; backend and worker point at the
+  mounted `/app/data` volume.
 - Release manifest schema: validated structurally by review; automated JSON
   Schema validation: **NOT RUN** because no JSON Schema validator is pinned in
   the repository.

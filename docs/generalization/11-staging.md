@@ -15,6 +15,10 @@ the data volume defaults to `paperguard_staging_data`. This prevents a local
 staging rehearsal from silently reusing production-style credentials or the
 default application volume.
 
+The backend and worker explicitly use `/app/data/paperguard.db` and
+`/app/data` for the database and persisted assets. This matches the mounted
+volume; the path binding is part of the staging and release configuration.
+
 ## Release Manifest
 
 | Identity | Phase 11 value |
