@@ -97,7 +97,20 @@ def test_requirement_ai_assist_is_saved_to_matching_item(monkeypatch):
     })
     assert content.status_code == 200, content.text
 
-    monkeypatch.setattr(ai_module, "_chat_completion", lambda cfg, messages, temperature: "已观察到正文证据；建议人工确认。")
+    monkeypatch.setattr(
+        ai_module,
+        "_resolve_cfg",
+        lambda store, user: ({
+            "base_url": "http://test.invalid/v1",
+            "api_key": "test-key",
+            "model": "test-model",
+        }, "test"),
+    )
+    monkeypatch.setattr(
+        ai_module,
+        "_chat_completion",
+        lambda cfg, messages, temperature: "已观察到正文证据；建议人工确认。",
+    )
     response = client.post(f"/api/projects/{project_id}/requirements/{item_id}/assist", headers=admin, json={
         "question": "请核对正文内容",
     })
