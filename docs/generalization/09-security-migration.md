@@ -133,8 +133,10 @@ Executed locally on the Phase 9 branch:
 - Python compile check: `PASS`.
 - `git diff --check`: `PASS` before the final list-filter adjustment; it must
   be rerun for the final commit.
-- Hosted GitHub Actions for the Phase 9 branch: NOT RUN yet; it is required
-  after the branch is pushed.
+- Hosted GitHub Actions run `34677270289` for PR `#16`: `PASS`; Python 3.11,
+  Python 3.12, and frontend build all passed for remote head
+  `321d2f3e17c1fa2a844022f4c8b10e230343d731`. GitHub emitted only the
+  existing Node.js 20 action deprecation annotations.
 - Staging/production deployment and online verification: NOT RUN by scope and
   authorization policy.
 
