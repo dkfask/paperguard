@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
-from app.auth import require_template_manager
+from app.auth import require_manager, require_template_manager
 
 from app.db import Store, new_id
 from app.domain.documents.schemas import TemplateAsset
@@ -21,6 +21,8 @@ from app.services.document_candidates import (
     CandidateBindingError,
     TEMPLATE_CANDIDATE_KIND,
     bind_candidate_for_confirmation,
+    list_candidates,
+    load_candidate,
     save_confirmed_candidate,
     save_parsed_candidate,
 )
@@ -173,7 +175,7 @@ async def strip_template_comments(file: UploadFile = File(...),
 
 @router.post("/parse", response_model=TemplateParseCandidate)
 async def parse_docx_template_candidate(file: UploadFile = File(...),
-                                        manager: dict = Depends(require_template_manager),
+                                        manager: dict = Depends(require_manager),
                                         store: Store = Depends(get_store)) -> TemplateParseCandidate:
     """Parse an uploaded DOCX into a generic candidate for human confirmation."""
     if not file.filename or not file.filename.lower().endswith(".docx"):
@@ -229,9 +231,31 @@ async def parse_docx_template_candidate(file: UploadFile = File(...),
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+@router.get("/parse/candidates", response_model=list[TemplateParseCandidate])
+def list_docx_template_candidates(
+    manager: dict = Depends(require_manager),
+    store: Store = Depends(get_store),
+) -> list[TemplateParseCandidate]:
+    """List recent template candidates available for manager review."""
+    return list_candidates(store, TEMPLATE_CANDIDATE_KIND, TemplateParseCandidate, manager)
+
+
+@router.get("/parse/candidates/{candidate_id}", response_model=TemplateParseCandidate)
+def get_docx_template_candidate(
+    candidate_id: str,
+    manager: dict = Depends(require_manager),
+    store: Store = Depends(get_store),
+) -> TemplateParseCandidate:
+    """Restore one scoped template candidate after a page refresh."""
+    try:
+        return load_candidate(store, TEMPLATE_CANDIDATE_KIND, candidate_id, TemplateParseCandidate, manager)
+    except CandidateBindingError as exc:
+        raise HTTPException(status_code=404, detail="模板候选不存在或无权访问") from exc
+
+
 @router.post("/parse/confirm", response_model=TemplateParseCandidate)
 def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
-                                    manager: dict = Depends(require_template_manager),
+                                    manager: dict = Depends(require_manager),
                                     store: Store = Depends(get_store)) -> TemplateParseCandidate:
     """Record human confirmation on a candidate; publishing is a later phase."""
     try:

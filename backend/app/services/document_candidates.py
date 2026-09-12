@@ -72,6 +72,45 @@ def _load_record(
     return record
 
 
+def load_candidate(
+    store: Store,
+    kind: str,
+    candidate_id: str,
+    model_type: type[T],
+    manager: dict[str, Any],
+) -> T:
+    """Load one review candidate without exposing out-of-scope records."""
+    record = _load_record(store, kind, candidate_id, manager)
+    try:
+        return model_type.model_validate(record.get("candidate") or {})
+    except Exception as exc:
+        raise CandidateBindingError("候选记录格式无效") from exc
+
+
+def list_candidates(
+    store: Store,
+    kind: str,
+    model_type: type[T],
+    manager: dict[str, Any],
+    *,
+    limit: int = 100,
+) -> list[T]:
+    """Return recent well-formed candidates visible to the current manager.
+
+    Malformed historical records are skipped deliberately. A broken record must
+    not turn a scoped review inbox into a server error or leak its contents.
+    """
+    candidates: list[T] = []
+    for record in store.list_workflow_records(kind, limit=max(1, min(limit, 100))):
+        if not _candidate_visible(store, record, manager):
+            continue
+        try:
+            candidates.append(model_type.model_validate(record.get("candidate") or {}))
+        except Exception:
+            continue
+    return candidates
+
+
 def bind_candidate_for_confirmation(
     store: Store,
     kind: str,
@@ -149,6 +188,8 @@ __all__ = [
     "SPEC_CANDIDATE_KIND",
     "TEMPLATE_CANDIDATE_KIND",
     "bind_candidate_for_confirmation",
+    "list_candidates",
+    "load_candidate",
     "load_confirmed_candidate",
     "load_confirmed_candidate_with_record",
     "save_confirmed_candidate",

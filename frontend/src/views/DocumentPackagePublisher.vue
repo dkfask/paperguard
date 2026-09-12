@@ -45,10 +45,28 @@
             {{ templateBusy ? t('documentPackagePublisher.parsing') : t('documentPackagePublisher.parse') }}
           </button>
 
+          <label v-if="templateCandidates.length" class="saved-picker">
+            <span>{{ t('documentPackagePublisher.savedCandidates') }}</span>
+            <select data-test="template-saved" v-model="templateCandidateId" @change="restoreTemplate">
+              <option value="">{{ t('documentPackagePublisher.selectSaved') }}</option>
+              <option v-for="candidate in templateCandidates" :key="candidate.candidate_id" :value="candidate.candidate_id">
+                {{ candidate.name }} · {{ candidate.version }} · {{ statusLabel(candidate.status) }}
+              </option>
+            </select>
+          </label>
+
           <div v-if="templateCandidate" class="candidate-review">
             <div class="review-heading">
               <strong>{{ templateCandidate.name }}</strong>
               <span class="status-pill" :class="templateCandidate.status">{{ statusLabel(templateCandidate.status) }}</span>
+            </div>
+            <div class="review-editor">
+              <label>{{ t('documentPackagePublisher.candidateName') }}
+                <input data-test="template-candidate-name" v-model.trim="templateCandidate.name" maxlength="160" :disabled="templateCandidate.status === 'confirmed'" />
+              </label>
+              <label>{{ t('documentPackagePublisher.candidateVersion') }}
+                <input data-test="template-candidate-version" v-model.trim="templateCandidate.version" maxlength="40" :disabled="templateCandidate.status === 'confirmed'" />
+              </label>
             </div>
             <div class="review-summary">
               <span>{{ t('documentPackagePublisher.sections') }}: {{ templateSections.length }}</span>
@@ -65,10 +83,41 @@
             <p v-else class="clean-note"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span>{{ t('documentPackagePublisher.noIssues') }}</p>
             <div v-if="templateSections.length" class="detected-list">
               <h3>{{ t('documentPackagePublisher.detectedSections') }}</h3>
-              <div v-for="section in templateSections" :key="section.key" class="detected-row" :style="{ paddingLeft: `${10 + section.depth * 16}px` }">
+              <div v-for="section in templateSections" :key="section.node.key" class="detected-row" :style="{ paddingLeft: `${10 + section.depth * 16}px` }">
                 <span class="material-symbols-outlined" aria-hidden="true">account_tree</span>
-                <span>{{ section.title || section.key }}</span>
-                <small>{{ section.key }}</small>
+                <label class="inline-editor">
+                  <input data-test="template-section-title" v-model.trim="section.node.title" :aria-label="t('documentPackagePublisher.sectionTitle')" :disabled="templateCandidate.status === 'confirmed'" />
+                  <small>{{ section.node.key }}</small>
+                </label>
+                <label class="check-editor">
+                  <input v-model="section.node.required" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
+                  {{ t('documentPackagePublisher.required') }}
+                </label>
+              </div>
+            </div>
+            <div v-if="templateCandidate.definition.fields.length" class="detected-list">
+              <h3>{{ t('documentPackagePublisher.reviewFields') }}</h3>
+              <div v-for="field in templateCandidate.definition.fields" :key="field.key" class="field-editor">
+                <input :value="field.key" :aria-label="`${t('documentPackagePublisher.fieldKey')}: ${field.key}`" readonly />
+                <input data-test="template-field-label" v-model.trim="field.label" :aria-label="t('documentPackagePublisher.fieldLabel')" :disabled="templateCandidate.status === 'confirmed'" />
+                <select v-model="field.type" :aria-label="t('documentPackagePublisher.fieldType')" :disabled="templateCandidate.status === 'confirmed'">
+                  <option value="text">text</option>
+                  <option value="textarea">textarea</option>
+                  <option value="date">date</option>
+                  <option value="number">number</option>
+                </select>
+                <label class="check-editor">
+                  <input v-model="field.required" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
+                  {{ t('documentPackagePublisher.required') }}
+                </label>
+              </div>
+            </div>
+            <div v-if="templateCandidate.definition.anchors?.length" class="detected-list">
+              <h3>{{ t('documentPackagePublisher.stableAnchors') }}</h3>
+              <div v-for="anchor in templateCandidate.definition.anchors" :key="`${anchor.part}:${anchor.selector}:${anchor.occurrence}`" class="detected-row anchor-row">
+                <span class="material-symbols-outlined" aria-hidden="true">link</span>
+                <span>{{ anchor.key }}</span>
+                <small>{{ anchor.kind }} · {{ anchor.part }} · {{ anchor.selector }}</small>
               </div>
             </div>
             <button data-test="template-confirm" class="small" type="button" :disabled="templateBusy || templateCandidate.status === 'confirmed'" @click="confirmTemplate">
@@ -99,11 +148,32 @@
             {{ specBusy ? t('documentPackagePublisher.parsing') : t('documentPackagePublisher.parse') }}
           </button>
 
+          <label v-if="specCandidates.length" class="saved-picker">
+            <span>{{ t('documentPackagePublisher.savedCandidates') }}</span>
+            <select data-test="spec-saved" v-model="specCandidateId" @change="restoreSpec">
+              <option value="">{{ t('documentPackagePublisher.selectSaved') }}</option>
+              <option v-for="candidate in specCandidates" :key="candidate.candidate_id" :value="candidate.candidate_id">
+                {{ candidate.name }} · {{ candidate.version }} · {{ statusLabel(candidate.status) }}
+              </option>
+            </select>
+          </label>
+
           <div v-if="specCandidate" class="candidate-review">
             <div class="review-heading">
               <strong>{{ specCandidate.name }}</strong>
               <span class="status-pill" :class="specCandidate.status">{{ statusLabel(specCandidate.status) }}</span>
             </div>
+            <div class="review-editor">
+              <label>{{ t('documentPackagePublisher.candidateName') }}
+                <input v-model.trim="specCandidate.name" maxlength="160" :disabled="specCandidate.status === 'confirmed'" />
+              </label>
+              <label>{{ t('documentPackagePublisher.candidateVersion') }}
+                <input v-model.trim="specCandidate.version" maxlength="40" :disabled="specCandidate.status === 'confirmed'" />
+              </label>
+            </div>
+            <label class="full-editor">{{ t('documentPackagePublisher.descriptionLabel') }}
+              <textarea v-model.trim="specCandidate.description" rows="2" maxlength="2000" :disabled="specCandidate.status === 'confirmed'"></textarea>
+            </label>
             <div class="review-summary">
               <span>{{ t('documentPackagePublisher.rules') }}: {{ specCandidate.rules.length }}</span>
               <span>{{ t('documentPackagePublisher.extraction') }}: {{ specCandidate.extraction_mode }}</span>
@@ -118,11 +188,29 @@
             </ul>
             <p v-else class="clean-note"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span>{{ t('documentPackagePublisher.noIssues') }}</p>
             <div v-if="specCandidate.rules.length" class="detected-list">
-              <h3>{{ t('documentPackagePublisher.detectedRules') }}</h3>
-              <div v-for="rule in specCandidate.rules" :key="rule.id" class="detected-row rule-row">
-                <span class="rule-kind" :class="rule.kind">{{ rule.kind }}</span>
-                <span>{{ rule.description || rule.id }}</span>
-                <small>{{ rule.checker || t('documentPackagePublisher.manual') }}</small>
+              <h3>{{ t('documentPackagePublisher.reviewRules') }}</h3>
+              <div v-for="rule in specCandidate.rules" :key="rule.id" class="rule-editor">
+                <div class="rule-editor-grid">
+                  <input :value="rule.id" :aria-label="`${t('documentPackagePublisher.ruleId')}: ${rule.id}`" readonly />
+                  <select v-model="rule.kind" :aria-label="t('documentPackagePublisher.ruleKind')" :disabled="specCandidate.status === 'confirmed'">
+                    <option value="auto">auto</option>
+                    <option value="manual">manual</option>
+                    <option value="doc">doc</option>
+                  </select>
+                  <input v-model.trim="rule.target" :aria-label="t('documentPackagePublisher.ruleTarget')" :disabled="specCandidate.status === 'confirmed'" />
+                  <input v-model.trim="rule.checker" :aria-label="t('documentPackagePublisher.ruleChecker')" :disabled="specCandidate.status === 'confirmed'" />
+                  <select v-model="rule.severity" :aria-label="t('documentPackagePublisher.ruleSeverity')" :disabled="specCandidate.status === 'confirmed'">
+                    <option value="error">error</option>
+                    <option value="warning">warning</option>
+                    <option value="info">info</option>
+                  </select>
+                  <select v-model="rule.enforce" :aria-label="t('documentPackagePublisher.ruleEnforce')" :disabled="specCandidate.status === 'confirmed'">
+                    <option value="hard">hard</option>
+                    <option value="soft">soft</option>
+                  </select>
+                </div>
+                <textarea v-model.trim="rule.description" rows="2" :aria-label="t('documentPackagePublisher.ruleDescription')" :disabled="specCandidate.status === 'confirmed'"></textarea>
+                <textarea v-model="specParams[rule.id]" rows="2" :aria-label="t('documentPackagePublisher.ruleParams')" :disabled="specCandidate.status === 'confirmed'"></textarea>
               </div>
             </div>
             <button data-test="spec-confirm" class="small" type="button" :disabled="specBusy || specCandidate.status === 'confirmed'" @click="confirmSpec">
@@ -172,12 +260,14 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../i18n'
 import { auth } from '../auth'
 import {
   confirmDocumentSpecCandidate,
   confirmDocumentTemplateCandidate,
+  getDocumentSpecCandidates,
+  getDocumentTemplateCandidates,
   parseDocumentSpec,
   parseDocumentTemplate,
   publishDocumentPackage,
@@ -189,6 +279,11 @@ const templateFile = ref(null)
 const specFile = ref(null)
 const templateCandidate = ref(null)
 const specCandidate = ref(null)
+const templateCandidates = ref([])
+const specCandidates = ref([])
+const templateCandidateId = ref('')
+const specCandidateId = ref('')
+const specParams = ref({})
 const documentTypeId = ref('generic')
 const templateBusy = ref(false)
 const specBusy = ref(false)
@@ -204,13 +299,42 @@ const templateSections = computed(() => {
   const flattened = []
   function walk(nodes, depth = 0) {
     for (const section of nodes || []) {
-      flattened.push({ ...section, depth })
+      flattened.push({ node: section, depth })
       walk(section.children, depth + 1)
     }
   }
   walk(templateCandidate.value?.definition?.sections)
   return flattened
 })
+
+function upsertCandidate(collection, candidate) {
+  if (!candidate?.candidate_id) return
+  const index = collection.value.findIndex(item => item.candidate_id === candidate.candidate_id)
+  if (index === -1) collection.value.unshift(candidate)
+  else collection.value[index] = candidate
+}
+
+function syncSpecParams(candidate) {
+  const values = {}
+  for (const rule of candidate?.rules || []) {
+    values[rule.id] = JSON.stringify(rule.params || {}, null, 2)
+  }
+  specParams.value = values
+}
+
+async function loadSavedCandidates() {
+  if (!canManage.value) return
+  try {
+    const [templates, specs] = await Promise.all([
+      getDocumentTemplateCandidates(),
+      getDocumentSpecCandidates(),
+    ])
+    templateCandidates.value = Array.isArray(templates) ? templates : []
+    specCandidates.value = Array.isArray(specs) ? specs : []
+  } catch (exception) {
+    error.value = exception.message
+  }
+}
 
 function statusLabel(status) {
   if (status === 'confirmed') return t('documentPackagePublisher.confirmed')
@@ -220,6 +344,7 @@ function statusLabel(status) {
 function selectTemplate(event) {
   templateFile.value = event.target.files?.[0] || null
   templateCandidate.value = null
+  templateCandidateId.value = ''
   packageResult.value = null
   error.value = ''
 }
@@ -227,6 +352,8 @@ function selectTemplate(event) {
 function selectSpec(event) {
   specFile.value = event.target.files?.[0] || null
   specCandidate.value = null
+  specCandidateId.value = ''
+  specParams.value = {}
   packageResult.value = null
   error.value = ''
 }
@@ -237,6 +364,8 @@ async function parseTemplate() {
   error.value = ''
   try {
     templateCandidate.value = await parseDocumentTemplate(templateFile.value)
+    templateCandidateId.value = templateCandidate.value.candidate_id
+    upsertCandidate(templateCandidates, templateCandidate.value)
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -250,6 +379,8 @@ async function confirmTemplate() {
   error.value = ''
   try {
     templateCandidate.value = await confirmDocumentTemplateCandidate(templateCandidate.value)
+    templateCandidateId.value = templateCandidate.value.candidate_id
+    upsertCandidate(templateCandidates, templateCandidate.value)
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -263,6 +394,9 @@ async function parseSpec() {
   error.value = ''
   try {
     specCandidate.value = await parseDocumentSpec(specFile.value)
+    specCandidateId.value = specCandidate.value.candidate_id
+    syncSpecParams(specCandidate.value)
+    upsertCandidate(specCandidates, specCandidate.value)
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -275,12 +409,39 @@ async function confirmSpec() {
   specBusy.value = true
   error.value = ''
   try {
-    specCandidate.value = await confirmDocumentSpecCandidate(specCandidate.value)
+    const candidate = JSON.parse(JSON.stringify(specCandidate.value))
+    candidate.rules = candidate.rules.map(rule => ({
+      ...rule,
+      params: JSON.parse(specParams.value[rule.id] || '{}'),
+    }))
+    specCandidate.value = await confirmDocumentSpecCandidate(candidate)
+    specCandidateId.value = specCandidate.value.candidate_id
+    syncSpecParams(specCandidate.value)
+    upsertCandidate(specCandidates, specCandidate.value)
   } catch (exception) {
-    error.value = exception.message
+    error.value = exception instanceof SyntaxError
+      ? t('documentPackagePublisher.invalidRuleParams')
+      : exception.message
   } finally {
     specBusy.value = false
   }
+}
+
+function restoreTemplate() {
+  const candidate = templateCandidates.value.find(item => item.candidate_id === templateCandidateId.value)
+  if (!candidate) return
+  templateCandidate.value = candidate
+  packageResult.value = null
+  error.value = ''
+}
+
+function restoreSpec() {
+  const candidate = specCandidates.value.find(item => item.candidate_id === specCandidateId.value)
+  if (!candidate) return
+  specCandidate.value = candidate
+  syncSpecParams(candidate)
+  packageResult.value = null
+  error.value = ''
 }
 
 async function publish() {
@@ -300,6 +461,8 @@ async function publish() {
     publishBusy.value = false
   }
 }
+
+onMounted(loadSavedCandidates)
 </script>
 
 <style scoped>
@@ -320,9 +483,15 @@ async function publish() {
 .file-picker { display: grid; gap: 7px; margin-bottom: 12px; color: var(--on-surface); font-size: 13px; font-weight: 600; }
 .file-picker input { width: 100%; box-sizing: border-box; padding: 10px; border: 1px dashed var(--border); border-radius: 6px; background: var(--surface-container, var(--surface)); color: var(--on-surface); font: inherit; font-weight: 400; }
 .file-picker small { color: var(--on-surface-variant); font-size: 12px; overflow-wrap: anywhere; }
+.saved-picker { display: grid; gap: 6px; margin-top: 14px; color: var(--on-surface); font-size: 12px; font-weight: 600; }
+.saved-picker select, .review-editor input, .full-editor textarea, .field-editor input, .field-editor select, .rule-editor input, .rule-editor select, .rule-editor textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--on-surface); font: inherit; font-size: 12px; }
+.saved-picker select:focus, .review-editor input:focus, .full-editor textarea:focus, .field-editor input:focus, .field-editor select:focus, .rule-editor input:focus, .rule-editor select:focus, .rule-editor textarea:focus { outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent); outline-offset: 1px; }
 .candidate-review { display: grid; gap: 13px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
 .review-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .review-heading strong { min-width: 0; overflow-wrap: anywhere; }
+.review-editor { display: grid; grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr); gap: 10px; }
+.review-editor label, .full-editor { display: grid; gap: 5px; color: var(--on-surface-variant); font-size: 11px; font-weight: 600; }
+.full-editor textarea { resize: vertical; min-height: 54px; }
 .review-summary { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--on-surface-variant); font-size: 12px; }
 .issue-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .issue-list li { display: flex; align-items: baseline; gap: 7px; padding: 8px 9px; border-left: 3px solid var(--tertiary, #a56a00); background: color-mix(in srgb, var(--tertiary) 7%, var(--surface)); font-size: 12px; }
@@ -338,6 +507,20 @@ async function publish() {
 .detected-row > span:nth-child(2) { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .detected-row .material-symbols-outlined { color: var(--primary); font-size: 17px; }
 .detected-row small { color: var(--on-surface-variant); font-size: 10px; overflow-wrap: anywhere; }
+.inline-editor { display: flex; align-items: center; flex: 1; min-width: 0; gap: 7px; }
+.inline-editor input { flex: 1; min-width: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--on-surface); font: inherit; padding: 4px 2px; }
+.inline-editor input:focus { outline: none; border-bottom-color: var(--primary); }
+.check-editor { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--on-surface-variant); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.check-editor input { width: 14px; height: 14px; margin: 0; accent-color: var(--primary); }
+.field-editor { display: grid; grid-template-columns: minmax(80px, .85fr) minmax(100px, 1.4fr) minmax(80px, .8fr) auto; align-items: center; gap: 7px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.field-editor input[readonly], .rule-editor input[readonly] { color: var(--on-surface-variant); background: var(--surface-container, var(--surface)); }
+.anchor-row { align-items: flex-start; }
+.anchor-row > span:nth-child(2) { flex: none; }
+.anchor-row small { margin-left: auto; text-align: right; }
+.rule-editor { display: grid; gap: 7px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.rule-editor-grid { display: grid; grid-template-columns: minmax(70px, .9fr) minmax(70px, .7fr) minmax(90px, 1fr) minmax(110px, 1.2fr) minmax(80px, .7fr) minmax(70px, .7fr); gap: 7px; }
+.rule-editor textarea { resize: vertical; min-height: 44px; }
+.rule-editor textarea:last-child { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 .rule-row { align-items: flex-start; }
 .rule-kind { flex: none; padding: 2px 5px; border-radius: 4px; background: color-mix(in srgb, var(--primary) 12%, var(--surface)); color: var(--primary); font-size: 10px; }
 .rule-kind.manual { background: color-mix(in srgb, var(--tertiary) 13%, var(--surface)); color: var(--tertiary); }
@@ -361,5 +544,5 @@ async function publish() {
 .access-state > .material-symbols-outlined { color: var(--on-surface-variant); font-size: 36px; }
 .access-state h2 { margin: 0; font-size: 20px; }
 .access-state p { margin: 0 0 8px; color: var(--on-surface-variant); }
-@media (max-width: 800px) { .publisher-page { padding: 14px 14px 42px; } .publisher-header { padding-top: 6px; } .publisher-icon { display: none; } .publisher-steps { grid-template-columns: 1fr; } .publish-form { grid-template-columns: 1fr; align-items: stretch; } .publish-form button { width: 100%; } .success-panel { align-items: flex-start; flex-wrap: wrap; } .success-panel a { width: 100%; text-align: center; } }
+@media (max-width: 800px) { .publisher-page { padding: 14px 14px 42px; } .publisher-header { padding-top: 6px; } .publisher-icon { display: none; } .publisher-steps { grid-template-columns: 1fr; } .publish-form { grid-template-columns: 1fr; align-items: stretch; } .publish-form button { width: 100%; } .success-panel { align-items: flex-start; flex-wrap: wrap; } .success-panel a { width: 100%; text-align: center; } .review-editor { grid-template-columns: 1fr; } .field-editor { grid-template-columns: 1fr 1fr; } .field-editor input[readonly] { grid-column: 1 / -1; } .field-editor .check-editor { justify-self: start; } .rule-editor-grid { grid-template-columns: 1fr 1fr; } .rule-editor-grid input:first-child { grid-column: 1 / -1; } .anchor-row { flex-wrap: wrap; } .anchor-row small { width: 100%; margin-left: 24px; text-align: left; } }
 </style>

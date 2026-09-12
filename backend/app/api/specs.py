@@ -14,6 +14,8 @@ from app.services.document_candidates import (
     CandidateBindingError,
     SPEC_CANDIDATE_KIND,
     bind_candidate_for_confirmation,
+    list_candidates,
+    load_candidate,
     save_confirmed_candidate,
     save_parsed_candidate,
 )
@@ -95,6 +97,28 @@ async def parse_spec_candidate(
     _audit(store, manager, action="spec.candidate.parsed", resource_id=candidate_id, result="success")
     save_parsed_candidate(store, SPEC_CANDIDATE_KIND, candidate, manager)
     return candidate
+
+
+@router.get("/parse/candidates", response_model=list[SpecParseCandidate])
+def list_spec_candidates(
+    manager: dict = Depends(require_manager),
+    store: Store = Depends(get_store),
+) -> list[SpecParseCandidate]:
+    """List recent specification candidates available for manager review."""
+    return list_candidates(store, SPEC_CANDIDATE_KIND, SpecParseCandidate, manager)
+
+
+@router.get("/parse/candidates/{candidate_id}", response_model=SpecParseCandidate)
+def get_spec_candidate(
+    candidate_id: str,
+    manager: dict = Depends(require_manager),
+    store: Store = Depends(get_store),
+) -> SpecParseCandidate:
+    """Restore one scoped specification candidate after a page refresh."""
+    try:
+        return load_candidate(store, SPEC_CANDIDATE_KIND, candidate_id, SpecParseCandidate, manager)
+    except CandidateBindingError as exc:
+        raise HTTPException(status_code=404, detail="规范候选不存在或无权访问") from exc
 
 
 @router.post("/parse/confirm", response_model=SpecParseCandidate)

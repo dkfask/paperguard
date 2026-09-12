@@ -1189,6 +1189,18 @@ export async function parseDocumentTemplate(file) {
   return postDocumentCandidate('/templates/parse', file, '解析 DOCX 模板失败')
 }
 
+export async function getDocumentTemplateCandidates() {
+  const resp = await api(`${API_BASE}/templates/parse/candidates`)
+  if (!resp.ok) throw await responseError(resp, '获取模板解析候选失败')
+  return resp.json()
+}
+
+export async function getDocumentTemplateCandidate(candidateId) {
+  const resp = await api(`${API_BASE}/templates/parse/candidates/${encodeURIComponent(candidateId)}`)
+  if (!resp.ok) throw await responseError(resp, '获取模板解析候选失败')
+  return resp.json()
+}
+
 export async function confirmDocumentTemplateCandidate(candidate) {
   const resp = await api(`${API_BASE}/templates/parse/confirm`, {
     method: 'POST',
@@ -1201,6 +1213,18 @@ export async function confirmDocumentTemplateCandidate(candidate) {
 
 export async function parseDocumentSpec(file) {
   return postDocumentCandidate('/specs/parse', file, '解析文档规范失败')
+}
+
+export async function getDocumentSpecCandidates() {
+  const resp = await api(`${API_BASE}/specs/parse/candidates`)
+  if (!resp.ok) throw await responseError(resp, '获取规范解析候选失败')
+  return resp.json()
+}
+
+export async function getDocumentSpecCandidate(candidateId) {
+  const resp = await api(`${API_BASE}/specs/parse/candidates/${encodeURIComponent(candidateId)}`)
+  if (!resp.ok) throw await responseError(resp, '获取规范解析候选失败')
+  return resp.json()
 }
 
 export async function confirmDocumentSpecCandidate(candidate) {

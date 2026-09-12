@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from pathlib import Path
 
 import pytest
@@ -133,6 +134,14 @@ def test_template_parse_and_confirm_api_requires_manager_and_keeps_candidate_sta
     assert confirmed.json()["status"] == "confirmed"
     assert confirmed.json()["confirmed_by"] == "user-admin"
 
+    listed = client.get("/api/templates/parse/candidates", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["candidate_id"] == body["candidate_id"]
+    restored = client.get(f"/api/templates/parse/candidates/{body['candidate_id']}", headers=headers)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["status"] == "confirmed"
+    assert client.get("/api/templates/parse/candidates/unknown", headers=headers).status_code == 404
+
     audit = client.get(
         "/api/audit",
         headers=headers,
@@ -143,3 +152,36 @@ def test_template_parse_and_confirm_api_requires_manager_and_keeps_candidate_sta
     assert {"template.candidate.parsed", "template.candidate.confirmed"}.issubset(actions)
     serialized = " ".join(str(event) for event in audit.json())
     assert body["source_asset"]["checksum"] not in serialized
+
+
+def test_college_admin_can_review_generic_template_candidate() -> None:
+    client = TestClient(app)
+    admin_login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
+    assert admin_login.status_code == 200, admin_login.text
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['token']}"}
+    username = f"generic_college_admin_{uuid.uuid4().hex[:8]}"
+    password = "CollegeAdminPassword123"
+    registered = client.post(
+        "/api/auth/register",
+        json={"username": username, "password": password, "display_name": "学院管理员", "role": "teacher"},
+    )
+    assert registered.status_code == 201, registered.text
+    promoted = client.put(
+        f"/api/auth/admin/users/{registered.json()['id']}/role-status",
+        headers=admin_headers,
+        json={"role": "college_admin", "status": "active"},
+    )
+    assert promoted.status_code == 200, promoted.text
+    login = client.post("/api/auth/login", json={"username": username, "password": password})
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+
+    parsed = client.post(
+        "/api/templates/parse",
+        headers=headers,
+        files={"file": ("minimal.docx", (FIXTURES / "templates" / "minimal.docx").read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert parsed.status_code == 200, parsed.text
+    listed = client.get("/api/templates/parse/candidates", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert any(item["candidate_id"] == parsed.json()["candidate_id"] for item in listed.json())
