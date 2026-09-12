@@ -1222,3 +1222,12 @@ export async function validateDocumentProject(projectId) {
   if (!resp.ok) throw await responseError(resp, '检查通用文档项目失败')
   return resp.json()
 }
+
+export async function renderDocumentProject(projectId, force = false) {
+  const query = force ? '?force=true' : ''
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/render${query}`, {
+    method: 'POST',
+  })
+  if (!resp.ok) throw await responseError(resp, '导出通用文档失败')
+  await downloadBlob(resp, 'document.docx')
+}

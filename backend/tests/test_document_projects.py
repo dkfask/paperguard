@@ -173,3 +173,20 @@ def test_document_project_validation_is_deterministic_and_persisted() -> None:
         headers=headers,
     )
     assert detail.status_code == 200, detail.text
+
+
+def test_document_project_render_returns_docx_artifact() -> None:
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    package = _published_package(client, headers)
+    created = client.post(
+        "/api/document-projects",
+        headers=headers,
+        json={"package_id": package["id"], "title": "导出实验报告"},
+    )
+    assert created.status_code == 201, created.text
+
+    response = client.post(f"/api/document-projects/{created.json()['id']}/render", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    assert response.content[:2] == b"PK"

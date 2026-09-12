@@ -13,9 +13,13 @@
           <p class="editor-subtitle">{{ editor.template.name }} · {{ editor.package.document_type_id }} · {{ editor.project.template_version_id }}</p>
         </div>
         <div class="editor-actions">
-          <button class="validate-action" type="button" :disabled="validating || saving" @click="runValidation">
+          <button class="validate-action" type="button" :disabled="validating || saving || exporting" @click="runValidation">
             <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
             {{ validating ? t('documentProjects.validating') : t('documentProjects.validate') }}
+          </button>
+          <button class="export-action" type="button" :disabled="validating || saving || exporting" @click="exportProject">
+            <span class="material-symbols-outlined" aria-hidden="true">download</span>
+            {{ exporting ? t('documentProjects.exporting') : t('documentProjects.export') }}
           </button>
           <div class="save-status" :class="{ saving }" role="status" aria-live="polite">
             <span class="status-dot" :class="saving ? 'working' : 'ok'"></span>
@@ -99,7 +103,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '../i18n'
-import { getDocumentProjectEditor, updateDocumentProject, validateDocumentProject } from '../api.js'
+import { getDocumentProjectEditor, renderDocumentProject, updateDocumentProject, validateDocumentProject } from '../api.js'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -108,6 +112,7 @@ const draft = reactive({ title: '', revision: 0, field_values: {}, sections: {} 
 const loading = ref(true)
 const saving = ref(false)
 const validating = ref(false)
+const exporting = ref(false)
 const validation = ref(null)
 const error = ref('')
 let saveTimer = null
@@ -171,6 +176,18 @@ async function runValidation() {
   }
 }
 
+async function exportProject() {
+  exporting.value = true
+  error.value = ''
+  try {
+    await renderDocumentProject(route.params.id)
+  } catch (exception) {
+    error.value = exception.message
+  } finally {
+    exporting.value = false
+  }
+}
+
 function addBlock(sectionKey) {
   const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
   draft.sections[sectionKey].push({ id, kind: 'paragraph', text: '', data: {}, order: draft.sections[sectionKey].length })
@@ -194,6 +211,10 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .validate-action:hover:not(:disabled) { border-color: var(--primary); }
 .validate-action:disabled { cursor: wait; opacity: .6; }
 .validate-action .material-symbols-outlined { font-size: 18px; }
+.export-action { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 7px 10px; border: 1px solid var(--primary); border-radius: 6px; background: var(--primary); color: var(--on-primary, #fff); cursor: pointer; font: inherit; font-size: 12px; }
+.export-action:hover:not(:disabled) { filter: brightness(.94); }
+.export-action:disabled { cursor: wait; opacity: .6; }
+.export-action .material-symbols-outlined { font-size: 18px; }
 .save-status { display: flex; align-items: center; gap: 7px; color: var(--on-surface-variant); font-size: 12px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success, #2f7d4a); }
 .status-dot.working { background: var(--tertiary, #a56a00); }
