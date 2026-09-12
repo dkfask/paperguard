@@ -6,6 +6,7 @@ import { LoginPage } from './pages/paperguard.page'
 import {
   createStudent,
   API_BASE_URL,
+  TEMPLATE_PATH,
   publishFixturePackage,
   type PublishedPackage,
   type StudentAccount,
