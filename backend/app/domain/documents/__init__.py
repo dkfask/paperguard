@@ -21,9 +21,12 @@ from app.domain.documents.schemas import (
     TemplateField,
     TemplateSection,
     TemplateVersion,
+    ValidationFinding,
+    ValidationRun,
 )
 from app.domain.documents.snapshots import ProjectSnapshot, package_from_snapshot
 from app.domain.documents.specs import SpecRule, SpecSet, SpecVersion, requirement_set_to_spec
+from app.domain.documents.hashing import document_project_content_hash
 
 __all__ = [
     "DocumentPackage",
@@ -44,7 +47,10 @@ __all__ = [
     "TemplateField",
     "TemplateSection",
     "TemplateVersion",
+    "ValidationFinding",
+    "ValidationRun",
     "domain_to_paper_template",
+    "document_project_content_hash",
     "package_from_snapshot",
     "paper_template_to_domain",
     "requirement_set_to_spec",

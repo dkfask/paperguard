@@ -35,3 +35,14 @@ def project_content_hash(project_data: dict[str, Any]) -> str:
     for key in ("revision", "updated_at", "check_run_ids"):
         payload.pop(key, None)
     return canonical_hash(payload)
+
+
+def document_project_content_hash(project: Any) -> str:
+    """Hash generic project content while excluding revision timestamps."""
+    payload = canonical_payload(project)
+    if not isinstance(payload, dict):
+        raise TypeError("document project must serialize to an object")
+    payload = dict(payload)
+    for key in ("revision", "updated_at", "created_at"):
+        payload.pop(key, None)
+    return canonical_hash(payload)
