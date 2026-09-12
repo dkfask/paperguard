@@ -51,3 +51,11 @@ jobs:
         run: |
           npm ci
           npm run build
+
+  online-verifier:
+    name: Online verifier contract (loopback)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run loopback contract test
+        run: bash ops/test-online-verify.sh

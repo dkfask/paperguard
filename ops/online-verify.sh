@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+umask 077
+
 base_url="${PAPERGUARD_ONLINE_BASE_URL:-}"
 admin_username="${PAPERGUARD_ONLINE_ADMIN_USERNAME:-}"
 admin_password="${PAPERGUARD_ONLINE_ADMIN_PASSWORD:-}"
@@ -24,57 +26,62 @@ record_check() {
 
 write_evidence() {
   local result="$1"
-  jq -n \
-    --arg result "$result" \
-    --arg target_base_url "$base_url" \
-    --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --arg source_revision "${PAPERGUARD_ONLINE_SOURCE_REVISION:-unknown}" \
-    --argjson checks "$checks" \
-    '{format:"paperguard-online-verification", format_version:1, result:$result, read_only:true, target_base_url:$target_base_url, completed_at:$completed_at, source_revision:$source_revision, checks:$checks}' \
-    > "$evidence_path"
+  if ! jq -n \
+      --arg result "$result" \
+      --arg target_base_url "$base_url" \
+      --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg source_revision "${PAPERGUARD_ONLINE_SOURCE_REVISION:-unknown}" \
+      --argjson checks "$checks" \
+      '{format:"paperguard-online-verification", format_version:2, result:$result, non_destructive:true, session_metadata_written:true, target_base_url:$target_base_url, completed_at:$completed_at, source_revision:$source_revision, checks:$checks}' \
+      > "$evidence_path"; then
+    printf 'unable to write verification evidence to %s\n' "$evidence_path" >&2
+  fi
 }
 
 fail_now() {
-  local message="$1"
-  record_check "verification" "failed"
+  local name="$1"
+  local message="$2"
+  record_check "$name" "failed"
   write_evidence "failed"
-  printf 'online verification failed: %s\n' "$message" >&2
+  printf 'online verification failed (%s): %s\n' "$name" "$message" >&2
   exit 1
 }
 
 if [[ -z "$base_url" ]]; then
-  fail_now "PAPERGUARD_ONLINE_BASE_URL is required"
+  fail_now "input.base_url" "PAPERGUARD_ONLINE_BASE_URL is required"
 fi
 
 base_url="${base_url%/}"
 if [[ "$base_url" == *"@"* || "$base_url" == *"?"* || "$base_url" == *"#"* ]]; then
-  fail_now "the base URL must not contain credentials, a query, or a fragment"
+  fail_now "input.base_url" "the base URL must not contain credentials, a query, or a fragment"
 fi
 
 case "$base_url" in
   https://*) ;;
   http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*) ;;
-  *) fail_now "the target must use HTTPS, except for a local loopback rehearsal" ;;
+  *) fail_now "input.base_url" "the target must use HTTPS, except for a local loopback rehearsal" ;;
 esac
 
 if ! [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
-  fail_now "PAPERGUARD_ONLINE_TIMEOUT_SECONDS must be a positive integer"
+  fail_now "input.timeout" "PAPERGUARD_ONLINE_TIMEOUT_SECONDS must be a positive integer"
 fi
 
 if [[ -z "$admin_username" || -z "$admin_password" ]]; then
-  fail_now "online admin credentials are required"
+  fail_now "input.credentials" "online admin credentials are required"
 fi
 
-request_public() {
+request_body() {
   local name="$1"
   local path="$2"
   local output="$3"
   if ! curl --fail --silent --show-error --max-time "$timeout_seconds" \
     -H 'Accept: application/json' \
     -o "$output" "$base_url$path"; then
-    fail_now "$name request failed"
+    fail_now "$name" "request failed"
   fi
-  record_check "$name" "passed"
+  if [[ ! -s "$output" ]]; then
+    fail_now "$name" "response body was empty"
+  fi
 }
 
 request_json() {
@@ -82,10 +89,11 @@ request_json() {
   local path="$2"
   local filter="$3"
   local output="$4"
-  request_public "$name" "$path" "$output"
-  if ! jq -e "$filter" "$output" >/dev/null; then
-    fail_now "$name response shape was unexpected"
+  request_body "$name" "$path" "$output"
+  if ! jq -e "$filter" "$output" >/dev/null 2>&1; then
+    fail_now "$name" "response shape was unexpected"
   fi
+  record_check "$name" "passed"
 }
 
 request_auth_json() {
@@ -96,18 +104,27 @@ request_auth_json() {
   if ! curl --fail --silent --show-error --max-time "$timeout_seconds" \
     --config "$auth_config" \
     -o "$output" "$base_url$path"; then
-    fail_now "$name request failed"
+    fail_now "$name" "request failed"
   fi
-  if ! jq -e "$filter" "$output" >/dev/null; then
-    fail_now "$name response shape was unexpected"
+  if [[ ! -s "$output" ]]; then
+    fail_now "$name" "response body was empty"
+  fi
+  if ! jq -e "$filter" "$output" >/dev/null 2>&1; then
+    fail_now "$name" "response shape was unexpected"
   fi
   record_check "$name" "passed"
 }
 
-request_public "frontend.logo" "/logo.png" "$temp_dir/logo.png"
-request_public "frontend.avatar" "/avatar.png" "$temp_dir/avatar.png"
-request_public "health.live" "/api/health/live" "$temp_dir/live.json"
-request_public "health.ready" "/api/health/ready" "$temp_dir/ready.json"
+request_body "frontend.logo" "/logo.png" "$temp_dir/logo.png"
+record_check "frontend.logo" "passed"
+request_body "frontend.avatar" "/avatar.png" "$temp_dir/avatar.png"
+record_check "frontend.avatar" "passed"
+request_json "health.live" "/api/health/live" \
+  'type == "object" and .status == "ok" and .service == "paperguard" and .probe == "live"' \
+  "$temp_dir/live.json"
+request_json "health.ready" "/api/health/ready" \
+  'type == "object" and .status == "ok" and .service == "paperguard" and .probe == "ready"' \
+  "$temp_dir/ready.json"
 
 login_payload="$(PAPERGUARD_ONLINE_ADMIN_PASSWORD="$admin_password" jq -nc \
   --arg username "$admin_username" \
@@ -117,11 +134,13 @@ if ! printf '%s' "$login_payload" | curl --fail --silent --show-error --max-time
   -H 'Content-Type: application/json' \
   --data-binary @- \
   -o "$temp_dir/login.json" "$base_url/api/auth/login"; then
-  fail_now "auth.login request failed"
+  fail_now "auth.login" "request failed"
 fi
-token="$(jq -r '.token // empty' "$temp_dir/login.json")"
-if [[ -z "$token" ]]; then
-  fail_now "auth.login response did not contain a token"
+if ! token="$(jq -er 'if (.token | type) == "string" and (.token | length) > 0 then .token else error("missing token") end' "$temp_dir/login.json" 2>/dev/null)"; then
+  fail_now "auth.login" "response did not contain a valid token"
+fi
+if ! [[ "$token" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  fail_now "auth.login" "response token format was unexpected"
 fi
 # Keep the bearer token out of the curl process arguments and command output.
 auth_config="$temp_dir/auth.conf"
@@ -129,7 +148,6 @@ printf 'header = "Accept: application/json"\nheader = "Authorization: Bearer %s"
 record_check "auth.login" "passed"
 
 request_auth_json "auth.me" "/api/auth/me" 'type == "object" and (.username | type == "string")' "$temp_dir/me.json"
-request_auth_json "templates.list" "/api/templates" 'type == "array"' "$temp_dir/templates.json"
 request_auth_json "document-packages.list" "/api/document-packages" 'type == "array"' "$temp_dir/packages.json"
 request_auth_json "audit.list" "/api/audit?limit=1" 'type == "array"' "$temp_dir/audit.json"
 

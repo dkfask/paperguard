@@ -2,26 +2,36 @@ name: PaperGuard online verification
 
 on:
   workflow_dispatch:
-    inputs:
-      target_url:
-        description: HTTPS base URL of the explicitly authorized environment
-        required: true
-        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: paperguard-online-verification
+  cancel-in-progress: false
+
 jobs:
   verify:
-    name: Read-only online verification
+    name: Non-destructive online verification
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment:
+      name: paperguard-online-verification
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          fetch-depth: 1
 
-      - name: Run read-only online verifier
+      - name: Verify protected source identity
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Run non-destructive online verifier
         run: bash ops/online-verify.sh
         env:
-          PAPERGUARD_ONLINE_BASE_URL: ${{ inputs.target_url }}
+          PAPERGUARD_ONLINE_BASE_URL: ${{ secrets.PAPERGUARD_ONLINE_BASE_URL }}
           PAPERGUARD_ONLINE_ADMIN_USERNAME: ${{ secrets.PAPERGUARD_ONLINE_ADMIN_USERNAME }}
           PAPERGUARD_ONLINE_ADMIN_PASSWORD: ${{ secrets.PAPERGUARD_ONLINE_ADMIN_PASSWORD }}
           PAPERGUARD_ONLINE_EVIDENCE_PATH: ${{ runner.temp }}/online-verification-evidence.json

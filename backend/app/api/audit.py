@@ -7,7 +7,6 @@ from io import StringIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from app.api.templates import get_store
 from app.auth import current_user
 from app.contracts.common import AuditEventResponse
 from app.db import Store
@@ -15,6 +14,11 @@ from app.services.audit_service import list_audit_events
 
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
+
+
+def get_store() -> Store:
+    """Use a read-only dependency; template routes lazily seed default data."""
+    return Store()
 
 
 def _ensure_audit_manager(user: dict) -> None:
