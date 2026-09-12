@@ -103,7 +103,12 @@ def _webp_size(data: bytes) -> tuple[int, int] | None:
     return None
 
 
-def validate_image(data: bytes, filename: str | None = None) -> str:
+def validate_image(
+    data: bytes,
+    filename: str | None = None,
+    *,
+    require_docx_compatible: bool = False,
+) -> str:
     if len(data) > IMAGE_MAX_BYTES:
         raise HTTPException(status_code=413, detail="图片过大, 上限为 10MB")
     candidates = (
@@ -118,6 +123,13 @@ def validate_image(data: bytes, filename: str | None = None) -> str:
     width, height = size
     if width <= 0 or height <= 0 or width * height > IMAGE_MAX_PIXELS:
         raise HTTPException(status_code=413, detail="图片尺寸或像素总数超限")
+    if require_docx_compatible:
+        try:
+            from docx.image.image import Image as DocxImage
+
+            DocxImage.from_blob(data)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="图片内容无法被 DOCX 渲染器解码") from exc
     return kind
 
 

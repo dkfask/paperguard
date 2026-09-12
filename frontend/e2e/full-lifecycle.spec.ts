@@ -1,7 +1,8 @@
-import { test, expect, type Page } from '@playwright/test'
+import { expect, request, test, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { LoginPage, PaperGuardPage } from './pages/paperguard.page'
+import { API_BASE_URL } from './document-platform.api'
 
 const DATA_ROOT = process.env.E2E_DATA_ROOT ?? '/Users/a1234/Documents/perpetual/22016022205-王俞尹'
 const TEMPLATE_ROOT = process.env.E2E_TEMPLATE_ROOT ?? '/Users/a1234/Documents/perpetual/附件3-2026届毕业设计（论文）相关文档模板'
@@ -28,6 +29,36 @@ function futureLocalDate(hours: number) {
 
 function pastLocalDate(hours: number) {
   return futureLocalDate(-hours)
+}
+
+async function restoreSeededAdminPassword(replacementPassword: string) {
+  const api = await request.newContext({ baseURL: API_BASE_URL })
+  try {
+    const replacementLogin = await api.post('/api/auth/login', {
+      data: { username: 'admin', password: replacementPassword },
+    })
+    if (!replacementLogin.ok()) {
+      // The lifecycle may have failed before the forced-change step. Confirm
+      // the original credential is still valid before declaring cleanup done.
+      const originalLogin = await api.post('/api/auth/login', {
+        data: { username: 'admin', password: ADMIN_PASSWORD },
+      })
+      if (originalLogin.ok()) return
+      throw new Error(`admin cleanup login failed: ${replacementLogin.status()}/${originalLogin.status()}`)
+    }
+
+    const login = await replacementLogin.json()
+    const restoreResponse = await api.post('/api/auth/change-password', {
+      headers: { Authorization: `Bearer ${login.token}` },
+      data: {
+        current_password: replacementPassword,
+        new_password: ADMIN_PASSWORD,
+      },
+    })
+    if (!restoreResponse.ok()) throw new Error(`admin cleanup restore failed: ${restoreResponse.status()}`)
+  } finally {
+    await api.dispose()
+  }
 }
 
 async function submitMaterial(page: Page, artifactType: string, title: string, attachment: string) {
@@ -124,6 +155,7 @@ test.describe('PaperGuard browser lifecycle', () => {
     const studentUsername = `22016022205_${run}`
     const teacherPassword = `Teacher-${run}-2026a`
     const studentPassword = `Student-${run}-2026a`
+    const adminReplacementPassword = `Admin-${run}-2026a`
     const teacherDisplay = `王俞尹回归教师-${run}`
     const studentDisplay = `王俞尹-${run}`
     const schoolName = `王俞尹回归学校-${run}`
@@ -136,6 +168,7 @@ test.describe('PaperGuard browser lifecycle', () => {
     const admin = await adminContext.newPage()
     const teacher = await teacherContext.newPage()
     const student = await studentContext.newPage()
+    let adminPasswordMayHaveChanged = false
     const consoleErrors: string[] = []
     const httpErrors: string[] = []
     for (const page of [admin, teacher, student]) {
@@ -155,7 +188,8 @@ test.describe('PaperGuard browser lifecycle', () => {
     try {
       await new LoginPage(teacher).register(teacherUsername, teacherPassword, teacherDisplay, 'teacher')
 
-      await new LoginPage(admin).login('admin', ADMIN_PASSWORD)
+      adminPasswordMayHaveChanged = true
+      await new LoginPage(admin).login('admin', ADMIN_PASSWORD, adminReplacementPassword)
       await admin.goto('/admin/users')
       const teacherRow = admin.locator('tr').filter({ hasText: teacherUsername })
       await expect(teacherRow).toBeVisible()
@@ -371,9 +405,13 @@ test.describe('PaperGuard browser lifecycle', () => {
       await new PaperGuardPage(admin).logout()
       expect([...consoleErrors, ...httpErrors], [...consoleErrors, ...httpErrors].join('\n')).toEqual([])
     } finally {
-      await adminContext.close()
-      await teacherContext.close()
-      await studentContext.close()
+      try {
+        if (adminPasswordMayHaveChanged) await restoreSeededAdminPassword(adminReplacementPassword)
+      } finally {
+        await adminContext.close()
+        await teacherContext.close()
+        await studentContext.close()
+      }
     }
   })
 

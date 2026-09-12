@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.domain.documents.schemas import ContentBlock, DocumentPackage, DocumentProject, TemplateDefinition
+from app.services.document_assets import resolve_document_image_path
 
 
 class DocumentProjectError(ValueError):
@@ -49,7 +50,11 @@ def validate_field_values(definition: TemplateDefinition, values: dict[str, Any]
                 raise DocumentProjectError(f"字段长度约束无效: {key}") from None
 
 
-def validate_section_content(definition: TemplateDefinition, sections: dict[str, list[ContentBlock]]) -> None:
+def validate_section_content(
+    definition: TemplateDefinition,
+    sections: dict[str, list[ContentBlock]],
+    project_id: str | None = None,
+) -> None:
     known_keys = {item["key"] for item in flatten_template_sections(definition)}
     unknown = sorted(set(sections) - known_keys)
     if unknown:
@@ -61,6 +66,12 @@ def validate_section_content(definition: TemplateDefinition, sections: dict[str,
         for index, block in enumerate(blocks):
             if len(block.text) > 200_000:
                 raise DocumentProjectError(f"内容块过大: {key}[{index}]")
+            kind = str(block.kind or "paragraph").lower()
+            if kind in {"image", "figure"}:
+                data = block.data if isinstance(block.data, dict) else {}
+                url = str(data.get("url") or data.get("path") or "")
+                if project_id is not None and resolve_document_image_path(project_id, url) is None:
+                    raise DocumentProjectError(f"图片引用无效或不属于当前项目: {key}[{index}]")
 
 
 def instantiate_document_project(
@@ -94,7 +105,7 @@ def instantiate_document_project(
         organization_context=dict(organization_context),
         metadata={"source": "document_package", "package_id": package.id},
     )
-    validate_section_content(definition, project.sections)
+    validate_section_content(definition, project.sections, project.id)
     return project
 
 

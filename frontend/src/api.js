@@ -1285,6 +1285,16 @@ export async function updateDocumentProject(projectId, payload) {
   return resp.json()
 }
 
+export async function uploadDocumentProjectImage(projectId, file) {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/images`, {
+    method: 'POST', body: form,
+  })
+  if (!resp.ok) throw await responseError(resp, '上传通用文档图片失败')
+  return resp.json()
+}
+
 export async function validateDocumentProject(projectId) {
   const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/validate`, {
     method: 'POST',

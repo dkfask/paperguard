@@ -136,7 +136,7 @@ export const translations = {
     'stageConfig.key': '阶段 key', 'stageConfig.keyPlaceholder': 'draft / final', 'stageConfig.name': '阶段名称', 'stageConfig.namePlaceholder': '终稿', 'stageConfig.openAt': '开放时间', 'stageConfig.deadline': '首次提交截止', 'stageConfig.revisionDays': '修订天数', 'stageConfig.template': '模板', 'stageConfig.manualChecks': '通过前人工核验', 'stageConfig.manualChecksPlaceholder': '如 学术诚信、导师确认（逗号分隔）', 'stageConfig.requiredMaterials': '阶段必交材料', 'stageConfig.requiredMaterialsPlaceholder': '如 task_book, opening_report, similarity_report', 'stageConfig.finalStage': '终稿阶段', 'stageConfig.earlyWriting': '允许提前写作', 'stageConfig.saveDraft': '保存阶段草稿',
     'memberImport.kicker': '成员导入', 'memberImport.title': '批量导入指导关系', 'memberImport.description': '每行填写学号、工号或姓名及原因，系统会自动匹配账号并支持预检。', 'memberImport.placeholder': 'student_ref,teacher_ref,reason\n例如：20270001,T2027-01,首次分配', 'memberImport.preview': '预检', 'memberImport.commit': '导入通过行', 'memberImport.total': '总行 {count}', 'memberImport.success': '成功 {count}', 'memberImport.failed': '失败 {count}', 'memberImport.row': '第 {row} 行', 'memberImport.failedStatus': '失败', 'memberImport.ready': '可导入', 'memberImport.imported': '已导入', 'memberImport.validated': '身份与组织校验通过',
     'errorBoundary.title': '页面暂时无法显示', 'errorBoundary.description': '页面遇到未预期错误，其他功能仍可继续使用。请重试，若问题持续请联系管理员。', 'errorBoundary.retry': '重新加载', 'errorBoundary.home': '返回工作台',
-    'blockList.block': '第 {number} 块', 'blockList.polishing': '✨润色中…', 'blockList.polish': '✨润色', 'blockList.continuing': '▶续写中…', 'blockList.continue': '▶续写', 'blockList.image': '🖼 图片', 'blockList.equation': '∑ 公式', 'blockList.table': '📊 表格', 'blockList.paragraphPlaceholder': '第 {number} 段正文…', 'blockList.uploading': '上传中…', 'blockList.replaceImage': '更换图片', 'blockList.imageUploading': '图片上传中…', 'blockList.imageUploadFailed': '图片上传失败：{message}', 'blockList.uploadImage': '点击上传图片 (png/jpg/gif/webp)', 'blockList.figure': '图 {chapter}.{number}', 'blockList.tableNumber': '表 {chapter}.{number}', 'blockList.captionPlaceholder': '题注文字，如：{title}', 'blockList.rows': '行', 'blockList.columns': '列', 'blockList.resizeHint': '调整行列数后，原内容保留', 'blockList.officeEquation': 'Office 公式', 'blockList.officeEquationDetail': '已保留 Office Math 原始公式，导出时回写', 'blockList.addParagraph': '段落', 'blockList.addImage': '图片', 'blockList.addTable': '表格',
+    'blockList.block': '第 {number} 块', 'blockList.polishing': '✨润色中…', 'blockList.polish': '✨润色', 'blockList.continuing': '▶续写中…', 'blockList.continue': '▶续写', 'blockList.image': '🖼 图片', 'blockList.equation': '∑ 公式', 'blockList.table': '📊 表格', 'blockList.paragraphPlaceholder': '第 {number} 段正文…', 'blockList.uploading': '上传中…', 'blockList.replaceImage': '更换图片', 'blockList.imageUploading': '图片上传中…', 'blockList.imageUploadFailed': '图片上传失败：{message}', 'blockList.uploadImage': '点击上传图片 (png/jpg/gif)', 'blockList.figure': '图 {chapter}.{number}', 'blockList.tableNumber': '表 {chapter}.{number}', 'blockList.captionPlaceholder': '题注文字，如：{title}', 'blockList.rows': '行', 'blockList.columns': '列', 'blockList.resizeHint': '调整行列数后，原内容保留', 'blockList.officeEquation': 'Office 公式', 'blockList.officeEquationDetail': '已保留 Office Math 原始公式，导出时回写', 'blockList.addParagraph': '段落', 'blockList.addImage': '图片', 'blockList.addTable': '表格',
     'blockList.imageUploadFailed': '图片上传失败：{message}',
     'sectionTextEditor.title': '整节输入', 'sectionTextEditor.help': '按空行分段，单换行保留在同一段内', 'sectionTextEditor.apply': '应用并拆分', 'sectionTextEditor.detail': '应用后会替换当前章节的文字段落，图片和表格块会保留',
     'homeComponents.createTitle': '创建新论文', 'homeComponents.thesisTitle': '论文标题', 'homeComponents.titlePlaceholder': '输入论文标题', 'homeComponents.chooseTemplate': '选择模板', 'homeComponents.choose': '-- 请选择 --', 'homeComponents.cancel': '取消', 'homeComponents.creating': '创建中...', 'homeComponents.create': '创建论文', 'homeComponents.unnamed': '未命名论文', 'homeComponents.sectionsDone': '节完成', 'homeComponents.characters': '字', 'homeComponents.export': '导出', 'homeComponents.delete': '删除',
@@ -191,7 +191,7 @@ export const translations = {
     'stageConfig.key': 'Stage key', 'stageConfig.keyPlaceholder': 'draft / final', 'stageConfig.name': 'Stage name', 'stageConfig.namePlaceholder': 'Final thesis', 'stageConfig.openAt': 'Open at', 'stageConfig.deadline': 'First submission deadline', 'stageConfig.revisionDays': 'Revision days', 'stageConfig.template': 'Template', 'stageConfig.manualChecks': 'Manual checks before approval', 'stageConfig.manualChecksPlaceholder': 'e.g. academic integrity, advisor approval (comma-separated)', 'stageConfig.requiredMaterials': 'Required stage materials', 'stageConfig.requiredMaterialsPlaceholder': 'e.g. task_book, opening_report, similarity_report', 'stageConfig.finalStage': 'Final stage', 'stageConfig.earlyWriting': 'Allow early writing', 'stageConfig.saveDraft': 'Save stage draft',
     'memberImport.kicker': 'MEMBER IMPORT', 'memberImport.title': 'Bulk import advising relationships', 'memberImport.description': 'Enter a student ID, faculty ID, or name and a reason per line. Accounts are matched automatically and can be preflighted.', 'memberImport.placeholder': 'student_ref,teacher_ref,reason\ne.g. 20270001,T2027-01,Initial assignment', 'memberImport.preview': 'Preflight', 'memberImport.commit': 'Import ready rows', 'memberImport.total': '{count} total rows', 'memberImport.success': '{count} succeeded', 'memberImport.failed': '{count} failed', 'memberImport.row': 'Row {row}', 'memberImport.failedStatus': 'Failed', 'memberImport.ready': 'Ready', 'memberImport.imported': 'Imported', 'memberImport.validated': 'Identity and organization checks passed',
     'errorBoundary.title': 'This page cannot be displayed', 'errorBoundary.description': 'The page encountered an unexpected error. Other features may still work. Retry, or contact an administrator if the issue continues.', 'errorBoundary.retry': 'Reload', 'errorBoundary.home': 'Back to workspace',
-    'blockList.block': 'Block {number}', 'blockList.polishing': '✨Polishing…', 'blockList.polish': '✨Polish', 'blockList.continuing': '▶Continuing…', 'blockList.continue': '▶Continue', 'blockList.image': '🖼 Image', 'blockList.equation': '∑ Equation', 'blockList.table': '📊 Table', 'blockList.paragraphPlaceholder': 'Paragraph {number}…', 'blockList.uploading': 'Uploading…', 'blockList.replaceImage': 'Replace image', 'blockList.imageUploading': 'Uploading image…', 'blockList.uploadImage': 'Click to upload image (png/jpg/gif/webp)', 'blockList.figure': 'Figure {chapter}.{number}', 'blockList.tableNumber': 'Table {chapter}.{number}', 'blockList.captionPlaceholder': 'Caption, e.g. {title}', 'blockList.rows': 'Rows', 'blockList.columns': 'Columns', 'blockList.resizeHint': 'Existing content is preserved when resizing', 'blockList.officeEquation': 'Office equation', 'blockList.officeEquationDetail': 'The original Office Math equation is retained and restored on export', 'blockList.addParagraph': 'Paragraph', 'blockList.addImage': 'Image', 'blockList.addTable': 'Table',
+    'blockList.block': 'Block {number}', 'blockList.polishing': '✨Polishing…', 'blockList.polish': '✨Polish', 'blockList.continuing': '▶Continuing…', 'blockList.continue': '▶Continue', 'blockList.image': '🖼 Image', 'blockList.equation': '∑ Equation', 'blockList.table': '📊 Table', 'blockList.paragraphPlaceholder': 'Paragraph {number}…', 'blockList.uploading': 'Uploading…', 'blockList.replaceImage': 'Replace image', 'blockList.imageUploading': 'Uploading image…', 'blockList.uploadImage': 'Click to upload image (png/jpg/gif)', 'blockList.figure': 'Figure {chapter}.{number}', 'blockList.tableNumber': 'Table {chapter}.{number}', 'blockList.captionPlaceholder': 'Caption, e.g. {title}', 'blockList.rows': 'Rows', 'blockList.columns': 'Columns', 'blockList.resizeHint': 'Existing content is preserved when resizing', 'blockList.officeEquation': 'Office equation', 'blockList.officeEquationDetail': 'The original Office Math equation is retained and restored on export', 'blockList.addParagraph': 'Paragraph', 'blockList.addImage': 'Image', 'blockList.addTable': 'Table',
     'blockList.imageUploadFailed': 'Image upload failed: {message}',
     'sectionTextEditor.title': 'Whole-section input', 'sectionTextEditor.help': 'Blank lines split paragraphs; single line breaks stay in the same paragraph', 'sectionTextEditor.apply': 'Apply and split', 'sectionTextEditor.detail': 'Applying replaces the current text paragraphs while keeping image and table blocks',
     'homeComponents.createTitle': 'Create a new thesis', 'homeComponents.thesisTitle': 'Thesis title', 'homeComponents.titlePlaceholder': 'Enter thesis title', 'homeComponents.chooseTemplate': 'Choose template', 'homeComponents.choose': '-- Select --', 'homeComponents.cancel': 'Cancel', 'homeComponents.creating': 'Creating...', 'homeComponents.create': 'Create thesis', 'homeComponents.unnamed': 'Untitled thesis', 'homeComponents.sectionsDone': 'sections complete', 'homeComponents.characters': 'characters', 'homeComponents.export': 'Export', 'homeComponents.delete': 'Delete',
@@ -217,6 +217,17 @@ export const translations = {
 }
 
 Object.assign(translations.zh, {
+  'documentProjects.selectPlaceholder': '请选择',
+  'documentProjects.blockType': '内容块类型',
+  'documentProjects.imageUrl': '图片地址',
+  'documentProjects.imageUpload': '上传图片',
+  'documentProjects.imageCaption': '图片说明',
+  'documentProjects.tableRows': '行数',
+  'documentProjects.tableColumns': '列数',
+  'documentProjects.tableCell': '表格单元格',
+  'documentProjects.tableCaption': '表格说明',
+  'documentProjects.equationText': 'Office 公式 XML',
+  'documentProjects.equationAltText': '公式替代文本',
   'documentPackagePublisher.savedCandidates': '已保存的解析候选',
   'documentPackagePublisher.selectSaved': '选择候选以恢复审阅',
   'documentPackagePublisher.candidateName': '候选名称',
@@ -242,6 +253,17 @@ Object.assign(translations.zh, {
 })
 
 Object.assign(translations.en, {
+  'documentProjects.selectPlaceholder': 'Select an option',
+  'documentProjects.blockType': 'Content block type',
+  'documentProjects.imageUrl': 'Image URL',
+  'documentProjects.imageUpload': 'Upload image',
+  'documentProjects.imageCaption': 'Image caption',
+  'documentProjects.tableRows': 'Rows',
+  'documentProjects.tableColumns': 'Columns',
+  'documentProjects.tableCell': 'Table cell',
+  'documentProjects.tableCaption': 'Table caption',
+  'documentProjects.equationText': 'Office equation XML',
+  'documentProjects.equationAltText': 'Equation alt text',
   'documentPackagePublisher.savedCandidates': 'Saved parse candidates',
   'documentPackagePublisher.selectSaved': 'Select a candidate to restore',
   'documentPackagePublisher.candidateName': 'Candidate name',

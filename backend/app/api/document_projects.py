@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
@@ -38,6 +39,8 @@ from app.services.document_access import (
     public_document_bundle,
 )
 from app.services.generic_docx_renderer import GenericDocxRenderError, render_document_project_to_docx
+from app.services.document_assets import document_upload_dir
+from app.services.upload_security import IMAGE_MAX_BYTES, read_limited, validate_image
 from app.repositories.workflow_repository import WorkflowRepository
 from app.domain.workflow_states import transition_state
 
@@ -226,6 +229,38 @@ def get_document_project_editor(
     }
 
 
+@router.post("/{project_id}/images", status_code=201)
+async def upload_document_image(
+    project_id: str,
+    file: UploadFile = File(...),
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict[str, str]:
+    """Upload a project-owned raster image for a generic document block."""
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(store, project, user)
+    data = read_limited(file, IMAGE_MAX_BYTES)
+    kind = validate_image(data, file.filename, require_docx_compatible=True)
+    # python-docx accepts PNG/JPEG/GIF for embedded pictures. Keep this path
+    # explicit so an unsupported format cannot become a mapping error.
+    extension = {"jpeg": ".jpg", "png": ".png", "gif": ".gif"}.get(kind)
+    if extension is None:
+        raise HTTPException(status_code=400, detail="通用 DOCX 图片仅支持 PNG/JPEG/GIF")
+    filename = f"{project.id}-{uuid.uuid4().hex[:12]}{extension}"
+    destination = document_upload_dir() / filename
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        destination.write_bytes(data)
+    except Exception as exc:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="图片保存失败") from exc
+    url = f"/media/uploads/{filename}"
+    _audit(store, user, action="document.project.image_uploaded", project_id=project.id)
+    return {"url": url, "filename": filename}
+
+
 @router.put("/{project_id}")
 def update_document_project(
     project_id: str,
@@ -247,7 +282,7 @@ def update_document_project(
             validate_field_values(definition, request.field_values)
             project.field_values = dict(request.field_values)
         if request.sections is not None:
-            validate_section_content(definition, request.sections)
+            validate_section_content(definition, request.sections, project.id)
             project.sections = {key: list(blocks) for key, blocks in request.sections.items()}
         if request.title is not None:
             project.title = request.title.strip()

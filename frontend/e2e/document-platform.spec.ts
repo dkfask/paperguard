@@ -95,6 +95,23 @@ rules:
     expect(await editorPage.firstContentValue()).toBe('')
   })
 
+  test('dynamic editor renders field and content block schemas', async ({ page }) => {
+    const { editorPage } = await openEditor(page, 'dynamic-schema')
+    await expect(page.locator('[data-test="document-field-summary"]')).toHaveJSProperty('tagName', 'TEXTAREA')
+    await expect(page.locator('[data-test="document-field-category"]')).toHaveJSProperty('tagName', 'SELECT')
+    await page.locator('[data-test="document-field-summary"]').fill('结构化字段内容')
+    await page.locator('[data-test="document-field-category"]').selectOption('A')
+
+    const saved = page.waitForResponse((response) => response.url().includes('/api/document-projects/')
+      && response.request().method() === 'PUT'
+      && response.status() === 200)
+    await page.locator('[data-test^="block-kind-"]').first().selectOption('table')
+    await page.getByLabel(/表格单元格 1-1|Table cell 1-1/).fill('表格单元格')
+    await saved
+    await expect(page.locator('[data-test="document-table-editor"]')).toBeVisible()
+    await expect(page.getByLabel(/表格单元格 1-1|Table cell 1-1/)).toHaveValue('表格单元格')
+  })
+
   test('content is autosaved and survives an editor reload', async ({ page }) => {
     const { account, editorPage } = await openEditor(page, 'autosave')
     const content = `已保存的通用文档内容 ${account.projectTitle}`

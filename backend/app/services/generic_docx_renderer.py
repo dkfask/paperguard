@@ -28,6 +28,7 @@ from app.models.project import (
 )
 from app.models.template import DEFAULT_STYLES, SectionType
 from app.services.template_source import resolve_template_source
+from app.services.document_assets import resolve_document_image_path
 from app.services.docx_anchors import DocxAnchorError, render_anchored_docx
 
 
@@ -60,13 +61,13 @@ def _legacy_template_definition(definition: TemplateDefinition) -> TemplateDefin
     })
 
 
-def _legacy_block(block: Any) -> ParagraphBlock:
+def _legacy_block(block: Any, project_id: str) -> ParagraphBlock:
     data = block.data if isinstance(block.data, dict) else {}
     kind = str(block.kind or "paragraph").lower()
     if kind in {"image", "figure"}:
         url = str(data.get("url") or data.get("path") or "")
-        if not url:
-            raise GenericDocxRenderError(f"image block {block.id} has no url")
+        if not url or resolve_document_image_path(project_id, url) is None:
+            raise GenericDocxRenderError(f"image block {block.id} has no valid project-owned image")
         return ParagraphBlock(
             id=block.id,
             type=BlockType.IMAGE,
@@ -121,7 +122,7 @@ def _legacy_project(project: DocumentProject, definition: TemplateDefinition) ->
             type=_legacy_kind(node.kind),
             title=node.title,
             required=node.required,
-            paragraphs=[_legacy_block(block) for block in ordered],
+            paragraphs=[_legacy_block(block, project.id) for block in ordered],
         ))
     unknown = sorted(set(project.sections) - set(nodes))
     if unknown:
@@ -168,6 +169,18 @@ def render_document_project_to_docx(
     # mutate only declared locations and preserve the original OOXML package.
     # Templates without anchors retain the existing thesis-compatible adapter.
     if template_version.definition.anchors:
+        image_paths: dict[str, Path] = {}
+        for blocks in project.sections.values():
+            for block in blocks:
+                kind = str(block.kind or "paragraph").lower()
+                if kind not in {"image", "figure"}:
+                    continue
+                data = block.data if isinstance(block.data, dict) else {}
+                url = str(data.get("url") or data.get("path") or "")
+                image_path = resolve_document_image_path(project.id, url)
+                if image_path is None:
+                    raise GenericDocxRenderError(f"image block {block.id} has no valid project-owned image")
+                image_paths[block.id] = image_path
         try:
             render_anchored_docx(
                 source_path,
@@ -175,6 +188,7 @@ def render_document_project_to_docx(
                 template_version.definition.anchors,
                 project.field_values,
                 project.sections,
+                image_paths=image_paths,
             )
         except DocxAnchorError as exc:
             raise GenericDocxRenderError(str(exc)) from exc

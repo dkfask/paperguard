@@ -77,6 +77,28 @@ export async function publishFixturePackage(api: APIRequestContext): Promise<Pub
     },
   })
   const templateCandidate = await jsonOrThrow(templateResponse, 'parse DOCX template')
+  templateCandidate.definition.fields.push(
+    {
+      key: 'summary',
+      label: '摘要',
+      type: 'textarea',
+      required: false,
+      location: 'metadata',
+      section_key: '',
+      constraints: {},
+      source: 'E2E schema fixture',
+    },
+    {
+      key: 'category',
+      label: '类别',
+      type: 'select',
+      required: false,
+      location: 'metadata',
+      section_key: '',
+      constraints: { options: ['A', 'B'] },
+      source: 'E2E schema fixture',
+    },
+  )
 
   const specResponse = await api.post('/api/specs/parse', {
     headers,

@@ -905,7 +905,11 @@ def _export_table(doc: Document, tbl, template: PaperTemplate | None,
 
 def _resolve_image_path(url: str) -> Path:
     """把 /media/uploads/xxx.png 解析为本地文件路径。"""
-    from app.main import app as _app  # noqa: F401  (确保 mount 已注册)
-    base = Path(__file__).resolve().parent.parent.parent.parent / "data" / "uploads"
+    import os
+
+    base = Path(os.environ.get(
+        "PAPERGUARD_DATA_DIR",
+        str(Path(__file__).resolve().parent.parent.parent.parent / "data"),
+    )) / "uploads"
     name = url.rsplit("/", 1)[-1]
     return base / name

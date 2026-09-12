@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.document_assets import document_upload_dir
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "minimal.docx"
@@ -27,6 +29,10 @@ rules:
 HARD_SPEC = SPEC.replace(
     "    description: 正文不少于 10 字",
     "    severity: error\n    enforce: hard\n    description: 正文不少于 10 字",
+)
+
+ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
 )
 
 
@@ -195,6 +201,60 @@ def test_document_project_render_returns_docx_artifact() -> None:
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     assert response.content[:2] == b"PK"
+
+
+def test_document_project_image_upload_is_owned_and_renderable(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PAPERGUARD_DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    package = _published_package(client, headers)
+    created = client.post(
+        "/api/document-projects",
+        headers=headers,
+        json={"package_id": package["id"], "title": "带图片的报告"},
+    )
+    assert created.status_code == 201, created.text
+    project_id = created.json()["id"]
+
+    uploaded = client.post(
+        f"/api/document-projects/{project_id}/images",
+        headers=headers,
+        files={"file": ("figure.png", ONE_PIXEL_PNG, "image/png")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    image_url = uploaded.json()["url"]
+    image_path = document_upload_dir() / uploaded.json()["filename"]
+    assert image_url.startswith(f"/media/uploads/{project_id}-")
+    assert image_path.is_file()
+    assert client.get(image_url, headers=headers).status_code == 200
+
+    sections = created.json()["sections"]
+    first_key = next(iter(sections))
+    sections[first_key][0].update({
+        "kind": "image",
+        "data": {"url": image_url, "caption": "示例图片"},
+    })
+    updated = client.put(
+        f"/api/document-projects/{project_id}",
+        headers=headers,
+        json={"sections": sections, "base_revision": 0},
+    )
+    assert updated.status_code == 200, updated.text
+    rendered = client.post(f"/api/document-projects/{project_id}/render", headers=headers)
+    assert rendered.status_code == 200, rendered.text
+    assert rendered.content[:2] == b"PK"
+
+    foreign = sections[first_key][0].copy()
+    foreign["data"] = {"url": "/media/uploads/docproj-other-figure.png"}
+    rejected = client.put(
+        f"/api/document-projects/{project_id}",
+        headers=headers,
+        json={
+            "sections": {first_key: [foreign]},
+            "base_revision": updated.json()["revision"],
+        },
+    )
+    assert rejected.status_code == 422, rejected.text
 
 
 def test_document_project_render_job_is_durable_idempotent_and_downloadable(tmp_path, monkeypatch) -> None:

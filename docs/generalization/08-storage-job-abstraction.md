@@ -98,8 +98,11 @@ Verification completed locally for this phase:
 - Artifact cleanup and retention policy are not yet generic; orphan recovery,
   expiry, and quota enforcement belong to the security/migration and operations
   phases.
-- Generic rich-media content remains subject to the Phase 7 renderer fidelity
-  boundary.
+- Generic rich-media content is supported by explicit section paragraph
+  anchors for PNG/JPEG/GIF images, structured tables, and Office Math. Image
+  uploads remain project-owned and are validated before they can be saved or
+  rendered. Other anchor kinds and arbitrary unanchored templates retain the
+  Phase 7 fidelity boundary.
 
 ## Explicit non-goals
 

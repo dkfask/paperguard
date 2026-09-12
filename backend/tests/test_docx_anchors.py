@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import zipfile
 from pathlib import Path
 
+import pytest
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -18,7 +20,7 @@ from app.domain.documents.schemas import (
     TemplateAsset,
     TemplateVersion,
 )
-from app.services.docx_anchors import extract_docx_anchors
+from app.services.docx_anchors import DocxAnchorError, extract_docx_anchors, render_anchored_docx
 from app.services.generic_docx_renderer import render_document_project_to_docx
 from app.services.template_engine import parse_docx_template
 
@@ -194,3 +196,59 @@ def test_parser_and_renderer_preserve_source_package_while_replacing_anchors(tmp
     assert "{{name}}" not in document_xml
     assert "旧部门" not in document_xml
     assert "Header APP-001" in header_xml
+
+
+def test_section_anchor_renders_structured_blocks_and_embedded_image(tmp_path: Path) -> None:
+    source = tmp_path / "source.docx"
+    _source_docx(source)
+    image = tmp_path / "figure.png"
+    image.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
+    ))
+    output = tmp_path / "rich-output.docx"
+    render_anchored_docx(
+        source,
+        output,
+        extract_docx_anchors(source),
+        {},
+        {
+            "summary": [
+                ContentBlock(id="table-1", kind="table", data={
+                    "rows": 2, "cols": 2, "cells": [["项目", "结果"], ["温度", "25"]], "caption": "实验数据",
+                }),
+                ContentBlock(id="equation-1", kind="equation", data={
+                    "omml": '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:r><m:t>x+1</m:t></m:r></m:oMath>',
+                    "alt_text": "x+1",
+                }),
+                ContentBlock(id="image-1", kind="image", data={"url": "/media/uploads/project-1-figure.png", "caption": "实验图"}),
+            ],
+        },
+        image_paths={"image-1": image},
+    )
+
+    with zipfile.ZipFile(output) as archive:
+        names = set(archive.namelist())
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+        relationships = archive.read("word/_rels/document.xml.rels").decode("utf-8")
+        content_types = archive.read("[Content_Types].xml").decode("utf-8")
+    assert "项目" in document_xml and "25" in document_xml
+    assert "<m:oMath" in document_xml and "x+1" in document_xml
+    assert "<w:drawing" in document_xml and "实验图" in document_xml
+    assert any(name.startswith("word/media/image") and name.endswith(".png") for name in names)
+    assert "relationships/image" in relationships
+    assert 'Extension="png"' in content_types
+
+
+def test_rich_section_without_an_anchor_fails_closed(tmp_path: Path) -> None:
+    source = tmp_path / "source.docx"
+    _source_docx(source)
+    output = tmp_path / "output.docx"
+
+    with pytest.raises(DocxAnchorError, match="没有可用章节锚点"):
+        render_anchored_docx(
+            source,
+            output,
+            extract_docx_anchors(source),
+            {},
+            {"unmapped": [ContentBlock(id="image-1", kind="image", data={"url": "/media/uploads/project-1.png"})]},
+        )

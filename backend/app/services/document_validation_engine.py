@@ -44,6 +44,8 @@ def _block_text(block: Any) -> str:
 def _value_present(value: Any) -> bool:
     if value is None:
         return False
+    if isinstance(value, bool):
+        return value
     if isinstance(value, (list, tuple, dict, set)) and not value:
         return False
     return bool(str(value).strip())

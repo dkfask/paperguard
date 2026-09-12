@@ -89,9 +89,18 @@ headers, footers, and package resources are preserved by the existing exporter
 or the direct anchored package rewrite.
 Cover content recognized by the import parser is also re-emitted from its
 structured cover definition. The explicit path does not claim lossless editing
-of every Word object, tracked change, or renderer-specific field. Images/tables
-in anchored section markers currently use their declared text/caption
-representation; rich block round-trip remains a later renderer capability.
+of every Word object, tracked change, or renderer-specific field. A declared
+`{{section:key}}` paragraph anchor now supports structured paragraph, table,
+Office Math, and project-owned PNG/JPEG/GIF image blocks. Images add a media
+part and a relationship to the source part; tables are emitted as deterministic
+`w:tbl` structures; Office Math is accepted only when its root is `m:oMath` or
+`m:oMathPara`.
+
+Bookmark and content-control section anchors remain text-only. If a rich block
+is sent to one of those anchors, rendering fails closed with an actionable
+error instead of silently exporting a caption or flattened text. Arbitrary
+unanchored templates still use the thesis-compatible fallback and are not
+claimed to have source-position fidelity.
 Unknown section kinds in the legacy fallback are intentionally rendered as
 body content and should be reviewed during template confirmation.
 
@@ -106,6 +115,10 @@ Verification completed locally for this phase:
 - Frontend paragraph checks: `PASS`.
 - Frontend production build: `PASS`.
 - `git diff --check`: `PASS`.
+- Explicit-anchor rich-block regression: `4 passed`; the generated package
+  contains a structured table, Office Math, a media part, a picture
+  relationship, and the PNG content type; an unmapped rich section fails
+  closed.
 - Hosted GitHub Actions run `34675958927` for PR `#14`: `PASS`; frontend
   build, Python 3.11, and Python 3.12 all passed for remote head
   `eef7b75c284be00b4672635461759e1c67bc1be4`. GitHub emitted only the
