@@ -31,6 +31,7 @@ from app.api.teacher import router as teacher_router
 from app.api.templates import router as templates_router
 from app.api.policies import router as policies_router
 from app.api.specs import router as specs_router
+from app.api.document_packages import router as document_packages_router
 from app.api.organizations import router as organizations_router
 from app.api.operations import router as operations_router
 from app.api.process_records import router as process_records_router
@@ -143,6 +144,7 @@ app.include_router(ai_router)
 app.include_router(teacher_router)
 app.include_router(policies_router)
 app.include_router(specs_router)
+app.include_router(document_packages_router)
 app.include_router(organizations_router)
 app.include_router(workflow_router)
 app.include_router(process_records_router)

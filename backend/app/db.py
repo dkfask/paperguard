@@ -22,7 +22,12 @@ from app.models.policy import CheckRun, PolicyAuditEvent, RequirementSet
 from app.models.template import PaperTemplate
 
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "paperguard.db"
-SCHEMA_MIGRATIONS = ("0001_runtime_schema", "0002_durable_jobs", "0003_audit_ledger")
+SCHEMA_MIGRATIONS = (
+    "0001_runtime_schema",
+    "0002_durable_jobs",
+    "0003_audit_ledger",
+    "0004_document_packages",
+)
 
 
 def _default_db_path() -> Path:
@@ -110,6 +115,18 @@ class Store:
                     data TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS document_packages (
+                    id TEXT PRIMARY KEY,
+                    template_version_id TEXT NOT NULL,
+                    spec_version_id TEXT NOT NULL,
+                    renderer_version TEXT NOT NULL,
+                    rule_engine_version TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE (template_version_id, spec_version_id, renderer_version, rule_engine_version)
+                );
+                CREATE INDEX IF NOT EXISTS idx_document_packages_created
+                    ON document_packages (created_at DESC, id DESC);
                 CREATE TABLE IF NOT EXISTS organization_units (
                     id TEXT PRIMARY KEY,
                     data TEXT NOT NULL,
@@ -525,6 +542,115 @@ class Store:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM requirement_sets WHERE id = ?", (set_id,))
             return cur.rowcount > 0
+
+    # ------------------------- document packages -----------------------
+
+    @staticmethod
+    def _document_package_payload(
+        package: DocumentPackage,
+        template: DocumentTemplate,
+        template_version: TemplateVersion,
+        spec_set: SpecSet,
+        spec_version: SpecVersion,
+    ) -> str:
+        return json.dumps({
+            "package": package.model_dump(mode="json"),
+            "template": template.model_dump(mode="json"),
+            "template_version": template_version.model_dump(mode="json"),
+            "spec_set": spec_set.model_dump(mode="json"),
+            "spec_version": spec_version.model_dump(mode="json"),
+        }, ensure_ascii=False, separators=(",", ":"))
+
+    def save_document_package(
+        self,
+        package,
+        template,
+        template_version,
+        spec_set,
+        spec_version,
+    ):
+        """Persist a published package and its immutable aggregate snapshot."""
+        if package.template_version_id != template_version.id:
+            raise ValueError("document package template version mismatch")
+        if package.spec_version_id != spec_version.id:
+            raise ValueError("document package spec version mismatch")
+        if template.current_version_id != template_version.id:
+            raise ValueError("template current version mismatch")
+        if spec_set.current_version_id != spec_version.id:
+            raise ValueError("spec current version mismatch")
+        created_at = _now()
+        payload = self._document_package_payload(
+            package, template, template_version, spec_set, spec_version,
+        )
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO document_packages "
+                    "(id, template_version_id, spec_version_id, renderer_version, rule_engine_version, data, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        package.id,
+                        package.template_version_id,
+                        package.spec_version_id,
+                        package.renderer_version,
+                        package.rule_engine_version,
+                        payload,
+                        created_at,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("document package or version composition already exists") from exc
+        return package
+
+    def get_document_package_bundle(self, package_id: str) -> dict | None:
+        from app.domain.documents.schemas import DocumentPackage, DocumentTemplate, TemplateVersion
+        from app.domain.documents.specs import SpecSet, SpecVersion
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM document_packages WHERE id = ?", (package_id,)
+            ).fetchone()
+        if not row:
+            return None
+        payload = json.loads(row["data"])
+        return {
+            "package": DocumentPackage.model_validate(payload["package"]),
+            "template": DocumentTemplate.model_validate(payload["template"]),
+            "template_version": TemplateVersion.model_validate(payload["template_version"]),
+            "spec_set": SpecSet.model_validate(payload["spec_set"]),
+            "spec_version": SpecVersion.model_validate(payload["spec_version"]),
+        }
+
+    def get_document_package(self, package_id: str):
+        bundle = self.get_document_package_bundle(package_id)
+        return bundle["package"] if bundle else None
+
+    def list_document_package_bundles(self, *, status: str = "") -> list[dict]:
+        from app.domain.documents.schemas import DocumentPackage, DocumentTemplate, TemplateVersion
+        from app.domain.documents.specs import SpecSet, SpecVersion
+
+        with self._connect() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT data FROM document_packages "
+                    "WHERE json_extract(data, '$.package.status') = ? "
+                    "ORDER BY created_at DESC, id DESC",
+                    (status,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT data FROM document_packages ORDER BY created_at DESC, id DESC"
+                ).fetchall()
+        return [
+            {
+                "package": DocumentPackage.model_validate((payload := json.loads(row["data"]))["package"]),
+                "template": DocumentTemplate.model_validate(payload["template"]),
+                "template_version": TemplateVersion.model_validate(payload["template_version"]),
+                "spec_set": SpecSet.model_validate(payload["spec_set"]),
+                "spec_version": SpecVersion.model_validate(payload["spec_version"]),
+            }
+            for row in rows
+        ]
 
     # ------------------------- organization units ------------------------
 
