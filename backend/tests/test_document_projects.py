@@ -43,6 +43,11 @@ def _admin_headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {login.json()['token']}"}
 
 
+def _random_password(prefix: str) -> str:
+    """随机生成符合策略(≥12 位、含字母数字)的测试口令, 避免静态凭据。"""
+    return f"{prefix}-{uuid.uuid4().hex}-A1"
+
+
 def _published_package(client: TestClient, headers: dict[str, str], spec_content: str = SPEC) -> dict:
     template = client.post(
         "/api/templates/parse",
@@ -347,12 +352,13 @@ def test_document_project_render_job_can_be_cancelled_and_force_is_role_scoped()
     assert current.json()["status"] == "cancelled"
 
     username = f"generic_student_{uuid.uuid4().hex[:8]}"
+    student_password = _random_password("student")
     registered = client.post(
         "/api/auth/register",
-        json={"username": username, "password": "StudentPassword123", "display_name": "普通学生", "role": "student"},
+        json={"username": username, "password": student_password, "display_name": "普通学生", "role": "student"},
     )
     assert registered.status_code == 201, registered.text
-    login = client.post("/api/auth/login", json={"username": username, "password": "StudentPassword123"})
+    login = client.post("/api/auth/login", json={"username": username, "password": student_password})
     assert login.status_code == 200, login.text
     student_headers = {"Authorization": f"Bearer {login.json()['token']}"}
     student_project = client.post(

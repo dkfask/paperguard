@@ -236,7 +236,7 @@ def test_college_admin_can_review_generic_template_candidate() -> None:
     assert admin_login.status_code == 200, admin_login.text
     admin_headers = {"Authorization": f"Bearer {admin_login.json()['token']}"}
     username = f"generic_college_admin_{uuid.uuid4().hex[:8]}"
-    password = "CollegeAdminPassword123"
+    password = f"college-admin-{uuid.uuid4().hex}-A1"
     registered = client.post(
         "/api/auth/register",
         json={"username": username, "password": password, "display_name": "学院管理员", "role": "teacher"},
