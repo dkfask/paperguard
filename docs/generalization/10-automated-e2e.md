@@ -105,6 +105,16 @@ The workflow is intentionally separate from the existing backend/build CI so
 the browser gate can be dispatched against a phase branch without changing the
 legacy CI contract. No deployment is performed by this phase.
 
+Hosted evidence for the initial Phase 10 head `e957f99...`:
+
+- Existing CI run `34678074052`: success; frontend build and Python 3.11/3.12
+  jobs all passed.
+- Generic E2E run `34678074033`: success; 8 tests passed in 21.7s across the
+  desktop and mobile projects.
+- The workflow masks its generated admin password before exporting it to the
+  runner environment. A follow-up run is required after this workflow-only
+  hardening change.
+
 ## Phase Gate
 
 Local browser and regression checks are green. Phase 10 is **GO pending hosted

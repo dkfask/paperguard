@@ -37,7 +37,10 @@ jobs:
         run: npm ci
 
       - name: Generate isolated admin password
-        run: echo "E2E_ADMIN_PASSWORD=E2e7$(python -c 'import secrets; print(secrets.token_hex(18))')" >> "$GITHUB_ENV"
+        run: |
+          e2e_password="E2e7$(python -c 'import secrets; print(secrets.token_hex(18))')"
+          echo "::add-mask::$e2e_password"
+          echo "E2E_ADMIN_PASSWORD=$e2e_password" >> "$GITHUB_ENV"
 
       - name: Install Playwright browser
         working-directory: frontend
