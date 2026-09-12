@@ -7,9 +7,9 @@
           <img alt="PaperGuard Logo" class="brand-icon-img" src="/logo.png" />
           <span class="brand-name">PaperGuard</span>
         </div>
-        <button class="auth-lang-btn" @click="toggleLang">
+        <button class="auth-lang-btn" type="button" :title="t('shell.switchLanguage')" @click="toggleLang">
           <span class="material-symbols-outlined text-[16px]">translate</span>
-          <span>{{ lang === 'zh' ? 'English' : '中文' }}</span>
+          <span>{{ lang === 'zh' ? t('shell.switchToEnglish') : t('shell.switchToChinese') }}</span>
         </button>
       </div>
     </header>
@@ -21,10 +21,10 @@
           <img alt="PaperGuard Logo" src="/logo.png" />
         </div>
         <h1 class="auth-title">
-          {{ forceChange ? (lang === 'zh' ? '设置个人新密码' : 'Set New Password') : (mode === 'login' ? (lang === 'zh' ? '欢迎登录 PaperGuard' : 'Welcome to PaperGuard') : (lang === 'zh' ? '注册 PaperGuard 账号' : 'Create an Account')) }}
+          {{ forceChange ? t('auth.setPasswordTitle') : (mode === 'login' ? t('auth.welcomeTitle') : t('auth.registerTitle')) }}
         </h1>
         <p class="auth-sub">
-          {{ forceChange ? (lang === 'zh' ? '首次登录需完成初始密码更新以保障学术成果安全' : 'Update your initial password to secure your thesis files') : (lang === 'zh' ? '从章节结构到正文表达，集中完成毕业论文写作，并在需要时查看模板与规范。' : 'Write your thesis from chapter structure to final prose, with templates and standards available when you need them.') }}
+          {{ forceChange ? t('auth.setPasswordSub') : (mode === 'login' ? t('auth.loginSub') : t('auth.registerSub')) }}
         </p>
       </div>
 
@@ -34,11 +34,11 @@
         <div v-if="mode === 'register'" class="stitch-role-tabs">
           <button type="button" class="role-tab-btn" :class="{ active: role === 'student' }" @click="role = 'student'">
             <span class="material-symbols-outlined text-[16px]">school</span>
-            <span>{{ lang === 'zh' ? '学生账号' : 'Student Account' }}</span>
+            <span>{{ t('auth.studentAccount') }}</span>
           </button>
           <button type="button" class="role-tab-btn" :class="{ active: role === 'teacher' }" @click="role = 'teacher'">
             <span class="material-symbols-outlined text-[16px]">psychology</span>
-            <span>{{ lang === 'zh' ? '教师账号 (需认证)' : 'Faculty / Teacher' }}</span>
+            <span>{{ t('auth.teacherAccount') }}</span>
           </button>
         </div>
 
@@ -49,44 +49,44 @@
 
         <form class="auth-form" @submit.prevent="submit">
           <div class="form-field">
-            <label for="username">{{ lang === 'zh' ? '学号 / 工号 / 用户名' : 'Username or Institutional ID' }}</label>
-            <input id="username" v-model="username" autocomplete="username" :placeholder="lang === 'zh' ? '请输入学号或用户名' : 'Enter your ID'" required />
+            <label for="username">{{ t('auth.usernameLabel') }}</label>
+            <input id="username" v-model="username" autocomplete="username" :placeholder="t('auth.usernamePlaceholder')" required />
           </div>
 
           <div v-if="mode === 'register'" class="form-field">
-            <label for="displayName">{{ lang === 'zh' ? '真实姓名 / 称呼' : 'Full Name' }}</label>
-            <input id="displayName" v-model="displayName" :placeholder="lang === 'zh' ? '例如：张三 / 王教授' : 'e.g. John Doe'" />
+            <label for="displayName">{{ t('auth.fullNameLabel') }}</label>
+            <input id="displayName" v-model="displayName" :placeholder="t('auth.fullNamePlaceholder')" />
           </div>
 
           <div class="form-field">
-            <label for="password">{{ lang === 'zh' ? '登录密码' : 'Password' }}</label>
-            <input id="password" v-model="password" type="password" autocomplete="current-password" :placeholder="lang === 'zh' ? '请输入登录密码' : '••••••••'" required />
+            <label for="password">{{ t('auth.passwordLabel') }}</label>
+            <input id="password" v-model="password" type="password" autocomplete="current-password" :placeholder="t('auth.passwordPlaceholder')" required />
           </div>
 
           <div v-if="forceChange" class="form-field">
-            <label for="newPassword">{{ lang === 'zh' ? '新密码 (至少 12 位, 含字母与数字)' : 'New Password (min 12 chars)' }}</label>
+            <label for="newPassword">{{ t('auth.newPasswordLabel') }}</label>
             <input id="newPassword" v-model="newPassword" type="password" autocomplete="new-password" placeholder="••••••••••••" required />
           </div>
 
           <div v-if="forceChange" class="form-field">
-            <label for="confirmPassword">{{ lang === 'zh' ? '确认新密码' : 'Confirm New Password' }}</label>
+            <label for="confirmPassword">{{ t('auth.confirmPasswordLabel') }}</label>
             <input id="confirmPassword" v-model="confirmPassword" type="password" autocomplete="new-password" placeholder="••••••••••••" required />
           </div>
 
           <button class="primary auth-submit-btn" type="submit" :disabled="loading">
-            <span>{{ loading ? (lang === 'zh' ? '请稍候…' : 'Processing…') : (mode === 'login' ? (lang === 'zh' ? '登 录' : 'Sign In') : (role === 'teacher' ? (lang === 'zh' ? '注册教师账号 (提交认证)' : 'Register Faculty Account') : (lang === 'zh' ? '注册学生账号' : 'Register Student Account'))) }}</span>
+            <span>{{ loading ? t('auth.processing') : (mode === 'login' ? t('auth.signIn') : (role === 'teacher' ? t('auth.registerTeacher') : t('auth.registerStudent'))) }}</span>
             <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
           </button>
         </form>
 
         <div v-if="!forceChange" class="auth-switch-footer">
           <template v-if="mode === 'login'">
-            <span>{{ lang === 'zh' ? '还没有账号？' : 'New to PaperGuard?' }}</span>
-            <a href="#" @click.prevent="switchMode('register')">{{ lang === 'zh' ? '立即注册' : 'Create an account' }}</a>
+            <span>{{ t('auth.noAccount') }}</span>
+            <a href="#" @click.prevent="switchMode('register')">{{ t('auth.createAccount') }}</a>
           </template>
           <template v-else>
-            <span>{{ lang === 'zh' ? '已有账号？' : 'Already have an account?' }}</span>
-            <a href="#" @click.prevent="switchMode('login')">{{ lang === 'zh' ? '返回登录' : 'Sign In' }}</a>
+            <span>{{ t('auth.hasAccount') }}</span>
+            <a href="#" @click.prevent="switchMode('login')">{{ t('auth.backToLogin') }}</a>
           </template>
         </div>
       </div>
@@ -95,7 +95,7 @@
       <div class="stitch-compliance-footer">
         <span class="material-symbols-outlined text-[20px] text-secondary">verified_user</span>
         <p class="compliance-text">
-          {{ lang === 'zh' ? '高校安全可信访问 · 严格遵从 GB/T 7713 国标规范 · 论文内容内存隔离处理' : 'Secure Institutional Access · GB/T 7713 Compliant · Data encrypted in transit' }}
+          {{ t('auth.compliance') }}
         </p>
       </div>
     </main>
@@ -104,7 +104,7 @@
     <footer class="stitch-auth-bottom-footer">
       <div>PaperGuard © 2026. All rights reserved.</div>
       <div class="footer-links">
-        <span>Academic Thesis Writing Workspace</span>
+        <span>{{ t('brandTagline') }}</span>
         <span>·</span>
         <span>GB/T 7713-1987 / 2006</span>
       </div>
@@ -116,12 +116,12 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setAuth, clearAuth, auth } from '../auth'
-import { changePassword } from '../api'
+import { authApi } from '../features/auth/api'
 import { useI18n } from '../i18n'
 
 const route = useRoute()
 const router = useRouter()
-const { lang, setLang } = useI18n()
+const { lang, setLang, t } = useI18n()
 
 function toggleLang() {
   setLang(lang.value === 'zh' ? 'en' : 'zh')
@@ -155,24 +155,15 @@ async function submit() {
   loading.value = true
   try {
     if (forceChange.value) {
-      if (newPassword.value !== confirmPassword.value) throw new Error(lang.value === 'zh' ? '两次输入的新密码不一致' : 'Passwords do not match')
-      await changePassword(password.value, newPassword.value)
+      if (newPassword.value !== confirmPassword.value) throw new Error(t('auth.passwordMismatch'))
+      await authApi.changePassword(password.value, newPassword.value)
       clearAuth()
       router.replace('/login')
-      setNotice(lang.value === 'zh' ? '密码已更新, 请使用新密码重新登录' : 'Password updated, please sign in with your new password', 'success')
+      setNotice(t('auth.passwordUpdated'), 'success')
       return
     }
     if (mode.value === 'login') {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.value, password: password.value }),
-      })
-      if (!resp.ok) {
-        const d = await resp.json().catch(() => ({}))
-        throw new Error(d.detail || (lang.value === 'zh' ? '登录失败，请检查账号密码' : 'Login failed, please verify your credentials'))
-      }
-      const data = await resp.json()
+      const data = await authApi.login({ username: username.value, password: password.value })
       setAuth(data.token, data.user)
       const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
         ? route.query.redirect : '/'
@@ -182,25 +173,17 @@ async function submit() {
         router.replace(redirect)
       }
     } else {
-      const resp = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: username.value,
-          password: password.value,
-          display_name: displayName.value,
-          role: role.value,
-        }),
+      await authApi.register({
+        username: username.value,
+        password: password.value,
+        display_name: displayName.value,
+        role: role.value,
       })
-      if (!resp.ok) {
-        const d = await resp.json().catch(() => ({}))
-        throw new Error(d.detail || (lang.value === 'zh' ? '注册失败' : 'Registration failed'))
-      }
       mode.value = 'login'
       if (role.value === 'teacher') {
-        setNotice(lang.value === 'zh' ? '教师账号注册成功！需管理员认证后开通教师管理权限，您可先登录体验。' : 'Teacher account registered! Administrator verification is required for full management features.', 'success')
+        setNotice(t('auth.teacherRegistered'), 'success')
       } else {
-        setNotice(lang.value === 'zh' ? '注册成功, 请登录' : 'Registration successful, please sign in', 'success')
+        setNotice(t('auth.registrationSuccess'), 'success')
       }
     }
   } catch (e) {

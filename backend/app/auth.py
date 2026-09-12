@@ -13,8 +13,9 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
+from app.core.context import context_for_user, set_request_context
 from app.db import Store, new_id
 
 _PBKDF2_ITERATIONS = 200_000
@@ -178,7 +179,7 @@ def public_user(user: dict) -> dict:
     }
 
 
-def current_user(authorization: str | None = Header(default=None),
+def current_user(request: Request, authorization: str | None = Header(default=None),
                  store: Store = Depends(lambda: Store())) -> dict:
     """从 Authorization 头解析未过期、未撤销的当前用户。"""
     if not authorization or not authorization.startswith("Bearer "):
@@ -187,6 +188,10 @@ def current_user(authorization: str | None = Header(default=None),
     user = store.get_session_user(_token_hash(token), _now())
     if user is None:
         raise HTTPException(status_code=401, detail="登录已失效, 请重新登录")
+    context = context_for_user(user, request_id=getattr(request.state, "request_id", ""))
+    request.state.context = context
+    request.state.actor_id = context.actor_id
+    set_request_context(context)
     return user
 
 

@@ -1,0 +1,63 @@
+import { expect, type Page } from '@playwright/test'
+
+export class LoginPage {
+  constructor(private readonly page: Page) {}
+
+  async login(username: string, password: string, replacementPassword?: string) {
+    await this.page.goto('/login?redirect=/')
+    await this.page.locator('#username').fill(username)
+    await this.page.locator('#password').fill(password)
+    await this.page.locator('form.auth-form').getByRole('button').click()
+
+    if (replacementPassword && await this.page.locator('#newPassword').count()) {
+      await this.page.locator('#username').fill(username)
+      await this.page.locator('#password').fill(password)
+      await this.page.locator('#newPassword').fill(replacementPassword)
+      await this.page.locator('#confirmPassword').fill(replacementPassword)
+      await this.page.locator('form.auth-form').getByRole('button').click()
+      await expect(this.page).toHaveURL(/\/login$/)
+      await this.page.locator('#username').fill(username)
+      await this.page.locator('#password').fill(replacementPassword)
+      await this.page.locator('form.auth-form').getByRole('button').click()
+    }
+
+    await expect(this.page).not.toHaveURL(/\/login/)
+  }
+
+  async register(username: string, password: string, displayName: string, role: 'student' | 'teacher') {
+    await this.page.goto('/login')
+    await this.page.getByText('立即注册', { exact: true }).click()
+    const roleTabs = this.page.locator('.stitch-role-tabs')
+    if (role === 'teacher') {
+      await roleTabs.getByRole('button', { name: /教师账号/ }).click()
+    } else {
+      await roleTabs.getByRole('button', { name: /学生账号/ }).click()
+    }
+    await this.page.locator('#username').fill(username)
+    await this.page.locator('#displayName').fill(displayName)
+    await this.page.locator('#password').fill(password)
+    await this.page.locator('form.auth-form').getByRole('button').click()
+    await expect(this.page.locator('.ok-banner')).toBeVisible()
+  }
+}
+
+export class PaperGuardPage {
+  constructor(protected readonly page: Page) {}
+
+  control(label: string) {
+    return this.page.locator('label').filter({ hasText: label }).locator('input, select, textarea').first()
+  }
+
+  async logout() {
+    await this.page.getByRole('button', { name: '退出登录' }).click()
+    await expect(this.page).toHaveURL(/\/login/)
+  }
+
+  async waitForMutation(urlPart: string, action: () => Promise<void>, method = 'POST') {
+    const response = this.page.waitForResponse((response) => response.url().includes(urlPart)
+      && response.request().method() === method
+      && response.status() >= 200 && response.status() < 300)
+    await action()
+    await response
+  }
+}

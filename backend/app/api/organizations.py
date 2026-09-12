@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.auth import current_user, require_manager
 from app.db import Store, new_id
 from app.models.organization import OrganizationType, OrganizationUnit
+from app.services.access_service import visible_organization_ids
 
 router = APIRouter(prefix="/api/organizations", tags=["organizations"])
 
@@ -17,18 +18,7 @@ def get_store() -> Store:
 
 
 def _visible_unit_ids(store: Store, user: dict) -> set[str]:
-    if user["role"] == "admin":
-        return {unit.id for unit in store.list_organization_units()}
-    context = user.get("organization_context") or {}
-    visible = {str(value) for value in context.values() if value}
-    changed = True
-    while changed:
-        changed = False
-        for unit in store.list_organization_units():
-            if unit.parent_id in visible and unit.id not in visible:
-                visible.add(unit.id)
-                changed = True
-    return visible
+    return visible_organization_ids(store, user)
 
 
 def _can_access(unit: OrganizationUnit, store: Store, user: dict) -> bool:

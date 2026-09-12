@@ -2,24 +2,24 @@
   <div class="node">
     <div class="node-row">
       <select v-model="node.type" class="type-select">
-        <option value="cover">封面</option>
-        <option value="abstract">中文摘要</option>
-        <option value="english_abstract">英文摘要</option>
-        <option value="keywords">中文关键词</option>
-        <option value="english_keywords">英文关键词</option>
-        <option value="toc">目录</option>
-        <option value="heading1">一级标题(章)</option>
-        <option value="heading2">二级标题(节)</option>
-        <option value="heading3">三级标题(小节)</option>
-        <option value="body">正文容器</option>
-        <option value="references">参考文献</option>
-        <option value="acknowledgement">致谢</option>
-        <option value="appendix">附录</option>
+        <option value="cover">{{ t('section.cover') }}</option>
+        <option value="abstract">{{ t('section.abstract') }}</option>
+        <option value="english_abstract">{{ t('section.englishAbstract') }}</option>
+        <option value="keywords">{{ t('section.keywords') }}</option>
+        <option value="english_keywords">{{ t('section.englishKeywords') }}</option>
+        <option value="toc">{{ t('section.toc') }}</option>
+        <option value="heading1">{{ t('section.heading1') }}</option>
+        <option value="heading2">{{ t('section.heading2') }}</option>
+        <option value="heading3">{{ t('section.heading3') }}</option>
+        <option value="body">{{ t('section.body') }}</option>
+        <option value="references">{{ t('section.references') }}</option>
+        <option value="acknowledgement">{{ t('section.acknowledgement') }}</option>
+        <option value="appendix">{{ t('section.appendix') }}</option>
       </select>
-      <input v-model="node.title" placeholder="章节标题(如 第一章 绪论)" class="title-input" />
-      <label class="chk"><input type="checkbox" v-model="node.required" /> 必填</label>
-      <button @click="addChild">➕</button>
-      <button style="color: var(--error)" @click="$emit('remove')">✖</button>
+      <input v-model="node.title" :placeholder="t('section.titlePlaceholder')" class="title-input" />
+      <label class="chk"><input type="checkbox" v-model="node.required" /> {{ t('editor.required') }}</label>
+      <button type="button" :title="t('section.addChild')" :aria-label="t('section.addChild')" @click="addChild"><span class="material-symbols-outlined" aria-hidden="true">add</span></button>
+      <button type="button" style="color: var(--error)" :title="t('section.remove')" :aria-label="t('section.remove')" @click="$emit('remove')"><span class="material-symbols-outlined" aria-hidden="true">delete</span></button>
     </div>
     <div v-if="node.children && node.children.length" class="children">
       <section-node v-for="child in node.children" :key="child.key" :node="child"
@@ -29,7 +29,10 @@
 </template>
 
 <script setup>
+import { useI18n } from '../i18n'
+
 defineOptions({ name: 'SectionNode' })
+const { t } = useI18n()
 const props = defineProps({
   node: { type: Object, required: true },
 })
@@ -65,7 +68,7 @@ function addChild() {
   parent.children.push({
     key,
     type: TYPE_KEYS[type] || 'body',
-    title: type === 'body' ? '正文' : '小节',
+    title: type === 'body' ? t('section.newBody') : t('section.newChild'),
     required: true,
     children: [],
   })

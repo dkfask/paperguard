@@ -11,7 +11,7 @@
 ```
 ┌──────────────────────────┐   HTTP    ┌──────────────────────────────┐
 │  Vue 3 前端               │ ───────▶ │  FastAPI 后端                 │
-│  · 模板管理 (章节+样式)    │  /api/*  │  · 模板 CRUD / 项目 / 导出     │
+│  · 模板管理 (章节+样式)    │  /api/*  │  · 模板 / 项目 / 工作流 / 归档  │
 │  · 结构化写作 (锁定样式)   │          │  · 核心引擎 (检查/修复引擎)     │
 │  · 上传检查 / 报告         │          └──────────────────────────────┘
 └──────────────────────────┘
@@ -22,6 +22,7 @@
 - **backend/app/core/** — 检查引擎(不可变 IR → YAML 规则包 → JMESPath/JSONLogic → 修复回写)
 - **backend/app/db.py** — SQLite 存储(可用 `PAPERGUARD_DB_PATH` 覆盖)
 - **frontend/** — Vue 3 + Vite:模板编辑页、写作页、上传检查页
+- **工作流闭环** — 批次/阶段/成员导入、阶段配置版本、任务、提交快照、教师审核、过程材料、消息、报表和归档包
 
 ## 快速开始(本地开发)
 
@@ -93,6 +94,7 @@ docker compose up -d --build
 ```
 
 - 数据(论文项目 SQLite + 上传图片)持久化在 Docker volume `paperguard_data`,重建/升级容器不丢数据
+- `worker` 容器负责站内通知 outbox 消费和截止提醒调度，与后端共享数据库卷；可用 `PAPERGUARD_WORKER_INTERVAL_SECONDS` 调整周期
 - 首次部署前必须设置强密码环境变量 `PAPERGUARD_ADMIN_PASSWORD`(至少 12 位, 含字母和数字), 不再提供固定默认密码
 - 上传检查和自动修复需要登录; 项目与图片按用户权限隔离
 - 上传检查文件只在处理期间使用; 写作项目和图片会持久化到 Docker volume, 删除项目后按引用回收图片
@@ -126,7 +128,10 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 | GET/PUT/DELETE | `/api/projects/{id}` | 项目读写 |
 | PUT | `/api/projects/{id}/section/{key}` | 保存章节内容(标题+段落) |
 | PUT | `/api/projects/{id}/meta` | 保存封面字段 |
-| POST | `/api/projects/{id}/export` | 按模板导出 docx |
+| POST | `/api/projects/{id}/export` | 按模板同步导出 docx（历史兼容接口） |
+| POST/GET | `/api/projects/{id}/export-jobs` | 创建或查询持久化 DOCX 导出任务 |
+| GET | `/api/projects/{id}/export-jobs/{export_id}/download` | 下载已完成的项目导出制品 |
+| POST | `/api/projects/{id}/import-docx` | 预览或将已有 DOCX 正文、表格和图片导入当前草稿 |
 | GET | `/api/packs` | 检查规则包列表 |
 | GET | `/api/policies` | 当前用户可见的学校规范/教师要求 |
 | GET | `/api/policies/{id}` | 规范集合详情 |
@@ -138,16 +143,34 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 | POST | `/api/policies/{id}/documents` | 上传规范参考文档 |
 | POST | `/api/policies/import` | 上传规范文档，AI 解析并创建可编辑草稿 |
 | GET | `/api/policies/{id}/audit` | 查看规范审计记录 |
+| GET | `/api/audit` | 按资源、动作、操作者和组织范围查询统一审计投影 |
+| GET | `/api/audit/export` | 按同一权限与筛选条件导出脱敏审计 CSV |
 | GET | `/api/organizations` | 组织层级与作用域 |
 | GET | `/api/projects/{id}/check` | 按模板快照和项目规范生成统一检查报告 |
 | GET | `/api/projects/{id}/check-runs` | 查看项目检查运行记录 |
 | GET | `/api/projects/{id}/compliance-report` | 生成送审/归档合规报告 |
 | POST | `/api/projects/{id}/requirements/{item}/waiver` | 对单条要求申请豁免 |
+| POST | `/api/projects/{id}/requirements/waivers/{waiver_id}/revoke` | 撤销已批准豁免并触发候选版本复核 |
 | POST | `/api/projects/{id}/requirements/{item}/dispute` | 对单条要求提交申诉 |
 | GET | `/api/projects/{id}/requirements/upgrade-preview` | 预览规范快照升级差异 |
 | POST | `/api/projects/{id}/requirements/upgrade` | 显式升级项目规范快照 |
 | POST | `/api/check` | 上传 docx 检查 |
 | POST | `/api/fix` | 上传 docx 自动修复并下载 |
+| GET/POST | `/api/cohorts` | 批次列表与创建 |
+| POST | `/api/cohorts/{id}/members/import` | 成员批量导入预检与部分成功提交 |
+| POST | `/api/cohorts/{id}/stages` | 创建阶段草稿 |
+| POST | `/api/stages/{id}/preview` | 阶段发布预览 |
+| POST | `/api/stages/{id}/publish` | 发布阶段并冻结成员快照 |
+| POST | `/api/stages/{id}/versions` | 创建阶段配置升级版本与影响预览 |
+| POST | `/api/stages/{id}/versions/{config_id}/publish` | 发布升级版本并显式迁移任务 |
+| GET/POST | `/api/submission-candidates`、`/api/submissions` | 提交预检、幂等正式提交与版本快照 |
+| POST | `/api/submissions/{id}/reviews` | 教师审核、退回或通过 |
+| GET/POST | `/api/archives` | 异步归档任务与归档包查询 |
+| GET | `/api/jobs` | 查询归档和项目导出等持久后台任务 |
+| GET/POST | `/api/outbox`、`/api/outbox/claim` | 查看范围内待发送事件、原子领取租约 |
+| POST | `/api/outbox/{id}/ack`、`/fail`、`/retry` | 消费确认、失败回退/封顶和人工重试 |
+| GET/PUT/POST | `/api/operations/retention`、`/api/operations/backup` | 保留期限配置与管理员一致性备份下载 |
+| POST | `/api/projects/{id}/export-preview` | 正式下载前只读预览版本、规范门禁、缺失项、章节/表格/图片/公式摘要 |
 
 ## 命令行
 
@@ -156,13 +179,19 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 ```bash
 paperguard check paper.docx --pack GB-T-7713-1-2006
 paperguard fix paper.docx -o fixed.docx --pack GB-T-7713-1-2006
+paperguard backup /backup/paperguard-backup.zip
+paperguard restore /backup/paperguard-backup.zip --yes  # 停止服务后执行
+paperguard migrate  # 幂等创建/升级 SQLite 并输出迁移账本
+
+# 也可单次执行 worker（排障/演练）
+PAPERGUARD_WORKER_ONCE=1 python -m app.worker
 ```
 
 ## 测试
 
 ```bash
 cd backend
-pytest -q        # 当前 474 passed, 5 skipped: 引擎 / docx 读写 / 模板/项目 API / 规范生命周期 / 安全回归
+pytest -q        # 当前 552 passed: 引擎 / docx 读写 / 模板/项目 API / 规范生命周期 / 工作流与安全回归
 ```
 
 ## 模板与规则

@@ -1,58 +1,69 @@
 <template>
   <div class="org-page">
     <div class="page-head">
-      <div><span class="eyebrow">ORGANIZATION SCOPE</span><h1>组织与作用域</h1><p>维护学校、学院、专业、课程和批次，规范会按作用域自动继承。</p></div>
-      <button v-if="canManage" class="primary" @click="newUnit">新建组织</button>
+      <div><span class="eyebrow">{{ t('organizations.kicker') }}</span><h1>{{ t('organizations.title') }}</h1><p>{{ t('organizations.description') }}</p></div>
+      <button v-if="canManage" class="primary" @click="newUnit">{{ t('organizations.new') }}</button>
     </div>
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
     <div class="org-layout">
       <section class="unit-list card">
-        <div class="list-head"><strong>组织层级</strong><button class="tiny" :disabled="loading" @click="load">刷新</button></div>
-        <div v-if="loading" class="empty">正在加载…</div>
-        <div v-else-if="units.length === 0" class="empty">暂无组织，请先创建学校</div>
+        <div class="list-head"><strong>{{ t('organizations.hierarchy') }}</strong><button class="tiny" :disabled="loading" @click="load">{{ t('common.refresh') }}</button></div>
+        <div v-if="loading" class="empty">{{ t('common.loading') }}…</div>
+        <div v-else-if="units.length === 0" class="empty">{{ t('organizations.empty') }}</div>
         <button v-for="unit in orderedUnits" :key="unit.id" class="unit-row" :class="{ active: form.id === unit.id }" :style="{ paddingLeft: `${10 + depth(unit) * 18}px` }" @click="edit(unit)">
           <span class="unit-name">{{ unit.name }}</span><span class="unit-type">{{ typeLabel(unit.type) }}</span>
         </button>
       </section>
       <section v-if="editing" class="editor card">
-        <div class="editor-head"><div><span class="type-tag">{{ form.id ? '组织详情' : '新建组织' }}</span><h2>{{ form.id ? '编辑组织' : '创建组织' }}</h2></div></div>
+        <div class="editor-head"><div><span class="type-tag">{{ form.id ? t('organizations.details') : t('organizations.new') }}</span><h2>{{ form.id ? t('organizations.edit') : t('organizations.create') }}</h2></div></div>
         <div class="form-grid">
-          <label>名称<input v-model="form.name" :disabled="!!form.id && !canManage" placeholder="如：信息工程学院" /></label>
-          <label>编码<input v-model="form.code" :disabled="!!form.id && !canManage" placeholder="可选" /></label>
-          <label>类型<select v-model="form.type" :disabled="!!form.id"><option value="school">学校</option><option value="college">学院</option><option value="major">专业</option><option value="course">课程</option><option value="batch">批次</option></select></label>
-          <label>父级<select v-model="form.parent_id" :disabled="!!form.id"><option value="">无（学校）</option><option v-for="unit in units.filter((item) => item.id !== form.id)" :key="unit.id" :value="unit.id">{{ unit.name }} · {{ typeLabel(unit.type) }}</option></select></label>
-          <label class="span-2">说明<input v-model="form.metadata.description" :disabled="!canManage" placeholder="组织说明" /></label>
+          <label>{{ t('organizations.name') }}<input v-model="form.name" :disabled="!!form.id && !canManage" :placeholder="t('organizations.namePlaceholder')" /></label>
+          <label>{{ t('organizations.code') }}<input v-model="form.code" :disabled="!!form.id && !canManage" :placeholder="t('organizations.optional')" /></label>
+          <label>{{ t('organizations.type') }}<select v-model="form.type" :disabled="!!form.id"><option value="school">{{ t('organizations.type.school') }}</option><option value="college">{{ t('organizations.type.college') }}</option><option value="major">{{ t('organizations.type.major') }}</option><option value="course">{{ t('organizations.type.course') }}</option><option value="batch">{{ t('organizations.type.batch') }}</option></select></label>
+          <label>{{ t('organizations.parent') }}<select v-model="form.parent_id" :disabled="!!form.id"><option value="">{{ t('organizations.noParent') }}</option><option v-for="unit in units.filter((item) => item.id !== form.id)" :key="unit.id" :value="unit.id">{{ unit.name }} · {{ typeLabel(unit.type) }}</option></select></label>
+          <label class="span-2">{{ t('organizations.descriptionLabel') }}<input v-model="form.metadata.description" :disabled="!canManage" :placeholder="t('organizations.descriptionPlaceholder')" /></label>
         </div>
-        <div class="actions"><button v-if="canManage" class="primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button><button v-if="canManage && form.id" class="danger" @click="remove">删除</button></div>
+        <div class="actions"><button v-if="canManage" class="primary" :disabled="saving" @click="save">{{ saving ? t('common.saving') : t('common.save') }}</button><button v-if="canManage && form.id" class="danger" @click="remove">{{ t('common.remove') }}</button></div>
       </section>
-      <section v-else class="editor card empty"><span class="material-symbols-outlined">account_tree</span><h2>选择一个组织</h2><p>组织是规范自动继承和用户权限范围的基础。</p></section>
+      <section v-else class="editor card empty"><span class="material-symbols-outlined">account_tree</span><h2>{{ t('organizations.select') }}</h2><p>{{ t('organizations.selectDetail') }}</p></section>
     </div>
 
     <section v-if="auth.user?.role === 'admin'" class="members card">
-      <div class="list-head"><div><strong>用户作用域</strong><p>把用户放入学校、学院、专业或批次后，创建项目会自动带入这些范围。</p></div><button class="tiny" @click="loadUsers">刷新</button></div>
-      <div class="member-grid"><label>用户<select v-model="selectedUserId"><option value="">选择用户</option><option v-for="user in users" :key="user.id" :value="user.id">{{ user.display_name }} · {{ user.username }}</option></select></label><label>作用域<select v-model="selectedScope"><option value="">选择组织</option><option v-for="unit in units" :key="unit.id" :value="unit.id">{{ unit.name }} · {{ typeLabel(unit.type) }}</option></select></label><button class="primary" :disabled="!selectedUserId || !selectedScope || saving" @click="assignScope">应用</button></div>
-      <div v-if="users.length" class="user-list"><span v-for="user in users" :key="user.id">{{ user.display_name }}：{{ scopeNames(user.organization_context) || '未设置' }}</span></div>
+      <div class="list-head"><div><strong>{{ t('organizations.userScope') }}</strong><p>{{ t('organizations.userScopeDetail') }}</p></div><button class="tiny" @click="loadUsers">{{ t('common.refresh') }}</button></div>
+      <div class="member-grid"><label>{{ t('organizations.user') }}<select v-model="selectedUserId"><option value="">{{ t('organizations.selectUser') }}</option><option v-for="user in users" :key="user.id" :value="user.id">{{ user.display_name }} · {{ user.username }}</option></select></label><label>{{ t('organizations.scope') }}<select v-model="selectedScope"><option value="">{{ t('organizations.selectOrganization') }}</option><option v-for="unit in units" :key="unit.id" :value="unit.id">{{ unit.name }} · {{ typeLabel(unit.type) }}</option></select></label><button class="primary" :disabled="!selectedUserId || !selectedScope || saving" @click="assignScope">{{ t('organizations.apply') }}</button></div>
+      <div v-if="users.length" class="user-list"><span v-for="user in users" :key="user.id">{{ user.display_name }}: {{ scopeNames(user.organization_context) || t('organizations.notSet') }}</span></div>
     </section>
   </div>
+  <ConfirmDialog :open="confirmDialog.open" :title="confirmDialog.title" :description="confirmDialog.description" :confirm-label="confirmDialog.confirmLabel" :danger="confirmDialog.danger" :busy="confirmBusy" @confirm="confirmAction" @cancel="closeConfirmDialog" />
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { auth, isManager } from '../auth'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { deleteOrganization, fetchOrganizations, getAdminUsers, saveOrganization, updateUserOrganizationContext } from '../api'
+import { useI18n } from '../i18n'
 
+const { t } = useI18n()
 const units = ref([]); const users = ref([]); const loading = ref(false); const saving = ref(false); const error = ref(''); const editing = ref(false)
 const form = reactive(emptyUnit()); const selectedUserId = ref(''); const selectedScope = ref('')
+const confirmBusy = ref(false)
+const confirmDialog = reactive({ open: false, title: '', description: '', confirmLabel: '', danger: true, action: null })
 const canManage = computed(() => isManager() && ['admin', 'college_admin'].includes(auth.user?.role))
 const orderedUnits = computed(() => { const result = []; const walk = (parentId, depth) => { units.value.filter((unit) => unit.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name)).forEach((unit) => { result.push(unit); walk(unit.id, depth + 1) }) }; walk('', 0); return result })
 function emptyUnit() { return { id: '', name: '', type: 'school', parent_id: '', code: '', status: 'active', metadata: { description: '' } } }
-function typeLabel(type) { return { school: '学校', college: '学院', major: '专业', course: '课程', batch: '批次' }[type] || type }
+function typeLabel(type) { return t(`organizations.type.${type}`) === `organizations.type.${type}` ? type : t(`organizations.type.${type}`) }
 function depth(unit) { let value = 0; let parent = units.value.find((item) => item.id === unit.parent_id); while (parent) { value += 1; parent = units.value.find((item) => item.id === parent.parent_id) }; return value }
 function edit(unit) { Object.assign(form, { ...unit, metadata: { ...(unit.metadata || {}) } }); editing.value = true; error.value = '' }
 function newUnit() { Object.assign(form, emptyUnit()); editing.value = true; error.value = '' }
 async function load() { loading.value = true; error.value = ''; try { units.value = await fetchOrganizations() } catch (e) { error.value = e.message } finally { loading.value = false } }
 async function save() { saving.value = true; error.value = ''; try { const result = await saveOrganization({ ...form }, !form.id); Object.assign(form, { ...result, metadata: { ...(result.metadata || {}) } }); await load() } catch (e) { error.value = e.message } finally { saving.value = false } }
-async function remove() { if (!window.confirm(`删除组织「${form.name}」？`)) return; try { await deleteOrganization(form.id); editing.value = false; await load() } catch (e) { error.value = e.message } }
+function remove() {
+  if (!form.id) return
+  Object.assign(confirmDialog, { open: true, title: t('organizations.deleteTitle', { name: form.name }), description: t('organizations.deleteDescription'), confirmLabel: t('organizations.deleteConfirm'), action: async () => { await deleteOrganization(form.id); editing.value = false; await load() } })
+}
+function closeConfirmDialog() { if (confirmBusy.value) return; confirmDialog.open = false; confirmDialog.action = null }
+async function confirmAction() { const action = confirmDialog.action; if (!action || confirmBusy.value) return; confirmBusy.value = true; try { await action() } catch (e) { error.value = e.message } finally { confirmBusy.value = false; closeConfirmDialog() } }
 async function loadUsers() { try { users.value = await getAdminUsers() } catch (e) { error.value = e.message } }
 async function assignScope() { saving.value = true; try { const user = users.value.find((item) => item.id === selectedUserId.value); const context = { ...(user?.organization_context || {}) }; const unit = units.value.find((item) => item.id === selectedScope.value); if (unit) context[`${unit.type}_id`] = unit.id; await updateUserOrganizationContext(selectedUserId.value, context); await loadUsers() } catch (e) { error.value = e.message } finally { saving.value = false } }
 function scopeNames(context) { return Object.values(context || {}).map((id) => units.value.find((unit) => unit.id === id)?.name || id).join('、') }

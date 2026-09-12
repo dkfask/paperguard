@@ -16,16 +16,21 @@ export default defineConfig({
       },
     }),
   ],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**'],
+  },
   server: {
     port: 5173,
     proxy: {
       // 开发时把 /api 和私有图片转发到 FastAPI 后端
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
         changeOrigin: true,
       },
       '/media': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
         changeOrigin: true,
       },
     },

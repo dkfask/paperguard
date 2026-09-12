@@ -2,24 +2,25 @@
   <div class="section-text-editor">
     <div class="section-text-editor-head">
       <div>
-        <strong>整节输入</strong>
-        <span class="hint">按空行分段，单换行保留在同一段内</span>
+        <strong>{{ t('sectionTextEditor.title') }}</strong>
+        <span class="hint">{{ t('sectionTextEditor.help') }}</span>
       </div>
-      <button class="primary small" :disabled="!text.trim()" @click="apply">应用并拆分</button>
+      <button class="primary small" :disabled="!text.trim()" @click="apply">{{ t('sectionTextEditor.apply') }}</button>
     </div>
-    <textarea
+    <TiptapSectionEditor
       v-model="text"
-      class="section-textarea"
-      :style="styleVars"
-      rows="10"
-      placeholder="可在这里一次性输入或粘贴本节全部内容。不同自然段之间请空一行。"
+      :style-vars="styleVars"
     />
-    <div class="section-text-editor-foot">应用后会替换当前章节的文字段落，图片和表格块会保留。</div>
+    <div class="section-text-editor-foot">{{ t('sectionTextEditor.detail') }}</div>
   </div>
 </template>
 
 <script setup>
 import { ref, watch } from 'vue'
+import TiptapSectionEditor from '../features/writer/components/TiptapSectionEditor.vue'
+import { useI18n } from '../i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -45,8 +46,6 @@ function apply() {
 .section-text-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .section-text-editor-head > div { display: flex; flex-direction: column; gap: 3px; }
 .section-text-editor .hint, .section-text-editor-foot { color: var(--muted); font-size: 12px; }
-.section-textarea { display: block; width: 100%; min-height: 180px; box-sizing: border-box; resize: vertical; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; line-height: 1.7; font: inherit; background: var(--card); }
-.section-textarea:focus { outline: 2px solid var(--primary-200, #bfdbfe); }
 .section-text-editor-foot { margin-top: 7px; }
 @media (max-width: 600px) { .section-text-editor-head { align-items: flex-start; flex-direction: column; } }
 </style>

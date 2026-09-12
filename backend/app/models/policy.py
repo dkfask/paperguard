@@ -128,6 +128,7 @@ class WaiverStatus(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
     EXPIRED = "expired"
+    REVOKED = "revoked"
 
 
 class Waiver(BaseModel):
@@ -142,6 +143,9 @@ class Waiver(BaseModel):
     review_note: str = ""
     effective_from: str = ""
     effective_to: str = ""
+    revoked_by: str = ""
+    revoked_at: str = ""
+    revoke_reason: str = ""
 
 
 class DisputeStatus(str, Enum):
@@ -185,6 +189,7 @@ class CheckRun(BaseModel):
     id: str = Field(min_length=1)
     project_id: str = ""
     snapshot_hash: str = ""
+    content_hash: str = ""
     engine_version: str = ""
     result: dict[str, Any] = Field(default_factory=dict)
     duration_ms: float = 0.0
@@ -198,4 +203,5 @@ class PolicyAuditEvent(BaseModel):
     action: str = ""
     actor_id: str = ""
     detail: dict[str, Any] = Field(default_factory=dict)
+    request_id: str = ""
     created_at: str = ""

@@ -1,166 +1,186 @@
 <template>
-  <div class="policy-page">
-    <div class="policy-page-head">
+  <div class="workspace-page resource-page policies-page">
+    <section class="workspace-hero">
       <div>
-        <span class="eyebrow">WRITING REQUIREMENTS</span>
-        <h1>写作规范</h1>
-        <p>把论文内容要求与排版模板分开管理，项目创建时会冻结当前版本。</p>
+        <p class="workspace-kicker">{{ t('policies.kicker') }}</p>
+        <h1>{{ t('policies.title') }}</h1>
+        <p>{{ t('policies.description') }}</p>
       </div>
-      <div v-if="canManage" class="policy-head-actions">
-        <button class="primary" @click="newPolicy">新建规范</button>
-        <button class="ai-import-button" :disabled="importing" @click="openAiImport">
-          <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
-          {{ importing ? 'AI 解析中…' : 'AI 导入规范' }}
-        </button>
+      <div class="resource-hero-actions">
+        <template v-if="canManage">
+          <button class="small primary" type="button" @click="newPolicy">
+            <span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('policies.new') }}
+          </button>
+          <button class="small" type="button" :disabled="importing" @click="openAiImport">
+            <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+            {{ importing ? t('policies.aiParsing') : t('policies.aiImport') }}
+          </button>
+        </template>
+        <span v-else class="hero-readonly-label"><span class="material-symbols-outlined" aria-hidden="true">visibility</span>{{ t('policies.readonly') }}</span>
         <input ref="aiImportFile" class="file-input-hidden" type="file"
                accept=".docx,.pdf,.md,.markdown,.txt" :disabled="importing" @change="importWithAi" />
       </div>
-    </div>
+    </section>
 
-    <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}</div>
+    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
     <div class="policy-layout">
-      <aside class="policy-list card">
-        <div class="list-head">
-          <strong>可用规范</strong>
-          <button class="tiny" :disabled="loading" @click="loadPolicies">刷新</button>
+      <section class="panel policy-list-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="workspace-kicker">{{ t('policies.available') }}</p>
+            <h2>{{ t('policies.available') }}</h2>
+            <p>{{ t('policies.choose') }}</p>
+          </div>
+          <div class="policy-list-actions">
+            <span class="policy-count">{{ policies.length }}</span>
+            <button class="icon-button" type="button" :title="t('common.refresh')" :aria-label="t('common.refresh')" :disabled="loading" @click="loadPolicies">
+              <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+            </button>
+          </div>
         </div>
-        <div v-if="loading" class="empty-state">正在加载规范…</div>
-        <div v-else-if="policies.length === 0" class="empty-state">暂无可用规范</div>
-        <button v-for="policy in policies" v-else :key="policy.id" class="policy-list-item"
-                :class="{ active: draft.id === policy.id }" @click="selectPolicy(policy.id)">
-          <span class="policy-list-title">{{ policy.name }}</span>
-          <span class="policy-list-meta">
-            {{ levelLabel(policy.level) }} · v{{ policy.version }} · {{ statusLabel(policy.status) }}
-          </span>
-        </button>
-      </aside>
 
-      <section class="policy-editor card">
+        <AsyncState v-if="loading" state="loading" :title="t('policies.loading')" :detail="t('policies.loadingDetail')" />
+        <AsyncState v-else-if="policies.length === 0" state="empty" :title="t('policies.empty')" :detail="t('policies.emptyDetail')" :action-label="t('common.reload')" @action="loadPolicies" />
+        <div v-else class="policy-list">
+          <button v-for="policy in policies" :key="policy.id" class="policy-list-item"
+                  :class="{ active: draft.id === policy.id }" type="button" @click="selectPolicy(policy.id)">
+            <span class="policy-list-item-icon"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span></span>
+            <span class="policy-list-item-copy">
+              <span class="policy-list-title">{{ policy.name }}</span>
+              <span class="policy-list-meta">{{ levelLabel(policy.level) }} · v{{ policy.version }}</span>
+            </span>
+            <span class="status-pill" :class="policy.status">{{ statusLabel(policy.status) }}</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="panel policy-editor-panel">
         <div v-if="!editing" class="empty-editor">
           <span class="material-symbols-outlined">fact_check</span>
-          <h2>选择一套规范</h2>
-          <p>规范会在论文项目创建时保存为快照，历史检查不受后续修订影响。</p>
+          <h2>{{ t('policies.selectTitle') }}</h2>
+          <p>{{ t('policies.selectDetail') }}</p>
         </div>
         <template v-else>
-          <div class="editor-head">
+          <div class="editor-head panel-heading">
             <div>
-                <span class="type-tag">{{ levelLabel(draft.level) }}</span>
-              <h2>{{ draft.id ? '编辑写作规范' : '新建写作规范' }}</h2>
+              <p class="workspace-kicker">{{ t('policies.available') }}</p>
+              <h2>{{ draft.id ? t('policies.editTitle') : t('policies.createTitle') }}</h2>
+              <p>{{ draft.name || t('policies.unnamed') }} · v{{ draft.version || '1' }}</p>
             </div>
-            <span class="status-pill" :class="draft.status">{{ statusLabel(draft.status) }}</span>
+            <div class="editor-state">
+              <span class="type-tag">{{ levelLabel(draft.level) }}</span>
+              <span class="status-pill" :class="draft.status">{{ statusLabel(draft.status) }}</span>
+            </div>
           </div>
 
           <div class="form-grid">
-            <label>规范名称
-              <input v-model="draft.name" :disabled="readOnly" placeholder="如：本科论文写作规范" />
+            <label>{{ t('policies.name') }}
+              <input v-model="draft.name" :disabled="readOnly" :placeholder="t('policies.namePlaceholder')" />
             </label>
-            <label>版本号
-              <input v-model="draft.version" :disabled="readOnly" placeholder="如：2026.1" />
+            <label>{{ t('policies.version') }}
+              <input v-model="draft.version" :disabled="readOnly" :placeholder="t('policies.versionPlaceholder')" />
             </label>
-            <label class="span-2">说明
-              <input v-model="draft.description" :disabled="readOnly" placeholder="面向学生展示的简短说明" />
+            <label class="span-2">{{ t('policies.descriptionLabel') }}
+              <input v-model="draft.description" :disabled="readOnly" :placeholder="t('policies.descriptionPlaceholder')" />
             </label>
-            <label>生效时间
+            <label>{{ t('policies.startAt') }}
               <input v-model="draft.effective_from" :disabled="readOnly" type="datetime-local" />
             </label>
-            <label>失效时间
+            <label>{{ t('policies.endAt') }}
               <input v-model="draft.effective_to" :disabled="readOnly" type="datetime-local" />
             </label>
-            <label>规范层级
+            <label>{{ t('policies.level') }}
               <select v-model="draft.level" :disabled="readOnly || auth.user?.role !== 'admin'">
-                <option value="school">学校</option>
-                <option value="college">学院</option>
-                <option value="major">专业</option>
-                <option value="course">课程</option>
-                <option value="batch">批次</option>
-                <option value="teacher">教师</option>
+                <option value="school">{{ levelLabel('school') }}</option><option value="college">{{ levelLabel('college') }}</option>
+                <option value="major">{{ levelLabel('major') }}</option><option value="course">{{ levelLabel('course') }}</option>
+                <option value="batch">{{ levelLabel('batch') }}</option><option value="teacher">{{ levelLabel('teacher') }}</option>
               </select>
             </label>
-            <label>作用域 ID
-              <input v-model="draft.scope_id" :disabled="readOnly" placeholder="组织/批次 ID，可留空" />
+            <label>{{ t('policies.scopeId') }}
+              <input v-model="draft.scope_id" :disabled="readOnly" :placeholder="t('policies.scopeIdPlaceholder')" />
             </label>
-            <label>适用阶段
-              <input v-model="draft.stage" :disabled="readOnly" placeholder="如 proposal / midterm / final" />
+            <label>{{ t('policies.stage') }}
+              <input v-model="draft.stage" :disabled="readOnly" :placeholder="t('policies.stagePlaceholder')" />
             </label>
-            <label>截止时间
+            <label>{{ t('policies.deadline') }}
               <input v-model="draft.deadline_at" :disabled="readOnly" type="datetime-local" />
             </label>
           </div>
 
           <div class="section-heading">
             <div>
-              <h3>作用域绑定</h3>
-              <p>组织、课程或批次绑定会在项目创建时自动继承。</p>
+              <h3>{{ t('policies.bindings') }}</h3>
+              <p>{{ t('policies.bindingsDetail') }}</p>
             </div>
-            <button v-if="!readOnly" class="small" @click="addBinding">添加绑定</button>
+            <button v-if="!readOnly" class="small" type="button" @click="addBinding"><span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('policies.addBinding') }}</button>
           </div>
           <div v-if="draft.bindings?.length" class="binding-list">
             <div v-for="(binding, index) in draft.bindings" :key="binding.id + index" class="binding-row">
-              <input v-model="binding.id" :disabled="readOnly" placeholder="绑定 ID" />
+              <input v-model="binding.id" :disabled="readOnly" :placeholder="t('policies.bindingId')" />
               <select v-model="binding.scope_type" :disabled="readOnly">
-                <option value="global">全局</option><option value="school">学校</option><option value="college">学院</option>
-                <option value="major">专业</option><option value="course">课程</option><option value="batch">批次</option>
-                <option value="teacher">教师</option><option value="student">学生</option>
+                <option value="global">{{ levelLabel('global') }}</option><option value="school">{{ levelLabel('school') }}</option><option value="college">{{ levelLabel('college') }}</option>
+                <option value="major">{{ levelLabel('major') }}</option><option value="course">{{ levelLabel('course') }}</option><option value="batch">{{ levelLabel('batch') }}</option>
+                <option value="teacher">{{ levelLabel('teacher') }}</option><option value="student">{{ levelLabel('student') }}</option>
               </select>
-              <input v-model="binding.scope_id" :disabled="readOnly || ['global', 'all'].includes(binding.scope_type)" placeholder="作用域 ID" />
-              <input v-model.number="binding.priority" :disabled="readOnly" type="number" placeholder="优先级" />
-              <label class="binding-enabled"><input v-model="binding.enabled" :disabled="readOnly" type="checkbox" />启用</label>
-              <button v-if="!readOnly" class="tiny danger" @click="draft.bindings.splice(index, 1)">删除</button>
+              <input v-model="binding.scope_id" :disabled="readOnly || ['global', 'all'].includes(binding.scope_type)" :placeholder="t('policies.scopeId')" />
+              <input v-model.number="binding.priority" :disabled="readOnly" type="number" :placeholder="t('policies.priority')" />
+              <label class="binding-enabled"><input v-model="binding.enabled" :disabled="readOnly" type="checkbox" />{{ t('common.enabled') }}</label>
+              <button v-if="!readOnly" class="tiny danger" type="button" @click="draft.bindings.splice(index, 1)"><span class="material-symbols-outlined" aria-hidden="true">delete</span>{{ t('common.remove') }}</button>
             </div>
           </div>
-          <div v-else class="inline-empty">未配置组织绑定</div>
+          <div v-else class="inline-empty">{{ t('policies.notConfigured') }}</div>
 
           <div class="section-heading">
             <div>
-              <h3>结构化检查规则</h3>
-              <p>只有自动规则会判定合规；人工要求会在报告中列为“未检查”。</p>
+              <h3>{{ t('policies.rules') }}</h3>
+              <p>{{ t('policies.rulesDetail') }}</p>
             </div>
-            <button v-if="!readOnly" class="small" @click="addItem">添加规则</button>
+            <button v-if="!readOnly" class="small" type="button" @click="addItem"><span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('policies.addRule') }}</button>
           </div>
-          <div v-if="draft.items.length === 0" class="inline-empty">还没有结构化规则</div>
+          <div v-if="draft.items.length === 0" class="inline-empty">{{ t('policies.noRules') }}</div>
           <div v-for="(item, index) in draft.items" :key="item.id + index" class="rule-row">
             <div class="rule-row-top">
-              <input v-model="item.id" :disabled="readOnly" placeholder="规则 ID" />
+              <input v-model="item.id" :disabled="readOnly" :placeholder="t('policies.ruleId')" />
               <select v-model="item.type" :disabled="readOnly">
-                <option value="auto">自动检查</option>
-                <option value="manual">人工检查</option>
-                <option value="doc">参考文档</option>
+                <option value="auto">{{ t('policies.autoCheck') }}</option>
+                <option value="manual">{{ t('policies.manualCheck') }}</option>
+                <option value="doc">{{ t('policies.referenceDocument') }}</option>
               </select>
-              <button v-if="!readOnly" class="tiny danger" title="删除规则" @click="draft.items.splice(index, 1)">删除</button>
+              <button v-if="!readOnly" class="tiny danger" type="button" :title="t('policies.deleteRule')" @click="draft.items.splice(index, 1)"><span class="material-symbols-outlined" aria-hidden="true">delete</span>{{ t('common.remove') }}</button>
             </div>
-            <input v-model="item.description" :disabled="readOnly" class="rule-description" placeholder="面向学生的要求说明" />
+            <input v-model="item.description" :disabled="readOnly" class="rule-description" :placeholder="t('policies.studentRequirement')" />
             <div class="rule-fields">
               <select v-model="item.checker" :disabled="readOnly || item.type !== 'auto'">
-                <option value="">选择检查器</option>
-                <option value="section.exists">必填章节</option>
-                <option value="section.word_count">章节字数</option>
-                <option value="abstract.word_count">摘要字数</option>
-                <option value="keywords.count">关键词数量</option>
-                <option value="references.count">参考文献数量</option>
-                <option value="references.recent_count">近年参考文献</option>
-                <option value="references.recent_ratio">近年参考文献比例</option>
-                <option value="references.format">参考文献著录格式</option>
-                <option value="chapter.page_break">章前分页</option>
-                <option value="ai.usage_declared">AI 使用声明</option>
+                <option value="">{{ t('policies.selectChecker') }}</option>
+                <option value="section.exists">{{ t('checker.requiredSection') }}</option>
+                <option value="section.word_count">{{ t('checker.sectionWordCount') }}</option>
+                <option value="abstract.word_count">{{ t('checker.abstractWordCount') }}</option>
+                <option value="keywords.count">{{ t('checker.keywordCount') }}</option>
+                <option value="references.count">{{ t('checker.referenceCount') }}</option>
+                <option value="references.recent_count">{{ t('checker.recentReferenceCount') }}</option>
+                <option value="references.recent_ratio">{{ t('checker.recentReferenceRatio') }}</option>
+                <option value="references.format">{{ t('checker.referenceFormat') }}</option>
+                <option value="chapter.page_break">{{ t('checker.chapterPageBreak') }}</option>
+                <option value="ai.usage_declared">{{ t('checker.aiDeclaration') }}</option>
               </select>
-              <input v-model="item.target" :disabled="readOnly" placeholder="目标，如 abstract / ch1" />
-              <input v-model="item.min" :disabled="readOnly || item.type !== 'auto'" type="number" min="0" placeholder="最小值" />
-              <input v-model="item.max" :disabled="readOnly || item.type !== 'auto'" type="number" min="0" placeholder="最大值" />
+              <input v-model="item.target" :disabled="readOnly" :placeholder="t('policies.targetPlaceholder')" />
+              <input v-model="item.min" :disabled="readOnly || item.type !== 'auto'" type="number" min="0" :placeholder="t('policies.min')" />
+              <input v-model="item.max" :disabled="readOnly || item.type !== 'auto'" type="number" min="0" :placeholder="t('policies.max')" />
               <select v-model="item.severity" :disabled="readOnly">
-                <option value="error">错误</option>
-                <option value="warning">警告</option>
-                <option value="info">提示</option>
+                <option value="error">{{ t('policies.error') }}</option>
+                <option value="warning">{{ t('policies.warning') }}</option>
+                <option value="info">{{ t('policies.info') }}</option>
               </select>
               <select v-model="item.enforce" :disabled="readOnly">
-                <option value="hard">硬性要求</option>
-                <option value="soft">建议要求</option>
+                <option value="hard">{{ t('policies.hard') }}</option>
+                <option value="soft">{{ t('policies.soft') }}</option>
               </select>
             </div>
             <div class="rule-pack-fields">
-              <label>附加规则包 ID
-                <input v-model="item.rule_pack_id" :disabled="readOnly" placeholder="可选，如 GB-T-7714-1-2015" />
+              <label>{{ t('policies.rulePackId') }}
+                <input v-model="item.rule_pack_id" :disabled="readOnly" :placeholder="t('policies.rulePackPlaceholder')" />
               </label>
-              <label>规则包参数 JSON
+              <label>{{ t('policies.rulePackParams') }}
                 <textarea v-model="item.rulePackParamsText" :disabled="readOnly" rows="3"
                           placeholder='{"PG-REF-FONT-SIZE":{"when":{"!=":[{"var":"font_size_pt"},12.0]}}}'></textarea>
               </label>
@@ -169,25 +189,25 @@
 
           <div class="section-heading markdown-heading">
             <div>
-              <h3>规范正文</h3>
-              <p>可粘贴 Markdown；frontmatter 中的 rules 可直接生成自动检查规则。</p>
+              <h3>{{ t('policies.body') }}</h3>
+              <p>{{ t('policies.bodyDetail') }}</p>
             </div>
           </div>
           <textarea v-model="draft.markdown_content" :disabled="readOnly" class="markdown-input"
-                    placeholder="---\ntitle: 本科论文写作规范\nrules:\n  - id: body-min\n    type: word_count\n    target: body\n    min: 8000\n---"></textarea>
+                    :placeholder="t('policies.markdownPlaceholder')"></textarea>
 
           <div class="section-heading">
             <div>
-              <h3>参考文档</h3>
-              <p>附件会随规范版本保存，学生只能下载当前可见版本。</p>
+              <h3>{{ t('policies.referenceDocs') }}</h3>
+              <p>{{ t('policies.referenceDocsDetail') }}</p>
             </div>
           </div>
           <div v-if="draft.documents?.length" class="document-list">
             <div v-for="document in draft.documents" :key="document.id" class="document-row">
               <span>{{ document.filename }} · {{ formatBytes(document.size_bytes) }}</span>
               <span class="document-actions">
-                <button class="tiny" @click="downloadDocument(document)">下载</button>
-                <button v-if="!readOnly" class="tiny danger" @click="removeDocument(document)">删除</button>
+                <button class="tiny" type="button" @click="downloadDocument(document)"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('common.download') }}</button>
+                <button v-if="!readOnly" class="tiny danger" type="button" @click="removeDocument(document)"><span class="material-symbols-outlined" aria-hidden="true">delete</span>{{ t('common.remove') }}</button>
               </span>
             </div>
           </div>
@@ -196,59 +216,66 @@
           </div>
 
           <div class="editor-actions">
-            <span v-if="savedMessage" class="saved-message">{{ savedMessage }}</span>
-            <button v-if="canManage && draft.id && draft.status !== 'published'" class="primary" :disabled="saving" @click="save">
-              {{ saving ? '保存中…' : '保存草稿' }}
+            <span v-if="savedMessage" class="saved-message" role="status"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span>{{ savedMessage }}</span>
+            <button v-if="canManage && draft.id && draft.status !== 'published'" class="small primary" type="button" :disabled="saving" @click="save">
+              <span class="material-symbols-outlined" aria-hidden="true">save</span>{{ saving ? t('common.saving') : t('policies.saveDraft') }}
             </button>
-            <button v-if="canManage && draft.id && draft.status !== 'published'" :disabled="saving" @click="publish">
-              发布版本
-            </button>
-            <button v-if="canManage && draft.id && draft.status === 'draft'" :disabled="saving" @click="submitReview">
-              提交审核
-            </button>
-            <button v-if="canManage && draft.id && draft.status === 'published'" :disabled="saving" @click="cloneVersion">
-              创建新版本
-            </button>
-            <button v-if="canManage && draft.id && draft.status === 'published'" :disabled="saving || bulkBusy" @click="bulkUpgrade">
-              {{ bulkBusy ? '升级中…' : '批量升级项目' }}
-            </button>
-            <button v-if="canManage && draft.id && draft.status === 'published'" class="danger" :disabled="saving" @click="archive">
-              停用规范
-            </button>
-            <button v-if="canManage && !draft.id" class="primary" :disabled="saving" @click="save">
-              {{ saving ? '保存中…' : '创建规范' }}
-            </button>
+            <button v-if="canManage && draft.id && draft.status !== 'published'" class="small" type="button" :disabled="saving" @click="publish"><span class="material-symbols-outlined" aria-hidden="true">publish</span>{{ t('policies.publish') }}</button>
+            <button v-if="canManage && draft.id && draft.status === 'draft'" class="small" type="button" :disabled="saving" @click="submitReview"><span class="material-symbols-outlined" aria-hidden="true">rate_review</span>{{ t('policies.submitReview') }}</button>
+            <button v-if="canManage && draft.id && draft.status === 'published'" class="small" type="button" :disabled="saving" @click="cloneVersion"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span>{{ t('policies.newVersion') }}</button>
+            <button v-if="canManage && draft.id && draft.status === 'published'" class="small" type="button" :disabled="saving || bulkBusy" @click="bulkUpgrade"><span class="material-symbols-outlined" aria-hidden="true">upgrade</span>{{ bulkBusy ? t('policies.upgrading') : t('policies.upgrade') }}</button>
+            <button v-if="canManage && draft.id && draft.status === 'published'" class="small danger" type="button" :disabled="saving" @click="archive"><span class="material-symbols-outlined" aria-hidden="true">archive</span>{{ t('policies.archive') }}</button>
+            <button v-if="canManage && !draft.id" class="small primary" type="button" :disabled="saving" @click="save"><span class="material-symbols-outlined" aria-hidden="true">add</span>{{ saving ? t('common.saving') : t('policies.new') }}</button>
           </div>
         </template>
       </section>
     </div>
 
+    <div class="policy-related-links">
+      <RouterLink to="/templates" class="policy-related-link"><span class="material-symbols-outlined" aria-hidden="true">description</span><span><strong>{{ t('templates.title') }}</strong><small>{{ t('policies.templatesRelated') }}</small></span><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
+      <RouterLink to="/audit" class="policy-related-link"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span><span><strong>{{ t('templates.audit') }}</strong><small>{{ t('policies.auditRelated') }}</small></span><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
+    </div>
+
     <div v-if="cloneModal" class="modal-mask" @click.self="cloneModal = false">
       <div class="modal card">
-        <h3>创建规范新版本</h3>
-        <p class="hint">新版本会复制当前规范内容，发布前仍可继续编辑。</p>
-        <label class="modal-field">新版本号
-          <input v-model="cloneVersionInput" autofocus placeholder="如 2026.2" />
+        <h3>{{ t('policies.cloneTitle') }}</h3>
+        <p class="hint">{{ t('policies.cloneDetail') }}</p>
+        <label class="modal-field">{{ t('policies.version') }}
+          <input v-model="cloneVersionInput" autofocus :placeholder="t('policies.versionPlaceholder')" />
         </label>
         <div class="modal-actions">
-          <button class="primary" :disabled="saving || !cloneVersionInput.trim()" @click="confirmCloneVersion">创建版本</button>
-          <button @click="cloneModal = false">取消</button>
+          <button class="primary" :disabled="saving || !cloneVersionInput.trim()" @click="confirmCloneVersion">{{ t('policies.newVersion') }}</button>
+          <button @click="cloneModal = false">{{ t('common.cancel') }}</button>
         </div>
       </div>
     </div>
-  </div>
+    </div>
+  <ConfirmDialog
+    :open="confirmDialog.open"
+    :title="confirmDialog.title"
+    :description="confirmDialog.description"
+    :confirm-label="confirmDialog.confirmLabel"
+    :danger="confirmDialog.danger"
+    :busy="confirmBusy"
+    @confirm="confirmAction"
+    @cancel="closeConfirmDialog"
+  />
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { auth, isManager } from '../auth'
+import AsyncState from '../components/AsyncState.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import {
   archivePolicy, createPolicyVersion, deletePolicyDocument, downloadPolicyDocument, fetchPolicies, fetchPolicy,
   importPolicyWithAi, publishPolicy, savePolicy, submitPolicyReview, upgradePolicyProjects, uploadPolicyDocument,
 } from '../api'
+import { useI18n } from '../i18n'
 
+const { t } = useI18n()
 const policies = ref([])
-const loading = ref(false)
+const loading = ref(true)
 const saving = ref(false)
 const bulkBusy = ref(false)
 const importing = ref(false)
@@ -260,6 +287,8 @@ const docFile = ref(null)
 const aiImportFile = ref(null)
 const cloneModal = ref(false)
 const cloneVersionInput = ref('')
+const confirmBusy = ref(false)
+const confirmDialog = ref({ open: false, title: '', description: '', confirmLabel: t('common.confirm'), danger: false, action: null })
 const canManage = computed(() => isManager() && (auth.user?.role === 'admin' || auth.user?.status === 'active'))
 const readOnly = computed(() => !canManage.value || draft.value.status === 'published')
 
@@ -289,11 +318,13 @@ function formItem(item) {
 }
 
 function statusLabel(status) {
-  return { draft: '草稿', review: '待发布', published: '已发布', archived: '已停用' }[status] || status
+  const keys = { draft: 'policies.draft', review: 'policies.review', published: 'policies.published', archived: 'policies.archived' }
+  return keys[status] ? t(keys[status]) : status
 }
 
 function levelLabel(level) {
-  return { school: '学校规范', college: '学院规范', major: '专业规范', course: '课程规范', batch: '批次规范', teacher: '教师要求' }[level] || level
+  const keys = { global: 'scope.global', school: 'scope.school', college: 'scope.college', major: 'scope.major', course: 'scope.course', batch: 'scope.batch', teacher: 'scope.teacher', student: 'scope.student' }
+  return keys[level] ? t(keys[level]) : level
 }
 
 async function loadPolicies() {
@@ -302,7 +333,7 @@ async function loadPolicies() {
   try {
     policies.value = await fetchPolicies()
     if (draft.value.id && policies.value.some((item) => item.id === draft.value.id)) await selectPolicy(draft.value.id)
-  } catch (e) { error.value = e.message || '获取写作规范失败' }
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { loading.value = false }
 }
 
@@ -313,7 +344,7 @@ async function selectPolicy(id) {
     draft.value = { ...value, items: (value.items || []).map(formItem) }
     editing.value = true
     savedMessage.value = ''
-  } catch (e) { error.value = e.message || '获取写作规范失败' }
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
 }
 
 function newPolicy() {
@@ -354,10 +385,10 @@ function payload() {
         try {
           rulePackParams = JSON.parse(item.rulePackParamsText)
         } catch {
-          throw new Error(`规则 ${item.id || '未命名'} 的规则包参数不是有效 JSON`)
+          throw new Error(t('policies.invalidRulePackJson', { id: item.id || t('policies.unnamed') }))
         }
         if (!rulePackParams || Array.isArray(rulePackParams) || typeof rulePackParams !== 'object') {
-          throw new Error(`规则 ${item.id || '未命名'} 的规则包参数必须是 JSON 对象`)
+          throw new Error(t('policies.invalidRulePackObject', { id: item.id || t('policies.unnamed') }))
         }
       }
       const { min, max, rulePackParamsText, ...rest } = item
@@ -372,9 +403,9 @@ async function save() {
     const result = await savePolicy(payload(), !draft.value.id)
     draft.value = { ...result, items: (result.items || []).map(formItem) }
     editing.value = true
-    savedMessage.value = '草稿已保存'
+    savedMessage.value = t('policies.savedDraft')
     await loadPolicies()
-  } catch (e) { error.value = e.message || '保存写作规范失败' }
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { saving.value = false }
 }
 
@@ -384,9 +415,9 @@ async function publish() {
     if (!draft.value.id) await save()
     const result = await publishPolicy(draft.value.id)
     draft.value = { ...result, items: (result.items || []).map(formItem) }
-    savedMessage.value = '规范已发布，新项目会使用该版本'
+    savedMessage.value = t('policies.publishedMessage')
     await loadPolicies()
-  } catch (e) { error.value = e.message || '发布写作规范失败' }
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { saving.value = false }
 }
 
@@ -395,9 +426,9 @@ async function submitReview() {
   try {
     const result = await submitPolicyReview(draft.value.id)
     draft.value = { ...result, items: (result.items || []).map(formItem) }
-    savedMessage.value = '已提交审核'
+    savedMessage.value = t('policies.reviewSubmitted')
     await loadPolicies()
-  } catch (e) { error.value = e.message || '提交规范审核失败' }
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { saving.value = false }
 }
 
@@ -411,22 +442,25 @@ async function confirmCloneVersion() {
   if (!next) return
   saving.value = true; error.value = ''
   try {
-    const result = await createPolicyVersion(draft.value.id, { version: next, name: draft.value.name, reason: '从当前版本修订' })
+    const result = await createPolicyVersion(draft.value.id, { version: next, name: draft.value.name, reason: t('policies.revisionReason') })
     draft.value = { ...result, items: (result.items || []).map(formItem) }
-    savedMessage.value = '已创建新版本草稿'
+    savedMessage.value = t('policies.versionCreated')
     cloneModal.value = false
     await loadPolicies()
-  } catch (e) { error.value = e.message || '创建规范新版本失败' }
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { saving.value = false }
 }
 
-async function bulkUpgrade() {
-  if (!window.confirm('将所有使用本规范旧版本的项目升级到当前已发布版本？项目内容不会改变。')) return
+function bulkUpgrade() {
+  confirmDialog.value = { open: true, title: t('policies.bulkUpgradeTitle'), description: t('policies.bulkUpgradeDescription'), confirmLabel: t('policies.confirmUpgrade'), danger: false, action: performBulkUpgrade }
+}
+
+async function performBulkUpgrade() {
   bulkBusy.value = true; error.value = ''
   try {
-    const result = await upgradePolicyProjects(draft.value.id, { reason: `规范 ${draft.value.version} 批量升级` })
-    savedMessage.value = `已升级 ${result.upgraded.length} 个项目，跳过 ${result.skipped.length} 个项目`
-  } catch (e) { error.value = e.message || '批量升级项目规范失败' }
+    const result = await upgradePolicyProjects(draft.value.id, { reason: t('policies.bulkUpgradeReason', { version: draft.value.version }) })
+    savedMessage.value = t('policies.upgradedMessage', { upgraded: result.upgraded.length, skipped: result.skipped.length })
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { bulkBusy.value = false }
 }
 
@@ -437,8 +471,8 @@ async function uploadDocument(event) {
   try {
     const result = await uploadPolicyDocument(draft.value.id, file)
     draft.value = { ...result, items: (result.items || []).map(formItem) }
-    savedMessage.value = '参考文档已上传'
-  } catch (e) { error.value = e.message || '上传规范文档失败' }
+    savedMessage.value = t('policies.documentUploaded')
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { saving.value = false; if (docFile.value) docFile.value.value = '' }
 }
 
@@ -452,22 +486,29 @@ async function importWithAi(event) {
     draft.value = { ...imported, items: (imported.items || []).map(formItem) }
     editing.value = true
     await loadPolicies()
-    savedMessage.value = `AI 已生成草稿：识别 ${result.analysis?.detected_rule_count ?? draft.value.items.length} 条要求，请核对后发布`
-  } catch (e) { error.value = e.message || 'AI 导入规范失败' }
+    savedMessage.value = t('policies.aiDraftCreated', { count: result.analysis?.detected_rule_count ?? draft.value.items.length })
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { importing.value = false; if (aiImportFile.value) aiImportFile.value.value = '' }
 }
 
-async function removeDocument(document) {
-  if (!window.confirm(`删除参考文档「${document.filename}」？`)) return
-  try {
+function removeDocument(document) {
+  confirmDialog.value = { open: true, title: t('policies.deleteDocumentTitle', { name: document.filename }), description: t('policies.deleteDocumentDescription'), confirmLabel: t('templates.confirmDelete'), danger: true, action: async () => {
     const result = await deletePolicyDocument(draft.value.id, document.id)
     draft.value = { ...result, items: (result.items || []).map(formItem) }
-  } catch (e) { error.value = e.message || '删除规范文档失败' }
+  } }
+}
+
+function closeConfirmDialog() { if (confirmBusy.value) return; confirmDialog.value.open = false; confirmDialog.value.action = null }
+async function confirmAction() {
+  const action = confirmDialog.value.action
+  if (!action || confirmBusy.value) return
+  confirmBusy.value = true
+  try { await action() } catch (e) { error.value = e.message || t('common.operationFailed') } finally { confirmBusy.value = false; closeConfirmDialog() }
 }
 
 async function downloadDocument(document) {
   try { await downloadPolicyDocument(draft.value.id, document.id, document.filename) }
-  catch (e) { error.value = e.message || '下载规范文档失败' }
+  catch (e) { error.value = e.message || t('common.operationFailed') }
 }
 
 function formatBytes(size) {
@@ -482,9 +523,9 @@ async function archive() {
   try {
     const result = await archivePolicy(draft.value.id)
     draft.value = { ...result, items: (result.items || []).map(formItem) }
-    savedMessage.value = '规范已停用，历史项目快照不受影响'
+    savedMessage.value = t('policies.archivedMessage')
     await loadPolicies()
-  } catch (e) { error.value = e.message || '停用写作规范失败' }
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { saving.value = false }
 }
 
@@ -492,71 +533,535 @@ onMounted(loadPolicies)
 </script>
 
 <style scoped>
-.policy-page { padding: 28px 0; }
-.policy-page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; margin-bottom: 22px; }
-.policy-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; position: relative; }
-.ai-import-button { display: inline-flex; align-items: center; gap: 5px; }
-.ai-import-button .material-symbols-outlined { font-size: 18px; }
-.file-input-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.eyebrow { color: var(--primary); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
-.policy-page-head h1 { margin: 5px 0 4px; font-size: 28px; }
-.policy-page-head p, .section-heading p, .empty-editor p { color: var(--muted); font-size: 13px; }
-.policy-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; align-items: start; }
-.policy-list { padding: 14px; }
-.list-head, .editor-head, .rule-row-top, .editor-actions, .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.list-head { padding: 0 2px 10px; border-bottom: 1px solid var(--border); }
-.policy-list-item { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 10px; margin-top: 8px; text-align: left; background: transparent; border-color: transparent; }
-.policy-list-item:hover, .policy-list-item.active { background: var(--surface-container-low); border-color: var(--primary-fixed); }
-.policy-list-title { font-weight: 600; color: var(--on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
-.policy-list-meta { color: var(--muted); font-size: 11px; }
-.empty-state, .inline-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 28px 8px; }
-.policy-editor { min-width: 0; }
-.empty-editor { min-height: 300px; display: grid; place-content: center; text-align: center; gap: 8px; }
-.empty-editor .material-symbols-outlined { font-size: 42px; color: var(--primary); }
-.editor-head { align-items: flex-start; margin-bottom: 20px; }
-.editor-head h2 { margin-top: 7px; font-size: 20px; }
-.type-tag, .status-pill { display: inline-block; font-size: 11px; border-radius: 999px; padding: 3px 9px; }
-.type-tag { background: #eff6ff; color: var(--primary); }
-.status-pill { background: #f1f5f9; color: var(--muted); }
-.status-pill.published { background: #dcfce7; color: #166534; }
-.status-pill.archived { background: #fee2e2; color: #991b1b; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.form-grid label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
-.form-grid .span-2 { grid-column: 1 / -1; }
-.form-grid input, .rule-row input, .rule-row select, .markdown-input { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: var(--on-surface); background: var(--card); font: inherit; font-size: 13px; }
-.section-heading { margin: 26px 0 10px; align-items: flex-end; }
-.section-heading h3 { font-size: 15px; margin-bottom: 2px; }
-.rule-row { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 9px; background: var(--surface-container-lowest); }
-.rule-row-top { justify-content: flex-start; }
-.rule-row-top input { flex: 1; }
-.rule-row-top select { width: 130px; }
-.rule-description { margin-top: 8px; }
-.rule-fields { display: grid; grid-template-columns: 1.2fr 1fr .7fr .7fr .8fr .9fr; gap: 7px; margin-top: 8px; }
-.rule-pack-fields { display: grid; grid-template-columns: minmax(200px, .8fr) minmax(260px, 1.2fr); gap: 8px; margin-top: 8px; }
-.rule-pack-fields label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
-.rule-pack-fields input, .rule-pack-fields textarea { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: var(--on-surface); background: var(--card); font: inherit; font-size: 12px; }
-.rule-pack-fields textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; line-height: 1.45; }
-.markdown-input { min-height: 150px; resize: vertical; line-height: 1.6; }
-.editor-actions { justify-content: flex-end; margin-top: 16px; }
-.saved-message { margin-right: auto; color: #15803d; font-size: 13px; }
-.modal-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: flex; align-items: center; justify-content: center; z-index: 60; }
-.modal { width: min(420px, 92vw); padding: 20px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); }
-.modal h3 { margin: 0 0 8px; font-size: 18px; }
-.hint { color: var(--muted); font-size: 13px; line-height: 1.6; }
-.modal-field { display: flex; flex-direction: column; gap: 5px; margin-top: 16px; color: var(--muted); font-size: 12px; }
-.modal-field input { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: var(--on-surface); background: var(--card); font: inherit; font-size: 13px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-@media (max-width: 820px) {
-  .policy-layout { grid-template-columns: 1fr; }
-  .policy-list { display: block; }
-  .rule-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .rule-pack-fields { grid-template-columns: 1fr; }
+.file-input-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
-@media (max-width: 520px) {
-  .policy-page-head { align-items: flex-start; flex-direction: column; }
-  .form-grid { grid-template-columns: 1fr; }
-  .form-grid .span-2 { grid-column: auto; }
-  .rule-row-top { flex-wrap: wrap; }
-  .rule-row-top input, .rule-row-top select { width: 100%; }
+
+.hero-readonly-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--inverse-on-surface);
+  font-size: 12px;
+}
+
+.hero-readonly-label .material-symbols-outlined {
+  color: var(--primary-fixed-dim);
+  font-size: 17px;
+}
+
+.policy-layout {
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.policy-list-panel,
+.policy-editor-panel {
+  min-width: 0;
+}
+
+.policy-list-actions,
+.editor-state,
+.policy-list-item,
+.document-actions,
+.saved-message,
+.policy-related-link {
+  display: flex;
+  align-items: center;
+}
+
+.policy-list-actions {
+  gap: 10px;
+}
+
+.policy-count {
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.policy-list {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.policy-list-item {
+  width: 100%;
+  min-width: 0;
+  gap: 9px;
+  margin: 0;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.policy-list-item:hover,
+.policy-list-item.active {
+  background: var(--surface-container-low);
+}
+
+.policy-list-item.active {
+  margin-left: -9px;
+  padding-left: 9px;
+  border-left: 3px solid var(--primary);
+}
+
+.policy-list-item-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-xs);
+  background: var(--surface-container-low);
+  color: var(--primary);
+}
+
+.policy-list-item-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+}
+
+.policy-list-title {
+  overflow: hidden;
+  color: var(--on-surface);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.policy-list-meta {
+  overflow: hidden;
+  color: var(--on-surface-variant);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-editor {
+  display: grid;
+  justify-items: center;
+  min-height: 340px;
+  padding: 34px 20px;
+  align-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.empty-editor .material-symbols-outlined {
+  color: var(--primary);
+  font-size: 42px;
+}
+
+.empty-editor h2 {
+  font-size: 20px;
+}
+
+.empty-editor p,
+.section-heading p {
+  color: var(--on-surface-variant);
+  font-size: 13px;
+}
+
+.editor-head {
+  margin-bottom: 20px;
+}
+
+.editor-head .workspace-kicker {
+  margin-bottom: 4px;
+}
+
+.editor-head h2 {
+  font-size: 20px;
+}
+
+.editor-state {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.type-tag,
+.status-pill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.type-tag {
+  background: var(--primary-fixed);
+  color: var(--on-primary-fixed);
+}
+
+.status-pill {
+  background: var(--surface-container-low);
+  color: var(--on-surface-variant);
+}
+
+.status-pill.review {
+  background: var(--tertiary-fixed);
+  color: var(--tertiary);
+}
+
+.status-pill.published {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-pill.archived {
+  background: var(--error-container);
+  color: var(--on-error-container);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-grid label,
+.rule-pack-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
+.form-grid .span-2 {
+  grid-column: 1 / -1;
+}
+
+.form-grid input,
+.form-grid select,
+.rule-row input,
+.rule-row select,
+.markdown-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--on-surface);
+  background: var(--surface-container-lowest);
+  font: inherit;
+  font-size: 13px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 26px 0 10px;
+}
+
+.section-heading h3 {
+  margin-bottom: 2px;
+  font-size: 15px;
+}
+
+.rule-row {
+  margin-bottom: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-container-lowest);
+}
+
+.rule-row-top,
+.editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rule-row-top {
+  justify-content: flex-start;
+}
+
+.rule-row-top input {
+  flex: 1;
+}
+
+.rule-row-top select {
+  width: 130px;
+}
+
+.rule-description {
+  margin-top: 8px;
+}
+
+.rule-fields {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr .7fr .7fr .8fr .9fr;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.rule-pack-fields {
+  display: grid;
+  grid-template-columns: minmax(200px, .8fr) minmax(260px, 1.2fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rule-pack-fields input,
+.rule-pack-fields textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--on-surface);
+  background: var(--surface-container-lowest);
+  font: inherit;
+  font-size: 12px;
+}
+
+.rule-pack-fields textarea {
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  line-height: 1.45;
+}
+
+.inline-empty {
+  padding: 20px 8px;
+  border: 1px dashed var(--border);
+  color: var(--on-surface-variant);
+  font-size: 13px;
+  text-align: center;
+}
+
+.markdown-input {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.document-list {
+  border-top: 1px solid var(--border);
+}
+
+.document-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
+.document-row > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.document-actions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.upload-row {
+  margin-top: 12px;
+}
+
+.upload-row input {
+  max-width: 100%;
+  font-size: 12px;
+}
+
+.editor-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.saved-message {
+  gap: 5px;
+  margin-right: auto;
+  color: #15803d;
+  font-size: 13px;
+}
+
+.saved-message .material-symbols-outlined {
+  font-size: 17px;
+}
+
+.policy-related-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.policy-related-link {
+  min-width: 0;
+  gap: 10px;
+  padding: 10px 4px;
+  color: var(--on-surface);
+  text-decoration: none;
+}
+
+.policy-related-link:hover {
+  color: var(--primary);
+}
+
+.policy-related-link > .material-symbols-outlined:first-child {
+  color: var(--primary);
+  font-size: 19px;
+}
+
+.policy-related-link > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.policy-related-link strong {
+  font-size: 13px;
+}
+
+.policy-related-link small {
+  overflow: hidden;
+  color: var(--on-surface-variant);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.policy-related-link > .material-symbols-outlined:last-child {
+  color: var(--outline);
+  font-size: 17px;
+}
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, .45);
+}
+
+.modal {
+  width: min(420px, 92vw);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.modal h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.hint {
+  color: var(--on-surface-variant);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 16px;
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
+.modal-field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  color: var(--on-surface);
+  background: var(--card);
+  font: inherit;
+  font-size: 13px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+@media (max-width: 900px) {
+  .policy-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .rule-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rule-pack-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid .span-2 {
+    grid-column: auto;
+  }
+
+  .editor-head,
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .editor-state {
+    justify-content: flex-start;
+  }
+
+  .rule-row-top {
+    flex-wrap: wrap;
+  }
+
+  .rule-row-top input,
+  .rule-row-top select {
+    width: 100%;
+  }
+
+  .document-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .policy-related-links {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

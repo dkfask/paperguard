@@ -2,7 +2,7 @@
   <div class="writing-home">
     <section class="writing-home-head">
       <div>
-        <p class="writing-eyebrow">MY WRITING SPACE</p>
+        <p class="writing-eyebrow">{{ t('home.kicker') }}</p>
         <h1>{{ t('myThesesTitle') }}</h1>
         <p class="writing-home-subtitle">{{ t('myThesesSub') }}</p>
       </div>
@@ -10,12 +10,12 @@
         <span class="material-symbols-outlined">edit_note</span>
         <div>
           <strong>{{ projects.length }}</strong>
-          <span>篇进行中的论文</span>
+          <span>{{ t('home.activeTheses') }}</span>
         </div>
       </div>
     </section>
 
-    <div class="workspace-switcher" role="tablist" aria-label="工作台视图">
+    <div class="workspace-switcher" role="tablist" :aria-label="t('home.viewSwitcher')">
       <button class="workspace-tab" :class="{ active: tab === 'projects' }" role="tab" :aria-selected="tab === 'projects'" @click="selectTab('projects')">
         <span class="material-symbols-outlined">edit_note</span>
         <span>{{ t('tabProjects') }}</span>
@@ -36,18 +36,18 @@
     <section v-if="tab === 'projects'" class="writing-projects">
       <div v-if="primaryProject" class="continue-writing-panel">
         <div class="continue-writing-copy">
-          <p class="writing-eyebrow">CONTINUE WHERE YOU LEFT OFF</p>
-          <h2>{{ primaryProject.title || '未命名毕业论文' }}</h2>
+          <p class="writing-eyebrow">{{ t('home.continueKicker') }}</p>
+          <h2>{{ primaryProject.title || t('home.untitledThesis') }}</h2>
           <p class="continue-writing-meta">
-            <span>{{ primaryProject.template_name || '通用学术模板' }}</span>
+            <span>{{ primaryProject.template_name || t('home.defaultTemplate') }}</span>
             <span aria-hidden="true">·</span>
-            <span>{{ primaryProject.last_written_section || '从论文结构开始' }}</span>
+            <span>{{ primaryProject.last_written_section || t('home.startFromOutline') }}</span>
             <span aria-hidden="true">·</span>
-            <span>最后编辑 {{ shortDate(primaryProject.updated_at) || '刚刚' }}</span>
+            <span>{{ t('home.lastEdited', { date: shortDate(primaryProject.updated_at) || t('common.justNow') }) }}</span>
           </p>
           <div class="continue-writing-progress">
             <div class="progress-track"><span :style="{ width: projectProgress(primaryProject) + '%' }"></span></div>
-            <span>{{ projectProgress(primaryProject) }}% 已完成</span>
+            <span>{{ t('home.completed', { percent: projectProgress(primaryProject) }) }}</span>
           </div>
         </div>
         <button class="primary continue-writing-action" @click="$router.push('/write/' + primaryProject.id)">
@@ -58,22 +58,22 @@
 
       <div class="section-heading-row">
         <div>
-          <p class="writing-eyebrow">YOUR MANUSCRIPTS</p>
-          <h2>最近论文</h2>
+          <p class="writing-eyebrow">{{ t('home.manuscripts') }}</p>
+          <h2>{{ t('home.recentTheses') }}</h2>
         </div>
-        <span class="section-heading-note">按最近编辑排序</span>
+        <span class="section-heading-note">{{ t('home.sortedByRecent') }}</span>
       </div>
 
       <div class="create-thesis-bar">
         <span class="material-symbols-outlined create-thesis-icon">add_circle</span>
         <div class="create-thesis-label">
-          <strong>开始一篇新论文</strong>
-          <span>先选择写作模板，再进入论文工作区</span>
+          <strong>{{ t('home.startNewThesis') }}</strong>
+          <span>{{ t('home.startNewThesisDetail') }}</span>
         </div>
-        <select id="tpl" v-model="newProjectTemplate" aria-label="选择写作模板">
+        <select id="tpl" v-model="newProjectTemplate" :aria-label="t('home.chooseTemplate')">
           <option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option>
         </select>
-        <input v-model="newProjectTitle" :placeholder="t('thesisTitlePlaceholder')" aria-label="论文题目" />
+        <input v-model="newProjectTitle" :placeholder="t('thesisTitlePlaceholder')" :aria-label="t('home.thesisTitle')" />
         <button class="primary" :disabled="creating || initializing || !newProjectTemplate" @click="createProject">
           <span class="material-symbols-outlined">add</span>
           <span>{{ creating ? t('creating') : t('newThesisBtn') }}</span>
@@ -88,12 +88,12 @@
         <p>{{ t('noThesesSub') }}</p>
       </div>
 
-      <div v-else class="theses-list" aria-label="论文列表">
+      <div v-else class="theses-list" :aria-label="t('home.thesisList')">
         <div v-for="p in projects" :key="p.id" class="thesis-row">
           <div class="thesis-row-icon"><span class="material-symbols-outlined">description</span></div>
           <div class="thesis-row-main">
-            <h3 :title="p.title || p.template_name">{{ p.title || '未命名毕业论文' }}</h3>
-            <p>{{ p.template_name || '通用学术模板' }} <span aria-hidden="true">·</span> {{ p.last_written_section || '尚未开始正文' }}</p>
+            <h3 :title="p.title || p.template_name">{{ p.title || t('home.untitledThesis') }}</h3>
+            <p>{{ p.template_name || t('home.defaultTemplate') }} <span aria-hidden="true">·</span> {{ p.last_written_section || t('home.notStarted') }}</p>
           </div>
           <div class="thesis-row-progress">
             <div class="progress-track"><span :style="{ width: projectProgress(p) + '%' }"></span></div>
@@ -115,15 +115,20 @@
         </div>
       </div>
 
+      <section v-if="trashProjects.length" class="writing-trash">
+        <div class="section-heading-row"><div><p class="writing-eyebrow">{{ t('home.recycleBin') }}</p><h2>{{ t('home.recycleBin') }}</h2></div><span class="section-heading-note">{{ t('home.recycleBinDetail') }}</span></div>
+        <div v-for="p in trashProjects" :key="p.id" class="trash-row"><div><strong>{{ p.title || t('home.untitledThesis') }}</strong><span>{{ p.template_name || t('home.defaultTemplate') }} · {{ t('home.deletedAt', { date: shortDate(p.deleted_at) }) }}</span></div><button class="small" @click="restoreProject(p)"><span class="material-symbols-outlined">restore_from_trash</span>{{ t('home.restoreThesis') }}</button></div>
+      </section>
+
       <div class="writing-utilities">
         <RouterLink to="/policies" class="writing-utility-link">
           <span class="material-symbols-outlined">menu_book</span>
-          <span><strong>写作规范</strong><small>查看当前院校的写作要求与检查依据</small></span>
+          <span><strong>{{ t('templates.writingPolicies') }}</strong><small>{{ t('home.policyDetail') }}</small></span>
           <span class="material-symbols-outlined">arrow_forward</span>
         </RouterLink>
         <RouterLink to="/templates" class="writing-utility-link">
           <span class="material-symbols-outlined">description</span>
-          <span><strong>模板管理</strong><small>浏览可用模板与论文结构</small></span>
+          <span><strong>{{ t('templates.title') }}</strong><small>{{ t('home.templateDetail') }}</small></span>
           <span class="material-symbols-outlined">arrow_forward</span>
         </RouterLink>
       </div>
@@ -265,11 +270,11 @@
                   <div class="stitch-diff-box" v-if="f.actual !== null || f.expected !== null">
                     <div class="diff-pane">
                       <p class="diff-pane-label">{{ t('actualLabel') }}</p>
-                      <div class="diff-pane-box actual-box">{{ f.actual ?? '未设置' }}</div>
+                      <div class="diff-pane-box actual-box">{{ f.actual ?? t('home.notSet') }}</div>
                     </div>
                     <div class="diff-pane">
                       <p class="diff-pane-label">{{ t('expectedLabel') }}</p>
-                      <div class="diff-pane-box expected-box">{{ f.expected ?? '未设置' }}</div>
+                      <div class="diff-pane-box expected-box">{{ f.expected ?? t('home.notSet') }}</div>
                     </div>
                   </div>
 
@@ -283,17 +288,30 @@
       </section>
 
   </div>
+  <ConfirmDialog
+    :open="confirmDialog.open"
+    :title="confirmDialog.title"
+    :description="confirmDialog.description"
+    :confirm-label="confirmDialog.confirmLabel"
+    :danger="confirmDialog.danger"
+    :busy="confirmBusy"
+    @confirm="confirmAction"
+    @cancel="closeConfirmDialog"
+  />
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from '../i18n'
-import { fetchPacks, checkDocx, checkDocxWithTemplate, fixDocx, fetchTemplates, fetchProjects, createProject as apiCreateProject, exportProject as apiExportProject, deleteProject as apiDeleteProject } from "../api"
+import ConfirmDialog from '../components/ConfirmDialog.vue'
+import { checkDocx, checkDocxWithTemplate, fixDocx } from '../api'
+import { projectsApi } from '../features/projects/api'
+import { useWorkspaceOverview } from '../features/workspace/queries'
 
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
+const { t, formatDate } = useI18n()
 
 const tab = ref(route.query.tab === 'check' ? 'check' : 'projects')
 watch(() => route.query.tab, (newTab) => {
@@ -304,6 +322,7 @@ function selectTab(nextTab) {
   router.push({ path: '/', query: { tab: nextTab } })
 }
 
+const workspaceQuery = useWorkspaceOverview()
 const packs = ref([])
 const pack = ref("")
 const checkMode = ref("pack")
@@ -315,40 +334,45 @@ const fixing = ref(false)
 const report = ref(null)
 const lastFixRemaining = ref(null)
 const error = ref("")
-const initializing = ref(false)
+const initializing = computed(() => workspaceQuery.isPending.value || workspaceQuery.isFetching.value)
 
 const fileInput = ref(null)
 const templateInput = ref(null)
 
 const templates = ref([])
 const projects = ref([])
+const trashProjects = ref([])
 const primaryProject = computed(() => projects.value[0] || null)
 const newProjectTitle = ref("")
 const newProjectTemplate = ref("")
 const creating = ref(false)
 const exporting = reactive(new Set())
 const deleting = reactive(new Set())
+const confirmBusy = ref(false)
+const confirmDialog = reactive({ open: false, title: '', description: '', confirmLabel: t('templates.confirmDelete'), danger: true, action: null })
 
 const hasFixableFindings = computed(() => {
   if (!report.value || !report.value.findings) return false
   return report.value.findings.some(f => f.fixable)
 })
 
-onMounted(async () => {
-  initializing.value = true
-  try {
-    const [p, tData, prj] = await Promise.all([fetchPacks(), fetchTemplates(), fetchProjects()])
-    packs.value = p
-    if (p.length) pack.value = p[0]
-    templates.value = tData
-    if (tData.length) newProjectTemplate.value = tData[0].id
-    projects.value = prj
-  } catch (e) {
-    error.value = "初始化失败: " + e.message
-  } finally {
-    initializing.value = false
-  }
+watch(() => workspaceQuery.data.value, (data) => {
+  if (!data) return
+  packs.value = data.packs || []
+  if (!pack.value && packs.value.length) pack.value = packs.value[0]
+  templates.value = data.templates || []
+  if (!newProjectTemplate.value && templates.value.length) newProjectTemplate.value = templates.value[0].id
+  projects.value = data.projects || []
+  trashProjects.value = data.deletedProjects || []
+}, { immediate: true })
+
+watch(() => workspaceQuery.error.value, (exception) => {
+  if (exception) error.value = t('home.initFailed', { message: exception.message || t('home.readWorkspaceFailed') })
 })
+
+async function refreshWorkspace() {
+  await workspaceQuery.refetch()
+}
 
 function switchCheckMode(mode) {
   checkMode.value = mode
@@ -373,7 +397,7 @@ function onDrop(e) {
 async function runCheck() {
   if (!file.value) return
   if (checkMode.value === 'template' && !templateFile.value) {
-    error.value = "请先选择规范模板 .docx 文件"
+    error.value = t('home.selectTemplateFirst')
     return
   }
   checking.value = true
@@ -418,8 +442,8 @@ async function createProject() {
   creating.value = true
   error.value = ""
   try {
-    const p = await apiCreateProject(newProjectTemplate.value, newProjectTitle.value || "未命名毕业论文")
-    projects.value = await fetchProjects()
+    const p = await projectsApi.create(newProjectTemplate.value, newProjectTitle.value || t('home.untitledThesis'))
+    await refreshWorkspace()
     newProjectTitle.value = ""
     router.push('/write/' + p.id)
   } catch (e) { error.value = e.message }
@@ -429,20 +453,41 @@ async function createProject() {
 async function exportProject(p) {
   if (exporting.has(p.id)) return
   exporting.add(p.id)
-  try { await apiExportProject(p.id) }
+  try { await projectsApi.export(p.id) }
   catch (e) { error.value = e.message }
   finally { exporting.delete(p.id) }
 }
 
 async function deleteProject(p) {
-  if (deleting.has(p.id) || !confirm(t('deleteConfirm'))) return
-  deleting.add(p.id)
-  try { await apiDeleteProject(p.id); projects.value = await fetchProjects() }
-  catch (e) { error.value = e.message }
-  finally { deleting.delete(p.id) }
+  if (deleting.has(p.id)) return
+  Object.assign(confirmDialog, {
+    open: true,
+    title: t('home.deleteTitle', { name: p.title || t('home.untitledThesis') }),
+    description: t('home.deleteDescription'),
+    confirmLabel: t('templates.confirmDelete'),
+    danger: true,
+    action: async () => {
+      deleting.add(p.id)
+      try { await projectsApi.remove(p.id); await refreshWorkspace() }
+      finally { deleting.delete(p.id) }
+    },
+  })
 }
 
-function shortDate(s) { return s ? s.slice(0, 10) : '' }
+function closeConfirmDialog() { if (confirmBusy.value) return; confirmDialog.open = false; confirmDialog.action = null }
+async function confirmAction() {
+  const action = confirmDialog.action
+  if (!action || confirmBusy.value) return
+  confirmBusy.value = true
+  try { await action() } catch (e) { error.value = e.message } finally { confirmBusy.value = false; closeConfirmDialog() }
+}
+
+async function restoreProject(p) {
+  try { await projectsApi.restore(p.id); await refreshWorkspace() }
+  catch (e) { error.value = e.message }
+}
+
+function shortDate(s) { return s ? formatDate(s, { year: 'numeric', month: '2-digit', day: '2-digit' }) : '' }
 
 function projectProgress(project) {
   const value = Number(project?.progress_pct ?? project?.progress ?? 0)
@@ -1177,6 +1222,7 @@ function projectProgress(project) {
 .icon-action:hover { background: var(--surface-container-low); color: var(--primary); }
 .icon-action.danger:hover { color: var(--error); background: var(--error-container); }
 .icon-action .material-symbols-outlined { font-size: 17px; }
+.writing-trash { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border); }.trash-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--border); }.trash-row strong, .trash-row span { display: block; }.trash-row span { color: var(--on-surface-variant); font-size: 11px; margin-top: 3px; }
 
 .writing-utilities { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--border); }
 .writing-utility-link { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 11px 4px; color: var(--on-surface); text-decoration: none; border-bottom: 1px solid transparent; }

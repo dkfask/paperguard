@@ -1,111 +1,196 @@
 <template>
-  <div class="card">
-    <div class="head-row">
-      <h2>论文模板</h2>
-      <div class="form-row" style="margin-top: 0">
-        <template v-if="canManage">
-          <button class="primary" @click="createNew">➕ 新建模板</button>
-          <button @click="pickImport">📥 从 Word 导入</button>
-          <input ref="importInput" type="file" accept=".docx" hidden @change="onImportPick" />
-        </template>
-        <span v-else class="readonly-tag">👀 只读模式(教师/管理员可管理模板)</span>
+  <div class="workspace-page resource-page templates-page">
+    <section class="workspace-hero">
+      <div>
+        <p class="workspace-kicker">{{ t('templates.kicker') }}</p>
+        <h1>{{ t('templates.title') }}</h1>
+        <p>{{ t('templates.description') }}</p>
       </div>
-    </div>
-    <p style="color: var(--muted); font-size: 14px; margin-bottom: 16px">
-      模板定义论文的章节结构、每类元素的排版样式(字体/字号/行距/缩进/分页)和封面字段。
-      学生写作时格式自动按模板约束。<b>从 Word 导入</b>可自动识别 .docx 模板中的字体、字号、行距、缩进等样式。
-    </p>
+      <div class="workspace-identity">
+        <span class="material-symbols-outlined" aria-hidden="true">description</span>
+        <div>
+          <strong>{{ t('common.templatesCount', { count: templates.length }) }}</strong>
+          <span>{{ canManage ? t('templates.manageable') : t('templates.readonlyMode') }}</span>
+        </div>
+      </div>
+    </section>
 
-    <div v-if="error" class="error-banner">⚠ {{ error }}</div>
-    <div v-if="importing" style="color: var(--muted); margin-bottom: 12px">⏳ 正在识别模板中的样式…</div>
+    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
 
-    <!-- 导入识别结果预览 -->
-    <div v-if="importResult" class="import-result">
-      <h3>📄 {{ importResult.filename }} 识别结果</h3>
-      <p style="color: var(--muted); font-size: 13px">
-        识别到 {{ importResult.style_names.length }} 个样式:{{ importResult.style_names.join('、') }}
-      </p>
+    <section v-if="importResult" class="panel import-result">
+      <div class="panel-heading">
+        <div>
+          <p class="workspace-kicker">{{ t('templates.importPreview') }}</p>
+          <h2>{{ importResult.filename }} {{ t('templates.importResult') }}</h2>
+          <p>{{ t('templates.stylesDetected', { count: importResult.style_names.length, styles: importResult.style_names.join(lang === 'zh' ? '、' : ', ') }) }}</p>
+        </div>
+        <span class="material-symbols-outlined panel-icon" aria-hidden="true">document_scanner</span>
+      </div>
       <div class="style-table-wrap">
         <table class="style-table">
-        <thead>
-          <tr><th>元素</th><th>中文字体</th><th>西文字体</th><th>字号</th><th>加粗</th><th>行距</th><th>段前</th><th>段后</th><th>缩进</th><th>对齐</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="(s, key) in importResult.styles" :key="key">
-            <td><b>{{ styleLabel(key) }}</b></td>
-            <td>{{ s.font_zh }}</td>
-            <td>{{ s.font_en }}</td>
-            <td>{{ s.size_pt }}pt</td>
-            <td>{{ s.bold ? '是' : '否' }}</td>
-            <td>{{ s.line_spacing }}</td>
-            <td>{{ s.space_before_pt }}pt</td>
-            <td>{{ s.space_after_pt }}pt</td>
-            <td>{{ s.first_line_indent_chars }}字</td>
-            <td>{{ alignLabel(s.align) }}</td>
-          </tr>
-        </tbody>
+          <thead>
+            <tr><th>{{ t('templates.element') }}</th><th>{{ t('templates.chineseFont') }}</th><th>{{ t('templates.westernFont') }}</th><th>{{ t('templates.fontSize') }}</th><th>{{ t('templates.bold') }}</th><th>{{ t('templates.lineSpacing') }}</th><th>{{ t('templates.beforeSpacing') }}</th><th>{{ t('templates.afterSpacing') }}</th><th>{{ t('templates.indent') }}</th><th>{{ t('templates.alignment') }}</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(s, key) in importResult.styles" :key="key">
+              <td><strong>{{ styleLabel(key) }}</strong></td>
+              <td>{{ s.font_zh }}</td>
+              <td>{{ s.font_en }}</td>
+              <td>{{ s.size_pt }}pt</td>
+              <td>{{ s.bold ? t('common.yes') : t('common.no') }}</td>
+              <td>{{ s.line_spacing }}</td>
+              <td>{{ s.space_before_pt }}pt</td>
+              <td>{{ s.space_after_pt }}pt</td>
+              <td>{{ s.first_line_indent_chars }}{{ t('templates.charactersUnit') }}</td>
+              <td>{{ alignLabel(s.align) }}</td>
+            </tr>
+          </tbody>
         </table>
       </div>
-      <div class="form-row" style="margin-top: 12px">
-        <button class="primary" :disabled="saving" @click="createFromImport">
-          {{ saving ? '创建中…' : '✅ 识别正确, 创建为模板' }}
+      <div class="form-actions import-actions">
+        <button class="small primary" :disabled="saving" @click="createFromImport">
+          <span class="material-symbols-outlined" aria-hidden="true">check_circle</span>
+          {{ saving ? t('common.creating') : t('templates.confirmCreate') }}
         </button>
-        <button :disabled="strippingComments" @click="downloadWithoutComments">
-          {{ strippingComments ? '正在清理批注…' : '🧹 清理批注并下载' }}
+        <button class="small" :disabled="strippingComments" @click="downloadWithoutComments">
+          <span class="material-symbols-outlined" aria-hidden="true">cleaning_services</span>
+          {{ strippingComments ? t('templates.cleaningComments') : t('templates.cleanComments') }}
         </button>
-        <span v-if="stripResult" class="strip-result">已移除 {{ stripResult.parts }} 个批注部件、{{ stripResult.anchors }} 个批注标记</span>
+        <span v-if="stripResult" class="strip-result">{{ t('templates.commentsRemoved', stripResult) }}</span>
       </div>
-    </div>
+    </section>
 
-    <div v-if="templates.length === 0" style="color: var(--muted)">暂无模板</div>
-    <div v-for="t in templates" :key="t.id" class="finding" style="border-left-color: var(--primary)">
-      <div class="head">
-        <span style="font-weight: 600">{{ t.name }}</span>
-        <span class="rule-id">{{ t.section_count }} 个章节 · {{ shortDate(t.updated_at) }}</span>
-      </div>
-      <div class="meta">{{ t.description || '无描述' }}</div>
-      <div class="form-row" style="margin-top: 10px">
-        <template v-if="canManage">
-          <button class="primary" @click="$router.push('/templates/' + t.id + '/edit')">✏️ 编辑</button>
-          <button v-if="t.id !== 'default-gb7713'" style="color: var(--error)" @click="remove(t)">删除</button>
-        </template>
-        <button v-else @click="$router.push('/templates/' + t.id + '/edit')" style="pointer-events: none; opacity: .6">🔒 只读</button>
-      </div>
+    <div class="template-layout">
+      <section class="panel template-list-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="workspace-kicker">{{ t('templates.available') }}</p>
+            <h2>{{ t('templates.available') }}</h2>
+            <p>{{ t('templates.choose') }}</p>
+          </div>
+          <div class="template-list-actions">
+            <span class="template-count">{{ templates.length }}</span>
+            <button class="icon-button" type="button" :title="t('common.refresh')" :aria-label="t('common.refresh')" :disabled="loading" @click="loadTemplates">
+              <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="canManage" class="template-toolbar">
+          <button class="small primary" type="button" @click="createNew">
+            <span class="material-symbols-outlined" aria-hidden="true">add</span>
+            {{ t('templates.new') }}
+          </button>
+          <button class="small" type="button" :disabled="importing" @click="pickImport">
+            <span class="material-symbols-outlined" aria-hidden="true">upload_file</span>
+            {{ importing ? t('templates.aiRecognizing') : t('templates.importWord') }}
+          </button>
+          <input ref="importInput" type="file" accept=".docx" hidden @change="onImportPick" />
+        </div>
+        <div v-else class="readonly-note">
+          <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
+          {{ t('templates.readonlyNote') }}
+        </div>
+
+        <AsyncState v-if="loading" state="loading" :title="t('templates.loading')" :detail="t('templates.loadingDetail')" />
+        <AsyncState v-else-if="templates.length === 0" state="empty" :title="t('templates.empty')" :detail="t('templates.emptyDetail')" :action-label="t('common.reload')" @action="loadTemplates" />
+        <div v-else class="template-list">
+          <article v-for="template in templates" :key="template.id" class="template-row">
+            <div class="template-row-icon"><span class="material-symbols-outlined" aria-hidden="true">article</span></div>
+            <div class="template-row-main">
+              <div class="template-row-title">
+                <h3>{{ template.name }}</h3>
+                <span v-if="template.id === 'default-gb7713'" class="template-state">{{ t('templates.system') }}</span>
+              </div>
+              <p>{{ template.description || t('templates.noDescription') }}</p>
+              <div class="template-row-meta">
+                <span><span class="material-symbols-outlined" aria-hidden="true">account_tree</span>{{ t('common.sectionsCount', { count: template.section_count }) }}</span>
+                <span><span class="material-symbols-outlined" aria-hidden="true">schedule</span>{{ t('templates.updated', { date: shortDate(template.updated_at) }) }}</span>
+                <code>{{ template.id }}</code>
+              </div>
+            </div>
+            <div class="template-row-actions">
+              <button v-if="canManage" class="small primary" type="button" @click="$router.push('/templates/' + template.id + '/edit')">
+                <span class="material-symbols-outlined" aria-hidden="true">edit</span>{{ t('templates.edit') }}
+              </button>
+              <span v-else class="readonly-label"><span class="material-symbols-outlined" aria-hidden="true">lock</span>{{ t('templates.readonly') }}</span>
+              <button v-if="canManage && template.id !== 'default-gb7713'" class="icon-action danger" type="button" :title="t('templates.delete')" :aria-label="t('templates.delete')" @click="remove(template)">
+                <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <aside class="workspace-side">
+        <section class="panel workspace-shortcuts">
+          <div class="panel-heading">
+            <div><p class="workspace-kicker">{{ t('templates.governance') }}</p><h3>{{ t('templates.related') }}</h3></div>
+          </div>
+          <RouterLink to="/policies"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span>{{ t('templates.writingPolicies') }}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
+          <RouterLink to="/organizations"><span class="material-symbols-outlined" aria-hidden="true">account_tree</span>{{ t('templates.organizations') }}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
+          <RouterLink to="/audit"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('templates.audit') }}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
+        </section>
+        <section class="panel template-side-note">
+          <span class="material-symbols-outlined" aria-hidden="true">info</span>
+          <div><strong>{{ t('templates.responsibilityTitle') }}</strong><p>{{ t('templates.responsibility') }}</p></div>
+        </section>
+      </aside>
     </div>
   </div>
+  <ConfirmDialog
+    :open="confirmDialog.open"
+    :title="confirmDialog.title"
+    :description="confirmDialog.description"
+    :confirm-label="confirmDialog.confirmLabel"
+    :danger="confirmDialog.danger"
+    :busy="confirmBusy"
+    @confirm="confirmAction"
+    @cancel="closeConfirmDialog"
+  />
 </template>
 
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
+import AsyncState from '../components/AsyncState.vue'
 import { fetchTemplates, deleteTemplateApi, importDocxTemplate, stripTemplateComments, saveTemplate, fetchTemplate } from '../api'
 import { auth } from '../auth'
+import { useI18n } from '../i18n'
 
 const router = useRouter()
+const { lang, t, formatDate } = useI18n()
 const canManage = computed(() => auth.user?.role === 'admin'
   || (auth.user?.role === 'teacher' && auth.user?.status === 'active'))
 const templates = ref([])
+const loading = ref(true)
 const error = ref('')
 const importing = ref(false)
 const saving = ref(false)
+const confirmBusy = ref(false)
+const confirmDialog = ref({ open: false, title: '', description: '', confirmLabel: t('templates.confirmDelete'), danger: true, action: null })
 const importResult = ref(null)
 const importFile = ref(null)
 const strippingComments = ref(false)
 const stripResult = ref(null)
 const importInput = ref(null)
 
-const STYLE_LABELS = {
-  cover_title: '封面标题', cover_meta: '封面信息', abstract: '摘要', toc: '目录',
-  heading1: '一级标题', heading2: '二级标题', heading3: '三级标题',
-  body: '正文', references: '参考文献', acknowledgement: '致谢', appendix: '附录',
-  figure_caption: '图注', table_caption: '表注', table_cell: '表格单元格',
+const STYLE_KEYS = {
+  cover_title: 'templates.style.coverTitle', cover_meta: 'templates.style.coverMeta', abstract: 'section.abstract', toc: 'section.toc',
+  heading1: 'section.heading1', heading2: 'section.heading2', heading3: 'section.heading3', body: 'section.body', references: 'section.references',
+  acknowledgement: 'section.acknowledgement', appendix: 'section.appendix', figure_caption: 'templates.style.figureCaption', table_caption: 'templates.style.tableCaption', table_cell: 'templates.style.tableCell',
 }
-const ALIGN_LABELS = { left: '左对齐', center: '居中', right: '右对齐', justify: '两端对齐' }
 
-onMounted(async () => {
+async function loadTemplates() {
+  loading.value = true
+  error.value = ''
   try { templates.value = await fetchTemplates() }
-  catch (e) { error.value = e.message }
-})
+  catch (e) { error.value = e.message || t('common.operationFailed') }
+  finally { loading.value = false }
+}
+
+onMounted(loadTemplates)
 
 function createNew() {
   router.push({ path: '/templates/new/edit' })
@@ -124,7 +209,7 @@ async function onImportPick(e) {
   try {
     importResult.value = await importDocxTemplate(f)
   } catch (err) {
-    error.value = err.message
+    error.value = err.message || t('common.operationFailed')
   } finally {
     importing.value = false
   }
@@ -137,7 +222,7 @@ async function downloadWithoutComments() {
   try {
     stripResult.value = await stripTemplateComments(importFile.value)
   } catch (err) {
-    error.value = err.message
+    error.value = err.message || t('common.operationFailed')
   } finally {
     strippingComments.value = false
   }
@@ -195,8 +280,8 @@ async function createFromImport() {
     const importedMeta = importResult.value.meta_fields || []
     const tpl = {
       id: '',
-      name: importResult.value.filename.replace(/\.docx$/i, '') + ' (导入)',
-      description: '由 Word 模板自动识别生成: ' + importResult.value.style_names.join('、'),
+      name: importResult.value.filename.replace(/\.docx$/i, '') + ` (${t('templates.importWord')})`,
+      description: t('templates.importDescription', { styles: importResult.value.style_names.join(lang.value === 'zh' ? '、' : ', ') }),
       sections: mergeImportedSections(
         importResult.value.sections && importResult.value.sections.length
           ? importResult.value.sections : [],
@@ -214,82 +299,309 @@ async function createFromImport() {
     importResult.value = null
     importFile.value = null
     stripResult.value = null
-    templates.value = await fetchTemplates()
+    await loadTemplates()
     router.push('/templates/' + saved.id + '/edit')
   } catch (err) {
-    error.value = err.message
+    error.value = err.message || t('common.operationFailed')
   } finally {
     saving.value = false
   }
 }
 
 async function remove(t) {
-  if (!confirm(`确定删除模板「${t.name}」?`)) return
-  error.value = ''
-  try {
+  confirmDialog.value = { open: true, title: t('templates.deleteTitle', { name: t.name }), description: t('templates.deleteDescription'), confirmLabel: t('templates.confirmDelete'), danger: true, action: async () => {
+    error.value = ''
     await deleteTemplateApi(t.id)
-    templates.value = await fetchTemplates()
-  } catch (e) {
-    error.value = e.message
-  }
+    await loadTemplates()
+  } }
 }
 
-function shortDate(s) { return s ? s.slice(0, 10) : '' }
-function styleLabel(k) { return STYLE_LABELS[k] || k }
-function alignLabel(a) { return ALIGN_LABELS[a] || a }
+function closeConfirmDialog() { if (confirmBusy.value) return; confirmDialog.value.open = false; confirmDialog.value.action = null }
+async function confirmAction() {
+  const action = confirmDialog.value.action
+  if (!action || confirmBusy.value) return
+  confirmBusy.value = true
+  try { await action() } catch (e) { error.value = e.message || t('common.operationFailed') } finally { confirmBusy.value = false; closeConfirmDialog() }
+}
+
+function shortDate(s) { return s ? formatDate(s, { year: 'numeric', month: '2-digit', day: '2-digit' }) : '-' }
+function styleLabel(k) { return t(STYLE_KEYS[k] || k) }
+function alignLabel(a) { return t(`editor.${a}`) }
 </script>
 
 <style scoped>
-.import-result {
-  border: 1px solid var(--primary-200);
-  background: var(--primary-50);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  margin-bottom: 24px;
-  box-shadow: var(--shadow-sm);
+.template-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 288px;
+  gap: 18px;
+  align-items: start;
 }
+
+.template-list-panel,
+.template-side-note {
+  min-width: 0;
+}
+
+.template-list-actions,
+.template-toolbar,
+.template-row-actions,
+.template-row-meta,
+.import-actions,
+.readonly-note,
+.readonly-label {
+  display: flex;
+  align-items: center;
+}
+
+.template-list-actions {
+  gap: 10px;
+}
+
+.template-count {
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.template-toolbar {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.readonly-note {
+  gap: 7px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
+.readonly-note .material-symbols-outlined {
+  color: var(--primary);
+  font-size: 18px;
+}
+
+.template-list {
+  border-top: 1px solid var(--border);
+}
+
+.template-list-panel .template-toolbar + .template-list {
+  border-top: 0;
+}
+
+.template-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.template-row:last-child {
+  border-bottom: 0;
+}
+
+.template-row:hover {
+  background: var(--surface-container-low);
+}
+
+.template-row-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--primary-fixed-dim);
+  border-radius: var(--radius-sm);
+  background: var(--surface-container-low);
+  color: var(--primary);
+}
+
+.template-row-main {
+  min-width: 0;
+}
+
+.template-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.template-row-title h3 {
+  overflow: hidden;
+  margin: 0;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-row-main > p {
+  overflow: hidden;
+  margin: 4px 0 8px;
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-state {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--primary-fixed);
+  color: var(--on-primary-fixed);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.template-row-meta {
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--on-surface-variant);
+  font-size: 11px;
+}
+
+.template-row-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.template-row-meta .material-symbols-outlined {
+  color: var(--primary);
+  font-size: 14px;
+}
+
+.template-row-meta code {
+  overflow-wrap: anywhere;
+  color: var(--outline);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.template-row-actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.readonly-label {
+  gap: 4px;
+  color: var(--outline);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.readonly-label .material-symbols-outlined {
+  font-size: 15px;
+}
+
+.import-result {
+  margin-bottom: 18px;
+}
+
+.import-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 .style-table-wrap {
   overflow-x: auto;
   max-width: 100%;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--slate-200);
   margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
+
 .style-table {
   min-width: 760px;
   width: 100%;
   border-collapse: collapse;
+  background: var(--surface-container-lowest);
   font-size: 13px;
-  background: #fff;
 }
+
 .style-table th, .style-table td {
-  border: 1px solid var(--slate-200);
   padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
   text-align: left;
 }
-.style-table th {
-  background: var(--slate-50);
-  color: var(--slate-600);
-  font-weight: 600;
+
+.style-table tr:last-child td {
+  border-bottom: 0;
 }
+
+.style-table th {
+  background: var(--surface-container-low);
+  color: var(--on-surface-variant);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .strip-result {
-  color: var(--success-text);
+  color: #15803d;
   font-size: 13px;
   font-weight: 500;
 }
-.head-row {
+
+.template-side-note {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--on-surface-variant);
 }
-.readonly-tag {
-  background: var(--slate-100);
-  color: var(--slate-600);
+
+.template-side-note > .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-size: 20px;
+}
+
+.template-side-note strong {
+  display: block;
+  color: var(--on-surface);
+  font-size: 13px;
+}
+
+.template-side-note p {
+  margin-top: 5px;
   font-size: 12px;
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .template-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .template-side-note {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .template-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .template-row-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .template-row-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+    margin-top: -3px;
+  }
+
+  .template-row-main > p {
+    white-space: normal;
+  }
 }
 </style>

@@ -1,7 +1,7 @@
 """PaperGuard 写作项目数据模型。
 
 项目 = 模板实例化后的章节树 + 每章内容(内容块)。
-内容块支持三种类型: 文本段落 / 图片 / 表格, 排版样式完全由模板决定。
+内容块支持文本段落 / 图片 / 表格 / Office 公式, 排版样式完全由模板决定。
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ class BlockType(str, Enum):
     PARAGRAPH = "paragraph"
     IMAGE = "image"
     TABLE = "table"
+    EQUATION = "equation"
 
 
 class ImageBlock(BaseModel):
@@ -30,6 +31,13 @@ class TableBlock(BaseModel):
     cols: int = Field(default=2, ge=1, le=20)
     cells: list[list[str]] = []   # rows x cols
     caption: str = ""             # 题注文本 (表 3.1 xxx)
+    source_xml: str = Field(default="", max_length=600_000)
+
+
+class EquationBlock(BaseModel):
+    """Imported Office Math block; OMML is retained for lossless export."""
+    omml: str = ""
+    alt_text: str = ""
 
 
 class ParagraphBlock(BaseModel):
@@ -44,6 +52,7 @@ class ParagraphBlock(BaseModel):
     vert_align: str | None = None
     image: ImageBlock | None = None
     table: TableBlock | None = None
+    equation: EquationBlock | None = None
 
 
 class ProjectSection(BaseModel):
@@ -78,5 +87,6 @@ class WritingProject(BaseModel):
     meta: dict[str, str] = {}          # 封面字段值 key -> value
     sections: list[ProjectSection] = []
     allow_structure_edit: bool = True  # 是否允许学生修改整体论文的框架
+    deleted_at: str = ""               # 软删除时间；进入回收站后保留引用和附件
     created_at: str = ""
     updated_at: str = ""

@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import io
+import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -39,6 +41,44 @@ def test_health():
     resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+    assert resp.headers["x-request-id"].startswith("req-")
+    assert len(resp.headers["x-request-id"]) == 20
+
+
+def test_health_probes():
+    live = client.get("/api/health/live")
+    ready = client.get("/api/health/ready")
+    assert live.status_code == 200
+    assert live.json() == {"status": "ok", "service": "paperguard", "probe": "live"}
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ok", "service": "paperguard", "probe": "ready"}
+    assert live.headers["x-request-id"].startswith("req-")
+    assert ready.headers["x-request-id"].startswith("req-")
+
+
+def test_authenticated_request_logs_correlated_context_without_sensitive_content(caplog):
+    caplog.set_level(logging.INFO, logger="paperguard.http")
+    response = client.get("/api/auth/me")
+    assert response.status_code == 200
+    request_id = response.headers["x-request-id"]
+    events = [json.loads(record.getMessage()) for record in caplog.records if record.name == "paperguard.http"]
+    completed = next(item for item in events if item["event"] == "http.request.completed" and item["request_id"] == request_id)
+    assert completed["actor_id"] == "user-admin"
+    assert completed["role"] == "admin"
+    assert completed["path"] == "/api/auth/me"
+    serialized = " ".join(record.getMessage() for record in caplog.records)
+    assert "Bearer " not in serialized and "TestAdminPassword123" not in serialized
+
+
+def test_unauthenticated_request_completion_log_keeps_request_id(caplog):
+    caplog.set_level(logging.INFO, logger="paperguard.http")
+    response = client.get("/api/auth/me", headers={"Authorization": "Bearer invalid-token"})
+    assert response.status_code == 401
+    request_id = response.headers["x-request-id"]
+    events = [json.loads(record.getMessage()) for record in caplog.records if record.name == "paperguard.http"]
+    completed = next(item for item in events if item["event"] == "http.request.completed" and item["request_id"] == request_id)
+    assert completed["actor_id"] == ""
+    assert completed["role"] == ""
 
 
 def test_list_packs():
@@ -62,6 +102,7 @@ def test_pack_detail():
 def test_pack_detail_404():
     resp = client.get("/api/packs/not-exist")
     assert resp.status_code == 404
+    assert resp.headers["x-request-id"].startswith("req-")
 
 
 def test_logout_revokes_token():
@@ -234,6 +275,19 @@ def test_fix_returns_new_docx(sample_paper: bytes):
     )
     assert "fixed_paper.docx" in resp.headers["content-disposition"]
     assert resp.content[:2] == b"PK"
+    DocxDocument(io.BytesIO(resp.content))
+
+
+def test_fix_encodes_non_ascii_filename_with_ascii_fallback(sample_paper: bytes):
+    resp = client.post(
+        "/api/fix",
+        files={"file": ("sample_paper.docx", sample_paper, "application/octet-stream")},
+        data={"filename": "王俞尹-4.7-fixed.docx"},
+    )
+    assert resp.status_code == 200
+    disposition = resp.headers["content-disposition"]
+    assert 'filename="fixed.docx"' in disposition
+    assert "filename*=UTF-8''%E7%8E%8B%E4%BF%9E%E5%B0%B9-4.7-fixed.docx" in disposition
     DocxDocument(io.BytesIO(resp.content))
 
 

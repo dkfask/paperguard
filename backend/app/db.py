@@ -11,8 +11,10 @@ import json
 import os
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Iterator
 
 from app.models.project import WritingProject
 from app.models.organization import OrganizationUnit
@@ -20,6 +22,7 @@ from app.models.policy import CheckRun, PolicyAuditEvent, RequirementSet
 from app.models.template import PaperTemplate
 
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "paperguard.db"
+SCHEMA_MIGRATIONS = ("0001_runtime_schema", "0002_durable_jobs", "0003_audit_ledger")
 
 
 def _default_db_path() -> Path:
@@ -44,9 +47,19 @@ class Store:
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path)
+        conn = sqlite3.connect(self._db_path, timeout=10)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout = 10000")
+        conn.execute("PRAGMA foreign_keys = ON")
         return conn
+
+    def list_schema_migrations(self) -> list[dict[str, str]]:
+        """Return the applied migration ledger in deterministic order."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT version, applied_at FROM schema_migrations ORDER BY version"
+            ).fetchall()
+        return [{"version": row["version"], "applied_at": row["applied_at"]} for row in rows]
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
@@ -114,9 +127,104 @@ class Store:
                     data TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS workflow_records (
+                    kind TEXT NOT NULL,
+                    id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (kind, id)
+                );
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    id TEXT PRIMARY KEY,
+                    actor_id TEXT NOT NULL DEFAULT '',
+                    action TEXT NOT NULL,
+                    resource_type TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    organization_id TEXT NOT NULL DEFAULT '',
+                    result TEXT NOT NULL DEFAULT 'success',
+                    reason TEXT NOT NULL DEFAULT '',
+                    request_id TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_workflow_records_kind_updated
+                    ON workflow_records (kind, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_audit_events_created
+                    ON audit_events (created_at DESC, id DESC);
+                CREATE INDEX IF NOT EXISTS idx_audit_events_scope
+                    ON audit_events (organization_id, resource_type, action, created_at DESC);
+                CREATE TABLE IF NOT EXISTS workflow_idempotency (
+                    user_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    idem_key TEXT NOT NULL,
+                    request_hash TEXT NOT NULL,
+                    response TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, action, idem_key)
+                );
+                CREATE TABLE IF NOT EXISTS workflow_events (
+                    id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    recipient_id TEXT NOT NULL,
+                    resource_type TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    dedupe_key TEXT UNIQUE NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    read_at TEXT,
+                    delivery_status TEXT NOT NULL DEFAULT 'pending',
+                    delivered_at TEXT,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    lease_until TEXT,
+                    lease_token TEXT,
+                    leased_by TEXT,
+                    last_error TEXT
+                );
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY,
+                    job_type TEXT NOT NULL,
+                    resource_type TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'queued',
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    max_attempts INTEGER NOT NULL DEFAULT 5,
+                    available_at TEXT NOT NULL,
+                    lease_until TEXT,
+                    lease_token TEXT,
+                    leased_by TEXT,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    completed_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_jobs_claim
+                    ON jobs (job_type, state, available_at, created_at);
+                CREATE INDEX IF NOT EXISTS idx_jobs_resource
+                    ON jobs (resource_type, resource_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_workflow_events_recipient
+                    ON workflow_events (recipient_id, created_at DESC);
                 UPDATE projects
                 SET data = json_set(data, '$.revision', 0)
                 WHERE json_extract(data, '$.revision') IS NULL;
+                INSERT OR IGNORE INTO audit_events
+                    (id, actor_id, action, resource_type, resource_id, organization_id, result, reason, request_id, created_at)
+                SELECT
+                    json_extract(data, '$.id'),
+                    COALESCE(json_extract(data, '$.actor_id'), ''),
+                    COALESCE(json_extract(data, '$.action'), ''),
+                    COALESCE(json_extract(data, '$.resource_type'), ''),
+                    COALESCE(json_extract(data, '$.resource_id'), ''),
+                    COALESCE(json_extract(data, '$.organization_id'), ''),
+                    COALESCE(json_extract(data, '$.result'), 'success'),
+                    COALESCE(json_extract(data, '$.reason'), ''),
+                    COALESCE(json_extract(data, '$.request_id'), ''),
+                    COALESCE(json_extract(data, '$.created_at'), created_at)
+                FROM workflow_records
+                WHERE kind = 'audit' AND json_extract(data, '$.id') IS NOT NULL;
                 """
             )
             columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
@@ -134,12 +242,48 @@ class Store:
                 conn.execute("ALTER TABLE users ADD COLUMN ai_config TEXT")
             if "organization_context" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN organization_context TEXT")
+            event_columns = {row[1] for row in conn.execute("PRAGMA table_info(workflow_events)")}
+            if "delivered_at" not in event_columns:
+                conn.execute("ALTER TABLE workflow_events ADD COLUMN delivered_at TEXT")
+            if "attempt_count" not in event_columns:
+                conn.execute("ALTER TABLE workflow_events ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0")
+            if "lease_until" not in event_columns:
+                conn.execute("ALTER TABLE workflow_events ADD COLUMN lease_until TEXT")
+            if "lease_token" not in event_columns:
+                conn.execute("ALTER TABLE workflow_events ADD COLUMN lease_token TEXT")
+            if "leased_by" not in event_columns:
+                conn.execute("ALTER TABLE workflow_events ADD COLUMN leased_by TEXT")
+            if "last_error" not in event_columns:
+                conn.execute("ALTER TABLE workflow_events ADD COLUMN last_error TEXT")
+            for version in SCHEMA_MIGRATIONS:
+                conn.execute(
+                    "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                    (version, _now()),
+                )
 
     # ------------------------------ users --------------------------------
 
     def save_user(self, user: dict) -> dict:
         """保存用户, 兼容旧数据库新增的账号与组织字段。"""
-        sql = "INSERT OR REPLACE INTO users (id, username, password_hash, salt, role, display_name, token, must_change_password, status, teacher_id, ai_config, organization_context, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        sql = """
+            INSERT INTO users (id, username, password_hash, salt, role, display_name, token,
+                               must_change_password, status, teacher_id, ai_config,
+                               organization_context, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                username = excluded.username,
+                password_hash = excluded.password_hash,
+                salt = excluded.salt,
+                role = excluded.role,
+                display_name = excluded.display_name,
+                token = excluded.token,
+                must_change_password = excluded.must_change_password,
+                status = excluded.status,
+                teacher_id = excluded.teacher_id,
+                ai_config = excluded.ai_config,
+                organization_context = excluded.organization_context,
+                created_at = excluded.created_at
+        """
         params = (
             user["id"], user["username"], user["password_hash"], user["salt"],
             user["role"], user["display_name"], user.get("token"),
@@ -447,6 +591,52 @@ class Store:
             )
         return event
 
+    # ---------------------------- audit ledger ---------------------------
+
+    @staticmethod
+    def _audit_payload(event: dict) -> tuple:
+        return (
+            str(event.get("id") or new_id("audit")),
+            str(event.get("actor_id") or ""),
+            str(event.get("action") or ""),
+            str(event.get("resource_type") or ""),
+            str(event.get("resource_id") or ""),
+            str(event.get("organization_id") or ""),
+            str(event.get("result") or "success"),
+            str(event.get("reason") or "")[:4000],
+            str(event.get("request_id") or ""),
+            str(event.get("created_at") or _now()),
+        )
+
+    def save_audit_event_conn(self, conn: sqlite3.Connection, event: dict) -> dict:
+        """Write metadata-only audit evidence in its dedicated ledger."""
+        payload = self._audit_payload(event)
+        conn.execute(
+            "INSERT OR REPLACE INTO audit_events "
+            "(id, actor_id, action, resource_type, resource_id, organization_id, result, reason, request_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            payload,
+        )
+        return {
+            "id": payload[0], "actor_id": payload[1], "action": payload[2],
+            "resource_type": payload[3], "resource_id": payload[4],
+            "organization_id": payload[5], "result": payload[6],
+            "reason": payload[7], "request_id": payload[8], "created_at": payload[9],
+        }
+
+    def save_audit_event(self, event: dict) -> dict:
+        with self._connect() as conn:
+            return self.save_audit_event_conn(conn, event)
+
+    def list_audit_events(self, limit: int = 5000) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, actor_id, action, resource_type, resource_id, organization_id, result, reason, request_id, created_at "
+                "FROM audit_events ORDER BY created_at DESC, id DESC LIMIT ?",
+                (max(1, min(int(limit), 10000)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_policy_audits(self, policy_id: str, limit: int = 100) -> list[PolicyAuditEvent]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -454,6 +644,473 @@ class Store:
                 (policy_id, max(1, min(limit, 500))),
             ).fetchall()
         return [PolicyAuditEvent.model_validate_json(row["data"]) for row in rows]
+
+    # --------------------------- workflow records -------------------------
+
+    @contextmanager
+    def workflow_transaction(self) -> Iterator[sqlite3.Connection]:
+        """事务性地执行跨工作流对象的状态变更和事件写入。"""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _workflow_payload(record: dict) -> str:
+        return json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+
+    def save_workflow_record_conn(
+        self,
+        conn: sqlite3.Connection,
+        kind: str,
+        record: dict,
+        *,
+        expected_revision: int | None = None,
+    ) -> dict | None:
+        """在调用方事务中保存工作流对象; expected_revision 用于乐观锁。"""
+        now = _now()
+        record = dict(record)
+        record.setdefault("revision", 0)
+        record.setdefault("created_at", now)
+        record["updated_at"] = now
+        if expected_revision is None:
+            conn.execute(
+                "INSERT OR REPLACE INTO workflow_records (kind, id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (kind, record["id"], self._workflow_payload(record), record["created_at"], now),
+            )
+            return record
+
+        next_revision = expected_revision + 1
+        record["revision"] = next_revision
+        cur = conn.execute(
+            "UPDATE workflow_records SET data = ?, updated_at = ? WHERE kind = ? AND id = ? "
+            "AND json_extract(data, '$.revision') = ?",
+            (self._workflow_payload(record), now, kind, record["id"], expected_revision),
+        )
+        return record if cur.rowcount == 1 else None
+
+    def save_workflow_record(
+        self,
+        kind: str,
+        record: dict,
+        *,
+        expected_revision: int | None = None,
+    ) -> dict | None:
+        with self._connect() as conn:
+            return self.save_workflow_record_conn(
+                conn, kind, record, expected_revision=expected_revision
+            )
+
+    def get_workflow_record(self, kind: str, record_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM workflow_records WHERE kind = ? AND id = ?",
+                (kind, record_id),
+            ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def list_workflow_records(self, kind: str, limit: int = 500) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT data FROM workflow_records WHERE kind = ? ORDER BY updated_at DESC LIMIT ?",
+                (kind, max(1, min(limit, 5000))),
+            ).fetchall()
+        return [json.loads(row["data"]) for row in rows]
+
+    def delete_workflow_record(self, kind: str, record_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM workflow_records WHERE kind = ? AND id = ?",
+                (kind, record_id),
+            )
+            return cur.rowcount == 1
+
+    def get_workflow_idempotency(
+        self, user_id: str, action: str, idem_key: str
+    ) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM workflow_idempotency WHERE user_id = ? AND action = ? AND idem_key = ?",
+                (user_id, action, idem_key),
+            ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["response"] = json.loads(result["response"])
+        return result
+
+    def save_workflow_idempotency_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        user_id: str,
+        action: str,
+        idem_key: str,
+        request_hash: str,
+        response: dict,
+    ) -> None:
+        conn.execute(
+            "INSERT INTO workflow_idempotency (user_id, action, idem_key, request_hash, response, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                user_id,
+                action,
+                idem_key,
+                request_hash,
+                json.dumps(response, ensure_ascii=False, separators=(",", ":")),
+                _now(),
+            ),
+        )
+
+    def save_workflow_event_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        event_type: str,
+        recipient_id: str,
+        resource_type: str,
+        resource_id: str,
+        dedupe_key: str,
+        data: dict,
+    ) -> bool:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO workflow_events "
+            "(id, event_type, recipient_id, resource_type, resource_id, dedupe_key, data, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                new_id("event"), event_type, recipient_id, resource_type, resource_id,
+                dedupe_key, json.dumps(data, ensure_ascii=False, separators=(",", ":")), _now(),
+            ),
+        )
+        return cur.rowcount == 1
+
+    # ------------------------------ durable jobs --------------------------
+
+    def create_job_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        job_id: str,
+        job_type: str,
+        resource_type: str,
+        resource_id: str,
+        max_attempts: int = 5,
+        available_at: str | None = None,
+    ) -> dict:
+        """Create a durable job in the caller's transaction."""
+        now = _now()
+        job = {
+            "id": job_id,
+            "job_type": job_type,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "state": "queued",
+            "attempt_count": 0,
+            "max_attempts": max(1, min(int(max_attempts), 20)),
+            "available_at": available_at or now,
+            "lease_until": None,
+            "lease_token": None,
+            "leased_by": None,
+            "last_error": None,
+            "created_at": now,
+            "updated_at": now,
+            "completed_at": None,
+        }
+        conn.execute(
+            "INSERT OR IGNORE INTO jobs "
+            "(id, job_type, resource_type, resource_id, state, attempt_count, max_attempts, available_at, "
+            "lease_until, lease_token, leased_by, last_error, created_at, updated_at, completed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            tuple(job[key] for key in (
+                "id", "job_type", "resource_type", "resource_id", "state", "attempt_count",
+                "max_attempts", "available_at", "lease_until", "lease_token", "leased_by",
+                "last_error", "created_at", "updated_at", "completed_at",
+            )),
+        )
+        return job
+
+    @staticmethod
+    def _job_row(row: sqlite3.Row | None) -> dict | None:
+        return dict(row) if row else None
+
+    def get_job(self, job_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = self.get_job_conn(conn, job_id)
+        return self._job_row(row)
+
+    @staticmethod
+    def get_job_conn(conn: sqlite3.Connection, job_id: str) -> sqlite3.Row | None:
+        return conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+
+    def list_jobs(
+        self,
+        *,
+        job_type: str | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        states: tuple[str, ...] | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if job_type:
+            clauses.append("job_type = ?"); params.append(job_type)
+        if resource_type:
+            clauses.append("resource_type = ?"); params.append(resource_type)
+        if resource_id:
+            clauses.append("resource_id = ?"); params.append(resource_id)
+        if states:
+            marks = ",".join("?" for _ in states)
+            clauses.append(f"state IN ({marks})"); params.extend(states)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM jobs {where} ORDER BY created_at ASC LIMIT ?",
+                (*params, max(1, min(int(limit), 1000))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def claim_jobs(
+        self,
+        *,
+        job_type: str,
+        consumer_id: str,
+        limit: int = 20,
+        lease_seconds: int = 120,
+    ) -> list[dict]:
+        """Atomically claim queued jobs and recover expired leases."""
+        now = datetime.now(timezone.utc)
+        now_text = now.isoformat(timespec="seconds")
+        lease_until = (now + timedelta(seconds=max(10, min(int(lease_seconds), 900)))).isoformat(timespec="seconds")
+        claimed: list[dict] = []
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE job_type = ? AND "
+                "((state = 'queued' AND available_at <= ?) OR "
+                "(state = 'running' AND lease_until IS NOT NULL AND lease_until <= ?) OR "
+                "(state = 'failed' AND attempt_count < max_attempts AND available_at <= ?)) "
+                "ORDER BY created_at ASC LIMIT ?",
+                (job_type, now_text, now_text, now_text, max(1, min(int(limit), 200))),
+            ).fetchall()
+            for row in rows:
+                token = uuid.uuid4().hex
+                attempt = int(row["attempt_count"] or 0) + 1
+                cur = conn.execute(
+                    "UPDATE jobs SET state = 'running', attempt_count = ?, lease_until = ?, lease_token = ?, "
+                    "leased_by = ?, last_error = NULL, updated_at = ? WHERE id = ?",
+                    (attempt, lease_until, token, consumer_id, now_text, row["id"]),
+                )
+                if cur.rowcount != 1:
+                    continue
+                updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
+                item = dict(updated)
+                claimed.append(item)
+            conn.commit()
+        return claimed
+
+    def complete_job(self, job_id: str, *, lease_token: str = "") -> dict | None:
+        now = _now()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET state = 'succeeded', lease_until = NULL, lease_token = NULL, leased_by = NULL, "
+                "completed_at = ?, updated_at = ? WHERE id = ? AND state = 'running' "
+                "AND (lease_token IS NULL OR lease_token = '' OR lease_token = ?)",
+                (now, now, job_id, lease_token),
+            )
+            if cur.rowcount != 1:
+                return None
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return self._job_row(row)
+
+    def fail_job(
+        self,
+        job_id: str,
+        *,
+        error: str,
+        lease_token: str = "",
+        retry_delay_seconds: int = 0,
+    ) -> dict | None:
+        """Persist a failure and requeue until max_attempts, then park it."""
+        now = datetime.now(timezone.utc)
+        now_text = now.isoformat(timespec="seconds")
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if not row or row["state"] != "running" or (row["lease_token"] and row["lease_token"] != lease_token):
+                return None
+            attempts = int(row["attempt_count"] or 0)
+            next_state = "failed" if attempts >= int(row["max_attempts"] or 1) else "queued"
+            available_at = (now + timedelta(seconds=max(0, int(retry_delay_seconds)))).isoformat(timespec="seconds")
+            conn.execute(
+                "UPDATE jobs SET state = ?, available_at = ?, lease_until = NULL, lease_token = NULL, leased_by = NULL, "
+                "last_error = ?, updated_at = ? WHERE id = ?",
+                (next_state, available_at, error[:2000], now_text, job_id),
+            )
+            updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return self._job_row(updated)
+
+    def retry_job(self, job_id: str, reason: str = "") -> dict | None:
+        with self._connect() as conn:
+            return self.retry_job_conn(conn, job_id, reason)
+
+    def retry_job_conn(self, conn: sqlite3.Connection, job_id: str, reason: str = "") -> dict | None:
+        now = _now()
+        cur = conn.execute(
+            "UPDATE jobs SET state = 'queued', attempt_count = 0, available_at = ?, lease_until = NULL, "
+            "lease_token = NULL, leased_by = NULL, last_error = ?, completed_at = NULL, updated_at = ? "
+            "WHERE id = ? AND state IN ('failed', 'queued')",
+            (now, reason[:2000] if reason else "管理员手动重试", now, job_id),
+        )
+        if cur.rowcount != 1:
+            return None
+        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return self._job_row(row)
+
+    def list_workflow_events(self, recipient_id: str, *, unread_only: bool = False) -> list[dict]:
+        where = "AND read_at IS NULL" if unread_only else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM workflow_events WHERE recipient_id = ? {where} ORDER BY created_at DESC LIMIT 200",
+                (recipient_id,),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["data"] = json.loads(item["data"])
+            result.append(item)
+        return result
+
+    def list_pending_workflow_events(self, limit: int = 200) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workflow_events WHERE delivery_status != 'delivered' ORDER BY created_at ASC LIMIT ?",
+                (max(1, min(limit, 1000)),),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["data"] = json.loads(item["data"])
+            result.append(item)
+        return result
+
+    def mark_workflow_event_read(self, recipient_id: str, event_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE workflow_events SET read_at = COALESCE(read_at, ?) "
+                "WHERE id = ? AND recipient_id = ?",
+                (_now(), event_id, recipient_id),
+            )
+            return cur.rowcount == 1
+
+    def mark_workflow_event_delivered(self, event_id: str) -> bool:
+        """Acknowledge one durable outbox item after an external consumer accepts it."""
+        return self.mark_workflow_event_delivered_with_lease(event_id)
+
+    def mark_workflow_event_delivered_with_lease(self, event_id: str, lease_token: str = "") -> bool:
+        """Acknowledge an event, requiring the active lease token when it is leased."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE workflow_events SET delivery_status = 'delivered', delivered_at = COALESCE(delivered_at, ?), "
+                "lease_until = NULL, lease_token = NULL, leased_by = NULL "
+                "WHERE id = ? AND delivery_status != 'delivered' "
+                "AND (lease_token IS NULL OR lease_token = '' OR lease_token = ?)",
+                (_now(), event_id, lease_token),
+            )
+            return cur.rowcount == 1
+
+    def claim_workflow_events(
+        self,
+        event_ids: list[str],
+        *,
+        consumer_id: str,
+        lease_seconds: int = 120,
+        max_attempts: int = 5,
+    ) -> list[dict]:
+        """Atomically claim eligible events; expired leases can be recovered."""
+        if not event_ids:
+            return []
+        now = datetime.now(timezone.utc)
+        now_text = now.isoformat(timespec="seconds")
+        lease_until = (now + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
+        claimed: list[dict] = []
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for event_id in dict.fromkeys(event_ids):
+                row = conn.execute(
+                    "SELECT * FROM workflow_events WHERE id = ?", (event_id,)
+                ).fetchone()
+                if row is None or row["delivery_status"] == "delivered":
+                    continue
+                active_lease = row["delivery_status"] == "processing" and row["lease_until"] and row["lease_until"] > now_text
+                if active_lease or (
+                    row["delivery_status"] == "failed" and int(row["attempt_count"] or 0) >= max_attempts
+                ):
+                    continue
+                token = uuid.uuid4().hex
+                cur = conn.execute(
+                    "UPDATE workflow_events SET delivery_status = 'processing', attempt_count = ?, "
+                    "lease_until = ?, lease_token = ?, leased_by = ?, last_error = NULL "
+                    "WHERE id = ? AND delivery_status != 'delivered'",
+                    (int(row["attempt_count"] or 0) + 1, lease_until, token, consumer_id, event_id),
+                )
+                if cur.rowcount != 1:
+                    continue
+                updated = conn.execute(
+                    "SELECT * FROM workflow_events WHERE id = ?", (event_id,)
+                ).fetchone()
+                item = dict(updated)
+                item["data"] = json.loads(item["data"])
+                claimed.append(item)
+            conn.commit()
+        return claimed
+
+    def fail_workflow_event(
+        self,
+        event_id: str,
+        *,
+        error: str,
+        lease_token: str = "",
+        max_attempts: int = 5,
+    ) -> dict | None:
+        """Release a lease and either return the event to pending or park it as failed."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM workflow_events WHERE id = ?", (event_id,)).fetchone()
+            if row is None or row["delivery_status"] == "delivered":
+                return None
+            if row["lease_token"] and row["lease_token"] != lease_token:
+                return None
+            next_status = "failed" if int(row["attempt_count"] or 0) >= max_attempts else "pending"
+            conn.execute(
+                "UPDATE workflow_events SET delivery_status = ?, lease_until = NULL, lease_token = NULL, "
+                "leased_by = NULL, last_error = ? WHERE id = ? AND delivery_status != 'delivered'",
+                (next_status, error, event_id),
+            )
+            updated = conn.execute("SELECT * FROM workflow_events WHERE id = ?", (event_id,)).fetchone()
+        item = dict(updated)
+        item["data"] = json.loads(item["data"])
+        return item
+
+    def retry_workflow_event(self, event_id: str, reason: str = "") -> dict | None:
+        """Reset a parked event for an explicit operator retry."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE workflow_events SET delivery_status = 'pending', attempt_count = 0, "
+                "lease_until = NULL, lease_token = NULL, leased_by = NULL, last_error = ? "
+                "WHERE id = ? AND delivery_status = 'failed'",
+                (reason or "管理员手动重试", event_id),
+            )
+            if cur.rowcount != 1:
+                return None
+            row = conn.execute("SELECT * FROM workflow_events WHERE id = ?", (event_id,)).fetchone()
+        item = dict(row)
+        item["data"] = json.loads(item["data"])
+        return item
 
     # ---------------------------- projects -----------------------------
 
@@ -491,6 +1148,28 @@ class Store:
             if cur.rowcount != 1:
                 return None
         return proj
+
+    def update_project_check_runs(
+        self,
+        project_id: str,
+        check_run_ids: list[str],
+        expected_revision: int,
+    ) -> WritingProject | None:
+        """Attach check history without changing or replacing manuscript content."""
+        project = self.get_project(project_id)
+        if project is None or project.revision != expected_revision:
+            return None
+        project.check_run_ids = list(check_run_ids)
+        project.updated_at = _now()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE projects SET data = ?, updated_at = ? "
+                "WHERE id = ? AND json_extract(data, '$.revision') = ?",
+                (project.model_dump_json(), project.updated_at, project.id, expected_revision),
+            )
+            if cur.rowcount != 1:
+                return None
+        return project
 
     def get_project(self, proj_id: str) -> WritingProject | None:
         with self._connect() as conn:

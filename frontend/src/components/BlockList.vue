@@ -4,23 +4,23 @@
     <input ref="imgInput" type="file" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp" hidden @change="onImagePicked" />
     <div v-for="(par, i) in paragraphs" :key="par.id" class="para-block">
       <div class="para-toolbar">
-        <span class="para-no">第 {{ i + 1 }} 块</span>
+        <span class="para-no">{{ t('blockList.block', { number: i + 1 }) }}</span>
 
         <!-- 文本行内格式 -->
-        <template v-if="par.type !== 'image' && par.type !== 'table'">
+        <template v-if="!['image', 'table', 'equation'].includes(par.type)">
           <button class="tiny" :class="{ on: par.bold }" @click="toggle(par, 'bold')"><b>B</b></button>
           <button class="tiny" :class="{ on: par.italic }" @click="toggle(par, 'italic')"><i>I</i></button>
           <button class="tiny" :class="{ on: par.underline }" @click="toggle(par, 'underline')"><u>U</u></button>
           <template v-if="aiEnabled">
             <button class="tiny ai" :disabled="aiBusy" @click="emit('ai', { action: 'polish', index: i })">
-              {{ aiBusy && aiBusy.index === i && aiBusy.action === 'polish' ? '✨润色中…' : '✨润色' }}
+              {{ aiBusy && aiBusy.index === i && aiBusy.action === 'polish' ? t('blockList.polishing') : t('blockList.polish') }}
             </button>
             <button class="tiny ai" :disabled="aiBusy" @click="emit('ai', { action: 'continue', index: i })">
-              {{ aiBusy && aiBusy.index === i && aiBusy.action === 'continue' ? '▶续写中…' : '▶续写' }}
+              {{ aiBusy && aiBusy.index === i && aiBusy.action === 'continue' ? t('blockList.continuing') : t('blockList.continue') }}
             </button>
           </template>
         </template>
-        <span v-else class="block-tag">{{ par.type === 'image' ? '🖼 图片' : '📊 表格' }}</span>
+        <span v-else class="block-tag">{{ par.type === 'image' ? t('blockList.image') : par.type === 'equation' ? t('blockList.equation') : t('blockList.table') }}</span>
 
         <button class="tiny" @click="move(i, -1)" :disabled="i === 0">↑</button>
         <button class="tiny" @click="move(i, 1)" :disabled="i === paragraphs.length - 1">↓</button>
@@ -28,34 +28,34 @@
       </div>
 
       <!-- 文本段落 -->
-      <textarea v-if="par.type !== 'image' && par.type !== 'table'"
+      <textarea v-if="!['image', 'table', 'equation'].includes(par.type)"
                 v-model="par.text" rows="4" class="para-text" :class="styleClass"
                 :style="styleVars"
-                :placeholder="'第 ' + (i + 1) + ' 段正文…'" @input="emitChange" @paste="onTextPaste($event, i)" />
+                :placeholder="t('blockList.paragraphPlaceholder', { number: i + 1 })" @input="emitChange" @paste="onTextPaste($event, i)" />
 
       <!-- 图片块 -->
       <div v-else-if="par.type === 'image'" class="image-block">
         <div v-if="par.image && par.image.url" class="image-preview">
-          <img :src="imageSrc(par.image.url)" alt="图片" />
-          <button class="tiny" :disabled="uploading" @click="replaceImage(par)">🔄 {{ uploading ? '上传中…' : '更换图片' }}</button>
+          <img :src="imageSrc(par.image.url)" :alt="t('blockList.image')" />
+          <button class="tiny" :disabled="uploading" @click="replaceImage(par)">🔄 {{ uploading ? t('blockList.uploading') : t('blockList.replaceImage') }}</button>
         </div>
         <div v-else class="image-upload" :class="{ disabled: uploading }" @click="uploadFor(par)">
           <div class="icon">🖼</div>
-          <div>{{ uploading ? '图片上传中…' : '点击上传图片 (png/jpg/gif/webp)' }}</div>
+          <div>{{ uploading ? t('blockList.imageUploading') : t('blockList.uploadImage') }}</div>
         </div>
         <div class="caption-row">
-          <span class="caption-num">图 {{ chapter }}.{{ figureIndex(i) }}</span>
+          <span class="caption-num">{{ t('blockList.figure', { chapter, number: figureIndex(i) }) }}</span>
           <input v-model="par.image.caption" class="caption-input"
-                 :placeholder="'题注文字, 如: ' + sectionTitle" @input="emitChange" />
+                 :placeholder="t('blockList.captionPlaceholder', { title: sectionTitle })" @input="emitChange" />
         </div>
       </div>
 
       <!-- 表格块 -->
       <div v-else-if="par.type === 'table'" class="table-block">
         <div class="table-size">
-          <label>行 <input type="number" min="1" max="50" v-model.number="par.table.rows" @change="resize(par)" /></label>
-          <label>列 <input type="number" min="1" max="20" v-model.number="par.table.cols" @change="resize(par)" /></label>
-          <span class="hint-sm">调整行列数后, 原内容保留</span>
+          <label>{{ t('blockList.rows') }} <input type="number" min="1" max="50" v-model.number="par.table.rows" @change="resize(par)" /></label>
+          <label>{{ t('blockList.columns') }} <input type="number" min="1" max="20" v-model.number="par.table.cols" @change="resize(par)" /></label>
+          <span class="hint-sm">{{ t('blockList.resizeHint') }}</span>
         </div>
         <table class="cell-grid">
           <tr v-for="(row, r) in par.table.cells" :key="r">
@@ -65,18 +65,24 @@
           </tr>
         </table>
         <div class="caption-row">
-          <span class="caption-num">表 {{ chapter }}.{{ tableIndex(i) }}</span>
+          <span class="caption-num">{{ t('blockList.tableNumber', { chapter, number: tableIndex(i) }) }}</span>
           <input v-model="par.table.caption" class="caption-input"
-                 :placeholder="'题注文字, 如: ' + sectionTitle" @input="emitChange" />
+                 :placeholder="t('blockList.captionPlaceholder', { title: sectionTitle })" @input="emitChange" />
         </div>
+      </div>
+
+      <div v-else-if="par.type === 'equation'" class="equation-block">
+        <span class="equation-mark">∑</span>
+        <span>{{ par.equation?.alt_text || t('blockList.officeEquation') }}</span>
+        <small>{{ t('blockList.officeEquationDetail') }}</small>
       </div>
     </div>
 
     <!-- 插入按钮 -->
     <div class="insert-row">
-      <button class="primary" @click="addParagraph">➕ 段落</button>
-      <button @click="addImage">🖼 图片</button>
-      <button @click="addTable">📊 表格</button>
+      <button class="primary" @click="addParagraph">➕ {{ t('blockList.addParagraph') }}</button>
+      <button @click="addImage">🖼 {{ t('blockList.addImage') }}</button>
+      <button @click="addTable">📊 {{ t('blockList.addTable') }}</button>
     </div>
   </div>
 </template>
@@ -84,6 +90,9 @@
 <script setup>
 import { ref, reactive, onBeforeUnmount } from 'vue'
 import { getPrivateImageUrl, uploadProjectImage } from '../api'
+import { useI18n } from '../i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   paragraphs: { type: Array, required: true },
@@ -204,7 +213,7 @@ async function uploadImage(file, target) {
     emit('change')
     return true
   } catch (err) {
-    uploadError.value = '图片上传失败: ' + err.message
+    uploadError.value = t('blockList.imageUploadFailed', { message: err.message })
     return false
   } finally {
     uploading.value = false
@@ -292,6 +301,9 @@ button.tiny.ai:disabled { opacity: .55; }
 .cell-grid td { border: 1px solid var(--border); padding: 2px; }
 .cell-grid input { width: 100%; border: none; padding: 6px 8px; font-size: 13px; text-align: center; }
 .cell-grid input:focus { outline: 1px solid var(--primary); }
+.equation-block { display: flex; align-items: center; gap: 10px; margin: 12px; padding: 14px 16px; border-left: 3px solid var(--primary); background: #f8fafc; color: var(--on-surface); }
+.equation-mark { font-size: 22px; color: var(--primary); }
+.equation-block small { margin-left: auto; color: var(--muted); }
 
 .insert-row { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
 @media (max-width: 600px) {

@@ -25,6 +25,7 @@ from docx.enum.text import WD_COLOR_INDEX
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
+from lxml import etree
 
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import Align, PaperTemplate, SectionType, TextStyle
@@ -785,6 +786,18 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
     if par.type.value == "table" and par.table:
         _export_table(doc, par.table, template, numbering)
         return
+    if par.type.value == "equation" and par.equation and par.equation.omml:
+        p = doc.add_paragraph()
+        _apply_paragraph_format(p, style)
+        try:
+            node = etree.fromstring(par.equation.omml.encode("utf-8"))
+            if etree.QName(node).localname != "oMath":
+                raise ValueError("公式节点类型不正确")
+            p._p.append(node)
+        except (etree.XMLSyntaxError, ValueError):
+            fallback = p.add_run(par.equation.alt_text or "[公式无法渲染]")
+            _apply_run_font(fallback, style)
+        return
     if not par.text:
         return
     p = doc.add_paragraph()
@@ -850,6 +863,17 @@ def _export_table(doc: Document, tbl, template: PaperTemplate | None,
     _apply_paragraph_format(cap, cap_style)
     run = cap.add_run(f"表 {num} {caption}".rstrip())
     _apply_run_font(run, cap_style)
+
+    if tbl.source_xml:
+        try:
+            source = etree.fromstring(tbl.source_xml.encode("utf-8"))
+            if etree.QName(source).localname != "tbl":
+                raise ValueError("表格节点类型不正确")
+            body = doc._body._element
+            body.insert(max(0, len(body) - 1), source)
+            return
+        except (etree.XMLSyntaxError, ValueError):
+            _LOGGER.warning("复杂表格原始 XML 无法回写，将使用结构化单元格", exc_info=True)
 
     rows = max(1, int(tbl.rows))
     cols = max(1, int(tbl.cols))

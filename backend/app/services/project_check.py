@@ -18,6 +18,7 @@ from app.models.project import WritingProject
 from app.models.template import PaperTemplate, SectionType, TextStyle
 from app.services.policy_format import normalize_format_overrides
 from app.services.requirement_check import check_requirements
+from app.services.project_versions import project_content_hash
 
 # 模板节类型 → 检查引擎 style_id
 _STYLE_ID = {
@@ -324,6 +325,7 @@ def check_project(project: WritingProject, template: PaperTemplate,
             "project_title": project.title,
             "template_name": template.name,
             "template_version": template.version,
+            "content_hash": project_content_hash(project),
             "requirement_snapshot_hash": snapshot.get("content_hash", ""),
             "organization_context": snapshot.get("context", {}),
             "conflict_count": len(snapshot.get("conflicts", [])),
@@ -340,6 +342,7 @@ def check_project(project: WritingProject, template: PaperTemplate,
             id=new_id("check"),
             project_id=project.id,
             snapshot_hash=snapshot.get("content_hash", ""),
+            content_hash=project_content_hash(project),
             engine_version="0.2.0",
             result=report,
             duration_ms=report["context"]["duration_ms"],
@@ -347,8 +350,13 @@ def check_project(project: WritingProject, template: PaperTemplate,
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         )
         store.save_check_run(run)
-        project.check_run_ids = [run.id, *[item for item in project.check_run_ids if item != run.id]][:50]
-        store.save_project(project)
+        current = store.get_project(project.id)
+        if current is not None:
+            next_check_run_ids = [run.id, *[item for item in current.check_run_ids if item != run.id]][:50]
+            saved = store.update_project_check_runs(project.id, next_check_run_ids, current.revision)
+            if saved is not None:
+                project.check_run_ids = saved.check_run_ids
+                project.updated_at = saved.updated_at
         report["run_id"] = run.id
     return report
 

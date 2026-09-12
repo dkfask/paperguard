@@ -1,56 +1,7 @@
 <template>
-  <div>
-    <header v-if="auth.token" class="app-shell-header">
-      <div class="header-inner">
-        <div class="brand-section">
-          <button class="shell-menu-button" type="button" aria-label="打开导航" title="打开导航" aria-controls="role-sidebar" :aria-expanded="sidebarOpen" @click="sidebarOpen = !sidebarOpen">
-            <IconMaterialSymbolsMenu />
-          </button>
-          <RouterLink to="/" class="brand-logo">
-            <img alt="PaperGuard Logo" src="/logo.png" />
-            <span class="brand-title">PaperGuard</span>
-          </RouterLink>
-        </div>
-
-        <div class="user-tray">
-          <span class="scope-context">{{ roleLabel(auth.user?.role) }}</span>
-          <button class="lang-switch-btn" @click="toggleLang" title="切换语言 / Switch Language">
-            <IconMaterialSymbolsTranslate />
-            <span>{{ lang === 'zh' ? 'EN' : '中文' }}</span>
-          </button>
-
-          <div class="user-avatar-btn" :title="auth.user?.display_name || auth.user?.username">
-            <img alt="User profile" src="/avatar.png" />
-          </div>
-          <span style="font-size: 13px; font-weight: 600; color: var(--on-surface);">
-            {{ auth.user?.display_name || auth.user?.username }}
-            <span v-if="auth.user?.role === 'teacher' && auth.user?.status === 'pending'" style="color: var(--tertiary); font-size: 11px; margin-left: 4px">
-              ({{ t('pendingAuth') }})
-            </span>
-          </span>
-          <button class="small" @click="logout">{{ t('logout') }}</button>
-        </div>
-      </div>
-    </header>
-    <div v-if="auth.user?.role === 'teacher' && auth.user.status === 'pending'" class="pending-bar">
-      <span>📢 您的教师账号正在等待管理员认证审核中，通过后将开通模板管理等教师权限。</span>
-    </div>
-    <div v-if="auth.token" class="app-shell">
-      <RoleSidebar
-        :user="auth.user"
-        :open="sidebarOpen"
-        @close-mobile="sidebarOpen = false"
-        @open-teacher="openTeacherModal"
-        @open-users="openUserAdminModal"
-        @open-ai="openAdminAiModal"
-      />
-      <main class="app-shell-main" @click="sidebarOpen = false">
-        <RouterView />
-      </main>
-    </div>
-    <main v-else>
+  <AppShell :authenticated="Boolean(auth.token)" :user="auth.user" @logout="logout">
+    <AppErrorBoundary>
       <RouterView />
-    </main>
 
     <!-- 管理员设置默认 AI 模型弹窗 -->
     <div v-if="showAdminAiModal" class="modal-mask" @click.self="showAdminAiModal = false">
@@ -338,7 +289,7 @@
         </div>
       </div>
     </div>
-  </div>
+    </AppErrorBoundary>
   <ConfirmDialog
     :open="studentConfirm.open"
     :title="studentConfirm.title"
@@ -349,43 +300,39 @@
     @confirm="confirmStudentAction"
     @cancel="closeStudentConfirm"
   />
+  </AppShell>
 </template>
 
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, clearAuth } from './auth'
-import { useI18n } from './i18n'
 import ConfirmDialog from './components/ConfirmDialog.vue'
-import RoleSidebar from './components/RoleSidebar.vue'
-// unplugin-icons 图标
-import IconMaterialSymbolsMenu from '~icons/material-symbols/menu'
-import IconMaterialSymbolsTranslate from '~icons/material-symbols/translate'
+import AppErrorBoundary from './components/AppErrorBoundary.vue'
+import AppShell from './layouts/AppShell.vue'
+import { authApi } from './features/auth/api'
 import {
-  logoutApi, getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
+  getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
   getAdminUsers, updateAdminUserRoleStatus,
   getTeacherStudents, bulkImportStudents, resetTeacherStudentPassword, unbindTeacherStudent,
 } from './api'
 
 const router = useRouter()
-const { lang, setLang, t } = useI18n()
-const sidebarOpen = ref(false)
-
-function toggleLang() {
-  setLang(lang.value === 'zh' ? 'en' : 'zh')
-}
-function setTab(tab) {
-  router.push({ path: '/', query: { tab } })
-}
 
 function roleLabel(role) {
   return { admin: '管理员', college_admin: '学院管理员', teacher: '教师', student: '学生' }[role] || role
 }
 
+function setTab(tab) {
+  router.push({ path: '/', query: { tab } })
+}
+
 async function logout() {
-  try { await logoutApi() } catch { /* 本地会话仍需清理 */ }
+  try { await authApi.logout() } catch { /* 本地会话仍需清理 */ }
+  // 先切走当前受保护页面，避免清除 token 触发 AppShell 重挂载当前路由。
+  await router.replace({ path: '/login', query: { logout: '1' } })
   clearAuth()
-  router.push('/login')
+  await router.replace('/login')
 }
 
 // ---------- 管理员用户与教师认证审核 ----------

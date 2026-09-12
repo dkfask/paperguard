@@ -1,33 +1,17 @@
-import { reactive } from 'vue'
+import { pinia } from './app/pinia'
+import { useAuthStore } from './stores/auth'
 
-const TOKEN_KEY = 'pg_token'
-const USER_KEY = 'pg_user'
-
-const storage = window.sessionStorage
-
-function loadUser() {
-  try { return JSON.parse(storage.getItem(USER_KEY)) || null } catch { return null }
-}
-
-export const auth = reactive({
-  token: storage.getItem(TOKEN_KEY) || '',
-  user: loadUser(),
-})
+// Compatibility facade for legacy views. New modules should import useAuthStore.
+export const auth = useAuthStore(pinia)
 
 export function setAuth(token, user) {
-  auth.token = token
-  auth.user = user
-  storage.setItem(TOKEN_KEY, token)
-  storage.setItem(USER_KEY, JSON.stringify(user))
+  auth.setAuth(token, user)
 }
 
 export function clearAuth() {
-  auth.token = ''
-  auth.user = null
-  storage.removeItem(TOKEN_KEY)
-  storage.removeItem(USER_KEY)
+  auth.clearAuth()
 }
 
 export function isManager() {
-  return !!auth.user && ['admin', 'college_admin', 'teacher'].includes(auth.user.role)
+  return auth.canManage()
 }

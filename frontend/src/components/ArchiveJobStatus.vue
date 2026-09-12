@@ -1,0 +1,25 @@
+<template>
+  <div v-if="items.length" class="workspace-archive-list">
+    <div v-for="archive in items.slice(0, limit)" :key="archive.id" class="workspace-archive-row">
+      <div><strong>{{ archive.submission_number || archive.submission_id }}</strong><span>{{ formatDate(archive.created_at) }}</span></div>
+      <StatusBadge :status="archive.status" :label="statusLabel(archive.status)" />
+    </div>
+  </div>
+  <AsyncState v-else state="empty" :title="t('archive.empty')" :detail="t('archive.emptyDetail')" />
+</template>
+
+<script setup>
+import AsyncState from './AsyncState.vue'
+import StatusBadge from './StatusBadge.vue'
+import { useI18n } from '../i18n'
+
+const { t, formatDate: formatLocaleDate } = useI18n()
+
+defineProps({
+  items: { type: Array, default: () => [] },
+  limit: { type: Number, default: 6 },
+})
+
+function statusLabel(status) { return t(`archive.${status}`) === `archive.${status}` ? status : t(`archive.${status}`) }
+function formatDate(value) { return value ? formatLocaleDate(value, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-' }
+</script>

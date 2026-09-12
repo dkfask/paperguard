@@ -1,44 +1,61 @@
 <template>
-  <div v-if="loading" class="card loading-state">正在加载论文…</div>
+  <div v-if="loading" class="card loading-state">{{ t('common.loading') }}…</div>
   <div v-else-if="loadError" class="card">
     <div class="error-banner" role="alert">⚠ {{ loadError }}</div>
-    <button @click="loadProject">重新加载</button>
-    <button @click="$router.push('/')">返回论文列表</button>
+    <button @click="loadProject">{{ t('common.reload') }}</button>
+    <button @click="$router.push('/')">{{ t('sidebar.theses') }}</button>
   </div>
   <div v-else-if="project && template" class="writer-shell">
     <header class="writer-command-bar">
       <div class="writer-command-leading">
-        <button class="icon-action" title="返回我的论文" aria-label="返回我的论文" @click="router.push('/')">
+        <button class="icon-action" :title="t('writer.backToTheses')" :aria-label="t('writer.backToTheses')" @click="router.push('/')">
           <span class="material-symbols-outlined">arrow_back</span>
         </button>
         <div class="writer-command-title">
-          <span>论文写作</span>
-          <strong :title="project.title || '未命名论文'">{{ project.title || '未命名论文' }}</strong>
+          <span>{{ t('route.writer') }}</span>
+          <strong :title="project.title || t('home.untitledThesis')">{{ project.title || t('home.untitledThesis') }}</strong>
         </div>
       </div>
       <div class="writer-command-metrics">
         <span class="writer-save-status" :class="{ pending: saving || dirtyCount }">
           <span class="save-dot"></span>
-          <span v-if="saving">保存中…</span>
-          <span v-else-if="dirtyCount">有 {{ dirtyCount }} 项待保存</span>
-          <span v-else>已保存 {{ savedAt || '刚刚' }}</span>
+          <span v-if="saving">{{ t('common.saving') }}</span>
+          <span v-else-if="dirtyCount">{{ t('writer.unsaved', { count: dirtyCount }) }}</span>
+          <span v-else>{{ t('writer.savedAt', { time: savedAt || t('common.justNow') }) }}</span>
         </span>
-        <span><b>{{ totalChars }}</b> 字</span>
-        <span><b>{{ doneCount }}/{{ requiredCount }}</b> 节完成</span>
+        <span><b>{{ totalChars }}</b> {{ t('writer.characters') }}</span>
+        <span><b>{{ doneCount }}/{{ requiredCount }}</b> {{ t('writer.sectionsDone') }}</span>
       </div>
       <div class="writer-command-actions">
+        <button class="small" @click="openAiSettings" :title="t('writer.aiSettings')">
+          <span class="material-symbols-outlined">auto_awesome</span>
+          <span>{{ t('writer.aiAssistant') }}</span>
+        </button>
+        <button v-if="isManager()" class="small" @click="openTemplateModal"
+                :disabled="saving" :title="t('writer.switchTemplateTitle')">
+          <span class="material-symbols-outlined">swap_horiz</span>
+          <span>{{ t('writer.switchTemplate') }}</span>
+        </button>
         <button class="writer-review-action" @click="checkOpen = !checkOpen">
           <span class="material-symbols-outlined">rule</span>
-          <span>检查</span>
+          <span>{{ t('writer.check') }}</span>
         </button>
         <button class="writer-fix-action" :disabled="fixing || checking || exporting || loading" @click="runOneClickFix"
-                title="修复检查结果中可自动处理的警告和错误">
+                :title="t('writer.fixTitle')">
           <span class="material-symbols-outlined">build</span>
-          <span>{{ fixing ? '修复中…' : '一键修复' }}</span>
+          <span>{{ fixing ? t('writer.fixing') : t('writer.fix') }}</span>
+        </button>
+        <button class="writer-import-action" @click="chooseDocx" :disabled="importing || saving" :title="t('writer.importTitle')">
+          <span class="material-symbols-outlined">upload_file</span>
+          <span>{{ importing ? t('writer.importing') : t('writer.importBody') }}</span>
+        </button>
+        <button class="writer-preview-action" @click="previewDocx" :disabled="exporting || saving || dirtyCount > 0" :title="t('writer.previewTitle')">
+          <span class="material-symbols-outlined">visibility</span>
+          <span>{{ t('writer.preview') }}</span>
         </button>
         <button class="primary writer-export-action" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">
           <span class="material-symbols-outlined">download</span>
-          <span>{{ exporting ? '导出中…' : '导出' }}</span>
+          <span>{{ exporting ? t('writer.exporting') : t('writer.export') }}</span>
         </button>
       </div>
     </header>
@@ -46,21 +63,13 @@
     <div class="writer-columns">
     <!-- 左侧章节导航 -->
     <aside class="sidebar">
-      <div class="sidebar-head">
-        <span class="proj-title" :title="project.title || '未命名论文'">{{ project.title || '未命名论文' }}</span>
-        <span class="head-actions">
-          <button class="small" @click="openAiSettings" title="AI 设置">✨AI</button>
-          <button v-if="isManager()" class="small" @click="openTemplateModal"
-                  :disabled="saving" title="把本项目换成其它模板的排版规范">🔀 换模板</button>
-        </span>
-      </div>
-      <div class="tree-nav-header" style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; margin-bottom: 6px;">
-        <span style="font-size: 12px; font-weight: 600; color: var(--muted)">章节大纲</span>
-        <button v-if="canEditStructure" class="tiny" @click="openAddSectionModal" title="添加新章节">
-          ➕ 添加章节
+      <div class="tree-nav-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span style="font-size: 12px; font-weight: 600; color: var(--muted)">{{ t('writer.outline') }}</span>
+        <button v-if="canEditStructure" class="tiny" @click="openAddSectionModal" :title="t('writer.addSection')">
+          ➕ {{ t('writer.addSection') }}
         </button>
-        <span v-else class="tiny" style="font-size: 11px; color: var(--muted); opacity: 0.8;" title="导师已锁定论文框架">
-          🔒 框架锁定
+        <span v-else class="tiny" style="font-size: 11px; color: var(--muted); opacity: 0.8;" :title="t('writer.lockedTitle')">
+          🔒 {{ t('writer.locked') }}
         </span>
       </div>
       <nav class="tree-nav">
@@ -70,33 +79,27 @@
           <span v-if="isContentType(node.type) && node.key !== 'cover'">✍️</span>
           <span v-else-if="node.type === 'cover'">📋</span>
           <span class="nav-title">{{ label(node) }}</span>
-          <span v-if="isRequired(node) && !isDone(node)" class="dot" title="未完成">●</span>
+          <span v-if="isRequired(node) && !isDone(node)" class="dot" :title="t('writer.incomplete')">●</span>
           <span v-if="canEditStructure" class="nav-action-move">
-            <button class="nav-move-btn" :disabled="structureBusy || isFirstSection(node)" @click.stop="moveSection(node, -1)" title="上移章节" :aria-label="`上移章节「${label(node)}」`">↑</button>
-            <button class="nav-move-btn" :disabled="structureBusy || isLastSection(node)" @click.stop="moveSection(node, 1)" title="下移章节" :aria-label="`下移章节「${label(node)}」`">↓</button>
+            <button class="nav-move-btn" :disabled="structureBusy || isFirstSection(node)" @click.stop="moveSection(node, -1)" :title="t('writer.moveUp')" :aria-label="`${t('writer.moveUp')}「${label(node)}」`">↑</button>
+            <button class="nav-move-btn" :disabled="structureBusy || isLastSection(node)" @click.stop="moveSection(node, 1)" :title="t('writer.moveDown')" :aria-label="`${t('writer.moveDown')}「${label(node)}」`">↓</button>
           </span>
-          <span v-if="canEditStructure && isCustomSection(node)" class="nav-action-del" @click.stop="removeSection(node)" title="删除此章节">×</span>
+          <span v-if="canEditStructure && isCustomSection(node)" class="nav-action-del" @click.stop="removeSection(node)" :title="t('writer.deleteSection')">×</span>
         </div>
       </nav>
-      <div class="sidebar-foot">
-        <span v-if="saving">保存中…</span>
-        <span v-else-if="dirtyCount" style="color: var(--warning); font-size: 12px">有 {{ dirtyCount }} 项待保存</span>
-        <span v-else-if="savedAt" style="color: var(--muted); font-size: 12px">已保存 {{ savedAt }}</span>
-        <button class="small" @click="$router.push('/')">← 返回</button>
-      </div>
 
       <!-- 字数与进度 -->
       <div class="stats-panel">
         <div class="progress-row">
-          <span class="stats-label">完成度</span>
+          <span class="stats-label">{{ t('writer.completion') }}</span>
           <span class="stats-value">{{ doneCount }}/{{ requiredCount }}</span>
         </div>
         <div class="progress-bar">
           <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
         </div>
         <div class="stats-row">
-          <span>总字数 <b>{{ totalChars }}</b></span>
-          <span>本章 <b>{{ sectionChars }}</b></span>
+          <span>{{ t('writer.totalCharacters') }} <b>{{ totalChars }}</b></span>
+          <span>{{ t('writer.currentSectionCharacters') }} <b>{{ sectionChars }}</b></span>
         </div>
       </div>
     </aside>
@@ -106,86 +109,151 @@
       <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}</div>
       <div v-if="templateNotice" class="notice-banner">✅ {{ templateNotice }}</div>
       <div v-if="fixNotice" class="notice-banner" role="status">{{ fixNotice }}</div>
+      <div v-if="recoveryUnavailable" class="hint recovery-status" role="status">{{ t('writer.recoveryUnavailable') }}</div>
+      <div v-if="recoveryDraft" class="recovery-banner" role="status">
+        <div>
+          <strong>{{ t('writer.recoveryFound') }}</strong>
+          <span>{{ t('writer.recoverySavedAt', { time: recoveryDraft.saved_at, revision: recoveryDraft.base_revision }) }}</span>
+        </div>
+        <div class="form-row">
+          <button class="primary" @click="restoreLocalDraft">{{ t('writer.restoreDraft') }}</button>
+          <button @click="discardLocalDraft">{{ t('writer.discardDraft') }}</button>
+        </div>
+      </div>
+      <div v-if="failedSave" class="recovery-banner save-failure" role="alert">
+        <span>{{ t('writer.saveFailure') }}</span>
+        <button @click="retryFailedSaves">{{ t('writer.retrySave') }}</button>
+      </div>
+      <div v-if="conflictSave" class="recovery-banner conflict-banner" role="alert">
+        <span>{{ t('writer.saveConflict') }}</span>
+        <button @click="reloadAfterConflict">{{ t('writer.reloadServer') }}</button>
+      </div>
+      <input ref="docxInput" type="file" accept=".docx" hidden @change="onDocxSelected" />
 
-      <!-- 导出缺失清单 -->
+      <!-- Export gate details -->
       <div v-if="missing.length" class="missing-panel">
-        <b>⚠ 以下必填项未完成, 无法导出:</b>
+        <b>{{ t('writer.exportMissing') }}</b>
         <ul>
           <li v-for="(m, i) in missing" :key="i">{{ m }}</li>
         </ul>
         <div class="form-row" style="margin-top: 8px">
-          <button @click="exportDocx(true)" :disabled="exporting">仍要导出(跳过检查)</button>
-          <button @click="missing = []">知道了</button>
+          <button @click="exportDocx(true)" :disabled="exporting">{{ t('writer.exportAnyway') }}</button>
+          <button @click="missing = []">{{ t('writer.acknowledged') }}</button>
         </div>
       </div>
 
       <Teleport to="body">
       <div v-if="waiverTarget" class="modal-mask writer-modal-mask" @click.self="waiverTarget = null">
         <div class="modal card">
-          <h3>申请规范豁免</h3>
+          <h3>{{ t('writer.waiverTitle') }}</h3>
           <p class="hint">{{ waiverTarget.message }}</p>
-          <label class="field">申请理由<textarea v-model="waiverReason" rows="4" placeholder="说明特殊情况和希望豁免的原因"></textarea></label>
-          <div class="form-row"><button class="primary" :disabled="waiverBusy || !waiverReason.trim()" @click="submitWaiver">{{ waiverBusy ? '提交中…' : '提交申请' }}</button><button @click="waiverTarget = null">取消</button></div>
+          <label class="field">{{ t('writer.waiverReason') }}<textarea v-model="waiverReason" rows="4" :placeholder="t('writer.waiverPlaceholder')"></textarea></label>
+          <div class="form-row"><button class="primary" :disabled="waiverBusy || !waiverReason.trim()" @click="submitWaiver">{{ waiverBusy ? t('common.processing') : t('writer.submitApplication') }}</button><button @click="waiverTarget = null">{{ t('common.cancel') }}</button></div>
         </div>
       </div>
 
       <div v-if="disputeTarget" class="modal-mask writer-modal-mask" @click.self="disputeTarget = null">
         <div class="modal card">
-          <h3>提交规范申诉</h3>
+          <h3>{{ t('writer.disputeTitle') }}</h3>
           <p class="hint">{{ disputeTarget.message }}</p>
-          <label class="field">申诉理由<textarea v-model="disputeReason" rows="4" placeholder="说明规范不适用、事实依据或需要人工复核的原因"></textarea></label>
-          <div class="form-row"><button class="primary" :disabled="disputeBusy || !disputeReason.trim()" @click="submitDispute">{{ disputeBusy ? '提交中…' : '提交申诉' }}</button><button @click="disputeTarget = null">取消</button></div>
+          <label class="field">{{ t('writer.disputeReason') }}<textarea v-model="disputeReason" rows="4" :placeholder="t('writer.disputePlaceholder')"></textarea></label>
+          <div class="form-row"><button class="primary" :disabled="disputeBusy || !disputeReason.trim()" @click="submitDispute">{{ disputeBusy ? t('common.processing') : t('writer.submitDispute') }}</button><button @click="disputeTarget = null">{{ t('common.cancel') }}</button></div>
         </div>
       </div>
 
       <div v-if="upgradePreview" class="modal-mask writer-modal-mask" @click.self="upgradePreview = null">
         <div class="modal card upgrade-modal">
-          <h3>规范版本更新</h3>
-          <p class="hint">当前版本 {{ upgradePreview.from_snapshot_hash?.slice(0, 18) }}…，可升级到 {{ upgradePreview.to_snapshot_hash?.slice(0, 18) }}…。</p>
-          <p v-if="!upgradePreview.diff.changed" class="ok-banner">当前项目已经是最新规范版本。</p>
-          <div v-else class="upgrade-summary"><p>新增规范 {{ upgradePreview.diff.added_sets.length }} 套，移除 {{ upgradePreview.diff.removed_sets.length }} 套，变更 {{ upgradePreview.diff.changed_sets.length }} 套。</p><p>新增要求 {{ upgradePreview.diff.added_items.length }} 条，移除 {{ upgradePreview.diff.removed_items.length }} 条。</p></div>
-          <div class="form-row"><button v-if="upgradePreview.diff.changed" class="primary" :disabled="upgradeBusy" @click="applyUpgrade">应用到本项目</button><button @click="upgradePreview = null">关闭</button></div>
+          <h3>{{ t('writer.upgradeTitle') }}</h3>
+          <p class="hint">{{ t('writer.versionUpgradeDetail', { from: upgradePreview.from_snapshot_hash?.slice(0, 18) + '…', to: upgradePreview.to_snapshot_hash?.slice(0, 18) + '…' }) }}</p>
+          <p v-if="!upgradePreview.diff.changed" class="ok-banner">{{ t('writer.latestVersion') }}</p>
+          <div v-else class="upgrade-summary"><p>{{ t('writer.addedRuleSets', { count: upgradePreview.diff.added_sets.length, removed: upgradePreview.diff.removed_sets.length, changed: upgradePreview.diff.changed_sets.length }) }}</p><p>{{ t('writer.addedRequirements', { added: upgradePreview.diff.added_items.length, removed: upgradePreview.diff.removed_items.length }) }}</p></div>
+          <div class="form-row"><button v-if="upgradePreview.diff.changed" class="primary" :disabled="upgradeBusy" @click="applyUpgrade">{{ t('writer.applyToProject') }}</button><button @click="upgradePreview = null">{{ t('common.close') }}</button></div>
         </div>
       </div>
 
       <div v-if="upgradeConfirm" class="modal-mask writer-modal-mask" @click.self="upgradeConfirm = false">
         <div class="modal card">
-          <h3>确认更新规范</h3>
-          <p class="hint">应用后，项目后续检查将使用最新规范版本；已有论文内容不会被修改。</p>
-          <div class="form-row"><button class="primary" :disabled="upgradeBusy" @click="confirmUpgrade">确认升级</button><button @click="upgradeConfirm = false">取消</button></div>
+          <h3>{{ t('writer.confirmUpgradeTitle') }}</h3>
+          <p class="hint">{{ t('writer.upgradeDetail') }}</p>
+          <div class="form-row"><button class="primary" :disabled="upgradeBusy" @click="confirmUpgrade">{{ t('writer.confirmUpgrade') }}</button><button @click="upgradeConfirm = false">{{ t('common.cancel') }}</button></div>
         </div>
       </div>
+
+      <ReasonDialog
+        :open="revokeWaiverTarget !== null"
+        :title="t('writer.revokeWaiverTitle')"
+        :description="t('writer.revokeWaiverDescription')"
+        :placeholder="t('writer.revokeWaiverPlaceholder')"
+        :confirm-label="t('writer.revokeWaiver')"
+        :busy="revokeWaiverBusy"
+        @confirm="confirmRevokeWaiver"
+        @cancel="revokeWaiverTarget = null"
+      />
 
       <div v-if="assistResult" class="modal-mask writer-modal-mask" @click.self="assistResult = null">
         <div class="modal card">
-          <h3>AI 人工检查辅助</h3>
-          <p class="hint">AI 结果只提供证据线索，不会改变自动检查结果。</p>
-          <p v-if="assistResult.saved || assistResult.saved_at" class="assist-saved-location">已保存到：规范检查 · {{ assistResult.requirement_item_id }}</p>
+          <h3>{{ t('writer.aiReviewTitle') }}</h3>
+          <p class="hint">{{ t('writer.aiReviewDetail') }}</p>
+          <p v-if="assistResult.saved || assistResult.saved_at" class="assist-saved-location">{{ t('writer.savedTo', { location: t('writer.formattingReview') + ' · ' + assistResult.requirement_item_id }) }}</p>
           <div class="assist-result">{{ assistResult.suggestion }}</div>
-          <div class="form-row"><button @click="assistResult = null">关闭</button></div>
+          <div class="form-row"><button @click="assistResult = null">{{ t('common.close') }}</button></div>
         </div>
       </div>
+
+      <div v-if="importPreview" class="modal-mask writer-modal-mask" @click.self="importPreview = null">
+        <div class="modal card import-modal">
+          <h3>{{ t('writer.wordImportTitle') }}</h3>
+          <p class="hint">{{ importPreview.filename }} · {{ t('writer.importStats', { paragraphs: importPreview.stats.paragraphs, tables: importPreview.stats.tables, images: importPreview.stats.images, equations: importPreview.stats.equations || 0 }) }}</p>
+          <div v-if="importPreview.warnings?.length" class="notice-banner">{{ importPreview.warnings.join('；') }}</div>
+          <div class="import-section-list">
+            <div v-for="section in importPreview.sections" :key="section.key" class="import-section-item">
+              <strong>{{ section.title }}</strong><span>{{ t('writer.contentBlocks', { count: section.paragraphs.length }) }}</span>
+            </div>
+          </div>
+          <div class="form-row"><button class="primary" :disabled="importing" @click="applyDocxImport">{{ t('writer.applyToDraft') }}</button><button @click="importPreview = null">{{ t('common.cancel') }}</button></div>
+        </div>
+      </div>
+      <div v-if="exportPreview" class="modal-mask writer-modal-mask" @click.self="exportPreview = null">
+        <div class="modal card export-preview-modal">
+          <h3>{{ t('writer.exportPreviewTitle') }}</h3>
+          <p class="hint">{{ exportPreview.title || t('home.untitledThesis') }} · revision {{ exportPreview.revision }} · {{ exportPreview.content_hash.slice(0, 18) }}…</p>
+          <div class="export-preview-stats">{{ t('writer.exportStats', { sections: exportPreview.counts.sections, paragraphs: exportPreview.counts.paragraphs, tables: exportPreview.counts.tables, images: exportPreview.counts.images, equations: exportPreview.counts.equations }) }}</div>
+          <div v-if="exportPreview.missing?.length" class="notice-banner">{{ t('writer.exportGate', { count: exportPreview.missing.length }) }}</div>
+          <div class="import-section-list"><div v-for="section in exportPreview.sections_preview" :key="section.key" class="import-section-item"><strong>{{ section.title }}</strong><span>{{ t('writer.blockStats', { blocks: section.blocks, characters: section.characters }) }}</span></div></div>
+          <div class="form-row"><button class="primary" :disabled="!exportPreview.can_export" @click="exportDocx(false); exportPreview = null">{{ t('writer.downloadDocx') }}</button><button @click="exportPreview = null">{{ t('common.close') }}</button></div>
+        </div>
+      </div>
+      <ConfirmDialog
+        :open="confirmDialog.open"
+        :title="confirmDialog.title"
+        :description="confirmDialog.description"
+        :confirm-label="confirmDialog.confirmLabel"
+        :danger="confirmDialog.danger"
+        :busy="confirmBusy"
+        @confirm="confirmAction"
+        @cancel="closeConfirmDialog"
+      />
       </Teleport>
 
-      <!-- 封面 -->
+      <!-- Cover -->
       <div v-if="currentSection && currentSection.type === 'cover'">
-        <h2>📋 封面信息</h2>
-        <p style="color: var(--muted); font-size: 14px; margin-bottom: 16px">填写封面字段, 导出时自动排版。</p>
+        <h2>📋 {{ t('writer.coverInfo') }}</h2>
+        <p style="color: var(--muted); font-size: 14px; margin-bottom: 16px">{{ t('writer.coverInfoDetail') }}</p>
         <div v-for="f in metaFields" :key="f.key" class="meta-row">
           <label>{{ f.label }}</label>
           <input :value="project.meta[f.key]" @input="onMetaInput(f.key, $event.target.value)"
-                 :placeholder="f.required ? '必填' : '选填'" />
+                 :placeholder="f.required ? t('writer.required') : t('writer.optional')" />
         </div>
-        <button class="primary" @click="saveMeta" :disabled="saving">💾 {{ saving ? '保存中…' : '保存封面信息' }}</button>
+        <button class="primary" @click="saveMeta" :disabled="saving">💾 {{ saving ? t('common.saving') : t('writer.saveCover') }}</button>
       </div>
 
-      <!-- 标题节: 标题 + 内容块 -->
+      <!-- Heading section -->
       <div v-else-if="currentSection && isHeading(currentSection.type)">
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
-          <span class="hint">标题排版按规范优先生效, 下方为本章正文(可插图片/表格)</span>
+          <span class="hint">{{ t('writer.headingHint') }}</span>
           <button class="small" @click="toggleSectionInputMode">
-            {{ sectionInputMode === 'blocks' ? '整节输入' : '逐段编辑' }}
+            {{ sectionInputMode === 'blocks' ? t('writer.sectionModeBlocks') : t('writer.sectionModeParagraphs') }}
           </button>
         </div>
         <input v-model="currentSection.title" class="heading-input"
@@ -199,17 +267,17 @@
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
       </div>
 
-      <!-- 正文节: 内容块编辑器 -->
+      <!-- Body section -->
       <div v-else-if="currentSection">
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
-          <span class="hint">字体/字号/行距/缩进按规范优先生效, 可插图片/表格</span>
+          <span class="hint">{{ t('writer.bodyHint') }}</span>
           <button class="small" @click="toggleSectionInputMode">
-            {{ sectionInputMode === 'blocks' ? '整节输入' : '逐段编辑' }}
+            {{ sectionInputMode === 'blocks' ? t('writer.sectionModeBlocks') : t('writer.sectionModeParagraphs') }}
           </button>
           <button v-if="aiEnabled && isAiSection(currentSection.type)" class="small ai-gen"
                   :disabled="!!aiBusy || aiGenerating" @click="aiGenerate">
-            {{ aiGenerating ? '✨ AI 生成中…' : '✨ AI 生成' }}
+            {{ aiGenerating ? t('writer.aiGenerating') : t('writer.aiGenerate') }}
           </button>
         </div>
         <input v-model="currentSection.title" class="heading-input" :class="'type-' + currentSection.type"
@@ -225,12 +293,12 @@
 
     </section>
 
-    <!-- 右侧上下文检查栏：写作依据和格式问题随时可查，但不打断正文 -->
+    <!-- Writing context and live checks -->
     <aside class="writer-context">
       <div class="context-header">
         <div>
           <p class="writing-eyebrow">WRITING CONTEXT</p>
-          <h2>写作辅助</h2>
+          <h2>{{ t('writer.writingAssistant') }}</h2>
         </div>
         <span class="context-header-icon material-symbols-outlined">tune</span>
       </div>
@@ -239,18 +307,18 @@
         <div class="requirements-head">
           <div>
             <span class="eyebrow">PROJECT BASIS</span>
-            <h3>当前写作依据</h3>
+            <h3>{{ t('writer.projectBasis') }}</h3>
           </div>
           <div class="basis-actions">
             <span class="snapshot-tag">v{{ template.version || requirementSnapshot.template?.version || '1' }}</span>
-            <button v-if="!hasAcknowledged" class="tiny" @click="acknowledgeBasis">确认已读</button>
-            <button v-if="isManager()" class="tiny" :disabled="upgradeBusy" @click="openUpgradePreview">更新</button>
+            <button v-if="!hasAcknowledged" class="tiny" @click="acknowledgeBasis">{{ t('writer.acknowledgeBasis') }}</button>
+            <button v-if="isManager()" class="tiny" :disabled="upgradeBusy" @click="openUpgradePreview">{{ t('writer.updateBasis') }}</button>
           </div>
         </div>
         <div class="requirements-sources">
           <div class="source-chip template-chip">
             <span class="material-symbols-outlined">description</span>
-            <span>模板 · {{ template.name }}</span>
+            <span>{{ t('writer.templateSource', { name: template.name }) }}</span>
           </div>
           <div v-for="source in requirementSets" :key="source.id" class="source-chip">
             <span class="material-symbols-outlined">rule</span>
@@ -258,23 +326,24 @@
           </div>
           <div v-for="packId in (requirementSnapshot.rule_packs || [])" :key="packId" class="source-chip">
             <span class="material-symbols-outlined">format_align_left</span>
-            <span>格式规则 · {{ packId }}</span>
+            <span>{{ t('writer.formatRules', { id: packId }) }}</span>
           </div>
         </div>
         <p v-if="requirementSnapshot.format_override_count" class="format-resolution">
           <span class="material-symbols-outlined">verified</span>
-          规范优先 · 已应用 {{ requirementSnapshot.format_override_count }} 项排版约束
+          {{ t('writer.rulesApplied', { count: requirementSnapshot.format_override_count }) }}
         </p>
-        <p class="requirements-foot">自动检查 {{ autoRequirementCount }} 项<span v-if="checkResult"> · 未自动判定 {{ checkResult.summary.not_checked || 0 }} 项</span></p>
+        <p class="requirements-foot">{{ t('writer.autoChecked', { count: autoRequirementCount }) }}<span v-if="checkResult">{{ t('writer.notCheckedInline', { count: checkResult.summary.not_checked || 0 }) }}</span></p>
       </div>
 
-      <div v-if="isManager() && pendingWaivers.length" class="waiver-review-panel context-panel">
-        <div class="requirements-head"><div><span class="eyebrow">REVIEW QUEUE</span><h3>待审核豁免</h3></div><span class="snapshot-tag">{{ pendingWaivers.length }} 条</span></div>
-        <div v-for="waiver in pendingWaivers" :key="waiver.id" class="waiver-review-row"><span>豁免 · {{ waiver.requirement_item_id }} · {{ waiver.reason }}</span><span><button class="tiny" @click="decideWaiver(waiver, 'approved')">同意</button><button class="tiny danger" @click="decideWaiver(waiver, 'rejected')">驳回</button></span></div>
+      <div v-if="isManager() && (pendingWaivers.length || approvedWaivers.length)" class="waiver-review-panel context-panel">
+        <div class="requirements-head"><div><span class="eyebrow">REVIEW QUEUE</span><h3>{{ t('writer.reviewQueue') }}</h3></div><span class="snapshot-tag">{{ t('writer.countItems', { count: pendingWaivers.length + approvedWaivers.length }) }}</span></div>
+        <div v-for="waiver in pendingWaivers" :key="waiver.id" class="waiver-review-row"><span>{{ t('writer.waiver', { id: waiver.requirement_item_id, reason: waiver.reason }) }}</span><span><button class="tiny" @click="decideWaiver(waiver, 'approved')">{{ t('writer.agree') }}</button><button class="tiny danger" @click="decideWaiver(waiver, 'rejected')">{{ t('writer.reject') }}</button></span></div>
+        <div v-for="waiver in approvedWaivers" :key="`approved-${waiver.id}`" class="waiver-review-row approved-waiver-row"><span>{{ t('writer.approvedWaiver', { id: waiver.requirement_item_id, reason: waiver.reason }) }}</span><button class="tiny danger" @click="revokeWaiver(waiver)">{{ t('writer.revoke') }}</button></div>
       </div>
       <div v-if="isManager() && pendingDisputes.length" class="waiver-review-panel dispute-review-panel context-panel">
-        <div class="requirements-head"><div><span class="eyebrow">DISPUTE QUEUE</span><h3>待处理申诉</h3></div><span class="snapshot-tag">{{ pendingDisputes.length }} 条</span></div>
-        <div v-for="dispute in pendingDisputes" :key="dispute.id" class="waiver-review-row"><span>申诉 · {{ dispute.requirement_item_id }} · {{ dispute.reason }}</span><span><button class="tiny" @click="decideDispute(dispute, 'accepted')">接受</button><button class="tiny danger" @click="decideDispute(dispute, 'rejected')">驳回</button></span></div>
+        <div class="requirements-head"><div><span class="eyebrow">DISPUTE QUEUE</span><h3>{{ t('writer.disputeQueue') }}</h3></div><span class="snapshot-tag">{{ t('writer.countItems', { count: pendingDisputes.length }) }}</span></div>
+        <div v-for="dispute in pendingDisputes" :key="dispute.id" class="waiver-review-row"><span>{{ t('writer.dispute', { id: dispute.requirement_item_id, reason: dispute.reason }) }}</span><span><button class="tiny" @click="decideDispute(dispute, 'accepted')">{{ t('writer.accept') }}</button><button class="tiny danger" @click="decideDispute(dispute, 'rejected')">{{ t('writer.reject') }}</button></span></div>
       </div>
 
       <div v-if="checking || checkResult || checkError" class="check-panel context-panel" :class="{ clean: checkResult && checkResult.summary.total === 0 && checkResult.summary.not_checked === 0 && checkResult.summary.waived === 0 && !(requirementSnapshot?.conflicts?.length) }">
@@ -283,23 +352,23 @@
             <span class="check-panel-icon material-symbols-outlined">fact_check</span>
             <div>
               <span class="check-panel-kicker">FORMATTING REVIEW</span>
-              <strong>规范检查</strong>
+              <strong>{{ t('writer.formattingReview') }}</strong>
             </div>
           </div>
           <button class="check-refresh-btn" :disabled="checking" @click="runCheckNow">
             <span class="material-symbols-outlined">refresh</span>
-            <span>重新检查</span>
+            <span>{{ t('writer.rerunCheck') }}</span>
           </button>
         </div>
 
         <button class="check-summary" type="button" :aria-expanded="checkOpen" @click="checkOpen = !checkOpen">
           <span class="check-summary-leading">
             <span class="check-summary-icon material-symbols-outlined">{{ checking ? 'progress_activity' : (checkError || checkStale ? 'warning' : 'warning') }}</span>
-            <span v-if="checking" class="check-summary-text">检查中…</span>
-            <span v-else-if="checkError" class="check-summary-text">检查失败: {{ checkError }}</span>
-            <span v-else-if="checkStale" class="check-summary-text">内容已变化, 检查结果可能过期</span>
-            <span v-else-if="checkResult.context && checkResult.summary.total === 0 && checkResult.summary.not_checked === 0 && checkResult.summary.waived === 0 && !(requirementSnapshot?.conflicts?.length)" class="check-summary-text">当前检查通过</span>
-            <span v-else class="check-summary-text">{{ checkResult.summary.total }} 个问题 · {{ checkResult.summary.not_checked || 0 }} 项未检查</span>
+            <span v-if="checking" class="check-summary-text">{{ t('writer.checking') }}</span>
+            <span v-else-if="checkError" class="check-summary-text">{{ t('writer.checkFailed', { message: checkError }) }}</span>
+            <span v-else-if="checkStale" class="check-summary-text">{{ t('writer.checkStale') }}</span>
+            <span v-else-if="checkResult.context && checkResult.summary.total === 0 && checkResult.summary.not_checked === 0 && checkResult.summary.waived === 0 && !(requirementSnapshot?.conflicts?.length)" class="check-summary-text">{{ t('writer.checkPassed') }}</span>
+            <span v-else class="check-summary-text">{{ t('writer.issueSummary', { issues: checkResult.summary.total, notChecked: checkResult.summary.not_checked || 0 }) }}</span>
           </span>
           <span class="material-symbols-outlined context-chevron">{{ checkOpen ? 'expand_less' : 'expand_more' }}</span>
         </button>
@@ -311,7 +380,7 @@
               <div class="check-item-message">
                 <span class="severity-marker" :class="f.severity">
                   <span class="material-symbols-outlined">{{ f.severity === 'error' ? 'error' : f.severity === 'info' ? 'info' : 'warning' }}</span>
-                  <span>{{ { error: '错', warning: '警', info: '提' }[f.severity] }}</span>
+                  <span>{{ { error: t('writer.errorShort'), warning: t('writer.warningShort'), info: t('writer.infoShort') }[f.severity] }}</span>
                 </span>
                 <span class="check-msg">{{ f.message }}</span>
               </div>
@@ -319,10 +388,10 @@
                 <span class="check-sec" v-if="f.section_key || f.location?.section_key">{{ sectionTitle(f.section_key || f.location.section_key) }} →</span>
                 <template v-if="f.source_type === 'requirement'">
                   <button class="check-action-btn" @click.stop="openWaiver(f)">
-                    <span class="material-symbols-outlined">gavel</span>申请豁免
+                    <span class="material-symbols-outlined">gavel</span>{{ t('writer.requestWaiver') }}
                   </button>
                   <button class="check-action-btn" @click.stop="openDispute(f)">
-                    <span class="material-symbols-outlined">feedback</span>申诉
+                    <span class="material-symbols-outlined">feedback</span>{{ t('writer.submitDispute') }}
                   </button>
                 </template>
               </div>
@@ -331,14 +400,14 @@
         </div>
 
         <div v-if="checkOpen && checkResult && checkResult.waived?.length" class="waived-list">
-          <strong>已豁免</strong>
+          <strong>{{ t('writer.waived') }}</strong>
           <span v-for="item in checkResult.waived" :key="item.rule_id">{{ item.message }} · {{ item.waiver?.reason }}</span>
         </div>
 
         <div v-if="checkOpen && checkResult && checkResult.not_checked?.length" class="not-checked-list">
           <div class="not-checked-heading">
-            <span><span class="material-symbols-outlined">fact_check</span>未自动检查项</span>
-            <span class="not-checked-count">{{ checkResult.not_checked.length }} 项</span>
+            <span><span class="material-symbols-outlined">fact_check</span>{{ t('writer.notChecked') }}</span>
+            <span class="not-checked-count">{{ t('writer.countItems', { count: checkResult.not_checked.length }) }}</span>
           </div>
           <div v-for="item in checkResult.not_checked" :key="item.id" class="not-checked-item">
             <div class="not-checked-copy">
@@ -347,13 +416,13 @@
             </div>
             <template v-if="item.type === 'manual'">
               <div class="not-checked-actions">
-                <span v-if="assistResultFor(item.id)" class="assist-saved-tag"><span class="material-symbols-outlined">check_circle</span>已保存</span>
+                <span v-if="assistResultFor(item.id)" class="assist-saved-tag"><span class="material-symbols-outlined">check_circle</span>{{ t('writer.saved') }}</span>
                 <button v-if="assistResultFor(item.id)" class="check-action-btn secondary" @click.stop="showAssistResult(assistResultFor(item.id))">
-                  <span class="material-symbols-outlined">visibility</span>查看
+                  <span class="material-symbols-outlined">visibility</span>{{ t('writer.view') }}
                 </button>
                 <button class="check-action-btn assist-action" :disabled="!!assistBusy" @click.stop="openAssist(item)">
                   <span class="material-symbols-outlined">auto_awesome</span>
-                  {{ assistBusy === item.id ? 'AI处理中…' : (assistResultFor(item.id) ? '重新 AI 辅助' : 'AI 辅助') }}
+                  {{ assistBusy === item.id ? t('writer.aiProcessing') : (assistResultFor(item.id) ? t('writer.aiAssistAgain') : t('writer.aiAssist')) }}
                 </button>
               </div>
             </template>
@@ -363,197 +432,197 @@
     </aside>
 
       <Teleport to="body">
-      <!-- AI 对照选择弹窗 -->
+      <!-- AI result comparison -->
       <div v-if="aiDiff" class="modal-mask writer-modal-mask" @click.self="cancelAiDiff">
         <div class="modal card diff-modal">
           <h3 style="margin-top:0; display:flex; align-items:center; gap:8px">
-            <span>{{ aiDiff.action === 'continue' ? '▶ AI 续写对照' : '✨ AI 润色对照' }}</span>
+            <span>{{ aiDiff.action === 'continue' ? t('writer.aiContinueCompare') : t('writer.aiPolishCompare') }}</span>
             <span class="type-tag" style="font-size:12px; font-weight:normal">
-              第 {{ aiDiff.index + 1 }} 块
+              {{ t('writer.blockNumber', { number: aiDiff.index + 1 }) }}
             </span>
           </h3>
           <p class="hint" style="margin-top:0">
-            请审阅 AI 生成的结果。确认满意后可点击替换或追加，不满意可直接放弃保持原状。
+            {{ t('writer.aiReviewPrompt') }}
           </p>
 
           <div class="diff-grid">
             <div class="diff-pane">
-              <div class="diff-label">【原段落内容】</div>
+              <div class="diff-label">{{ t('writer.originalParagraph') }}</div>
               <div class="diff-box original">{{ aiDiff.original }}</div>
             </div>
             <div class="diff-pane">
               <div class="diff-label">
-                {{ aiDiff.action === 'continue' ? '【AI 续写新内容】' : '【AI 润色后内容】' }}
+                {{ aiDiff.action === 'continue' ? t('writer.newAiContent') : t('writer.polishedAiContent') }}
               </div>
               <div class="diff-box generated">{{ aiDiff.generated }}</div>
             </div>
           </div>
 
           <div v-if="aiDiff.action === 'continue'" class="diff-preview-pane">
-            <div class="diff-label">【合并预览效果】</div>
+            <div class="diff-label">{{ t('writer.mergePreview') }}</div>
             <div class="diff-box preview">{{ aiDiff.preview }}</div>
           </div>
 
           <div class="form-row" style="margin-top:16px; justify-content:flex-end">
             <button class="primary" @click="applyAiDiff">
-              {{ aiDiff.action === 'continue' ? '✔ 采纳并追加' : '✔ 采纳并替换' }}
+              {{ aiDiff.action === 'continue' ? t('writer.acceptAppend') : t('writer.acceptReplace') }}
             </button>
-            <button @click="cancelAiDiff">✖ 放弃 (保留原样)</button>
+            <button @click="cancelAiDiff">{{ t('writer.discardKeepOriginal') }}</button>
           </div>
         </div>
       </div>
 
-      <!-- AI 设置弹窗 -->
+      <!-- AI settings -->
       <div v-if="showAiSettings" class="modal-mask writer-modal-mask" @click.self="showAiSettings = false">
         <div class="modal card">
-          <h3 style="margin-top:0">✨ AI 设置</h3>
+          <h3 style="margin-top:0">{{ t('writer.aiSettingsTitle') }}</h3>
           <div v-if="isAdmin" class="ai-tab-row">
             <button class="ai-tab-btn" :class="{ active: aiTab === 'user' }" @click="switchAiTab('user')">
-              个人模型 (仅本人生效)
+              {{ t('writer.personalModel') }}
             </button>
             <button class="ai-tab-btn" :class="{ active: aiTab === 'admin' }" @click="switchAiTab('admin')">
-              ⚙️ 全站默认模型 (管理员)
+              {{ t('writer.adminModel') }}
             </button>
           </div>
           <p class="hint" style="font-size: 13px; margin-top: 4px">
             <template v-if="aiTab === 'user'">
-              配置自己的模型, 支持 OpenAI 兼容接口和 MiniMax Anthropic 接口, 仅对本账号生效, 优先于系统默认。
+              {{ t('writer.personalModelDetail') }}
               <br />
               <template v-if="aiEnabled">
-                当前: {{ aiSource === 'user' ? '自有模型' : '系统默认模型' }} ({{ aiModel }})
+                {{ t('writer.currentSource', { source: aiSource === 'user' ? t('writer.ownModel') : t('writer.systemModel'), model: aiModel }) }}
               </template>
-              <template v-else>当前 AI 功能未启用</template>
+              <template v-else>{{ t('writer.aiDisabled') }}</template>
             </template>
             <template v-else>
-              配置全站默认模型, 支持 OpenAI 兼容接口和 MiniMax Anthropic 接口, 全体未自带 Key 的用户将默认使用该配置。
+              {{ t('writer.adminModelDetail') }}
               <br />
               <template v-if="adminAiInfo.configured">
-                当前默认来源: {{ adminAiInfo.source === 'database' ? '数据库 (管理员自定义)' : '环境变量 (PAPERGUARD_AI_*)' }}
+                {{ t('writer.defaultSource', { source: adminAiInfo.source === 'database' ? t('writer.databaseCustom') : t('writer.environmentModel') }) }}
               </template>
-              <template v-else>当前全站未配置默认模型</template>
+              <template v-else>{{ t('writer.noDefaultModel') }}</template>
             </template>
           </p>
 
           <!-- 个人模型表单 -->
           <template v-if="aiTab === 'user'">
-            <label class="field">Base URL
-              <input v-model="aiCfgForm.base_url" placeholder="如 https://api.openai.com/v1 或 https://api.minimax.cn/anthropic" />
+            <label class="field">{{ t('writer.apiBaseUrl') }}
+              <input v-model="aiCfgForm.base_url" :placeholder="t('writer.baseUrlPlaceholder')" />
             </label>
-            <label class="field">API Key
+            <label class="field">{{ t('writer.apiKey') }}
               <input v-model="aiCfgForm.api_key" type="password" autocomplete="new-password"
-                     :placeholder="aiCfgInfo.configured ? '已保存 ' + aiCfgInfo.api_key_masked + ' (留空则沿用)' : '必填, 如 sk-xxx'" />
+                     :placeholder="aiCfgInfo.configured ? t('writer.savedKeyPlaceholder', { key: aiCfgInfo.api_key_masked }) : t('writer.requiredKeyPlaceholder')" />
             </label>
-            <label class="field">模型
-              <input v-model="aiCfgForm.model" placeholder="如 gpt-4o-mini / MiniMax-M2.7" />
+            <label class="field">{{ t('writer.model') }}
+              <input v-model="aiCfgForm.model" :placeholder="t('writer.modelPlaceholder')" />
             </label>
             <p v-if="aiCfgInfo.message" :class="aiCfgInfo.ok ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
               {{ aiCfgInfo.ok ? '✅' : '⚠' }} {{ aiCfgInfo.message }}
             </p>
             <div class="form-row">
               <button class="primary" :disabled="aiCfgInfo.saving" @click="saveAiCfg">
-                {{ aiCfgInfo.saving ? '保存中…' : '保存自有配置' }}
+                {{ aiCfgInfo.saving ? t('common.saving') : t('writer.saveOwn') }}
               </button>
               <button :disabled="aiCfgInfo.testing" @click="testAiConnection">
-                {{ aiCfgInfo.testing ? '测试中…' : '测试连接' }}
+                {{ aiCfgInfo.testing ? t('writer.aiProcessing') : t('writer.testConnection') }}
               </button>
-              <button v-if="aiCfgInfo.configured" @click="clearAiCfg">清除自有配置</button>
-              <button @click="showAiSettings = false">关闭</button>
+              <button v-if="aiCfgInfo.configured" @click="clearAiCfg">{{ t('writer.clearOwn') }}</button>
+              <button @click="showAiSettings = false">{{ t('common.close') }}</button>
             </div>
           </template>
 
           <!-- 管理员全站默认模型表单 -->
           <template v-else>
-            <label class="field">Base URL
-              <input v-model="adminAiForm.base_url" placeholder="如 https://api.openai.com/v1 或 https://api.minimax.cn/anthropic" />
+            <label class="field">{{ t('writer.apiBaseUrl') }}
+              <input v-model="adminAiForm.base_url" :placeholder="t('writer.baseUrlPlaceholder')" />
             </label>
-            <label class="field">API Key
+            <label class="field">{{ t('writer.apiKey') }}
               <input v-model="adminAiForm.api_key" type="password" autocomplete="new-password"
-                     :placeholder="adminAiInfo.configured ? '已配置 ' + adminAiInfo.api_key_masked + ' (留空则沿用)' : '必填, 如 sk-xxx'" />
+                     :placeholder="adminAiInfo.configured ? t('writer.savedKeyPlaceholder', { key: adminAiInfo.api_key_masked }) : t('writer.requiredKeyPlaceholder')" />
             </label>
-            <label class="field">模型
-              <input v-model="adminAiForm.model" placeholder="如 gpt-4o-mini / MiniMax-M2.7" />
+            <label class="field">{{ t('writer.model') }}
+              <input v-model="adminAiForm.model" :placeholder="t('writer.modelPlaceholder')" />
             </label>
             <p v-if="adminAiInfo.message" :class="adminAiInfo.ok ? 'ok-banner' : 'error-banner'" style="font-size: 13px">
               {{ adminAiInfo.ok ? '✅' : '⚠' }} {{ adminAiInfo.message }}
             </p>
             <div class="form-row">
               <button class="primary" :disabled="adminAiInfo.saving" @click="saveAdminAiCfg">
-                {{ adminAiInfo.saving ? '保存中…' : '保存全站默认' }}
+                {{ adminAiInfo.saving ? t('common.saving') : t('writer.saveDefault') }}
               </button>
               <button :disabled="adminAiInfo.testing" @click="testAdminAiConnection">
-                {{ adminAiInfo.testing ? '测试中…' : '测试连接' }}
+                {{ adminAiInfo.testing ? t('writer.aiProcessing') : t('writer.testConnection') }}
               </button>
-              <button v-if="adminAiInfo.source === 'database'" @click="clearAdminAiCfg">恢复环境变量默认值</button>
-              <button @click="showAiSettings = false">关闭</button>
+              <button v-if="adminAiInfo.source === 'database'" @click="clearAdminAiCfg">{{ t('writer.restoreEnvironment') }}</button>
+              <button @click="showAiSettings = false">{{ t('common.close') }}</button>
             </div>
           </template>
         </div>
       </div>
 
-      <!-- 更换模板弹窗 -->
+      <!-- Template switcher -->
       <div v-if="showTemplateModal" class="modal-mask writer-modal-mask" @click.self="showTemplateModal = false">
         <div class="modal card">
-          <h3 style="margin-top: 0">🔀 更换模板</h3>
+          <h3 style="margin-top: 0">🔀 {{ t('writer.switchTemplate') }}</h3>
           <p class="hint" style="margin-top: 0">
-            换模板只改字体/行距/封面等排版规范，已写内容按章节保留。
+            {{ t('writer.switchTemplateDetail') }}
           </p>
           <div v-if="templateError" class="error-banner">⚠ {{ templateError }}</div>
-          <div v-if="templateLoading" style="color: var(--muted)">⏳ 正在加载模板…</div>
-          <div v-else-if="!templateList.length" style="color: var(--muted)">暂无可用模板</div>
-          <div v-for="t in templateList" :key="t.id" class="template-row"
-               :class="{ current: t.id === project.template_id }">
+          <div v-if="templateLoading" style="color: var(--muted)">⏳ {{ t('writer.loadingTemplates') }}</div>
+          <div v-else-if="!templateList.length" style="color: var(--muted)">{{ t('writer.noTemplates') }}</div>
+          <div v-for="tpl in templateList" :key="tpl.id" class="template-row"
+               :class="{ current: tpl.id === project.template_id }">
             <div class="template-meta">
-              <b>{{ t.name }}</b>
-              <span v-if="t.id === project.template_id" class="tag">当前</span>
+              <b>{{ tpl.name }}</b>
+              <span v-if="tpl.id === project.template_id" class="tag">{{ t('writer.current') }}</span>
               <div class="template-desc">
-                {{ t.description || '无描述' }} · {{ t.section_count }} 个章节
+                {{ tpl.description || t('common.noDescription') }} · {{ t('common.sectionsCount', { count: tpl.section_count }) }}
               </div>
             </div>
             <button class="small primary" :disabled="!!templateBusy"
-                    @click="applyTemplate(t.id)">
-              {{ templateBusy === t.id ? '应用中…' : (t.id === project.template_id ? '重新套用' : '套用') }}
+                    @click="applyTemplate(tpl.id)">
+              {{ templateBusy === tpl.id ? t('writer.applyingTemplate') : (tpl.id === project.template_id ? t('writer.reapplyTemplate') : t('writer.applyTemplate')) }}
             </button>
           </div>
           <div class="form-row" style="margin-top: 14px">
-            <button @click="showTemplateModal = false">关闭</button>
+            <button @click="showTemplateModal = false">{{ t('common.close') }}</button>
           </div>
         </div>
       </div>
 
-      <!-- 添加章节弹窗 -->
+      <!-- Add section -->
       <div v-if="showAddSectionModal" class="modal-mask writer-modal-mask" @click.self="showAddSectionModal = false">
         <div class="modal card">
-          <h3 style="margin-top: 0">➕ 添加新章节</h3>
-          <p class="hint" style="margin-top: 0">导师已允许自定义增删章节框架。请选择章节名称、类型和插入位置：</p>
-          <label class="field">章节标题
-            <input v-model="newSectionForm.title" placeholder="如 第六章 结论与建议 或 1.4 本章小结" />
+          <h3 style="margin-top: 0">{{ t('writer.addSectionTitle') }}</h3>
+          <p class="hint" style="margin-top: 0">{{ t('writer.addSectionDetail') }}</p>
+          <label class="field">{{ t('writer.sectionTitle') }}
+            <input v-model="newSectionForm.title" :placeholder="t('writer.sectionTitlePlaceholder')" />
           </label>
-          <label class="field">章节类型
+          <label class="field">{{ t('writer.sectionType') }}
             <select v-model="newSectionForm.type" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 8px;">
-              <option value="heading1">一级标题 (章)</option>
-              <option value="heading2">二级标题 (节)</option>
-              <option value="heading3">三级标题 (小节)</option>
-              <option value="body">正文容器</option>
-              <option value="appendix">附录</option>
+              <option value="heading1">{{ t('writer.heading1') }}</option>
+              <option value="heading2">{{ t('writer.heading2') }}</option>
+              <option value="heading3">{{ t('writer.heading3') }}</option>
+              <option value="body">{{ t('writer.bodyContainer') }}</option>
+              <option value="appendix">{{ t('writer.appendix') }}</option>
             </select>
           </label>
-          <label class="field">插入位置
+          <label class="field">{{ t('writer.insertPosition') }}
             <select v-model="newSectionForm.position" class="structure-select">
-              <option value="start">目录开头</option>
+              <option value="start">{{ t('writer.positionStart') }}</option>
               <option v-for="node in displaySections" :key="`before-${node.key}`" :value="`before:${node.key}`">
-                在「{{ label(node) }}」之前
+                {{ t('writer.beforeSection', { name: label(node) }) }}
               </option>
               <option v-for="node in displaySections" :key="`after-${node.key}`" :value="`after:${node.key}`">
-                在「{{ label(node) }}」之后
+                {{ t('writer.afterSection', { name: label(node) }) }}
               </option>
-              <option value="end">目录末尾</option>
+              <option value="end">{{ t('writer.positionEnd') }}</option>
             </select>
           </label>
           <div class="form-row" style="margin-top: 16px;">
             <button class="primary" :disabled="!newSectionForm.title.trim() || structureBusy" @click="confirmAddSection">
-              {{ structureBusy ? '保存中…' : '确认添加' }}
+              {{ structureBusy ? t('writer.savingStructure') : t('writer.confirmAdd') }}
             </button>
-            <button @click="showAddSectionModal = false">取消</button>
+            <button @click="showAddSectionModal = false">{{ t('common.cancel') }}</button>
           </div>
         </div>
       </div>
@@ -567,19 +636,24 @@ import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth, isManager } from '../auth'
 import {
-  fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, exportProject,
+  fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, restoreProjectSnapshot, createProjectExportJob, fetchProjectExportJob, downloadProjectExportJob, previewProjectExport,
   checkProject, fixProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
+  importProjectDocx,
   acknowledgeRequirements, assistRequirement, listRequirementWaivers, listRequirementDisputes, previewRequirementUpgrade,
-  requestRequirementWaiver, requestRequirementDispute, upgradeRequirements, decideRequirementWaiver, decideRequirementDispute,
+  requestRequirementWaiver, requestRequirementDispute, upgradeRequirements, decideRequirementWaiver, revokeRequirementWaiver, decideRequirementDispute,
   aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
   getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
 } from '../api'
 import BlockList from '../components/BlockList.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
+import ReasonDialog from '../components/ReasonDialog.vue'
 import SectionTextEditor from '../components/SectionTextEditor.vue'
+import { useI18n } from '../i18n'
 import { createTextBlocks, mergeTextBlocksWithMedia, textBlocksToSectionText } from '../utils/paragraphSplitter.js'
 
 const route = useRoute()
 const router = useRouter()
+const { t, formatDate: formatLocaleDate } = useI18n()
 const projectId = route.params.id
 
 const project = ref(null)
@@ -591,6 +665,10 @@ const loading = ref(true)
 const saving = ref(false)
 const savedAt = ref('')
 const exporting = ref(false)
+const exportPreview = ref(null)
+const importing = ref(false)
+const importPreview = ref(null)
+const docxInput = ref(null)
 const showTemplateModal = ref(false)
 const templateList = ref([])
 const templateLoading = ref(false)
@@ -598,6 +676,10 @@ const templateBusy = ref('')
 const templateError = ref('')
 const templateNotice = ref('')
 const fixNotice = ref('')
+const recoveryDraft = ref(null)
+const recoveryUnavailable = ref(false)
+const failedSave = ref(false)
+const conflictSave = ref(null)
 const checkResult = ref(null)
 const checking = ref(false)
 const fixing = ref(false)
@@ -612,11 +694,13 @@ const requirementSets = computed(() => requirementSnapshot.value?.policy_sets ||
 const autoRequirementCount = computed(() => (requirementSnapshot.value?.resolved_items || []).filter((item) => item.type === 'auto').length)
 const hasAcknowledged = computed(() => (project.value?.requirement_acknowledgements || []).some((item) => item.user_id === auth.user?.id && item.snapshot_hash === requirementSnapshot.value?.content_hash))
 const waiverTarget = ref(null); const waiverReason = ref(''); const waiverBusy = ref(false)
+const revokeWaiverTarget = ref(null); const revokeWaiverBusy = ref(false)
 const disputeTarget = ref(null); const disputeReason = ref(''); const disputeBusy = ref(false)
 const upgradePreview = ref(null); const upgradeBusy = ref(false); const upgradeConfirm = ref(false); const assistResult = ref(null); const assistBusy = ref('')
 const waivers = ref([])
 const disputes = ref([])
 const pendingWaivers = computed(() => waivers.value.filter((item) => item.status === 'pending'))
+const approvedWaivers = computed(() => waivers.value.filter((item) => item.status === 'approved'))
 const pendingDisputes = computed(() => disputes.value.filter((item) => item.status === 'pending'))
 
 const saveTimers = new Map()
@@ -649,12 +733,13 @@ const canEditStructure = computed(() => {
 
 // 展示的章节列表（以项目实际 sections 为准，若未初始化则以模板为准）
 const displaySections = computed(() => {
-  if (!project.value || !project.value.sections) return flatTemplateSections.value
+  const cover = { key: 'cover', type: 'cover', title: t('writer.coverSection'), required: true, depth: 0 }
+  if (!project.value || !project.value.sections) return [cover, ...flatTemplateSections.value]
   const tplMap = new Map()
   for (const item of flatTemplateSections.value) {
     tplMap.set(item.key, item)
   }
-  return project.value.sections.map((sec) => {
+  const sections = project.value.sections.map((sec) => {
     const tplItem = tplMap.get(sec.key)
     let depth = tplItem?.depth || 0
     if (sec.type === 'heading2') depth = 1
@@ -667,11 +752,14 @@ const displaySections = computed(() => {
       depth,
     }
   })
+  return sections.some((section) => section.key === 'cover') ? sections : [cover, ...sections]
 })
 
 const showAddSectionModal = ref(false)
 const structureBusy = ref(false)
 const newSectionForm = reactive({ title: '', type: 'heading2', position: 'end' })
+const confirmBusy = ref(false)
+const confirmDialog = reactive({ open: false, title: '', description: '', confirmLabel: '', danger: false, action: null })
 const protectedSectionKeys = new Set(['cover', 'abstract', 'english_abstract', 'toc', 'references'])
 
 function openAddSectionModal() {
@@ -748,7 +836,7 @@ async function confirmAddSection() {
     newSectionForm.title = ''
     void runCheckNow()
   } catch (e) {
-    error.value = e.message || '添加章节失败'
+    error.value = e.message || t('writer.addSectionFailed')
   } finally {
     structureBusy.value = false
   }
@@ -770,15 +858,18 @@ async function moveSection(node, delta) {
     computeChapterNumbers()
     void runCheckNow()
   } catch (e) {
-    error.value = e.message || '调整章节位置失败'
+    error.value = e.message || t('writer.moveSectionFailed')
   } finally {
     structureBusy.value = false
   }
 }
 
-async function removeSection(node) {
-  if (!confirm(`确定要删除章节「${node.title || node.key}」及其正文内容吗？`)) return
+function removeSection(node) {
   if (structureBusy.value) return
+  openConfirmDialog({ title: t('writer.deleteSectionTitle', { name: node.title || node.key }), description: t('writer.deleteSectionDescription'), confirmLabel: t('common.confirm'), danger: true }, () => performRemoveSection(node))
+}
+
+async function performRemoveSection(node) {
   structureBusy.value = true
   error.value = ''
   try {
@@ -795,7 +886,7 @@ async function removeSection(node) {
     computeChapterNumbers()
     void runCheckNow()
   } catch (e) {
-    error.value = e.message || '删除章节失败'
+    error.value = e.message || t('writer.removeSectionFailed')
   } finally {
     structureBusy.value = false
   }
@@ -803,7 +894,7 @@ async function removeSection(node) {
 
 const currentSection = computed(() => {
   if (!project.value) return null
-  if (current.value === 'cover') return { type: 'cover', key: 'cover', title: '封面' }
+  if (current.value === 'cover') return { type: 'cover', key: 'cover', title: t('writer.coverSection') }
   return project.value.sections.find((s) => s.key === current.value) || null
 })
 
@@ -899,7 +990,7 @@ async function loadUserAiCfg() {
     aiCfgForm.model = cfg.model || ''
     aiCfgForm.api_key = ''
   } catch (e) {
-    aiCfgInfo.message = e.message || '读取个人 AI 配置失败'
+    aiCfgInfo.message = e.message || t('writer.loadAiConfigFailed')
   }
 }
 
@@ -916,7 +1007,7 @@ async function loadAdminAiCfg() {
     adminAiForm.model = cfg.model || ''
     adminAiForm.api_key = ''
   } catch (e) {
-    adminAiInfo.message = e.message || '读取全站 AI 配置失败'
+    adminAiInfo.message = e.message || t('writer.loadAdminAiConfigFailed')
   }
 }
 
@@ -938,8 +1029,8 @@ async function testAdminAiConnection() {
   if (!adminAiFilled()) {
     adminAiInfo.ok = false
     adminAiInfo.message = adminAiInfo.configured
-      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
-      : '请先完整填写 Base URL / API Key / 模型'
+      ? t('writer.keepSavedKey')
+      : t('writer.completeAiFields')
     return
   }
   adminAiInfo.testing = true
@@ -947,10 +1038,10 @@ async function testAdminAiConnection() {
   try {
     const res = await testAdminAiConfig({ ...adminAiForm })
     adminAiInfo.ok = res.ok
-    adminAiInfo.message = res.ok ? `测试成功 (模型: ${res.model})` : (res.error || '测试失败')
+      adminAiInfo.message = res.ok ? t('writer.testSucceeded', { model: res.model }) : (res.error || t('writer.testFailed'))
   } catch (e) {
     adminAiInfo.ok = false
-    adminAiInfo.message = e.message || '测试失败'
+    adminAiInfo.message = e.message || t('writer.testFailed')
   } finally {
     adminAiInfo.testing = false
   }
@@ -960,8 +1051,8 @@ async function saveAdminAiCfg() {
   if (!adminAiFilled()) {
     adminAiInfo.ok = false
     adminAiInfo.message = adminAiInfo.configured
-      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
-      : '请先完整填写 Base URL / API Key / 模型'
+      ? t('writer.adminKeepKey')
+      : t('writer.adminCompleteFields')
     return
   }
   adminAiInfo.saving = true
@@ -971,12 +1062,12 @@ async function saveAdminAiCfg() {
     adminAiInfo.configured = true
     adminAiInfo.source = 'database'
     adminAiInfo.ok = true
-    adminAiInfo.message = '已保存为全站默认模型！'
+    adminAiInfo.message = t('writer.adminSaved')
     await loadAiStatus()
     await loadAdminAiCfg()
   } catch (e) {
     adminAiInfo.ok = false
-    adminAiInfo.message = e.message || '保存全站配置失败'
+    adminAiInfo.message = e.message || t('writer.adminSaveFailed')
   } finally {
     adminAiInfo.saving = false
   }
@@ -986,12 +1077,12 @@ async function clearAdminAiCfg() {
   try {
     await clearAdminAiConfig()
     adminAiInfo.ok = true
-    adminAiInfo.message = '已恢复系统默认设置'
+    adminAiInfo.message = t('writer.systemRestored')
     await loadAiStatus()
     await loadAdminAiCfg()
   } catch (e) {
     adminAiInfo.ok = false
-    adminAiInfo.message = e.message || '清除失败'
+    adminAiInfo.message = e.message || t('writer.clearFailed')
   }
 }
 
@@ -1005,7 +1096,7 @@ async function onBlockAi({ action, index }) {
   if (!par || par.type !== 'paragraph') return
   const text = (par.text || '').trim()
   if (!text) {
-    error.value = '当前块为空, 请先输入一些内容再使用 AI'
+    error.value = t('writer.emptyBlock')
     return
   }
   aiBusy.value = { index, action }
@@ -1024,7 +1115,7 @@ async function onBlockAi({ action, index }) {
       preview: action === 'continue' ? (original + (original ? '\n' : '') + generated) : generated,
     }
   } catch (e) {
-    error.value = e.message || 'AI 调用失败'
+    error.value = e.message || t('writer.aiCallFailed')
   } finally {
     aiBusy.value = null
   }
@@ -1071,7 +1162,7 @@ async function aiGenerate() {
   if (!sec || aiGenerating.value || aiBusy.value) return
   const body = bodyContext()
   if (body.length < 50) {
-    error.value = '正文内容太少, 请先撰写正文章节, 再回到本页生成'
+    error.value = t('writer.bodyTooShort')
     return
   }
   aiGenerating.value = true
@@ -1090,7 +1181,7 @@ async function aiGenerate() {
     first.text = result.text
     scheduleSave()
   } catch (e) {
-    error.value = e.message || 'AI 生成失败'
+    error.value = e.message || t('writer.aiGenerateFailed')
   } finally {
     aiGenerating.value = false
   }
@@ -1105,8 +1196,8 @@ async function testAiConnection() {
   if (!aiCfgFilled()) {
     aiCfgInfo.ok = false
     aiCfgInfo.message = aiCfgInfo.configured
-      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
-      : '请先填写完整 Base URL / API Key / 模型'
+      ? t('writer.keepSavedKey')
+      : t('writer.completeAiFields')
     return
   }
   aiCfgInfo.testing = true
@@ -1114,10 +1205,10 @@ async function testAiConnection() {
   try {
     const r = await testAiConfig({ ...aiCfgForm })
     aiCfgInfo.ok = r.ok
-    aiCfgInfo.message = r.ok ? `连接成功 (模型: ${r.model})` : (r.error || '连接失败')
+    aiCfgInfo.message = r.ok ? t('writer.connected', { model: r.model }) : (r.error || t('writer.connectionFailed'))
   } catch (e) {
     aiCfgInfo.ok = false
-    aiCfgInfo.message = e.message || '测试失败'
+    aiCfgInfo.message = e.message || t('writer.testFailed')
   } finally {
     aiCfgInfo.testing = false
   }
@@ -1127,8 +1218,8 @@ async function saveAiCfg() {
   if (!aiCfgFilled()) {
     aiCfgInfo.ok = false
     aiCfgInfo.message = aiCfgInfo.configured
-      ? '请填写 Base URL / 模型；API Key 留空即可沿用已保存密钥'
-      : '请填写完整 Base URL / API Key / 模型'
+      ? t('writer.keepSavedKey')
+      : t('writer.completeAiFields')
     return
   }
   aiCfgInfo.saving = true
@@ -1137,11 +1228,11 @@ async function saveAiCfg() {
     await saveAiConfig({ ...aiCfgForm })
     aiCfgInfo.configured = true
     aiCfgInfo.ok = true
-    aiCfgInfo.message = '已保存, 现在使用你自己的模型'
+    aiCfgInfo.message = t('writer.savedOwn')
     await loadAiStatus()
   } catch (e) {
     aiCfgInfo.ok = false
-    aiCfgInfo.message = e.message || '保存失败'
+    aiCfgInfo.message = e.message || t('writer.saveFailed')
   } finally {
     aiCfgInfo.saving = false
   }
@@ -1156,10 +1247,10 @@ async function clearAiCfg() {
     aiCfgForm.model = ''
     aiCfgForm.api_key = ''
     aiCfgInfo.ok = true
-    aiCfgInfo.message = '已清除自有配置, 恢复使用系统默认模型(若已配置)'
+    aiCfgInfo.message = t('writer.clearedOwn')
   } catch (e) {
     aiCfgInfo.ok = false
-    aiCfgInfo.message = e.message || '清除失败'
+    aiCfgInfo.message = e.message || t('writer.clearFailed')
   }
 }
 
@@ -1170,6 +1261,7 @@ async function loadProject() {
   try {
     const p = await fetchProject(projectId)
     project.value = p
+    loadLocalRecovery()
     template.value = p.template_snapshot
       ? p.template_snapshot
       : await fetchTemplate(p.template_id)
@@ -1186,7 +1278,7 @@ async function loadProject() {
     void loadWaivers()
   } catch (e) {
     loading.value = false
-    loadError.value = e.message || '论文加载失败'
+    loadError.value = e.message || t('writer.projectLoadFailed')
   }
 }
 
@@ -1264,8 +1356,8 @@ function isDone(node) {
 }
 function typeLabel(type) {
   return {
-    cover: '封面', abstract: '中文摘要', english_abstract: '英文摘要', keywords: '中文关键词', english_keywords: '英文关键词', toc: '目录', heading1: '一级标题', heading2: '二级标题',
-    heading3: '三级标题', body: '正文', references: '参考文献', acknowledgement: '致谢', appendix: '附录',
+    cover: t('writer.coverSection'), abstract: t('section.abstract'), english_abstract: t('section.englishAbstract'), keywords: t('section.keywords'), english_keywords: t('section.englishKeywords'), toc: t('section.toc'), heading1: t('section.heading1'), heading2: t('section.heading2'),
+    heading3: t('section.heading3'), body: t('section.body'), references: t('section.references'), acknowledgement: t('section.acknowledgement'), appendix: t('section.appendix'),
   }[type] || type
 }
 
@@ -1309,6 +1401,115 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+function recoveryStorageKey() {
+  return `pg_recovery:${auth.user?.id || 'anonymous'}:${projectId}`
+}
+
+function hasRecoveryStorage() {
+  try {
+    const probe = '__pg_recovery_probe__'
+    localStorage.setItem(probe, '1')
+    localStorage.removeItem(probe)
+    return true
+  } catch {
+    recoveryUnavailable.value = true
+    return false
+  }
+}
+
+function localRecoveryPayload() {
+  return {
+    project_id: projectId,
+    user_id: auth.user?.id || '',
+    base_revision: project.value.revision,
+    saved_at: new Date().toISOString(),
+    snapshot: editableSnapshot(),
+  }
+}
+
+function editableSnapshot() {
+  return clone({
+    title: project.value.title,
+    meta: project.value.meta,
+    sections: project.value.sections,
+  })
+}
+
+function persistLocalRecovery() {
+  if (!project.value || !hasRecoveryStorage()) return
+  try {
+    localStorage.setItem(recoveryStorageKey(), JSON.stringify(localRecoveryPayload()))
+  } catch {
+    recoveryUnavailable.value = true
+  }
+}
+
+function loadLocalRecovery() {
+  if (!project.value || !hasRecoveryStorage()) return
+  try {
+    const saved = JSON.parse(localStorage.getItem(recoveryStorageKey()) || 'null')
+    const savedSnapshot = saved?.snapshot ? JSON.stringify(saved.snapshot) : ''
+    if (savedSnapshot && saved.saved_at && savedSnapshot !== JSON.stringify(editableSnapshot())) {
+      recoveryDraft.value = saved
+    } else if (savedSnapshot) {
+      clearLocalRecovery()
+    }
+  } catch {
+    recoveryDraft.value = null
+  }
+}
+
+function clearLocalRecovery() {
+  try { localStorage.removeItem(recoveryStorageKey()) } catch { /* ignore storage cleanup errors */ }
+  recoveryDraft.value = null
+}
+
+function maybeClearRecovery() {
+  if (!dirtyKeys.size && !pendingSaves.size && !pendingMeta && !inFlightSaves.size) {
+    clearLocalRecovery()
+    failedSave.value = false
+  }
+}
+
+async function restoreLocalDraft() {
+  if (!recoveryDraft.value || !project.value) return
+  try {
+    const updated = await restoreProjectSnapshot(projectId, recoveryDraft.value.snapshot, recoveryDraft.value.base_revision)
+    project.value = updated
+    template.value = updated.template_snapshot || template.value
+    clearLocalRecovery()
+    failedSave.value = false
+    conflictSave.value = null
+    error.value = ''
+    computeChapterNumbers()
+    void runCheckNow()
+  } catch (e) {
+    error.value = e.message || t('writer.restoreDraftFailed')
+    if (e.status === 409) conflictSave.value = { key: '__recovery' }
+  }
+}
+
+function discardLocalDraft() {
+  clearLocalRecovery()
+}
+
+async function reloadAfterConflict() {
+  try {
+    const updated = await fetchProject(projectId)
+    project.value = updated
+    template.value = updated.template_snapshot || template.value
+    pendingSaves.clear()
+    pendingMeta = null
+    dirtyKeys.clear()
+    conflictSave.value = null
+    error.value = ''
+    loadLocalRecovery()
+    computeChapterNumbers()
+  } catch (e) {
+    error.value = e.message || t('writer.reloadServerFailed')
+  }
+}
+
 function markDirty(key) { dirtyKeys.add(key) }
 function markClean(key) { dirtyKeys.delete(key) }
 
@@ -1320,6 +1521,7 @@ function scheduleSave() {
   saveVersions.set(key, version)
   pendingSaves.set(key, { version, payload: clone({ title: sec.title, paragraphs: sec.paragraphs }) })
   markDirty(key)
+  persistLocalRecovery()
   clearTimeout(saveTimers.get(key))
   saveTimers.set(key, setTimeout(() => {
     saveTimers.delete(key)
@@ -1337,6 +1539,7 @@ function onMetaInput(key, value) {
   pendingMeta = { version: (saveVersions.get('__meta') || 0) + 1, payload: clone(project.value.meta) }
   saveVersions.set('__meta', pendingMeta.version)
   markDirty('__meta')
+  persistLocalRecovery()
   clearTimeout(metaTimer)
   metaTimer = setTimeout(() => {
     metaTimer = null
@@ -1364,7 +1567,13 @@ function enqueueSectionSave(key, payload, version) {
       if (saveVersions.get(key) === version && !pendingSaves.has(key)) markClean(key)
       savedAt.value = new Date().toLocaleTimeString()
     } catch (e) {
-      error.value = e.message || '保存章节失败'
+      if (saveVersions.get(key) === version && !pendingSaves.has(key)) {
+        pendingSaves.set(key, { version, payload })
+      }
+      failedSave.value = true
+      persistLocalRecovery()
+      if (e.status === 409) conflictSave.value = { key, revision: e.revision }
+      error.value = e.message || t('writer.saveSectionFailed')
       throw e
     } finally {
       saving.value = false
@@ -1383,7 +1592,13 @@ function enqueueMetaSave(payload, version) {
       if (saveVersions.get('__meta') === version && !pendingMeta) markClean('__meta')
       savedAt.value = new Date().toLocaleTimeString()
     } catch (e) {
-      error.value = e.message || '保存封面信息失败'
+      if (saveVersions.get('__meta') === version && !pendingMeta) {
+        pendingMeta = { version, payload }
+      }
+      failedSave.value = true
+      persistLocalRecovery()
+      if (e.status === 409) conflictSave.value = { key: '__meta', revision: e.revision }
+      error.value = e.message || t('writer.saveCoverFailed')
       throw e
     } finally {
       saving.value = false
@@ -1396,7 +1611,10 @@ function enqueueSaveTask(task) {
   const promise = saveQueue.catch(() => {}).then(task)
   saveQueue = promise.catch(() => {})
   inFlightSaves.add(promise)
-  promise.finally(() => inFlightSaves.delete(promise))
+  promise.finally(() => {
+    inFlightSaves.delete(promise)
+    maybeClearRecovery()
+  }).catch(() => {})
   return promise
 }
 
@@ -1432,6 +1650,16 @@ async function saveMeta() {
   await enqueueMetaSave(clone(project.value.meta), version)
 }
 
+async function retryFailedSaves() {
+  failedSave.value = false
+  error.value = ''
+  try {
+    await flushPendingSaves()
+  } catch (e) {
+    error.value = e.message || t('writer.retrySaveFailed')
+  }
+}
+
 // ---------- 实时检查 ----------
 async function runCheckNow() {
   if (!project.value || loading.value || checking.value || fixing.value) return
@@ -1439,7 +1667,7 @@ async function runCheckNow() {
   try {
     await flushPendingSaves()
   } catch {
-    checkError.value = '内容尚未保存, 请先解决保存冲突'
+    checkError.value = t('writer.checkUnsaved')
     return
   }
   checking.value = true
@@ -1450,7 +1678,7 @@ async function runCheckNow() {
     checkResult.value = result
     checkStale.value = false
   } catch (e) {
-    if (generation === checkGeneration) checkError.value = e.message || '检查失败'
+    if (generation === checkGeneration) checkError.value = e.message || t('writer.checkFailedFallback')
   } finally {
     if (generation === checkGeneration) checking.value = false
   }
@@ -1473,14 +1701,14 @@ async function runOneClickFix() {
     checkOpen.value = true
     savedAt.value = new Date().toLocaleTimeString()
     if (result.fixed_count > 0) {
-      fixNotice.value = `已一键修复 ${result.fixed_count} 项警告/错误，并完成复检。`
+      fixNotice.value = t('writer.fixedNotice', { count: result.fixed_count })
     } else if (result.report?.findings?.length) {
-      fixNotice.value = '当前警告/错误无法自动确定修复内容，请按右侧检查结果处理。'
+      fixNotice.value = t('writer.fixUnavailable')
     } else {
-      fixNotice.value = '当前没有需要修复的警告或错误。'
+      fixNotice.value = t('writer.noFixNeeded')
     }
   } catch (e) {
-    error.value = e.message || '一键修复失败'
+    error.value = e.message || t('writer.oneClickFixFailed')
   } finally {
     fixing.value = false
   }
@@ -1488,7 +1716,7 @@ async function runOneClickFix() {
 
 async function acknowledgeBasis() {
   try { const result = await acknowledgeRequirements(projectId, requirementSnapshot.value?.content_hash); project.value.requirement_acknowledgements = [...(project.value.requirement_acknowledgements || []).filter((item) => item.user_id !== auth.user?.id), result] }
-  catch (e) { error.value = e.message || '确认规范失败' }
+  catch (e) { error.value = e.message || t('writer.requirementAckFailed') }
 }
 
 function openWaiver(finding) { waiverTarget.value = finding; waiverReason.value = '' }
@@ -1498,7 +1726,7 @@ async function submitWaiver() {
   try {
     await requestRequirementWaiver(projectId, waiverTarget.value.requirement_item_id, { reason: waiverReason.value })
     waiverTarget.value = null; await runCheckNow()
-  } catch (e) { error.value = e.message || '提交豁免申请失败' }
+  } catch (e) { error.value = e.message || t('writer.waiverSubmitFailed') }
   finally { waiverBusy.value = false }
 }
 
@@ -1508,29 +1736,42 @@ async function loadWaivers() {
 }
 async function decideWaiver(waiver, status) {
   try {
-    await decideRequirementWaiver(projectId, waiver.id, { status, review_note: status === 'approved' ? '审核通过' : '请补充说明后重新申请' })
+    await decideRequirementWaiver(projectId, waiver.id, { status, review_note: status === 'approved' ? t('writer.waiverApprovedReview') : t('writer.waiverNeedsInfoReview') })
     await loadWaivers(); await runCheckNow()
-  } catch (e) { error.value = e.message || '审核豁免失败' }
+  } catch (e) { error.value = e.message || t('writer.waiverReviewFailed') }
+}
+function revokeWaiver(waiver) {
+  revokeWaiverTarget.value = waiver
+}
+async function confirmRevokeWaiver(reason) {
+  const waiver = revokeWaiverTarget.value
+  if (!waiver || !reason.trim()) return
+  revokeWaiverBusy.value = true
+  try {
+    await revokeRequirementWaiver(projectId, waiver.id, { reason: reason.trim() })
+    revokeWaiverTarget.value = null; await loadWaivers(); await runCheckNow()
+  } catch (e) { error.value = e.message || t('writer.revokeFailed') }
+  finally { revokeWaiverBusy.value = false }
 }
 async function submitDispute() {
   disputeBusy.value = true
   try {
     await requestRequirementDispute(projectId, disputeTarget.value.requirement_item_id, { reason: disputeReason.value })
     disputeTarget.value = null; await loadWaivers()
-  } catch (e) { error.value = e.message || '提交申诉失败' }
+  } catch (e) { error.value = e.message || t('writer.disputeSubmitFailed') }
   finally { disputeBusy.value = false }
 }
 async function decideDispute(dispute, status) {
   try {
-    await decideRequirementDispute(projectId, dispute.id, { status, review_note: status === 'accepted' ? '申诉已接受，请按申诉结论人工处理' : '申诉驳回' })
+    await decideRequirementDispute(projectId, dispute.id, { status, review_note: status === 'accepted' ? t('writer.disputeAcceptedReview') : t('writer.disputeRejectedReview') })
     await loadWaivers()
-  } catch (e) { error.value = e.message || '审核申诉失败' }
+  } catch (e) { error.value = e.message || t('writer.disputeReviewFailed') }
 }
 
 async function openUpgradePreview() {
   upgradeBusy.value = true
   try { upgradePreview.value = await previewRequirementUpgrade(projectId) }
-  catch (e) { error.value = e.message || '获取规范升级预览失败' }
+  catch (e) { error.value = e.message || t('writer.upgradePreviewFailed') }
   finally { upgradeBusy.value = false }
 }
 async function applyUpgrade() {
@@ -1542,9 +1783,9 @@ async function confirmUpgrade() {
   upgradeConfirm.value = false
   upgradeBusy.value = true
   try {
-    const result = await upgradeRequirements(projectId, { expected_snapshot_hash: upgradePreview.value.from_snapshot_hash, reason: '项目主动升级规范', confirm: true })
+    const result = await upgradeRequirements(projectId, { expected_snapshot_hash: upgradePreview.value.from_snapshot_hash, reason: t('writer.upgradeReasonDefault'), confirm: true })
     project.value = result.project; upgradePreview.value = null; await runCheckNow()
-  } catch (e) { error.value = e.message || '应用规范升级失败' }
+  } catch (e) { error.value = e.message || t('writer.upgradeApplyFailed') }
   finally { upgradeBusy.value = false }
 }
 function assistResultFor(itemId) {
@@ -1566,7 +1807,7 @@ async function openAssist(item) {
     project.value.ai_assist_results = previous.filter((saved) => saved.requirement_item_id !== item.id).concat(result)
     if (Number.isInteger(result.project_revision)) project.value.revision = result.project_revision
     assistResult.value = result
-  } catch (e) { error.value = e.message || 'AI 辅助检查失败' }
+  } catch (e) { error.value = e.message || t('writer.aiAssistFailed') }
   finally { assistBusy.value = '' }
 }
 
@@ -1576,6 +1817,47 @@ function sectionTitle(key) {
   return sec ? sec.title || key : key
 }
 
+function chooseDocx() {
+  docxInput.value?.click()
+}
+
+async function onDocxSelected(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  importing.value = true
+  error.value = ''
+  try {
+    await flushPendingSaves()
+    importPreview.value = { ...(await importProjectDocx(projectId, file)), file }
+  } catch (e) {
+    error.value = e.message || t('writer.wordPreviewFailed')
+  } finally {
+    importing.value = false
+  }
+}
+
+async function applyDocxImport() {
+  if (!importPreview.value?.file || importing.value) return
+  importing.value = true
+  error.value = ''
+  try {
+    await flushPendingSaves()
+    const result = await importProjectDocx(projectId, importPreview.value.file, true, project.value.revision)
+    project.value = result.project
+    template.value = result.project.template_snapshot || template.value
+    importPreview.value = null
+    computeChapterNumbers()
+    templateNotice.value = t('writer.importedNotice', { paragraphs: result.stats.paragraphs, tables: result.stats.tables })
+    setTimeout(() => { templateNotice.value = '' }, 5000)
+    void runCheckNow()
+  } catch (e) {
+    error.value = e.message || t('writer.applyImportFailed')
+  } finally {
+    importing.value = false
+  }
+}
+
 async function exportDocx(force = false) {
   if (exporting.value) return
   exporting.value = true
@@ -1583,25 +1865,57 @@ async function exportDocx(force = false) {
   missing.value = []
   try {
     await flushPendingSaves()
-    await exportProject(projectId, force)
+    const task = await createProjectExportJob(projectId, force)
+    let current = task
+    for (let attempt = 0; attempt < 120 && current.status !== 'succeeded'; attempt += 1) {
+      if (current.status === 'failed') {
+        throw new Error(t('writer.exportBackendFailed', { code: current.error_code || 'PROJECT_EXPORT_FAILED', id: current.id }))
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      current = await fetchProjectExportJob(projectId, task.id)
+    }
+    if (current.status !== 'succeeded') {
+      throw new Error(t('writer.exportStillProcessing', { id: task.id }))
+    }
+    await downloadProjectExportJob(projectId, task.id, current.filename || 'paper.docx')
   } catch (e) {
     if (e.missing && e.missing.length) missing.value = e.missing
-    else error.value = e.message || '导出失败'
+    else error.value = e.message || t('writer.exportFailed')
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function previewDocx() {
+  if (exporting.value) return
+  exporting.value = true
+  error.value = ''
+  try {
+    await flushPendingSaves()
+    exportPreview.value = await previewProjectExport(projectId)
+  } catch (e) {
+    error.value = e.message || t('writer.exportPreviewFailed')
   } finally {
     exporting.value = false
   }
 }
 
 async function refreshTemplate() {
-  if (!confirm('把本项目的排版规范换成当前模板的最新版本? 已写内容不受影响。')) return
-  error.value = ''
-  try {
+  openConfirmDialog({ title: t('writer.updateStandardsTitle'), description: t('writer.updateStandardsDetail'), confirmLabel: t('writer.updateStandardsConfirm') }, async () => {
+    error.value = ''
     const updated = await refreshProjectTemplate(projectId)
     project.value = updated
     template.value = updated.template_snapshot || template.value
-  } catch (e) {
-    error.value = e.message || '重新套用模板失败'
-  }
+  })
+}
+
+function openConfirmDialog(config, action) { Object.assign(confirmDialog, { ...config, open: true, action }) }
+function closeConfirmDialog() { if (confirmBusy.value) return; confirmDialog.open = false; confirmDialog.action = null }
+async function confirmAction() {
+  const action = confirmDialog.action
+  if (!action || confirmBusy.value) return
+  confirmBusy.value = true
+  try { await action() } catch (e) { error.value = e.message || t('common.operationFailed') } finally { confirmBusy.value = false; closeConfirmDialog() }
 }
 
 async function openTemplateModal() {
@@ -1611,7 +1925,7 @@ async function openTemplateModal() {
   try {
     templateList.value = await fetchTemplates()
   } catch (e) {
-    templateError.value = e.message || '加载模板列表失败'
+    templateError.value = e.message || t('writer.templatesLoadFailed')
   } finally {
     templateLoading.value = false
   }
@@ -1627,10 +1941,10 @@ async function applyTemplate(templateId) {
     project.value = updated
     template.value = updated.template_snapshot || template.value
     showTemplateModal.value = false
-    templateNotice.value = `已套用模板「${updated.template_name}」，导出即按该模板排版`
+    templateNotice.value = t('writer.templateAppliedNotice', { name: updated.template_name })
     setTimeout(() => { templateNotice.value = '' }, 5000)
   } catch (e) {
-    templateError.value = e.message || '更换模板失败'
+    templateError.value = e.message || t('writer.templateApplyFailed')
   } finally {
     templateBusy.value = ''
   }
@@ -1683,12 +1997,24 @@ onBeforeUnmount(() => {
 .diff-box.preview { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; max-height: 180px; }
 .assist-saved-location { margin: 0 0 10px; color: var(--success, #15803d); font-size: 13px; }
 .assist-saved-tag { color: var(--success, #15803d); font-size: 12px; white-space: nowrap; }
+.import-modal { width: min(560px, 92vw); }
+.import-section-list { display: grid; gap: 6px; margin: 14px 0; max-height: 260px; overflow-y: auto; }
+.import-section-item { display: flex; justify-content: space-between; gap: 12px; padding: 9px 10px; background: var(--surface-container-low); border: 1px solid var(--border); font-size: 12px; }
+.import-section-item span { color: var(--on-surface-variant); white-space: nowrap; }
 .modal .field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .modal .field input { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
 .structure-select { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--card); color: var(--text); }
 .ok-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .error-banner { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
 .notice-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+.recovery-status { margin: 0 auto 10px; max-width: 840px; }
+.recovery-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 auto 10px; max-width: 840px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; color: #1e3a8a; font-size: 12px; }
+.recovery-banner > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.recovery-banner span { color: inherit; }
+.recovery-banner .form-row { flex-shrink: 0; }
+.recovery-banner button { white-space: nowrap; }
+.save-failure { border-color: #fcd34d; background: #fffbeb; color: #92400e; }
+.conflict-banner { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
 .requirements-panel {
   border: 1px solid #cbd5e1; background: #ffffff; border-radius: 10px;
   padding: 12px 14px; margin-bottom: 14px; box-shadow: var(--shadow-card);
@@ -1706,6 +2032,7 @@ onBeforeUnmount(() => {
 .waiver-review-panel { border: 1px solid #fcd34d; background: #fffbeb; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
 .dispute-review-panel { border-color: #bfdbfe; background: #eff6ff; }
 .waiver-review-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid #fde68a; color: #92400e; font-size: 12px; }
+.approved-waiver-row { color: #166534; border-top-color: #bbf7d0; }
 .template-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
 .template-row.current { border-color: var(--primary); background: #f8fafc; }
 .template-meta { min-width: 0; }
@@ -1868,6 +2195,8 @@ button.tiny.danger { color: var(--error); }
 .progress-fill { height: 100%; background: var(--primary); border-radius: 999px; transition: width .3s; }
 .stats-row { display: flex; justify-content: space-between; color: var(--muted); }
 @media (max-width: 768px) {
+  .recovery-banner { align-items: stretch; flex-direction: column; }
+  .recovery-banner .form-row { justify-content: flex-start; }
   .writer { flex-direction: column; gap: 14px; }
   .sidebar { width: 100%; position: static; max-height: none; }
   .tree-nav { max-height: 220px; }
@@ -1917,9 +2246,14 @@ button.tiny.danger { color: var(--error); }
 .writer-save-status { display: inline-flex; align-items: center; gap: 6px; }
 .save-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
 .writer-save-status.pending .save-dot { background: var(--tertiary); }
-.writer-review-action, .writer-fix-action, .writer-export-action { display: inline-flex; align-items: center; gap: 5px; }
+.writer-review-action, .writer-fix-action, .writer-import-action, .writer-preview-action, .writer-export-action { display: inline-flex; align-items: center; gap: 5px; }
+.writer-preview-action { border: 1px solid var(--border); }
+.export-preview-stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+.export-preview-stats span { padding: 8px 10px; background: var(--surface-container-low); color: var(--on-surface-variant); }
+.export-preview-stats b { color: var(--on-surface); margin-left: 4px; }
 .writer-review-action { color: var(--primary); border-color: var(--primary-fixed); background: var(--surface-container-low); }
 .writer-fix-action { color: #b45309; border-color: #fcd34d; background: #fffbeb; }
+.writer-import-action { color: #0f766e; border-color: #99f6e4; background: #f0fdfa; }
 .writer-command-bar .icon-action { flex-shrink: 0; }
 
 .writer-columns {
@@ -2012,6 +2346,8 @@ button.tiny.danger { color: var(--error); }
   .writer-review-action { width: 34px; padding: 6px 8px; justify-content: center; }
   .writer-fix-action span:last-child { display: none; }
   .writer-fix-action { width: 34px; padding: 6px 8px; justify-content: center; }
+  .writer-import-action span:last-child { display: none; }
+  .writer-import-action { width: 34px; padding: 6px 8px; justify-content: center; }
   .writer-export-action { padding: 6px 10px; }
   .writer-columns { display: flex; flex-direction: column; margin: 0 -24px -40px; }
   .writer-columns > .sidebar { width: 100%; min-height: auto; max-height: none; position: static; border-right: 0; border-bottom: 1px solid var(--border); padding: 14px 16px; }

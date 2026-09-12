@@ -34,6 +34,8 @@ from app.cli.doctor import doctor  # noqa: E402
 from app.cli.list_packs import list_packs_command  # noqa: E402
 from app.cli.validate_pack import validate_pack  # noqa: E402
 from app.cli.version import version  # noqa: E402
+from app.cli.backup import backup, restore  # noqa: E402
+from app.cli.migrate import migrate  # noqa: E402
 
 cli.add_command(check)
 cli.add_command(fix)
@@ -43,6 +45,9 @@ cli.add_command(validate_pack)
 cli.add_command(list_packs_command)
 cli.add_command(doctor)
 cli.add_command(version)
+cli.add_command(backup)
+cli.add_command(restore)
+cli.add_command(migrate)
 
 
 __all__ = ["cli"]

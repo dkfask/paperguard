@@ -9,9 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.templates import get_store
 from app.auth import can_manage, current_user
@@ -29,6 +29,9 @@ from app.models.policy import (
 from app.models.template import PaperTemplate, SectionType
 from app.services.image_cleanup import cleanup_orphan_images, remove_project_images
 from app.services.project_validation import validate_project_completeness
+from app.services.project_versions import project_content_hash
+from app.services.access_service import visible_organization_ids
+from app.services.resource_access import assert_resource_read
 from app.services.template_compare import compare_project_to_template
 from app.services.projects import create_project_from_template
 from app.services.policy_resolver import (
@@ -37,7 +40,8 @@ from app.services.policy_resolver import (
     hydrate_snapshot_format_overrides,
 )
 from app.services.template_source import resolve_template_source
-from app.services.upload_security import IMAGE_MAX_BYTES, validate_image
+from app.services.docx_project_import import import_docx_project, public_import_sections
+from app.services.upload_security import IMPORT_MAX_BYTES, IMAGE_MAX_BYTES, read_limited, validate_docx_bytes, validate_image
 
 router = APIRouter(prefix="/api/projects")
 
@@ -84,10 +88,8 @@ def _project_writing_metrics(project: WritingProject) -> dict[str, object]:
 @router.get("")
 def list_projects(store: Store = Depends(get_store),
                   user: dict = Depends(current_user)) -> list[dict]:
-    """项目列表: 管理员/教师可见全部, 学生仅见自己的。"""
-    all_projects = store.list_projects()
-    if not can_manage(user):
-        all_projects = [p for p in all_projects if p.owner_id == user["id"]]
+    """项目列表按角色和批次/指导关系收敛，不因管理角色泄露正文归属。"""
+    all_projects = [p for p in store.list_projects() if not p.deleted_at and _project_accessible(p, user, store)]
     return [
         {
             "id": p.id,
@@ -101,14 +103,117 @@ def list_projects(store: Store = Depends(get_store),
     ]
 
 
-def _ensure_access(proj: WritingProject, user: dict) -> None:
-    """管理员/教师可访问全部; 学生仅自己的项目。"""
-    if can_manage(user):
+def _visible_organization_ids(store: Store, user: dict) -> set[str]:
+    return visible_organization_ids(store, user)
+
+
+def _project_accessible(proj: WritingProject, user: dict, store: Store) -> bool:
+    if user.get("role") == "admin":
+        return True
+    if user.get("role") == "student":
+        return bool(proj.owner_id and proj.owner_id == user["id"])
+    if user.get("role") == "teacher":
+        if user.get("status") != "active":
+            return False
+        if proj.owner_id == user["id"] or getattr(proj, "teacher_id", "") == user["id"]:
+            return True
+        batch_id = (proj.organization_context or {}).get("batch_id")
+        if not batch_id or not proj.owner_id:
+            return False
+        # Runtime import avoids coupling the project API import cycle to workflow.
+        from app.api.workflow import _current_supervision
+        relation = _current_supervision(store, batch_id, proj.owner_id)
+        return bool(relation and relation.get("teacher_id") == user["id"])
+    if user.get("role") == "college_admin":
+        if user.get("status") != "active":
+            return False
+        batch_id = (proj.organization_context or {}).get("batch_id")
+        if batch_id:
+            cohort = store.get_workflow_record("cohort", batch_id)
+            return bool(cohort and cohort.get("organization_id") in _visible_organization_ids(store, user))
+        return bool(set((proj.organization_context or {}).values()) & _visible_organization_ids(store, user))
+    return False
+
+
+def _record_project_audit(store: Store, project: WritingProject, user: dict, action: str) -> None:
+    """Keep trash transitions in the same audit stream as workflow operations."""
+    batch_id = (project.organization_context or {}).get("batch_id", "")
+    cohort = store.get_workflow_record("cohort", batch_id) if batch_id else None
+    store.save_audit_event({
+        "id": new_id("audit"), "actor_id": user["id"], "action": action,
+        "resource_type": "project", "resource_id": project.id,
+        "organization_id": (cohort or {}).get("organization_id", ""),
+        "result": "success", "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    })
+
+
+def _candidate_uses_waiver(candidate: dict, waiver_id: str) -> bool:
+    return any(
+        (finding.get("waiver") or {}).get("id") == waiver_id
+        for finding in (candidate.get("check_report") or {}).get("waived", [])
+    )
+
+
+def _ensure_student_can_write(proj: WritingProject, user: dict, store: Store) -> None:
+    if user.get("role") != "student":
+        return
+    participants = [
+        item for item in store.list_workflow_records("participant")
+        if item.get("project_id") == proj.id and item.get("student_id") == user.get("id")
+    ]
+    if not participants:
+        return
+    from app.api.workflow import _parse_time, _prerequisites_satisfied
+
+    now = datetime.now(timezone.utc)
+    for participant in participants:
+        cohort = store.get_workflow_record("cohort", participant.get("cohort_id", ""))
+        if cohort and cohort.get("status") == "closed":
+            raise HTTPException(status_code=409, detail="批次已关闭，不能继续编辑论文")
+        # 提交采用 project_version 快照；当前项目继续作为学生草稿，后续修改
+        # 不会回写教师正在审核的不可变提交版本。
+        if participant.get("state") in {"in_progress", "needs_revision", "submitted"}:
+            return
+        if participant.get("state") != "not_started":
+            continue
+        stage = store.get_workflow_record("stage", participant.get("stage_id", ""))
+        config = store.get_workflow_record(
+            "stage_config",
+            participant.get("config_version_id") or (stage or {}).get("config_version_id", ""),
+        ) if stage else None
+        opened = _parse_time((config or {}).get("open_at", ""), "开放时间")
+        if config and (config.get("allow_early_write") or (opened and now >= opened and _prerequisites_satisfied(store, participant, config))):
+            return
+    if any(item.get("state") in {"approved", "pending_archive", "archived"} for item in participants):
+        raise HTTPException(status_code=409, detail="当前阶段已通过或归档，请重开后再编辑")
+    raise HTTPException(status_code=409, detail="当前阶段尚未开放或前置阶段未完成，暂不能编辑论文")
+
+
+def _ensure_access(proj: WritingProject, user: dict, store: Store | None = None, *, write: bool = False) -> None:
+    """Enforce project scope; workflow-bound projects require current assignment."""
+    if proj.deleted_at:
+        raise HTTPException(status_code=404, detail="项目已在回收站")
+    scope_store = store or Store()
+    if _project_accessible(proj, user, scope_store):
+        if write:
+            _ensure_student_can_write(proj, user, scope_store)
         return
     if not proj.owner_id:
         raise HTTPException(status_code=403, detail="项目归属信息缺失, 请联系管理员迁移")
-    if proj.owner_id != user["id"]:
-        raise HTTPException(status_code=403, detail="无权访问该项目")
+    raise HTTPException(status_code=403, detail="无权访问该项目")
+
+
+@router.get("/trash")
+def list_deleted_projects(store: Store = Depends(get_store), user: dict = Depends(current_user)) -> list[dict]:
+    """List recoverable projects without exposing their manuscript body."""
+    return [
+        {
+            "id": project.id, "template_name": project.template_name, "title": project.title,
+            "deleted_at": project.deleted_at, "updated_at": project.updated_at,
+        }
+        for project in store.list_projects()
+        if project.deleted_at and _project_accessible(project, user, store)
+    ]
 
 
 @router.get("/{proj_id}")
@@ -117,7 +222,9 @@ def get_project(proj_id: str, store: Store = Depends(get_store),
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    if proj.deleted_at:
+        raise HTTPException(status_code=404, detail="项目已在回收站")
+    _ensure_access(proj, user, store)
     _project_template(proj, store)
     return proj
 
@@ -177,7 +284,7 @@ def update_project_sections_structure(proj_id: str, req: UpdateSectionsStructure
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    _ensure_access(proj, user, store, write=True)
 
     # 权限检查：如果非教师/管理员，且该项目或模板不允许编辑框架，则拦截
     tpl = _project_template(proj, store)
@@ -237,7 +344,7 @@ def update_section(proj_id: str, section_key: str, req: UpdateSectionRequest,
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    _ensure_access(proj, user, store, write=True)
     expected_revision = proj.revision if req.base_revision is None else req.base_revision
     if req.base_revision is not None and req.base_revision != proj.revision:
         raise HTTPException(
@@ -288,6 +395,15 @@ def _parse_par(data: dict, project_id: str = ""):
                 "caption": str(t.get("caption", "")),
             },
         )
+    if block_type == "equation":
+        equation = data.get("equation", {})
+        omml = str(equation.get("omml", ""))
+        if not omml.startswith("<m:oMath") or len(omml) > 200_000:
+            raise HTTPException(status_code=400, detail="公式内容无效")
+        return ParagraphBlock(
+            id=str(data.get("id", "")), type="equation",
+            equation={"omml": omml, "alt_text": str(equation.get("alt_text", ""))[:4000]},
+        )
     return ParagraphBlock(
         id=str(data.get("id", "")),
         text=str(data.get("text", "")),
@@ -307,7 +423,7 @@ async def upload_image(proj_id: str, file: UploadFile = File(...),
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    _ensure_access(proj, user, store, write=True)
     data = file.file.read(IMAGE_MAX_BYTES + 1)
     kind = validate_image(data, file.filename)
     ext = {"jpeg": ".jpg", "png": ".png", "gif": ".gif", "webp": ".webp"}[kind]
@@ -320,6 +436,95 @@ async def upload_image(proj_id: str, file: UploadFile = File(...),
         dest.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="图片保存失败")
     return {"url": f"/media/uploads/{fname}"}
+
+
+def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
+    """Merge imported blocks into matching project sections without dropping required sections."""
+    existing_by_title = {
+        (section.title or "").strip().casefold(): section
+        for section in proj.sections
+        if section.type not in {"cover", "toc"}
+    }
+    used: set[str] = set()
+    imported_sections: list[ProjectSection] = []
+    first_body = next((section for section in proj.sections if section.type == "body"), None)
+    for imported_section in imported.get("sections", []):
+        title = str(imported_section.get("title", "")).strip()
+        target = existing_by_title.get(title.casefold()) if title else None
+        if target is None and imported_section.get("key") == "import-body" and first_body is not None:
+            target = first_body
+        blocks = []
+        for raw_block in imported_section.get("paragraphs", []):
+            block = dict(raw_block)
+            if block.get("type") == "image":
+                image_data = block.pop("_image_data", None)
+                extension = block.pop("_image_extension", ".png")
+                if image_data:
+                    kind = validate_image(image_data)
+                    extension = {"jpeg": ".jpg", "png": ".png", "gif": ".gif", "webp": ".webp"}[kind]
+                    filename = f"{proj.id}-{uuid.uuid4().hex[:8]}{extension}"
+                    destination = _UPLOAD_DIR / filename
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(image_data)
+                    block.setdefault("image", {})["url"] = f"/media/uploads/{filename}"
+            blocks.append(ParagraphBlock.model_validate(block))
+        if target is not None:
+            target.paragraphs = blocks
+            used.add(target.key)
+            continue
+        imported_sections.append(ProjectSection(
+            key=f"import-{uuid.uuid4().hex[:10]}", type=str(imported_section.get("type", "body")),
+            title=title or "导入章节", required=False, paragraphs=blocks,
+        ))
+    for section in imported_sections:
+        proj.sections.append(section)
+    return {"matched_section_keys": sorted(used), "added_section_count": len(imported_sections)}
+
+
+@router.post("/{proj_id}/import-docx")
+def import_project_docx(proj_id: str, file: UploadFile = File(...), apply: bool = False,
+                        base_revision: int | None = None,
+                        store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
+    """Preview or apply a DOCX manuscript import; apply is guarded by project revision."""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user, store, write=apply)
+    if not file.filename or not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="只支持 .docx 文件")
+    data = read_limited(file, IMPORT_MAX_BYTES)
+    validate_docx_bytes(data)
+    try:
+        imported = import_docx_project(data)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"论文正文导入失败: {exc}") from exc
+    preview = {
+        "filename": file.filename,
+        "metadata": imported["metadata"],
+        "stats": imported["stats"],
+        "warnings": imported["warnings"],
+        "sections": public_import_sections(imported["sections"]),
+        "applied": False,
+        "project_revision": proj.revision,
+    }
+    if not apply:
+        return preview
+    expected_revision = proj.revision if base_revision is None else base_revision
+    if expected_revision != proj.revision:
+        raise HTTPException(status_code=409, detail={"message": "项目已被更新，请重新预览后应用", "revision": proj.revision})
+    try:
+        merge = _apply_imported_docx(proj, imported)
+        saved = store.update_project_if_revision(proj, expected_revision)
+    except HTTPException:
+        cleanup_orphan_images(store)
+        raise
+    except Exception as exc:
+        cleanup_orphan_images(store)
+        raise HTTPException(status_code=422, detail=f"论文正文应用失败: {exc}") from exc
+    if saved is None:
+        cleanup_orphan_images(store)
+        raise HTTPException(status_code=409, detail={"message": "项目已被更新，请重新预览后应用"})
+    return preview | {"applied": True, "project": saved, "merge": merge}
 
 
 class UpdateMetaRequest(BaseModel):
@@ -335,7 +540,7 @@ def update_meta(proj_id: str, req: UpdateMetaRequest,
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    _ensure_access(proj, user, store, write=True)
     expected_revision = proj.revision if req.base_revision is None else req.base_revision
     if req.base_revision is not None and req.base_revision != proj.revision:
         raise HTTPException(
@@ -357,6 +562,11 @@ class UpdateProjectRequest(BaseModel):
     base_revision: int | None = None
 
 
+class RestoreLocalSnapshotRequest(BaseModel):
+    snapshot: dict
+    base_revision: int = Field(ge=0)
+
+
 @router.put("/{proj_id}")
 def update_project(proj_id: str, req: UpdateProjectRequest,
                    store: Store = Depends(get_store),
@@ -365,7 +575,7 @@ def update_project(proj_id: str, req: UpdateProjectRequest,
     old = store.get_project(proj_id)
     if old is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(old, user)
+    _ensure_access(old, user, store, write=True)
     expected_revision = old.revision if req.base_revision is None else req.base_revision
     if req.base_revision is not None and req.base_revision != old.revision:
         raise HTTPException(
@@ -380,16 +590,77 @@ def update_project(proj_id: str, req: UpdateProjectRequest,
     return saved
 
 
+@router.post("/{proj_id}/restore-local")
+def restore_local_snapshot(proj_id: str, req: RestoreLocalSnapshotRequest,
+                           store: Store = Depends(get_store),
+                           user: dict = Depends(current_user)) -> WritingProject:
+    """Restore only editable fields from a browser recovery snapshot."""
+    current = store.get_project(proj_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(current, user, store, write=True)
+    if req.base_revision != current.revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "服务器版本已变化，请先读取最新版本后合并本地草稿", "revision": current.revision},
+        )
+    raw_sections = req.snapshot.get("sections")
+    raw_meta = req.snapshot.get("meta", {})
+    if not isinstance(raw_sections, list) or not isinstance(raw_meta, dict):
+        raise HTTPException(status_code=422, detail="本地草稿结构无效")
+    try:
+        sections = [ProjectSection.model_validate(item) for item in raw_sections]
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="本地草稿章节结构无效") from exc
+    for section in sections:
+        for block in section.paragraphs:
+            block_type = getattr(block.type, "value", block.type)
+            if block_type == "image" and block.image and block.image.url:
+                filename = Path(block.image.url).name
+                if not block.image.url.startswith("/media/uploads/") or not filename.startswith(f"{proj_id}-"):
+                    raise HTTPException(status_code=422, detail="本地草稿包含无效图片引用")
+    current.title = str(req.snapshot.get("title", current.title))
+    current.meta = {str(key): str(value or "") for key, value in raw_meta.items()}
+    current.sections = sections
+    saved = store.update_project_if_revision(current, current.revision)
+    if saved is None:
+        raise HTTPException(status_code=409, detail={"message": "服务器版本已变化，请刷新后重试"})
+    return saved
+
+
 @router.delete("/{proj_id}", status_code=204)
 def delete_project(proj_id: str, store: Store = Depends(get_store),
                   user: dict = Depends(current_user)) -> None:
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
-    # 删除数据库记录后按全库引用回收, 避免误删其他项目仍使用的图片。
-    store.delete_project(proj_id)
-    cleanup_orphan_images(store)
+    _ensure_access(proj, user, store, write=True)
+    referenced_versions = [item for item in store.list_workflow_records("project_version") if item.get("project_id") == proj_id]
+    submitted_version_ids = {
+        item.get("project_version_id") for item in store.list_workflow_records("submission")
+        if item.get("project_version_id")
+    }
+    if any(item.get("id") in submitted_version_ids for item in referenced_versions):
+        raise HTTPException(status_code=409, detail="已有正式提交引用该论文，不能删除；请通过重开或更正流程处理")
+    proj.deleted_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if store.update_project_if_revision(proj, proj.revision) is None:
+        raise HTTPException(status_code=409, detail="项目已被更新，请刷新后重试")
+    _record_project_audit(store, proj, user, "project.soft_delete")
+
+
+@router.post("/{proj_id}/restore")
+def restore_deleted_project(proj_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> WritingProject:
+    project = store.get_project(proj_id)
+    if project is None or not project.deleted_at:
+        raise HTTPException(status_code=404, detail="回收站中不存在该项目")
+    if not _project_accessible(project, user, store):
+        raise HTTPException(status_code=403, detail="无权恢复该项目")
+    project.deleted_at = ""
+    saved = store.update_project_if_revision(project, project.revision)
+    if saved is None:
+        raise HTTPException(status_code=409, detail="项目已被更新，请刷新后重试")
+    _record_project_audit(store, saved, user, "project.restore")
+    return saved
 
 
 
@@ -561,7 +832,7 @@ def check_project_template(proj_id: str,
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    assert_resource_read(store, user, "project", proj)
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
@@ -584,7 +855,7 @@ def check_project(proj_id: str, pack: str | None = None,
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    assert_resource_read(store, user, "project", proj)
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
@@ -650,6 +921,10 @@ class WaiverDecisionRequest(BaseModel):
     review_note: str = ""
     effective_from: str = ""
     effective_to: str = ""
+
+
+class WaiverRevocationRequest(BaseModel):
+    reason: str
 
 
 class DisputeRequest(BaseModel):
@@ -774,6 +1049,8 @@ def decide_requirement_waiver(proj_id: str, waiver_id: str, req: WaiverDecisionR
     waiver = next((item for item in proj.waivers if item.get("id") == waiver_id), None)
     if waiver is None:
         raise HTTPException(status_code=404, detail="豁免申请不存在")
+    if user["role"] == "teacher" and waiver.get("requested_by") == user["id"]:
+        raise HTTPException(status_code=403, detail="申请人不能审核自己的豁免")
     if waiver.get("status") != WaiverStatus.PENDING.value:
         raise HTTPException(status_code=409, detail="该豁免申请已经处理")
     if req.status not in (WaiverStatus.APPROVED, WaiverStatus.REJECTED):
@@ -788,6 +1065,83 @@ def decide_requirement_waiver(proj_id: str, waiver_id: str, req: WaiverDecisionR
     })
     store.save_project(proj)
     return waiver
+
+
+@router.post("/{proj_id}/requirements/waivers/{waiver_id}/revoke")
+def revoke_requirement_waiver(proj_id: str, waiver_id: str, req: WaiverRevocationRequest,
+                              store: Store = Depends(get_store),
+                              user: dict = Depends(current_user)) -> dict:
+    """撤销已批准豁免，并把已经使用该豁免的候选版本标记为需复核。"""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_access(proj, user)
+    if not _can_review_waiver(proj, user, store):
+        raise HTTPException(status_code=403, detail="只有指导教师或管理员可以撤销豁免")
+    waiver = next((item for item in proj.waivers if item.get("id") == waiver_id), None)
+    if waiver is None:
+        raise HTTPException(status_code=404, detail="豁免申请不存在")
+    if waiver.get("status") != WaiverStatus.APPROVED.value:
+        raise HTTPException(status_code=409, detail="只有已批准的豁免可以撤销")
+    if not req.reason.strip():
+        raise HTTPException(status_code=422, detail="撤销豁免必须填写理由")
+
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    waiver.update({
+        "status": WaiverStatus.REVOKED.value,
+        "revoked_by": user["id"],
+        "revoked_at": now,
+        "revoke_reason": req.reason.strip(),
+        "review_note": req.reason.strip(),
+    })
+    store.save_project(proj)
+
+    # 豁免变更属于项目规范依据变更；历史候选和审核结论保留，只把仍可影响后续审核的候选标成需复核。
+    from app.api.workflow import _audit, _current_supervision, _notify
+
+    affected_ids: list[str] = []
+    candidates = [
+        item for item in store.list_workflow_records("candidate")
+        if item.get("project_id") == proj_id and _candidate_uses_waiver(item, waiver_id)
+    ]
+    batch_id = (proj.organization_context or {}).get("batch_id", "")
+    cohort = store.get_workflow_record("cohort", batch_id) if batch_id else None
+    organization_id = (cohort or {}).get("organization_id", "")
+    with store.workflow_transaction() as conn:
+        for candidate in candidates:
+            current = store.get_workflow_record("candidate", candidate["id"])
+            if not current or not _candidate_uses_waiver(current, waiver_id):
+                continue
+            current["recheck_required"] = True
+            current["recheck_reason"] = "提交所依据的豁免已撤销，请重新预检"
+            current["recheck_waiver_id"] = waiver_id
+            saved = store.save_workflow_record_conn(
+                conn, "candidate", current, expected_revision=current.get("revision", 0)
+            )
+            if saved is None:
+                raise HTTPException(status_code=409, detail="候选版本正在被更新，请刷新后重试")
+            affected_ids.append(current["id"])
+            participant = store.get_workflow_record("participant", current.get("participant_id", ""))
+            if not participant:
+                continue
+            _notify(
+                store, conn, participant.get("student_id", ""), "requirement.waiver.revoked",
+                "project", proj_id, "论文规范豁免已撤销，请重新检查后再提交",
+                dedupe_key=f"requirement.waiver.revoked:{waiver_id}:{current['id']}",
+            )
+            relation = _current_supervision(store, participant.get("cohort_id", ""), participant.get("student_id", ""))
+            if relation:
+                _notify(
+                    store, conn, relation.get("teacher_id", ""), "requirement.waiver.revoked",
+                    "project", proj_id, "学生提交所依据的规范豁免已撤销，需要复核",
+                    dedupe_key=f"requirement.waiver.revoked:teacher:{waiver_id}:{current['id']}",
+                )
+        _audit(
+            store, conn, actor_id=user["id"], action="requirement.waiver.revoked",
+            resource_type="project", resource_id=proj_id, organization_id=organization_id,
+            reason=req.reason.strip(),
+        )
+    return {"waiver": waiver, "recheck_required": True, "affected_candidate_ids": affected_ids}
 
 
 @router.get("/{proj_id}/requirements/disputes")
@@ -840,6 +1194,8 @@ def decide_requirement_dispute(proj_id: str, dispute_id: str, req: DisputeDecisi
     dispute = next((item for item in proj.requirement_disputes if item.get("id") == dispute_id), None)
     if dispute is None:
         raise HTTPException(status_code=404, detail="申诉记录不存在")
+    if user["role"] == "teacher" and dispute.get("requested_by") == user["id"]:
+        raise HTTPException(status_code=403, detail="申诉人不能审核自己的申诉")
     if dispute.get("status") != DisputeStatus.PENDING.value:
         raise HTTPException(status_code=409, detail="该申诉已经处理")
     if req.status not in (DisputeStatus.ACCEPTED, DisputeStatus.REJECTED):
@@ -1016,7 +1372,7 @@ def list_project_check_runs(proj_id: str, store: Store = Depends(get_store),
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    assert_resource_read(store, user, "project", proj)
     return [item.model_dump(mode="json") for item in store.list_check_runs(proj_id)]
 
 
@@ -1026,7 +1382,7 @@ def get_project_check_run(proj_id: str, run_id: str, store: Store = Depends(get_
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    assert_resource_read(store, user, "project", proj)
     run = store.get_check_run(run_id)
     if run is None or run.project_id != proj_id:
         raise HTTPException(status_code=404, detail="检查记录不存在")
@@ -1040,7 +1396,7 @@ def compliance_report(proj_id: str, store: Store = Depends(get_store),
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    assert_resource_read(store, user, "project", proj)
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
@@ -1055,6 +1411,128 @@ def _cleanup_export(path: Path) -> None:
     shutil.rmtree(path.parent, ignore_errors=True)
 
 
+def _export_missing(proj: WritingProject, tpl: PaperTemplate, store: Store, actor_id: str) -> list[str]:
+    """Run the same export gate used by both synchronous and durable exports."""
+    missing = validate_project_completeness(proj, tpl)
+    from app.services.project_check import check_project as run_check
+    report = run_check(proj, tpl, pack=None, store=store, performed_by=actor_id)
+    missing.extend(
+        f"{finding.get('source', '规范要求')}: {finding['message']}"
+        for finding in report.get("findings", [])
+        if finding.get("source_type") == "requirement"
+        and finding.get("enforce") == "hard"
+        and finding.get("severity") == "error"
+    )
+    return missing
+
+
+@router.post("/{proj_id}/export-jobs", status_code=202)
+def create_project_export_job(proj_id: str, force: bool = False,
+                              store: Store = Depends(get_store),
+                              user: dict = Depends(current_user)) -> dict:
+    """Queue a version-frozen DOCX export for the standalone worker."""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    assert_resource_read(store, user, "project", proj)
+    tpl = _project_template(proj, store)
+    _ensure_requirement_snapshot(proj, tpl, store)
+    tpl = _project_template(proj, store)
+    if not force:
+        missing = _export_missing(proj, tpl, store, user["id"])
+        if missing:
+            raise HTTPException(status_code=409, detail={"message": "以下必填项未完成, 无法导出", "missing": missing})
+    from app.services.export_jobs import create_export_job, export_job_view
+    return export_job_view(create_export_job(store, proj, tpl, force=force, actor_id=user["id"]))
+
+
+@router.get("/{proj_id}/export-jobs")
+def list_project_export_jobs(proj_id: str, store: Store = Depends(get_store),
+                             user: dict = Depends(current_user)) -> list[dict]:
+    """List export attempts for a project without exposing content snapshots."""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    assert_resource_read(store, user, "project", proj)
+    from app.services.export_jobs import export_job_view
+    return [
+        export_job_view(item)
+        for item in store.list_workflow_records("project_export")
+        if item.get("project_id") == proj_id
+    ]
+
+
+@router.get("/{proj_id}/export-jobs/{export_id}")
+def get_project_export_job(proj_id: str, export_id: str, store: Store = Depends(get_store),
+                           user: dict = Depends(current_user)) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    assert_resource_read(store, user, "project", proj)
+    record = store.get_workflow_record("project_export", export_id)
+    if not record or record.get("project_id") != proj_id:
+        raise HTTPException(status_code=404, detail="导出任务不存在")
+    from app.services.export_jobs import export_job_view
+    return export_job_view(record)
+
+
+@router.post("/{proj_id}/export-jobs/{export_id}/retry")
+def retry_project_export_job(proj_id: str, export_id: str, store: Store = Depends(get_store),
+                             user: dict = Depends(current_user)) -> dict:
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可以重试导出任务")
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    assert_resource_read(store, user, "project", proj)
+    record = store.get_workflow_record("project_export", export_id)
+    if not record or record.get("project_id") != proj_id:
+        raise HTTPException(status_code=404, detail="导出任务不存在")
+    if record.get("status") not in {"failed", "queued"}:
+        raise HTTPException(status_code=409, detail="当前导出任务不可重试")
+    from app.domain.workflow_states import transition_state
+    from app.repositories.workflow_repository import WorkflowRepository
+    repository = WorkflowRepository(store)
+    with store.workflow_transaction() as conn:
+        if record.get("status") == "failed":
+            record["status"] = transition_state("project_export", "failed", "queued")
+            record["error_code"] = ""
+            saved = repository.save_in_transaction(
+                conn, "project_export", record, expected_revision=record.get("revision", 0)
+            )
+            if saved is None:
+                raise HTTPException(status_code=409, detail="导出任务已被其他操作更新，请刷新后重试")
+            record = saved
+        job = repository.store.retry_job_conn(conn, record.get("job_id", ""), "管理员手动重试项目导出")
+        if job is None:
+            raise HTTPException(status_code=409, detail="导出任务队列状态不允许重试")
+    from app.services.export_jobs import export_job_view
+    return export_job_view(record)
+
+
+@router.get("/{proj_id}/export-jobs/{export_id}/download")
+def download_project_export(proj_id: str, export_id: str, store: Store = Depends(get_store),
+                            user: dict = Depends(current_user)) -> FileResponse:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    assert_resource_read(store, user, "project", proj)
+    record = store.get_workflow_record("project_export", export_id)
+    if not record or record.get("project_id") != proj_id:
+        raise HTTPException(status_code=404, detail="导出任务不存在")
+    if record.get("status") != "succeeded" or not record.get("file_path"):
+        raise HTTPException(status_code=409, detail="导出尚未完成")
+    from app.services.export_jobs import EXPORT_DIR
+    path = Path(record["file_path"])
+    if path.parent != EXPORT_DIR or not path.is_file():
+        raise HTTPException(status_code=404, detail="导出制品不存在")
+    return FileResponse(
+        path,
+        filename=record.get("filename") or "paper.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
 @router.post("/{proj_id}/export")
 def export_docx(proj_id: str, force: bool = False,
                 store: Store = Depends(get_store),
@@ -1067,7 +1545,7 @@ def export_docx(proj_id: str, force: bool = False,
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user)
+    assert_resource_read(store, user, "project", proj)
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
@@ -1110,3 +1588,52 @@ def export_docx(proj_id: str, force: bool = False,
         },
         background=BackgroundTask(_cleanup_export, out),
     )
+
+
+@router.post("/{proj_id}/export-preview")
+def export_preview(proj_id: str, force: bool = False,
+                   store: Store = Depends(get_store),
+                   user: dict = Depends(current_user)) -> dict:
+    """Return a read-only export manifest before creating a downloadable DOCX."""
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    assert_resource_read(store, user, "project", proj)
+    tpl = _project_template(proj, store)
+    _ensure_requirement_snapshot(proj, tpl, store)
+    tpl = _project_template(proj, store)
+    missing = validate_project_completeness(proj, tpl)
+    requirement_findings: list[str] = []
+    from app.services.project_check import check_project as run_check
+    report = run_check(proj, tpl, pack=None, store=store, performed_by=user["id"])
+    requirement_findings.extend(
+        f"{finding.get('source', '规范要求')}: {finding['message']}"
+        for finding in report.get("findings", [])
+        if finding.get("source_type") == "requirement"
+        and finding.get("enforce") == "hard"
+        and finding.get("severity") == "error"
+    )
+    missing.extend(requirement_findings)
+    blocks = [block for section in proj.sections for block in section.paragraphs]
+    block_types = {getattr(block.type, "value", block.type) for block in blocks}
+    return {
+        "project_id": proj.id, "revision": proj.revision, "title": proj.title,
+        "template_id": tpl.id, "template_name": tpl.name,
+        "content_hash": project_content_hash(proj),
+        "can_export": bool(force or not missing), "force": force,
+        "missing": missing, "check_summary": report.get("summary", {}),
+        "counts": {
+            "sections": len(proj.sections), "blocks": len(blocks),
+            "paragraphs": sum(1 for block in blocks if getattr(block.type, "value", block.type) == "paragraph"),
+            "tables": sum(1 for block in blocks if getattr(block.type, "value", block.type) == "table"),
+            "images": sum(1 for block in blocks if getattr(block.type, "value", block.type) == "image"),
+            "equations": sum(1 for block in blocks if getattr(block.type, "value", block.type) == "equation"),
+        },
+        "sections_preview": [
+            {"key": section.key, "title": section.title, "type": section.type,
+             "blocks": len(section.paragraphs),
+             "characters": sum(len(block.text or "") for block in section.paragraphs
+                               if getattr(block.type, "value", block.type) == "paragraph")}
+            for section in proj.sections
+        ],
+    }

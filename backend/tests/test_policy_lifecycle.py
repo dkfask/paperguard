@@ -7,6 +7,7 @@ import uuid
 from fastapi.testclient import TestClient
 
 from app.api import ai as ai_module
+from app.db import Store
 from app.main import app
 
 
@@ -174,6 +175,29 @@ def test_waiver_approval_removes_requirement_from_gate_and_records_check_run():
     runs = client.get(f"/api/projects/{project_id}/check-runs", headers=student)
     assert runs.status_code == 200
     assert runs.json()[0]["project_id"] == project_id
+    candidate_id = f"waiver-candidate-{uuid.uuid4().hex[:8]}"
+    Store().save_workflow_record("candidate", {
+        "id": candidate_id, "project_id": project_id,
+        "check_report": {"waived": [{"waiver": {"id": waiver.json()["id"]}}]},
+        "revision": 0,
+    })
+    revoked = client.post(
+        f"/api/projects/{project_id}/requirements/waivers/{waiver.json()['id']}/revoke",
+        headers=admin,
+        json={"reason": "复核发现该特殊情况已不再适用"},
+    )
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["waiver"]["status"] == "revoked"
+    assert candidate_id in revoked.json()["affected_candidate_ids"]
+    marked = Store().get_workflow_record("candidate", candidate_id)
+    assert marked["recheck_required"] is True
+    rechecked = client.get(f"/api/projects/{project_id}/check", headers=student)
+    assert rechecked.status_code == 200
+    assert rechecked.json()["summary"]["hard_failures"] >= 1
+    assert rechecked.json()["summary"]["waived"] == 0
+    audit = client.get("/api/audit-events", headers=admin)
+    assert audit.status_code == 200
+    assert any(item["action"] == "requirement.waiver.revoked" and item["resource_id"] == project_id for item in audit.json())
     assert student_id
 
 

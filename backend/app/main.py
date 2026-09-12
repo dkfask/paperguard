@@ -6,17 +6,23 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import logging
 import os
+import time
+import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.auth import can_manage, current_user
+from app.auth import current_user
+from app.core.context import RequestContext, reset_request_context, set_request_context
+from app.core.structured_logging import log_event
 from app.db import Store
 from app.services.image_cleanup import project_image_urls
+from app.services.resource_access import assert_resource_read
 from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
@@ -25,6 +31,10 @@ from app.api.teacher import router as teacher_router
 from app.api.templates import router as templates_router
 from app.api.policies import router as policies_router
 from app.api.organizations import router as organizations_router
+from app.api.operations import router as operations_router
+from app.api.process_records import router as process_records_router
+from app.api.audit import router as audit_router
+from app.api.workflow import recover_pending_archives, router as workflow_router
 
 
 def _load_dotenv() -> None:
@@ -63,6 +73,9 @@ async def _lifespan(_app: FastAPI):
         store = Store()
         seed_admin(store)
         seed_default_template(store)
+        recover_pending_archives(store)
+        from app.services.export_jobs import recover_pending_exports
+        recover_pending_exports(store)
         cleanup_orphan_images(store, grace_seconds=24 * 60 * 60)
     except Exception as exc:
         import logging
@@ -76,6 +89,38 @@ app = FastAPI(
     version=__version__,
     lifespan=_lifespan,
 )
+
+LOGGER = logging.getLogger("paperguard.http")
+LOGGER.setLevel(os.environ.get("PAPERGUARD_LOG_LEVEL", "INFO"))
+
+
+@app.middleware("http")
+async def add_request_context(request: Request, call_next):
+    """Attach one bounded correlation id to every response for support/debugging."""
+    request_id = f"req-{uuid.uuid4().hex[:16]}"
+    request.state.request_id = request_id
+    context_token = set_request_context(RequestContext(request_id=request_id))
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        log_event(
+            LOGGER, "http.request.failed", status_code=500,
+            method=request.method, path=request.url.path,
+            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+        )
+        raise
+    finally:
+        reset_request_context(context_token)
+    response.headers["X-Request-ID"] = request_id
+    context = getattr(request.state, "context", None) or RequestContext(request_id=request_id)
+    log_event(
+        LOGGER, "http.request.completed", context=context,
+        status_code=response.status_code, method=request.method,
+        path=request.url.path,
+        duration_ms=round((time.perf_counter() - started) * 1000, 2),
+    )
+    return response
 
 _allowed_origins = [
     origin.strip() for origin in os.environ.get(
@@ -97,6 +142,10 @@ app.include_router(ai_router)
 app.include_router(teacher_router)
 app.include_router(policies_router)
 app.include_router(organizations_router)
+app.include_router(workflow_router)
+app.include_router(process_records_router)
+app.include_router(operations_router)
+app.include_router(audit_router)
 
 # 通过 API 鉴权读取项目图片, 不再公开挂载整个 uploads 目录。
 _uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
@@ -113,9 +162,12 @@ def download_image(filename: str, user: dict = Depends(current_user)):
     for project in store.list_projects():
         if url not in project_image_urls(project) and not filename.startswith(project.id + "-"):
             continue
-        if can_manage(user) or project.owner_id == user["id"]:
+        try:
+            assert_resource_read(store, user, "project", project)
             permitted = True
-            break
+        except HTTPException:
+            continue
+        break
     path = _uploads_dir / filename
     if not permitted or not path.is_file():
         raise HTTPException(status_code=404, detail="图片不存在")

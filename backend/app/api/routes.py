@@ -2,6 +2,8 @@
 
 把核心引擎(IR + YAML 规则包 + 修复回写)暴露为 HTTP 接口:
 - GET  /api/health            健康检查
+- GET  /api/health/live       进程存活探针
+- GET  /api/health/ready      业务存储就绪探针
 - GET  /api/packs             规则包列表
 - GET  /api/packs/{pack_id}   规则包详情
 - POST /api/check             上传 docx → 检查报告 (JSON)
@@ -17,12 +19,14 @@ from __future__ import annotations
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
 from app.auth import current_user
+from app.db import Store
 from app.core.engine import validate_docx
 from app.core.engine.loader import load_pack, list_packs
 from app.core.loaders.docx_loader import load_docx
@@ -73,6 +77,23 @@ def _cleanup(tmp: Path) -> None:
 @router.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "paperguard"}
+
+
+@router.get("/health/live")
+def health_live() -> dict:
+    """进程存活探针：只确认 HTTP 应用仍能响应。"""
+    return {"status": "ok", "service": "paperguard", "probe": "live"}
+
+
+@router.get("/health/ready")
+def health_ready() -> dict:
+    """就绪探针：确认应用可以初始化并访问业务存储。"""
+    try:
+        store = Store()
+        store.list_templates()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="业务存储未就绪") from exc
+    return {"status": "ok", "service": "paperguard", "probe": "ready"}
 
 
 @router.get("/packs")
@@ -185,11 +206,14 @@ async def fix(
         ir = load_docx(str(tmp))
         findings = validate_docx(ir, pack=pack)
         _remaining = patch_docx_package(tmp, out, findings)
+        # Starlette encodes response headers as latin-1. Keep a stable ASCII
+        # fallback and preserve the requested name with RFC 5987 filename*.
+        filename_ascii = "fixed.docx"
         return StreamingResponse(
             out.open("rb"),
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": f'attachment; filename="{filename_ascii}"; filename*=UTF-8\'\'{quote(filename)}',
                 "X-PaperGuard-Remaining-Fixes": str(len(_remaining)),
             },
             background=BackgroundTask(_cleanup, tmp),

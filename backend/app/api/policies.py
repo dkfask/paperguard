@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.auth import can_manage, current_user, require_manager
+from app.core.context import get_request_context
 from app.db import Store, new_id
 from app.models.policy import (
     PolicyAuditEvent,
@@ -31,6 +32,7 @@ from app.services.policy_import import (
     extract_policy_text,
     normalize_ai_policy,
 )
+from app.services.resource_access import assert_resource_read
 from app.core.engine.loader import load_pack
 from app.api import ai as ai_api
 
@@ -180,6 +182,7 @@ def _audit(store: Store, policy_id: str, action: str, user: dict, detail: dict |
         action=action,
         actor_id=user["id"],
         detail=detail or {},
+        request_id=get_request_context().request_id,
         created_at=_now(),
     ))
 
@@ -313,8 +316,7 @@ async def import_policy_with_ai(
 @router.get("/{policy_id}")
 def get_policy(policy_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> RequirementSet:
     requirement_set = store.get_requirement_set(policy_id)
-    if requirement_set is None or not _is_visible(requirement_set, user, store):
-        raise HTTPException(status_code=404, detail="规范不存在或无权访问")
+    assert_resource_read(store, user, "policy", requirement_set)
     return requirement_set
 
 
@@ -588,8 +590,7 @@ async def upload_policy_document(policy_id: str, file: UploadFile = File(...),
 def download_policy_document(policy_id: str, document_id: str,
                              store: Store = Depends(get_store), user: dict = Depends(current_user)):
     requirement_set = store.get_requirement_set(policy_id)
-    if requirement_set is None or not _is_visible(requirement_set, user, store):
-        raise HTTPException(status_code=404, detail="规范不存在或无权访问")
+    assert_resource_read(store, user, "policy", requirement_set)
     document = next((item for item in requirement_set.documents if item.id == document_id), None)
     if document is None:
         raise HTTPException(status_code=404, detail="规范文档不存在")

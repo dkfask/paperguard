@@ -134,6 +134,20 @@ def test_create_project_instantiates_sections():
     _create_project_instantiates_sections()
 
 
+def test_export_preview_reports_revision_hash_and_content_counts():
+    project_id = _create_project_instantiates_sections()
+    response = client.post(f"/api/projects/{project_id}/export-preview")
+    assert response.status_code == 200, response.text
+    preview = response.json()
+    assert preview["project_id"] == project_id
+    assert preview["revision"] >= 0
+    assert len(preview["content_hash"]) == 64
+    assert preview["counts"]["sections"] > 0
+    assert preview["can_export"] is False
+    forced = client.post(f"/api/projects/{project_id}/export-preview?force=true")
+    assert forced.status_code == 200 and forced.json()["can_export"] is True
+
+
 def test_update_section_content():
     proj_id = _create_project_instantiates_sections()
     # 给摘要节写内容
@@ -230,6 +244,73 @@ def test_export_docx():
 
 def test_export_missing_project_404():
     assert client.post("/api/projects/nonexist/export").status_code == 404
+
+
+def test_durable_project_export_job_roundtrip():
+    """DOCX export can be queued, recovered by the worker, and downloaded safely."""
+    from app.services.export_jobs import EXPORT_DIR
+    from app.worker import run_once
+
+    project_id = _create_project_instantiates_sections()
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+    assert task["status"] == "queued"
+    assert task["project_id"] == project_id
+    assert "project_snapshot" not in task and "file_path" not in task
+    duplicate = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert duplicate.status_code == 202
+    assert duplicate.json()["id"] == task["id"]
+
+    job = client.get(f"/api/jobs/{task['job_id']}")
+    assert job.status_code == 200
+    assert job.json()["resource_type"] == "project_export"
+    assert "lease_token" not in job.json()
+
+    result = run_once()
+    assert task["job_id"] in result["exports"]["succeeded"]
+    completed = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "succeeded"
+    downloaded = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+    assert downloaded.status_code == 200
+    assert downloaded.content[:2] == b"PK"
+    audit = client.get("/api/audit", params={"resource_type": "project_export"})
+    assert audit.status_code == 200
+    assert {item["action"] for item in audit.json() if item["resource_id"] == task["id"]} >= {
+        "project.export.queued", "project.export.succeeded"
+    }
+    output = EXPORT_DIR / f"{task['id']}.docx"
+    if output.exists():
+        output.unlink()
+
+
+def test_durable_project_export_failure_can_be_retried(monkeypatch):
+    """A failed export returns to queued state through the manager retry path."""
+    from app.services import export_jobs
+    from app.services.export_jobs import EXPORT_DIR
+    from app.worker import run_once
+
+    project_id = _create_project_instantiates_sections()
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+
+    def fail_export(*_args, **_kwargs):
+        raise RuntimeError("synthetic export failure")
+
+    monkeypatch.setattr(export_jobs, "export_project_to_docx", fail_export)
+    failed_run = run_once()
+    assert task["job_id"] in {item["job_id"] for item in failed_run["exports"]["failed"]}
+    failed = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}").json()
+    assert failed["status"] == "failed"
+
+    retried = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry")
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["status"] == "queued"
+    output = EXPORT_DIR / f"{task['id']}.docx"
+    if output.exists():
+        output.unlink()
 
 
 def test_strip_template_comments_returns_docx():
@@ -507,6 +588,33 @@ def test_upload_rejects_fake_image():
     assert resp.status_code == 400
 
 
+def test_project_image_download_is_resource_scoped():
+    """图片下载必须沿项目授权边界判定，不能因角色是教师而跨项目读取。"""
+    proj_id = _create_project_instantiates_sections()
+    uploaded = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("private.png", _make_image_png(), "image/png")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+
+    outsider = client.post("/api/auth/register", json={
+        "username": "image-outsider", "password": "OutsiderPassword123", "role": "student",
+    })
+    assert outsider.status_code == 201, outsider.text
+    login = client.post("/api/auth/login", json={
+        "username": "image-outsider", "password": "OutsiderPassword123",
+    })
+    assert login.status_code == 200, login.text
+    denied = client.get(
+        uploaded.json()["url"],
+        headers={"Authorization": f"Bearer {login.json()['token']}"},
+    )
+    assert denied.status_code == 404
+    outsider_headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    assert client.post(f"/api/projects/{proj_id}/export", headers=outsider_headers).status_code == 404
+    assert client.get(f"/api/projects/{proj_id}/check", headers=outsider_headers).status_code == 404
+
+
 
     proj_id = _create_project_instantiates_sections()
     resp = client.post(
@@ -614,8 +722,8 @@ def test_removed_image_block_waits_for_orphan_cleanup():
     assert not (uploads / fname).exists(), "孤儿回收后应清理无引用图片"
 
 
-def test_delete_project_removes_images():
-    """删除项目时, 该项目的所有图片文件一并删除。"""
+def test_delete_project_moves_to_trash_and_preserves_images():
+    """删除草稿进入回收站，恢复前保留图片引用。"""
     from pathlib import Path
 
     proj_id = _create_project_instantiates_sections()
@@ -634,7 +742,30 @@ def test_delete_project_removes_images():
     assert (uploads / fname).exists()
 
     assert client.delete(f"/api/projects/{proj_id}").status_code == 204
-    assert not (uploads / fname).exists(), "删除项目后图片文件应被清理"
+    assert client.get(f"/api/projects/{proj_id}").status_code == 404
+    trash = client.get("/api/projects/trash").json()
+    assert any(item["id"] == proj_id for item in trash)
+    assert (uploads / fname).exists(), "回收站项目仍需保留图片引用"
+    assert client.post(f"/api/projects/{proj_id}/restore").status_code == 200
+    assert client.get(f"/api/projects/{proj_id}").status_code == 200
+    audits = client.get("/api/audit-events").json()
+    assert {item["action"] for item in audits if item["resource_id"] == proj_id} >= {"project.soft_delete", "project.restore"}
+
+
+def test_deleted_project_read_only_endpoints_are_hidden():
+    """Trash projects must not leak through report, check, or export reads."""
+    proj_id = _create_project_instantiates_sections()
+    assert client.delete(f"/api/projects/{proj_id}").status_code == 204
+    for method, path in (
+        ("get", f"/api/projects/{proj_id}/check"),
+        ("get", f"/api/projects/{proj_id}/template-check"),
+        ("get", f"/api/projects/{proj_id}/check-runs"),
+        ("get", f"/api/projects/{proj_id}/compliance-report"),
+        ("post", f"/api/projects/{proj_id}/export?force=true"),
+        ("post", f"/api/projects/{proj_id}/export-jobs?force=true"),
+        ("get", f"/api/projects/{proj_id}/export-jobs"),
+    ):
+        assert getattr(client, method)(path).status_code == 404
 
 
 def test_cleanup_orphan_images():
