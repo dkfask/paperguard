@@ -39,6 +39,8 @@ export type PublishedPackage = {
   packageId: string
   templateName: string
   specName: string
+  managerToken: string
+  managerUser: Record<string, unknown>
 }
 
 export type StudentAccount = {
@@ -110,10 +112,29 @@ export async function publishFixturePackage(api: APIRequestContext): Promise<Pub
     },
   })
   const bundle = await jsonOrThrow(packageResponse, 'publish document package')
+  const managerSuffix = `${Date.now()}-${randomBytes(4).toString('hex')}`
+  const managerUsername = `e2e-manager-${managerSuffix}`
+  const managerPassword = `E2eManager7${randomBytes(18).toString('hex')}`
+  const managerRegistrationResponse = await api.post('/api/auth/register', {
+    headers,
+    data: { username: managerUsername, password: managerPassword, display_name: managerUsername, role: 'teacher' },
+  })
+  const managerRegistration = await jsonOrThrow(managerRegistrationResponse, 'register isolated manager')
+  const activateManagerResponse = await api.put(`/api/auth/admin/users/${managerRegistration.id}/role-status`, {
+    headers,
+    data: { role: 'teacher', status: 'active' },
+  })
+  await jsonOrThrow(activateManagerResponse, 'activate isolated manager')
+  const managerLoginResponse = await api.post('/api/auth/login', {
+    data: { username: managerUsername, password: managerPassword },
+  })
+  const managerLogin = await jsonOrThrow(managerLoginResponse, 'login isolated manager')
   return {
     packageId: bundle.package.id,
     templateName: bundle.template.name,
     specName,
+    managerToken: managerLogin.token,
+    managerUser: managerLogin.user,
   }
 }
 

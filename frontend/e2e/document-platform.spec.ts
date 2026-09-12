@@ -6,7 +6,6 @@ import { LoginPage } from './pages/paperguard.page'
 import {
   createStudent,
   API_BASE_URL,
-  E2E_ADMIN_PASSWORD,
   publishFixturePackage,
   type PublishedPackage,
   type StudentAccount,
@@ -39,8 +38,10 @@ test.describe('generic document platform', () => {
   }
 
   test('manager publishes a package from the browser workflow', async ({ page }) => {
-    const loginPage = new LoginPage(page)
-    await loginPage.login('admin', E2E_ADMIN_PASSWORD)
+    await page.addInitScript(({ token, user }) => {
+      sessionStorage.setItem('pg_token', token)
+      sessionStorage.setItem('pg_user', JSON.stringify(user))
+    }, { token: publishedPackage.managerToken, user: publishedPackage.managerUser })
     await page.goto('/document-packages/publish')
     await expect(page.locator('h1')).toContainText('发布通用文档包')
 
