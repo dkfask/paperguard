@@ -13,6 +13,7 @@ from typing import Any
 
 from app.db import Store, new_id
 from app.domain.documents.hashing import document_project_content_hash
+from app.domain.documents.hashing import canonical_hash
 from app.domain.documents.schemas import (
     Artifact,
     DocumentPackage,
@@ -25,6 +26,7 @@ from app.domain.documents.specs import SpecVersion
 from app.domain.workflow_states import transition_state
 from app.repositories.workflow_repository import WorkflowRepository
 from app.services.generic_docx_renderer import render_document_project_to_docx
+from app.services.upload_security import DOCX_MAX_BYTES, validate_docx_bytes
 
 
 RENDER_JOB_KIND = "document_render_job"
@@ -125,6 +127,7 @@ def create_document_render_job(
         created_at=now,
         updated_at=now,
     )
+    render_job.snapshot_hash = canonical_hash(render_job.snapshot)
     with store.workflow_transaction() as conn:
         repository.save_in_transaction(conn, RENDER_JOB_KIND, render_job.model_dump(mode="json"))
         repository.create_job_in_transaction(
@@ -224,6 +227,11 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
     final_path: Path | None = None
     try:
         snapshot = raw.get("snapshot") or {}
+        actual_snapshot_hash = canonical_hash(snapshot)
+        stored_snapshot_hash = str(raw.get("snapshot_hash") or "")
+        if stored_snapshot_hash and stored_snapshot_hash != actual_snapshot_hash:
+            raise ValueError("render job snapshot integrity check failed")
+        raw["snapshot_hash"] = actual_snapshot_hash
         project = DocumentProject.model_validate(snapshot["project"])
         package = DocumentPackage.model_validate(snapshot["package"])
         template = DocumentTemplate.model_validate(snapshot["template"])
@@ -250,6 +258,9 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
         render_document_project_to_docx(project, package, template, template_version, spec_version, output)
         if not output.is_file() or output.stat().st_size == 0:
             raise ValueError("renderer produced no artifact")
+        if output.stat().st_size > DOCX_MAX_BYTES:
+            raise ValueError("renderer artifact exceeds the DOCX size limit")
+        validate_docx_bytes(output.read_bytes())
         output.replace(final_path)
         artifact = artifact.model_copy(update={
             "size_bytes": final_path.stat().st_size,

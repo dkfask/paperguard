@@ -271,6 +271,7 @@ class RenderJob(BaseModel):
     package_id: str = Field(min_length=1)
     project_revision: int = Field(default=0, ge=0)
     content_hash: str = ""
+    snapshot_hash: str = ""
     template_version_id: str = Field(min_length=1)
     spec_version_id: str = Field(min_length=1)
     renderer_version: str = Field(min_length=1)
