@@ -1,6 +1,7 @@
 name: PaperGuard staging
 
 on:
+  pull_request:
   workflow_dispatch:
 
 permissions:

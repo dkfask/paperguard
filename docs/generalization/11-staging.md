@@ -60,7 +60,7 @@ fixture then uses the same public staging proxy, so the browser and setup both
 exercise the built frontend route rather than bypassing it.
 
 `.github/workflows/staging.yml` runs the same topology on a disposable GitHub
-runner. It builds both images, verifies the two health probes through Nginx,
+runner for the Phase 11 pull request or a later manual dispatch. It builds both images, verifies the two health probes through Nginx,
 runs the migration ledger command in the backend container, runs desktop and
 mobile generic E2E through port 18080, captures container identity and logs,
 then removes the disposable containers and volume. This is a staging
