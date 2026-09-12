@@ -6,6 +6,7 @@ import { LoginPage } from './pages/paperguard.page'
 import {
   createStudent,
   API_BASE_URL,
+  E2E_ADMIN_PASSWORD,
   publishFixturePackage,
   type PublishedPackage,
   type StudentAccount,
@@ -36,6 +37,54 @@ test.describe('generic document platform', () => {
     await editorPage.expectLoaded(publishedPackage.templateName)
     return { account, editorPage }
   }
+
+  test('manager publishes a package from the browser workflow', async ({ page }) => {
+    const loginPage = new LoginPage(page)
+    await loginPage.login('admin', E2E_ADMIN_PASSWORD)
+    await page.goto('/document-packages/publish')
+    await expect(page.locator('h1')).toContainText('发布通用文档包')
+
+    await page.locator('[data-test="template-file"]').setInputFiles(TEMPLATE_PATH)
+    await page.locator('[data-test="template-parse"]').click()
+    await expect(page.locator('[data-test="template-confirm"]')).toBeEnabled()
+    await page.locator('[data-test="template-confirm"]').click()
+    await expect(page.locator('[data-test="template-confirm"]')).toBeDisabled()
+
+    const specName = `E2E UI 规范 ${Date.now()}`
+    const spec = `---
+name: ${specName}
+version: '1'
+rules:
+  - id: body-minimum-ui
+    type: auto
+    target: body
+    checker: word_count
+    params:
+      min: 1
+    severity: warning
+    enforce: soft
+    description: 正文至少包含 1 个字符
+    source: UI E2E fixture
+---
+
+# UI E2E 规范
+`
+    await page.locator('[data-test="spec-file"]').setInputFiles({
+      name: 'ui-e2e-spec.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from(spec, 'utf8'),
+    })
+    await page.locator('[data-test="spec-parse"]').click()
+    await expect(page.locator('[data-test="spec-confirm"]')).toBeEnabled()
+    await page.locator('[data-test="spec-confirm"]').click()
+    await expect(page.locator('[data-test="spec-confirm"]')).toBeDisabled()
+
+    await page.locator('input[placeholder="例如 grant-application"]').fill('e2e-ui-report')
+    await expect(page.locator('[data-test="publish"]')).toBeEnabled()
+    await page.locator('[data-test="publish"]').click()
+    await expect(page.locator('.success-panel')).toContainText('文档包发布成功')
+    await expect(page.locator('.success-panel')).toContainText(specName)
+  })
 
   test('published package opens an editor from its parsed section schema', async ({ page }) => {
     const { editorPage } = await openEditor(page, 'schema')
