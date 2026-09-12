@@ -59,12 +59,12 @@ plan.
 - Script syntax and input fail-closed behavior: validated locally.
 - Full verifier contract against a local loopback mock: **PASS**; all 8
   non-destructive checks passed and the mock service was stopped afterward.
-- Hosted evidence for the preceding PR #20 verification head `bfc6e09`:
-  - CI run `34682119668`: **success**; Python 3.11/3.12 backend tests,
+- Hosted evidence for the current PR #20 verification head `d3bf522`:
+  - CI run `34684428876`: **success**; Python 3.11/3.12 backend tests,
     frontend build, and loopback verifier contract passed.
-  - Production-topology preflight `34682113305`: **success**.
-  - Generic document E2E `34682113306`: **success**.
-  - Disposable staging `34682113338`: **success**; probes, clean migration,
+  - Production-topology preflight `34684417553`: **success**.
+  - Generic document E2E `34684417611`: **success**.
+  - Disposable staging `34684417651`: **success**; probes, clean migration,
     built-frontend desktop/mobile E2E, evidence capture, and teardown passed.
 - Actual authorized online verification: **NOT RUN**; no target URL or
   out-of-band credentials were supplied.
@@ -76,6 +76,8 @@ Phase 13 tooling is **GO**. Phase 13 acceptance is **BLOCKED** pending an
 authorized target, credentials, and a designated safe test scope. No online
 state has been changed.
 
-The explicit-anchor renderer and intrinsic required-field hardening are local
-follow-up changes on top of this evidence and must pass the same hosted gates
-before their head can be treated as verified.
+The explicit-anchor renderer, intrinsic required-field hardening, and
+server-bound candidate publication follow-up are included in `d3bf522`; the
+same hosted gates passed for that exact head. Actual online verification and
+production write-path verification remain separately unauthorized and
+unexecuted.
