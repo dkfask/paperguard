@@ -8,14 +8,21 @@ renderer.
 
 The covered path is:
 
-1. An isolated admin session parses a repository DOCX fixture.
-2. A deterministic Markdown `frontmatter.rules` fixture is parsed without AI.
-3. Both candidates are confirmed and composed into a published document package.
-4. An isolated student signs in through the real UI.
-5. The student selects the published package, creates a project, and receives a
-   dynamically generated editor from the parsed section schema.
-6. Content is autosaved, reloaded, deterministically validated, and exported as
-   a DOCX download.
+1. An isolated manager session uploads an unseen tracked DOCX fixture and parses
+   it into a reviewable candidate.
+2. The manager edits the candidate name, changes a field to a choice field,
+   configures its options, and confirms the template candidate.
+3. A deterministic Markdown `frontmatter.rules` fixture is parsed, confirmed,
+   and composed with the template into a published document package.
+4. An isolated student signs in through the real UI, selects the published
+   package, creates a project, and receives a dynamically generated editor from
+   the confirmed schema.
+5. The student enters field and section content, reloads the project, runs the
+   deterministic validator, and downloads a DOCX whose anchored dynamic content,
+   static body content, header, and footer are checked from the ZIP parts.
+6. The browser flow reopens the saved project through the API, verifies another
+   student cannot read it, and verifies the project audit actions are queryable
+   by resource ID.
 
 The test bootstrap uses API calls only for isolated account and package setup.
 The system under test remains the real FastAPI server, Vite proxy, Vue routes,
@@ -33,21 +40,18 @@ The browser interactions are kept in:
 
 The API fixture is in `frontend/e2e/document-platform.api.ts`. It reads the
 DOCX path from `E2E_TEMPLATE_PATH` when supplied and otherwise uses the tracked
-minimal fixture. `E2E_ADMIN_PASSWORD` is required; no password is stored in
-the test source. The Playwright config starts a temporary backend database,
-template directory, and artifact directory, with optional
+`generic-anchored.docx` fixture. `E2E_ADMIN_PASSWORD` is required; no password
+is stored in the test source. The Playwright config starts a temporary backend
+database, template directory, and artifact directory, with optional
 `E2E_BACKEND_PORT`, `E2E_FRONTEND_PORT`, `E2E_API_BASE_URL`, and
 `E2E_PYTHON_BIN` overrides for local execution.
 
-The suite contains four independent points:
-
-- parsed package schema opens a dynamic editor;
-- content survives autosave and reload;
-- empty content produces the deterministic rule finding;
-- valid content produces a non-empty DOCX download.
-
-The same four points run in desktop Chromium and mobile Chromium. Existing
-thesis lifecycle coverage remains separate and is not altered.
+The suite contains six scenarios: one full browser acceptance chain covering
+parse, review, publish, project creation, persistence, validation, export,
+isolation, and audit; plus five focused checks for parsed schema rendering,
+dynamic editor blocks, autosave/reload, deterministic findings, and anchored
+DOCX export. All six scenarios run in desktop Chromium and mobile Chromium.
+Existing thesis lifecycle coverage remains separate and is not altered.
 
 ## Fix Loop
 
@@ -63,33 +67,36 @@ panel. The package selector was also narrowed by the unique specification name
 to make duplicate local data diagnosable rather than silently selecting an
 arbitrary package.
 
+The current acceptance run then found two gaps in the test/product boundary:
+the browser flow did not exercise the human-editable template name, and the
+publisher did not expose choice field types or their options. The publisher now
+supports `select`/`enum` review fields with comma-separated options, and the
+browser path edits those values before confirmation. The export assertion also
+checks the actual anchored XML rather than only the DOCX ZIP signature.
+
 ## Local Evidence
 
-Executed from the Phase 10 worktree on 2026-09-12:
+Executed from the Phase 13 worktree on 2026-09-12:
 
 | Check | Result |
 |---|---|
-| Generic E2E, desktop Chromium | 4 passed in 15.7s |
-| Generic E2E, mobile Chromium | 4 passed in 16.9s |
-| Existing frontend smoke, desktop/mobile Chromium | 6 passed in 10.9s |
-| Frontend unit tests | 24 passed, 9 files |
+| Generic document E2E, desktop + mobile Chromium | 12 passed in 45.4s |
+| Full local browser regression, including thesis lifecycle and smoke checks | 20 passed, 2 skipped in 2.2m |
+| Full backend pytest matrix | 605 passed, 2 warnings |
+| Frontend unit tests | 28 passed, 10 files |
 | Frontend typecheck | PASS |
 | Frontend production build | PASS |
 | Paragraph splitter checks | PASS |
-| Related backend document-project/renderer tests | 6 passed, 2 warnings |
+| Anchored renderer, parser, and audit focused tests | 9 passed, 2 warnings |
 | `git diff --check` | PASS |
 
 The backend warning output is from the installed FastAPI/Starlette TestClient
 deprecation path; it is not a test failure.
 
-The following were not part of this phase's local execution:
-
-- Full backend matrix: **NOT RUN** in this phase; the related API and renderer
-  tests were run locally and the complete matrix is delegated to hosted CI.
-- Existing thesis `full-lifecycle.spec.ts`: **NOT RUN**; it requires private
-  user-provided thesis files and `E2E_ADMIN_PASSWORD` and is intentionally not
-  mixed into the generic document fixture.
-- Staging, production deployment, and online verification: **NOT RUN**.
+The latest local browser execution included the existing thesis
+`full-lifecycle.spec.ts`; its mobile project remains intentionally skipped
+because that scenario is desktop-only. Staging, production deployment, and
+online verification remain **NOT RUN**.
 
 ## Hosted Workflow
 
@@ -98,25 +105,38 @@ The following were not part of this phase's local execution:
 - installs the backend dependencies and Node dependencies;
 - generates an ephemeral admin password in the runner environment;
 - installs Chromium with its system dependencies;
-- runs the four generic tests in desktop and mobile projects;
+- runs the six generic scenarios in desktop and mobile projects;
 - uploads Playwright reports when the job finishes.
 
 The workflow is intentionally separate from the existing backend/build CI so
 the browser gate can be dispatched against a phase branch without changing the
 legacy CI contract. No deployment is performed by this phase.
 
-Hosted evidence for the final Phase 10 head
+Historical hosted evidence for the Phase 10 gate was collected at
 `36a814748db3c4baee64d4185c2cbda139dd59f0`:
 
 - Existing CI run `34678310503`: success; frontend build and Python 3.11/3.12
   jobs all passed.
 - Generic E2E run `34678310659`: success; 8 tests passed across the
-  desktop and mobile projects.
+  desktop and mobile projects before the current full-chain expansion.
 - The workflow masks its generated admin password before exporting it to the
   runner environment; hosted logs show the value as `***`.
 
+Current hosted regression for the Phase 13 executable source
+`2ff07d2802031e430d448cdb16cbdf27f7a4867b`:
+
+- CI run `34692470703`: success; frontend unit/typecheck/paragraph/build,
+  Python 3.11/3.12 backend tests, and loopback verifier contract passed on
+  Node 24.
+- Generic E2E run `34692442646`: success.
+- Disposable staging run `34692442641`: success; built-frontend desktop/mobile
+  generic E2E, migration, probes, evidence capture, and teardown passed.
+- Production-topology preflight run `34692442655`: success; Compose build,
+  real migration command, manifest schema validation, evidence capture, and
+  teardown passed.
+
 ## Phase Gate
 
-Local browser and regression checks are green. Phase 10 is **GO pending hosted
-CI** for the exact PR head. Phase 11 must not start until the hosted workflow
-and the existing CI matrix are green on that head.
+The local browser and regression checks are green. The historical hosted CI and
+E2E runs above remain valid for the Phase 10 gate, and the current executable
+source is additionally covered by the hosted regression runs listed above.

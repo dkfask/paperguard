@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import zipfile
+from pathlib import Path
 
 from click.testing import CliRunner
 from fastapi.testclient import TestClient
@@ -109,6 +113,23 @@ def test_migrate_cli_is_repeatable_and_reports_schema_ledger(tmp_path, monkeypat
     assert [item["version"] for item in first_payload["migrations"]] == [
         item["version"] for item in second_payload["migrations"]
     ]
+
+
+def test_migrate_package_entrypoint_executes_the_cli(tmp_path):
+    env = os.environ.copy()
+    env["PAPERGUARD_DB_PATH"] = str(tmp_path / "module-entrypoint.db")
+    result = subprocess.run(
+        [sys.executable, "-m", "app.cli", "migrate"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["migrations"][-1]["version"] == "0007_document_scope_indexes"
 
 
 def test_operations_api_configures_retention_and_downloads_backup(tmp_path, monkeypatch):

@@ -60,14 +60,28 @@ emit metadata-only audit events.
 Authenticated users can open `/document-projects`, choose a published package,
 name a project, and enter `/document-projects/{id}`. The editor renders fields,
 editable sections, content blocks, the rule list, and the frozen execution
-snapshot from the API response. Changes are debounced into an update request;
-the revision is sent back on the next save and conflicts are shown to the user
-instead of being overwritten.
+snapshot from the API response. Field controls are derived from the schema
+(`text`, `textarea`, `select`/`enum`, `checkbox`, `date`, `number`, `email`, and
+`url`) and section schemas may constrain block kinds. Paragraph, image, table,
+and Office Math blocks have structured editing controls. Project images are
+uploaded through a project-scoped endpoint and are saved only after the server
+returns an owned `/media/uploads/` reference. Changes are debounced into an
+update request; the revision is sent back on the next save and conflicts are
+shown to the user instead of being overwritten.
 
 The new view is linked from student, teacher, and administrator navigation and
-has Chinese/English translations. It is intentionally a focused block editor;
-DOCX rendering, automatic checks, fix actions, and rich media blocks are
-explicitly deferred.
+has Chinese/English translations. Generic DOCX rendering and automatic checks
+are implemented in later phases; the editor does not decide whether a document
+is valid or bypass the renderer's hard validation gate.
+
+## Current implementation boundary
+
+The editor accepts PNG/JPEG/GIF uploads for generic DOCX projects. The backend
+validates image bytes with the DOCX decoder, binds the generated filename to
+the project ID, checks ownership on download and save, and rejects foreign or
+missing URLs. WebP remains available only in legacy thesis upload paths where
+the existing behavior is preserved; it is not offered by the generic DOCX
+editor.
 
 ## Tests and verification
 

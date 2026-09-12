@@ -161,6 +161,14 @@ def test_spec_parse_and_confirm_api_is_authenticated_and_review_only() -> None:
     assert confirmed.json()["status"] == "confirmed"
     assert confirmed.json()["confirmed_by"] == "user-admin"
 
+    listed = client.get("/api/specs/parse/candidates", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["candidate_id"] == body["candidate_id"]
+    restored = client.get(f"/api/specs/parse/candidates/{body['candidate_id']}", headers=headers)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["status"] == "confirmed"
+    assert client.get("/api/specs/parse/candidates/unknown", headers=headers).status_code == 404
+
     audit = client.get(
         "/api/audit",
         headers=headers,

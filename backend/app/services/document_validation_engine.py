@@ -41,6 +41,16 @@ def _block_text(block: Any) -> str:
     return str(getattr(block, "text", "") or "")
 
 
+def _value_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (list, tuple, dict, set)) and not value:
+        return False
+    return bool(str(value).strip())
+
+
 def _section_text(project: DocumentProject, key: str) -> str:
     blocks = project.sections.get(key, [])
     ordered = sorted(blocks, key=lambda block: (block.order, block.id))
@@ -160,6 +170,23 @@ def validate_document_project(
     nodes = {item["key"]: item for item in _section_nodes(definition)}
     findings: list[ValidationFinding] = []
     not_checked: list[dict[str, Any]] = []
+
+    # Required fields are intrinsic template constraints, independent of the
+    # uploaded specification. Drafts may remain incomplete, but validation and
+    # export must expose a deterministic hard finding for each missing value.
+    for field in definition.fields:
+        if field.required and not _value_present(project.field_values.get(field.key)):
+            findings.append(ValidationFinding(
+                rule_id=f"template.required.{field.key}",
+                checker="field.required",
+                severity="error",
+                enforce="hard",
+                message=f"Required field is missing: {field.label or field.key}",
+                actual=False,
+                expected=True,
+                source="template definition",
+                source_version=project.template_version_id,
+            ))
 
     for rule in spec_version.rules:
         if rule.kind != "auto":

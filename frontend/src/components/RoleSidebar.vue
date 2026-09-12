@@ -79,6 +79,7 @@ const groups = computed(() => {
     return [{ label: t('sidebar.guidance'), items: [
       { label: t('sidebar.dashboard'), icon: 'dashboard', to: '/workspace' },
       { label: t('sidebar.documentProjects'), icon: 'description', to: '/document-projects' },
+      { label: t('sidebar.publishDocumentPackage'), icon: 'publish', to: '/document-packages/publish' },
       { label: t('sidebar.review'), icon: 'rate_review', to: { path: '/workflow', query: { panel: 'review' } } },
       { label: t('sidebar.progress'), icon: 'groups', to: { path: '/workflow', query: { panel: 'progress' } } },
       { label: t('sidebar.materials'), icon: 'folder_managed', to: { path: '/workflow', query: { panel: 'materials' } } },
@@ -92,6 +93,7 @@ const groups = computed(() => {
     { label: t('sidebar.members'), icon: 'groups', to: '/organizations' },
     { label: t('sidebar.templates'), icon: 'library_books', to: '/templates' },
     { label: t('sidebar.documentProjects'), icon: 'description', to: '/document-projects' },
+    { label: t('sidebar.publishDocumentPackage'), icon: 'publish', to: '/document-packages/publish' },
     { label: t('sidebar.audit'), icon: 'fact_check', to: '/audit' },
     { label: t('sidebar.messages'), icon: 'notifications', to: { path: '/workflow', query: { panel: 'messages' } } },
   ]

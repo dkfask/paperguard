@@ -21,6 +21,9 @@ from app.models.organization import OrganizationUnit
 from app.models.policy import CheckRun, PolicyAuditEvent, RequirementSet
 from app.models.template import PaperTemplate
 
+# Keep the default database beside the other persisted runtime assets.  The
+# Docker Compose volume is mounted at /app/data, which corresponds to this
+# repository-level backend/data directory in a source checkout.
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "paperguard.db"
 SCHEMA_MIGRATIONS = (
     "0001_runtime_schema",
@@ -34,8 +37,11 @@ SCHEMA_MIGRATIONS = (
 
 
 def _default_db_path() -> Path:
-    """数据库路径, 可用环境变量 PAPERGUARD_DB_PATH 覆盖(测试用)。"""
-    return Path(os.environ.get("PAPERGUARD_DB_PATH", str(_DEFAULT_DB_PATH)))
+    """数据库路径, 可用 PAPERGUARD_DB_PATH 覆盖(测试用/运维配置)。"""
+    value = os.environ.get("PAPERGUARD_DB_PATH", "")
+    if value:
+        return Path(value)
+    return Path(os.environ.get("PAPERGUARD_DATA_DIR", str(_DEFAULT_DB_PATH.parent))) / "paperguard.db"
 
 
 def _now() -> str:
@@ -1221,6 +1227,23 @@ class Store:
             )
             updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._job_row(updated)
+
+    def cancel_job(self, job_id: str, reason: str = "") -> dict | None:
+        with self._connect() as conn:
+            return self.cancel_job_conn(conn, job_id, reason=reason)
+
+    def cancel_job_conn(self, conn: sqlite3.Connection, job_id: str, reason: str = "") -> dict | None:
+        """Cancel a queued or leased job without deleting its audit history."""
+        now = _now()
+        cur = conn.execute(
+            "UPDATE jobs SET state = 'cancelled', lease_until = NULL, lease_token = NULL, "
+            "leased_by = NULL, last_error = ?, updated_at = ? "
+            "WHERE id = ? AND state IN ('queued', 'running', 'failed')",
+            (reason[:2000] if reason else "cancelled", now, job_id),
+        )
+        if cur.rowcount != 1:
+            return None
+        return self._job_row(conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone())
 
     def retry_job(self, job_id: str, reason: str = "") -> dict | None:
         with self._connect() as conn:

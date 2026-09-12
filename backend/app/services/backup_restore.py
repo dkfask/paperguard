@@ -14,7 +14,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 
-_DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# The database and file assets must share the same persisted data root.
+_DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 _DEFAULT_DB_PATH = _DEFAULT_DATA_DIR / "paperguard.db"
 _BACKUP_FORMAT_VERSION = 1
 
@@ -28,7 +29,10 @@ def configured_data_dir() -> Path:
 
 
 def configured_db_path() -> Path:
-    return Path(os.environ.get("PAPERGUARD_DB_PATH", str(_DEFAULT_DB_PATH)))
+    value = os.environ.get("PAPERGUARD_DB_PATH", "")
+    if value:
+        return Path(value)
+    return configured_data_dir() / "paperguard.db"
 
 
 def _sha256(path: Path) -> str:

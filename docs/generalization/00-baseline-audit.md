@@ -165,13 +165,15 @@ Phase 0 的 CI 阻塞已定位为测试依赖注入不完整：requirement AI as
 
 ### 7.1 Workflow 配置
 
-`.github/workflows/ci.yml` 当前包含：
+初始 Phase 0 审计时，`.github/workflows/ci.yml` 包含：
 
 - 后端 Python `3.11` 和 `3.12` matrix。
 - 后端安装 `backend/requirements.txt`、`pytest`、`httpx`，执行 `python -m pytest -q`。
-- 前端 Node `20`，执行 `npm ci` 和 `npm run build`。
+- 前端 Node `20`，当时仅执行 `npm ci` 和 `npm run build`。
 - CI 没有注入 AI base URL、API key 或 model；这是正确的默认安全边界，测试不应依赖真实 AI。
-- CI 当前没有执行前端 unit test、typecheck 或 Playwright E2E。
+
+后续阶段已补充前端 unit、typecheck 和段落检查；Playwright 仍由独立的
+`.github/workflows/e2e.yml` 执行，避免把浏览器依赖混入基础 CI。
 
 ### 7.2 远端红灯证据
 
@@ -223,6 +225,12 @@ GitHub Actions 仍报告 runner 将 Node.js 20 action 强制切换到 Node.js 24
 | 前端生产构建 | `npm run build` | **passed**，Vite 8.2.1，227 modules transformed |
 | 差异空白检查 | `git diff --check` | **passed** |
 
+后续通用平台阶段在同一工作区重新执行的最终本地矩阵为：后端
+`605 passed, 2 warnings`；前端 `10` 个文件、`28` 个测试通过；类型检查、
+段落检查、生产构建和 `git diff --check` 均通过。全浏览器回归为
+`20 passed, 2 skipped`，其中通用文档场景桌面/移动共 `12 passed`；这组
+数字是阶段 13 的新鲜证据，不覆盖本节的 Phase 0 历史基线数字。
+
 README 当前仍写着 `552 passed`，与本次实际 `554 passed` 不一致，这是需要后续修正的文档债务；本阶段报告以实际命令结果为准。
 
 ### 8.2 已修复的问题
@@ -244,7 +252,7 @@ README 当前仍写着 `552 passed`，与本次实际 `554 passed` 不一致，�
 
 ## 9. 技术债务
 
-1. README 测试数量过时，且 CI 门禁只验证前端 build，不验证前端 unit/typecheck/e2e。
+1. README 测试数量过时；基础 CI 已补充前端 unit/typecheck，但 Playwright 仍是独立门禁，需持续绑定同一提交。
 2. 后端依赖版本范围较宽，CI 直接解析最新兼容依赖，缺少统一 lockfile 门禁；现有 pytest/Starlette/httpx 组合已经产生 warning。
 3. `main.py` 会自动加载环境配置，容易让本地 `.env` 掩盖测试没有显式注入依赖的问题；AI 测试已修复，但同类依赖仍需盘点。
 4. SQLite 以 JSON blob 存放主要领域对象，项目/模板/规范的查询、索引、外键和并发能力有限；`INSERT OR REPLACE` 也不适合作为未来版本对象的唯一写入语义。

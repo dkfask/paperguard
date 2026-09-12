@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -125,6 +126,15 @@ def test_publish_package_from_confirmed_candidates_is_persisted_and_readable() -
     assert body["template_version"]["renderer_version"] == "generic-docx-v1"
     assert body["spec_version"]["rules"][0]["checker"] == "section.word_count"
 
+    assert Store().get_workflow_record(
+        "document_template_candidate",
+        parsed_template.json()["candidate_id"],
+    )["status"] == "confirmed"
+    assert Store().get_workflow_record(
+        "document_spec_candidate",
+        parsed_spec.json()["candidate_id"],
+    )["status"] == "confirmed"
+
     loaded = client.get(f"/api/document-packages/{body['package']['id']}", headers=headers)
     assert loaded.status_code == 200, loaded.text
     assert loaded.json()["package"] == body["package"]
@@ -134,6 +144,25 @@ def test_publish_package_from_confirmed_candidates_is_persisted_and_readable() -
 
     duplicate = client.post("/api/document-packages", headers=headers, json=request)
     assert duplicate.status_code == 409, duplicate.text
+
+    tampered = deepcopy(request)
+    tampered["renderer_version"] = "generic-docx-v2"
+    tampered["template_candidate"]["name"] = "attacker-controlled name"
+    tampered["template_candidate"]["definition"]["source_docx"] = "attacker.docx"
+    republished = client.post("/api/document-packages", headers=headers, json=tampered)
+    assert republished.status_code == 201, republished.text
+    assert republished.json()["template"]["name"] == body["template"]["name"]
+    assert republished.json()["template_version"]["definition"]["source_docx"] == ""
+    assert republished.json()["package"]["metadata"]["organization_context"] == {}
+
+    missing = deepcopy(confirmed_template.json())
+    missing["candidate_id"] = "does-not-exist"
+    rejected_confirmation = client.post(
+        "/api/templates/parse/confirm",
+        headers=headers,
+        json=missing,
+    )
+    assert rejected_confirmation.status_code == 404, rejected_confirmation.text
 
     audit = client.get(
         "/api/audit",

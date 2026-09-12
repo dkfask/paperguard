@@ -54,6 +54,8 @@
               <div><dt>{{ t('documentProjects.specVersion') }}</dt><dd>{{ draft.spec_version_id }}</dd></div>
               <div><dt>{{ t('documentProjects.renderer') }}</dt><dd>{{ draft.renderer_version }}</dd></div>
               <div><dt>{{ t('documentProjects.ruleEngine') }}</dt><dd>{{ draft.rule_engine_version }}</dd></div>
+              <div><dt>{{ t('documentProjects.editorMode') }}</dt><dd>{{ editor.editor_schema.mode }}</dd></div>
+              <div><dt>{{ t('documentProjects.exportStrategy') }}</dt><dd>{{ editor.editor_schema.export_strategy }}</dd></div>
             </dl>
           </div>
           <div class="aside-block">
@@ -73,8 +75,13 @@
             <div class="field-grid">
               <label v-for="field in editor.editor_schema.fields" :key="field.key" class="document-field">
                 <span>{{ field.label || field.key }} <em v-if="field.required">{{ t('documentProjects.required') }}</em></span>
-                <textarea v-if="field.type === 'multiline'" v-model="draft.field_values[field.key]" rows="3" @input="scheduleSave"></textarea>
-                <input v-else v-model="draft.field_values[field.key]" :type="field.type === 'date' ? 'date' : 'text'" @input="scheduleSave" />
+                <textarea v-if="isMultilineField(field)" :data-test="`document-field-${field.key}`" v-model="draft.field_values[field.key]" rows="3" @input="scheduleSave"></textarea>
+                <select v-else-if="isChoiceField(field)" :data-test="`document-field-${field.key}`" v-model="draft.field_values[field.key]" @change="scheduleSave">
+                  <option value="">{{ t('documentProjects.selectPlaceholder') }}</option>
+                  <option v-for="option in fieldOptions(field)" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+                <input v-else-if="field.type === 'checkbox'" :data-test="`document-field-${field.key}`" v-model="draft.field_values[field.key]" type="checkbox" @change="scheduleSave" />
+                <input v-else :data-test="`document-field-${field.key}`" v-model="draft.field_values[field.key]" :type="nativeFieldType(field)" :min="field.constraints?.min" :max="field.constraints?.max" :maxlength="field.constraints?.max_length" @input="scheduleSave" />
               </label>
             </div>
           </section>
@@ -82,14 +89,50 @@
           <section v-for="section in editableSections" :key="section.key" class="editor-section">
             <div class="section-heading">
               <div><p class="workspace-kicker">{{ section.kind }}</p><h2>{{ section.title || section.key }}</h2></div>
-              <button class="icon-action" type="button" :title="t('documentProjects.addBlock')" :aria-label="t('documentProjects.addBlock')" @click="addBlock(section.key)">
+              <button v-if="canAddBlock(section)" class="icon-action" type="button" :title="t('documentProjects.addBlock')" :aria-label="t('documentProjects.addBlock')" :data-test="`add-block-${section.key}`" @click="addBlock(section.key)">
                 <span class="material-symbols-outlined" aria-hidden="true">add</span>
               </button>
             </div>
             <div class="block-list">
               <article v-for="(block, index) in draft.sections[section.key]" :key="block.id" class="content-block">
-                <div class="block-label"><span>{{ t('documentProjects.block') }} {{ index + 1 }}</span><span>{{ block.kind }}</span></div>
-                <textarea v-model="block.text" :aria-label="`${section.title || section.key} ${index + 1}`" rows="7" @input="scheduleSave"></textarea>
+                <div class="block-label">
+                  <span>{{ t('documentProjects.block') }} {{ index + 1 }}</span>
+                  <div class="block-actions">
+                    <select :data-test="`block-kind-${block.id}`" v-model="block.kind" :aria-label="t('documentProjects.blockType')" @change="normalizeBlock(block); scheduleSave()">
+                      <option v-for="kind in blockKinds(section)" :key="kind" :value="kind">{{ kind }}</option>
+                    </select>
+                    <button v-if="canDeleteBlock(section)" class="icon-action danger" type="button" :title="t('documentProjects.deleteBlock')" :aria-label="t('documentProjects.deleteBlock')" :data-test="`delete-block-${block.id}`" @click="removeBlock(section.key, index)">
+                      <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                    </button>
+                  </div>
+                </div>
+                <textarea v-if="isTextBlock(block)" v-model="block.text" :aria-label="`${section.title || section.key} ${index + 1}`" rows="7" @input="scheduleSave"></textarea>
+                <div v-else-if="isImageBlock(block)" class="block-fields">
+                  <label>{{ t('documentProjects.imageUpload') }}<input type="file" accept="image/png,image/jpeg,image/gif" :disabled="uploadingBlockId === block.id" @change="uploadBlockImage(block, $event)" /></label>
+                  <label>{{ t('documentProjects.imageUrl') }}<input v-model="block.data.url" type="text" readonly /></label>
+                  <label>{{ t('documentProjects.imageCaption') }}<input v-model="block.data.caption" type="text" @input="scheduleSave" /></label>
+                </div>
+                <div v-else-if="isTableBlock(block)" class="table-editor">
+                  <div class="table-editor-toolbar">
+                    <label>{{ t('documentProjects.tableRows') }}<input v-model.number="block.data.rows" type="number" min="1" max="100" @change="resizeTable(block); scheduleSave()" /></label>
+                    <label>{{ t('documentProjects.tableColumns') }}<input v-model.number="block.data.cols" type="number" min="1" max="30" @change="resizeTable(block); scheduleSave()" /></label>
+                  </div>
+                  <div class="table-editor-scroll">
+                    <table data-test="document-table-editor">
+                      <tbody>
+                        <tr v-for="(row, rowIndex) in block.data.cells" :key="rowIndex">
+                          <td v-for="(_, colIndex) in row" :key="colIndex"><input v-model="block.data.cells[rowIndex][colIndex]" :aria-label="`${t('documentProjects.tableCell')} ${rowIndex + 1}-${colIndex + 1}`" @input="scheduleSave" /></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <label>{{ t('documentProjects.tableCaption') }}<input v-model="block.data.caption" type="text" @input="scheduleSave" /></label>
+                </div>
+                <div v-else-if="isEquationBlock(block)" class="block-fields">
+                  <label>{{ t('documentProjects.equationText') }}<textarea v-model="block.data.omml" rows="4" @input="scheduleSave"></textarea></label>
+                  <label>{{ t('documentProjects.equationAltText') }}<input v-model="block.data.alt_text" type="text" @input="scheduleSave" /></label>
+                </div>
+                <textarea v-else v-model="block.text" :aria-label="`${section.title || section.key} ${index + 1}`" rows="7" @input="scheduleSave"></textarea>
               </article>
             </div>
           </section>
@@ -103,7 +146,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '../i18n'
-import { getDocumentProjectEditor, renderDocumentProject, updateDocumentProject, validateDocumentProject } from '../api.js'
+import { getDocumentProjectEditor, renderDocumentProject, updateDocumentProject, uploadDocumentProjectImage, validateDocumentProject } from '../api.js'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -124,9 +167,13 @@ const validating = ref(false)
 const exporting = ref(false)
 const validation = ref(null)
 const error = ref('')
+const uploadingBlockId = ref('')
 let saveTimer = null
 
-const editableSections = computed(() => (editor.value?.editor_schema.sections || []).filter((section) => draft.sections[section.key]))
+const editableSections = computed(() => {
+  if (editor.value?.editor_schema.mode === 'fixed_form') return []
+  return (editor.value?.editor_schema.sections || []).filter((section) => draft.sections[section.key])
+})
 
 function applyProject(project) {
   draft.title = project.title || ''
@@ -137,6 +184,9 @@ function applyProject(project) {
   draft.rule_engine_version = project.rule_engine_version || ''
   draft.field_values = JSON.parse(JSON.stringify(project.field_values || {}))
   draft.sections = JSON.parse(JSON.stringify(project.sections || {}))
+  for (const blocks of Object.values(draft.sections)) {
+    for (const block of blocks) normalizeBlock(block)
+  }
 }
 
 async function load() {
@@ -203,8 +253,111 @@ async function exportProject() {
 
 function addBlock(sectionKey) {
   const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
-  draft.sections[sectionKey].push({ id, kind: 'paragraph', text: '', data: {}, order: draft.sections[sectionKey].length })
+  const section = (editor.value?.editor_schema.sections || []).find(item => item.key === sectionKey)
+  const kind = blockKinds(section)[0] || 'paragraph'
+  draft.sections[sectionKey].push({ id, kind, text: '', data: {}, order: draft.sections[sectionKey].length })
+  normalizeBlock(draft.sections[sectionKey][draft.sections[sectionKey].length - 1])
   scheduleSave()
+}
+
+function canAddBlock(section) {
+  return Boolean(section?.allow_user_add || section?.repeatable)
+}
+
+function canDeleteBlock(section) {
+  return Boolean(section?.allow_user_delete)
+}
+
+function removeBlock(sectionKey, index) {
+  const blocks = draft.sections[sectionKey]
+  if (!Array.isArray(blocks)) return
+  blocks.splice(index, 1)
+  scheduleSave()
+}
+
+function isMultilineField(field) {
+  return ['textarea', 'multiline', 'richtext'].includes(String(field.type || '').toLowerCase())
+}
+
+function isChoiceField(field) {
+  return ['select', 'enum'].includes(String(field.type || '').toLowerCase())
+}
+
+function nativeFieldType(field) {
+  const type = String(field.type || 'text').toLowerCase()
+  return ['date', 'number', 'email', 'url'].includes(type) ? type : 'text'
+}
+
+function fieldOptions(field) {
+  const raw = field.constraints?.options || field.constraints?.enum || []
+  return Array.isArray(raw) ? raw.map(option => typeof option === 'object'
+    ? { value: String(option.value ?? option.key ?? ''), label: String(option.label ?? option.value ?? option.key ?? '') }
+    : { value: String(option), label: String(option) }) : []
+}
+
+function blockKinds(section) {
+  const configured = section?.content_schema?.block_kinds
+  return Array.isArray(configured) && configured.length ? configured : ['paragraph', 'image', 'table', 'equation']
+}
+
+function isTextBlock(block) {
+  return ['paragraph', 'text', 'richtext'].includes(String(block.kind || 'paragraph').toLowerCase())
+}
+
+function isImageBlock(block) {
+  return ['image', 'figure'].includes(String(block.kind || '').toLowerCase())
+}
+
+function isTableBlock(block) {
+  return ['table', 'grid'].includes(String(block.kind || '').toLowerCase())
+}
+
+function isEquationBlock(block) {
+  return ['equation', 'formula'].includes(String(block.kind || '').toLowerCase())
+}
+
+function normalizeBlock(block) {
+  if (!block.data || typeof block.data !== 'object') block.data = {}
+  if (isTableBlock(block)) {
+    block.data.rows = Math.max(1, Math.min(100, Number(block.data.rows) || 1))
+    block.data.cols = Math.max(1, Math.min(30, Number(block.data.cols) || 1))
+    resizeTable(block)
+  }
+  if (isImageBlock(block)) {
+    block.data.url = String(block.data.url || block.data.path || '')
+    block.data.caption = String(block.data.caption || '')
+  }
+  if (isEquationBlock(block)) {
+    block.data.omml = String(block.data.omml || '')
+    block.data.alt_text = String(block.data.alt_text || block.text || '')
+  }
+}
+
+function resizeTable(block) {
+  if (!isTableBlock(block)) return
+  const rows = Math.max(1, Math.min(100, Number(block.data.rows) || 1))
+  const cols = Math.max(1, Math.min(30, Number(block.data.cols) || 1))
+  const existing = Array.isArray(block.data.cells) ? block.data.cells : []
+  block.data.cells = Array.from({ length: rows }, (_, rowIndex) => Array.from({ length: cols }, (_, colIndex) => String(existing[rowIndex]?.[colIndex] ?? '')))
+  block.data.rows = rows
+  block.data.cols = cols
+}
+
+async function uploadBlockImage(block, event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  uploadingBlockId.value = block.id
+  error.value = ''
+  try {
+    const uploaded = await uploadDocumentProjectImage(route.params.id, file)
+    block.data.url = uploaded.url
+    scheduleSave()
+  } catch (exception) {
+    error.value = exception.message
+  } finally {
+    uploadingBlockId.value = ''
+  }
 }
 
 onMounted(load)
@@ -262,11 +415,24 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .document-field { display: grid; gap: 6px; color: var(--on-surface); font-size: 13px; font-weight: 600; }
 .document-field em { color: var(--tertiary); font-size: 11px; font-style: normal; font-weight: 400; }
-.document-field input, .document-field textarea, .content-block textarea { width: 100%; box-sizing: border-box; padding: 10px 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--on-surface); font: inherit; font-weight: 400; resize: vertical; }
+.document-field input, .document-field textarea, .content-block textarea, .block-fields input, .block-fields textarea, .table-editor input { width: 100%; box-sizing: border-box; padding: 10px 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--on-surface); font: inherit; font-weight: 400; resize: vertical; }
+.document-field input[type="checkbox"] { width: auto; padding: 0; accent-color: var(--primary); }
+.block-fields, .table-editor { display: grid; gap: 10px; }
+.block-fields label, .table-editor label { display: grid; gap: 5px; color: var(--on-surface-variant); font-size: 12px; }
+.table-editor-toolbar { display: flex; flex-wrap: wrap; gap: 10px; }
+.table-editor-toolbar label { min-width: 96px; }
+.table-editor-toolbar input { width: 96px; }
+.table-editor-scroll { overflow-x: auto; }
+.table-editor table { width: 100%; min-width: 360px; border-collapse: collapse; }
+.table-editor td { padding: 4px; border: 1px solid var(--border); }
+.table-editor td input { min-width: 100px; padding: 7px 8px; }
 .block-list { display: grid; gap: 12px; }
 .content-block { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .block-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--on-surface-variant); font-size: 11px; }
+.block-actions { display: inline-flex; align-items: center; gap: 7px; }
+.block-actions select { min-width: 118px; }
 .icon-action { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--primary); cursor: pointer; }
 .icon-action:hover { border-color: var(--primary); }
-@media (max-width: 780px) { .editor-page { padding: 14px 14px 42px; } .editor-header { align-items: flex-start; flex-direction: column; } .editor-actions { width: 100%; justify-content: space-between; } .title-input { font-size: 26px; } .editor-layout { display: block; } .editor-aside { position: static; margin-bottom: 26px; } .field-grid { grid-template-columns: 1fr; } }
+.icon-action.danger { color: var(--error, #b3261e); }
+@media (max-width: 780px) { .editor-page { padding: 14px 14px 42px; } .editor-header { align-items: flex-start; flex-direction: column; } .editor-actions { width: 100%; justify-content: space-between; } .title-input { font-size: 26px; } .editor-layout { display: block; } .editor-aside { position: static; margin-bottom: 26px; } .field-grid { grid-template-columns: 1fr; } .table-editor-toolbar { display: grid; grid-template-columns: 1fr 1fr; } .table-editor-toolbar label { min-width: 0; } .table-editor-toolbar input { width: 100%; } }
 </style>

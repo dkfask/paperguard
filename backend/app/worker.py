@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 
 from app.db import Store
@@ -20,10 +21,18 @@ from app.services.workflow_jobs import (
 
 LOGGER = logging.getLogger("paperguard.worker")
 
+_CONSUMER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _consumer_id() -> str:
+    """环境变量提供的消费者标识只允许受限字符, 阻断其经后台任务链路进入文件路径。"""
+    raw = os.environ.get("PAPERGUARD_WORKER_ID", "paperguard-worker")
+    return raw if _CONSUMER_ID_RE.fullmatch(raw) else "paperguard-worker"
+
 
 def run_once(store: Store | None = None) -> dict:
     store = store or Store()
-    consumer_id = os.environ.get("PAPERGUARD_WORKER_ID", "paperguard-worker")
+    consumer_id = _consumer_id()
     reminders = create_system_due_reminders(store)
     archives = consume_archive_jobs(store, consumer_id=consumer_id)
     exports = consume_project_export_jobs(store, consumer_id=consumer_id)
@@ -42,7 +51,7 @@ def main() -> None:
     logging.basicConfig(level=os.environ.get("PAPERGUARD_LOG_LEVEL", "INFO"))
     interval = max(5, int(os.environ.get("PAPERGUARD_WORKER_INTERVAL_SECONDS", "30")))
     once = os.environ.get("PAPERGUARD_WORKER_ONCE", "0") == "1"
-    consumer_id = os.environ.get("PAPERGUARD_WORKER_ID", "paperguard-worker")
+    consumer_id = _consumer_id()
     while True:
         try:
             result = run_once()

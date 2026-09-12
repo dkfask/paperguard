@@ -8,7 +8,7 @@ so existing PaperGuard data can be mapped without loss.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -87,9 +87,14 @@ class TemplateSection(BaseModel):
     key: str = Field(min_length=1)
     title: str = ""
     kind: str = "content"
-    order: int = 0
+    order: int = Field(default=0, ge=0)
     parent_key: str = ""
     required: bool = True
+    repeatable: bool = False
+    # Existing generic projects always exposed an add-block affordance; keep
+    # that behavior for snapshots created before these controls existed.
+    allow_user_add: bool = True
+    allow_user_delete: bool = False
     style_ref: str = ""
     style: StyleDefinition | None = None
     fields: list[str] = Field(default_factory=list)
@@ -98,13 +103,35 @@ class TemplateSection(BaseModel):
     extensions: dict[str, Any] = Field(default_factory=dict)
 
 
+class TemplateAnchor(BaseModel):
+    """A deterministic location in a DOCX template.
+
+    Anchors are metadata only; the renderer resolves them against the frozen
+    source DOCX.  Keeping the selector and part explicit makes the mapping
+    reviewable and prevents a renderer from guessing against arbitrary text.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    selector: str = Field(min_length=1)
+    part: str = Field(default="word/document.xml", min_length=1)
+    occurrence: int = Field(default=1, ge=1)
+    required: bool = False
+    section_key: str = ""
+
+
 class TemplateDefinition(BaseModel):
     """The normalized, versioned definition used to build an editor."""
 
     model_config = ConfigDict(extra="forbid")
 
+    mode: Literal["fixed_form", "structured_document", "hybrid"] = "hybrid"
+    export_strategy: Literal["auto", "source_template", "legacy_adapter"] = "auto"
     sections: list[TemplateSection] = Field(default_factory=list)
     fields: list[TemplateField] = Field(default_factory=list)
+    anchors: list[TemplateAnchor] = Field(default_factory=list)
     styles: dict[str, StyleDefinition] = Field(default_factory=dict)
     page_layout: dict[str, float] = Field(default_factory=dict)
     allow_structure_edit: bool = True
@@ -290,6 +317,7 @@ class RenderJob(BaseModel):
     updated_at: str = ""
     completed_at: str = ""
     failed_at: str = ""
+    cancelled_at: str = ""
     recovery_reason: str = ""
 
 

@@ -66,7 +66,10 @@ _ALLOWED_SUFFIXES = {".doc", ".docx", ".pdf", ".zip", ".pptx", ".xlsx", ".xls", 
 
 def _process_file_dir() -> Path:
     value = os.environ.get("PAPERGUARD_PROCESS_FILE_DIR", "")
-    path = Path(value) if value else Path(__file__).resolve().parent.parent / "data" / "process-files"
+    path = Path(value) if value else Path(os.environ.get(
+        "PAPERGUARD_DATA_DIR",
+        str(Path(__file__).resolve().parent.parent.parent / "data"),
+    )) / "process-files"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

@@ -22,6 +22,7 @@ from app.core.context import RequestContext, reset_request_context, set_request_
 from app.core.structured_logging import log_event
 from app.db import Store
 from app.services.image_cleanup import project_image_urls
+from app.services.document_access import can_access_document_project
 from app.services.resource_access import assert_resource_read
 from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
@@ -156,8 +157,17 @@ app.include_router(operations_router)
 app.include_router(audit_router)
 
 # 通过 API 鉴权读取项目图片, 不再公开挂载整个 uploads 目录。
-_uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
-_uploads_dir.mkdir(parents=True, exist_ok=True)
+def _configured_upload_dir() -> Path:
+    return Path(os.environ.get(
+        "PAPERGUARD_DATA_DIR",
+        str(Path(__file__).resolve().parent.parent / "data"),
+    )) / "uploads"
+
+
+# Kept for the existing runtime-path contract; request handlers resolve the
+# directory dynamically so tests and workers can use PAPERGUARD_DATA_DIR.
+_uploads_dir = _configured_upload_dir()
+_configured_upload_dir().mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/media/uploads/{filename}")
@@ -176,7 +186,14 @@ def download_image(filename: str, user: dict = Depends(current_user)):
         except HTTPException:
             continue
         break
-    path = _uploads_dir / filename
+    if not permitted:
+        for project in store.list_document_projects():
+            if not filename.startswith(project.id + "-"):
+                continue
+            if can_access_document_project(store, user, project):
+                permitted = True
+                break
+    path = _configured_upload_dir() / filename
     if not permitted or not path.is_file():
         raise HTTPException(status_code=404, detail="图片不存在")
     return FileResponse(path, headers={"X-Content-Type-Options": "nosniff"})

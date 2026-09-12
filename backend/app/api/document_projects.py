@@ -5,15 +5,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, Response
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
 from app.auth import can_manage, current_user
+from app.core.feature_flags import require_general_document_platform
 from app.db import Store, new_id
 from app.domain.documents.schemas import ContentBlock, DocumentProject, ValidationRun
 from app.services.document_project_engine import (
@@ -29,6 +31,7 @@ from app.services.document_render_jobs import (
     get_document_artifact,
     get_document_render_job,
     render_job_view,
+    read_document_artifact,
     resolve_document_artifact,
 )
 from app.services.document_access import (
@@ -38,10 +41,17 @@ from app.services.document_access import (
     public_document_bundle,
 )
 from app.services.generic_docx_renderer import GenericDocxRenderError, render_document_project_to_docx
+from app.services.document_assets import document_upload_dir
+from app.services.document_export_preflight import run_document_export_preflight
+from app.services.upload_security import IMAGE_MAX_BYTES, read_limited, validate_image
 from app.repositories.workflow_repository import WorkflowRepository
 from app.domain.workflow_states import transition_state
 
-router = APIRouter(prefix="/api/document-projects", tags=["document-projects"])
+router = APIRouter(
+    prefix="/api/document-projects",
+    tags=["document-projects"],
+    dependencies=[Depends(require_general_document_platform)],
+)
 
 
 class CreateDocumentProjectRequest(BaseModel):
@@ -150,6 +160,30 @@ def _create_validation_run(store: Store, user: dict, project: DocumentProject, b
     return saved
 
 
+def _ensure_export_preflight(bundle: dict[str, Any], project: DocumentProject) -> dict[str, Any]:
+    result = run_document_export_preflight(
+        project,
+        bundle["package"],
+        bundle["template"],
+        bundle["template_version"],
+    )
+    if not result["ok"]:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "导出前检查未通过",
+                "errors": result["errors"],
+                "warnings": result["warnings"],
+            },
+        )
+    return result
+
+
+def _ensure_force_override(user: dict[str, Any], force: bool) -> None:
+    if force and not can_manage(user):
+        raise HTTPException(status_code=403, detail="只有教师或管理员可以使用导出覆盖")
+
+
 @router.get("")
 def list_document_projects(
     store: Store = Depends(get_store),
@@ -226,6 +260,38 @@ def get_document_project_editor(
     }
 
 
+@router.post("/{project_id}/images", status_code=201)
+async def upload_document_image(
+    project_id: str,
+    file: UploadFile = File(...),
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict[str, str]:
+    """Upload a project-owned raster image for a generic document block."""
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(store, project, user)
+    data = read_limited(file, IMAGE_MAX_BYTES)
+    kind = validate_image(data, file.filename, require_docx_compatible=True)
+    # python-docx accepts PNG/JPEG/GIF for embedded pictures. Keep this path
+    # explicit so an unsupported format cannot become a mapping error.
+    extension = {"jpeg": ".jpg", "png": ".png", "gif": ".gif"}.get(kind)
+    if extension is None:
+        raise HTTPException(status_code=400, detail="通用 DOCX 图片仅支持 PNG/JPEG/GIF")
+    filename = f"{project.id}-{uuid.uuid4().hex[:12]}{extension}"
+    destination = document_upload_dir() / filename
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        destination.write_bytes(data)
+    except Exception as exc:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="图片保存失败") from exc
+    url = f"/media/uploads/{filename}"
+    _audit(store, user, action="document.project.image_uploaded", project_id=project.id)
+    return {"url": url, "filename": filename}
+
+
 @router.put("/{project_id}")
 def update_document_project(
     project_id: str,
@@ -247,7 +313,7 @@ def update_document_project(
             validate_field_values(definition, request.field_values)
             project.field_values = dict(request.field_values)
         if request.sections is not None:
-            validate_section_content(definition, request.sections)
+            validate_section_content(definition, request.sections, project.id)
             project.sections = {key: list(blocks) for key, blocks in request.sections.items()}
         if request.title is not None:
             project.title = request.title.strip()
@@ -286,7 +352,9 @@ def render_project(
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(store, project, user)
+    _ensure_force_override(user, force)
     bundle = _project_package(store, project)
+    _ensure_export_preflight(bundle, project)
     run = _create_validation_run(store, user, project, bundle)
     if run.summary.get("hard_failures") and not force:
         raise HTTPException(
@@ -297,6 +365,9 @@ def render_project(
                 "summary": run.summary,
             },
         )
+
+    if force:
+        _audit(store, user, action="document.project.export.override", project_id=project.id, reason=f"run:{run.id}")
 
     temp_dir = Path(tempfile.mkdtemp(prefix=f"paperguard-generic-{project.id}-"))
     output = temp_dir / "document.docx"
@@ -344,7 +415,9 @@ def create_render_job(
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(store, project, user)
+    _ensure_force_override(user, force)
     bundle = _project_package(store, project)
+    _ensure_export_preflight(bundle, project)
     run = _create_validation_run(store, user, project, bundle)
     if run.summary.get("hard_failures") and not force:
         raise HTTPException(
@@ -355,6 +428,9 @@ def create_render_job(
                 "summary": run.summary,
             },
         )
+
+    if force:
+        _audit(store, user, action="document.project.export.override", project_id=project.id, reason=f"run:{run.id}")
     record = create_document_render_job(
         store,
         project,
@@ -403,6 +479,51 @@ def get_render_job(
     record = _render_job_for_project(store, project, render_job_id)
     artifact = get_document_artifact(store, record.get("artifact_id", "")) if record.get("artifact_id") else None
     return render_job_view(record, artifact)
+
+
+@router.post("/{project_id}/render-jobs/{render_job_id}/cancel")
+def cancel_render_job(
+    project_id: str,
+    render_job_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    """Cancel a queued or in-flight render while retaining its evidence."""
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(store, project, user)
+    record = _render_job_for_project(store, project, render_job_id)
+    if record.get("status") not in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail="当前渲染任务不可取消")
+    repository = WorkflowRepository(store)
+    now = _now()
+    record["status"] = transition_state("document_render_job", record["status"], "cancelled")
+    record["error_code"] = "DOCUMENT_RENDER_CANCELLED"
+    record["last_error"] = "用户取消渲染任务"
+    record["cancelled_at"] = now
+    with store.workflow_transaction() as conn:
+        saved = repository.save_in_transaction(
+            conn,
+            "document_render_job",
+            record,
+            expected_revision=record.get("revision", 0),
+        )
+        if saved is None:
+            raise HTTPException(status_code=409, detail="渲染任务已被其他操作更新, 请刷新后重试")
+        repository.cancel_job_in_transaction(conn, record.get("job_id", ""), "通用文档渲染已取消")
+        store.save_audit_event_conn(conn, {
+            "id": f"audit-{render_job_id}-cancelled",
+            "actor_id": user["id"],
+            "action": "document.project.render.cancelled",
+            "resource_type": "document_render_job",
+            "resource_id": render_job_id,
+            "organization_id": str((project.organization_context or {}).get("school_id") or ""),
+            "result": "success",
+            "created_at": now,
+        })
+        record = saved
+    return render_job_view(record)
 
 
 @router.post("/{project_id}/render-jobs/{render_job_id}/retry")
@@ -471,9 +592,16 @@ def download_render_artifact(
     if artifact is None or artifact.project_id != project.id or artifact.render_job_id != render_job_id:
         raise HTTPException(status_code=404, detail="渲染产物不存在")
     path = resolve_document_artifact(artifact)
-    if path is None:
+    if path is not None:
+        return FileResponse(path, filename=artifact.filename, media_type=artifact.content_type)
+    data = read_document_artifact(artifact)
+    if data is None:
         raise HTTPException(status_code=404, detail="渲染产物文件不存在")
-    return FileResponse(path, filename=artifact.filename, media_type=artifact.content_type)
+    return Response(
+        content=data,
+        media_type=artifact.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{artifact.filename}"'},
+    )
 
 
 @router.get("/{project_id}/validations")

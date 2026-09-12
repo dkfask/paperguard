@@ -82,6 +82,8 @@ def paper_template_to_domain(
 ) -> tuple[DocumentTemplate, TemplateVersion]:
     """Convert a legacy PaperTemplate into a logical template and immutable version."""
     definition = TemplateDefinition(
+        mode="structured_document",
+        export_strategy="legacy_adapter",
         sections=[_section_to_domain(section, order) for order, section in enumerate(template.sections)],
         fields=[
             TemplateField(

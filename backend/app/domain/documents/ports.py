@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.domain.documents.schemas import DocumentTemplate, TemplateVersion
 from app.domain.documents.snapshots import ProjectSnapshot
@@ -11,6 +11,18 @@ from app.domain.documents.specs import SpecSet, SpecVersion
 
 TemplateAggregate = tuple[DocumentTemplate, TemplateVersion]
 SpecAggregate = tuple[SpecSet, SpecVersion]
+
+
+class StorageAdapter(Protocol):
+    """Binary object boundary; metadata stays in the database, bytes do not."""
+
+    def put_bytes(self, key: str, data: bytes, content_type: str = "") -> dict[str, Any]: ...
+
+    def get_bytes(self, key: str) -> bytes | None: ...
+
+    def exists(self, key: str) -> bool: ...
+
+    def delete(self, key: str) -> bool: ...
 
 
 class TemplateRepository(Protocol):
@@ -29,4 +41,4 @@ class ProjectSnapshotRepository(Protocol):
     def get(self, project_id: str) -> ProjectSnapshot | None: ...
 
 
-__all__ = ["ProjectSnapshotRepository", "SpecRepository", "TemplateAggregate", "TemplateRepository"]
+__all__ = ["ProjectSnapshotRepository", "SpecRepository", "StorageAdapter", "TemplateAggregate", "TemplateRepository"]

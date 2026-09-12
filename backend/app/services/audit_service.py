@@ -63,6 +63,7 @@ def list_audit_events(
     *,
     limit: int = 100,
     resource_type: str = "",
+    resource_id: str = "",
     action: str = "",
     actor_id: str = "",
     organization_id: str = "",
@@ -78,6 +79,8 @@ def list_audit_events(
         if user.get("role") != "admin" and event_org not in visible_ids:
             continue
         if resource_type and event.get("resource_type") != resource_type:
+            continue
+        if resource_id and event.get("resource_id") != resource_id:
             continue
         if action and event.get("action") != action:
             continue
@@ -104,6 +107,8 @@ def list_audit_events(
                 "created_at": event.created_at,
             }, source="policy")
             if resource_type and normalized["resource_type"] != resource_type:
+                continue
+            if resource_id and normalized["resource_id"] != resource_id:
                 continue
             if action and normalized["action"] != action:
                 continue

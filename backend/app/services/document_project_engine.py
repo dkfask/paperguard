@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.domain.documents.schemas import ContentBlock, DocumentPackage, DocumentProject, TemplateDefinition
+from app.services.document_assets import resolve_document_image_path
 
 
 class DocumentProjectError(ValueError):
@@ -21,6 +22,9 @@ def flatten_template_sections(definition: TemplateDefinition) -> list[dict[str, 
                 "title": node.title,
                 "kind": node.kind,
                 "required": node.required,
+                "repeatable": node.repeatable,
+                "allow_user_add": node.allow_user_add,
+                "allow_user_delete": node.allow_user_delete,
                 "style_ref": node.style_ref,
                 "content_schema": node.content_schema,
                 "parent_key": node.parent_key,
@@ -47,9 +51,23 @@ def validate_field_values(definition: TemplateDefinition, values: dict[str, Any]
                     raise DocumentProjectError(f"字段超过长度限制: {key}")
             except (TypeError, ValueError):
                 raise DocumentProjectError(f"字段长度约束无效: {key}") from None
+        if str(field.type).lower() in {"select", "enum"} and value not in (None, ""):
+            options = field.constraints.get("options") or field.constraints.get("enum")
+            if not isinstance(options, list) or not options:
+                raise DocumentProjectError(f"选择字段缺少选项: {key}")
+            normalized = {
+                str(option.get("value", option.get("key", ""))) if isinstance(option, dict) else str(option)
+                for option in options
+            }
+            if str(value) not in normalized:
+                raise DocumentProjectError(f"字段值不在允许选项中: {key}")
 
 
-def validate_section_content(definition: TemplateDefinition, sections: dict[str, list[ContentBlock]]) -> None:
+def validate_section_content(
+    definition: TemplateDefinition,
+    sections: dict[str, list[ContentBlock]],
+    project_id: str | None = None,
+) -> None:
     known_keys = {item["key"] for item in flatten_template_sections(definition)}
     unknown = sorted(set(sections) - known_keys)
     if unknown:
@@ -58,9 +76,20 @@ def validate_section_content(definition: TemplateDefinition, sections: dict[str,
     if encoded_size > 2_000_000:
         raise DocumentProjectError("项目内容超过 2 MB 单次保存上限")
     for key, blocks in sections.items():
+        section = next(item for item in flatten_template_sections(definition) if item["key"] == key)
+        if len(blocks) > 1 and not (section["allow_user_add"] or section["repeatable"]):
+            raise DocumentProjectError(f"章节不允许增加内容块: {key}")
+        if not blocks and not section["allow_user_delete"]:
+            raise DocumentProjectError(f"章节不允许删除最后一个内容块: {key}")
         for index, block in enumerate(blocks):
             if len(block.text) > 200_000:
                 raise DocumentProjectError(f"内容块过大: {key}[{index}]")
+            kind = str(block.kind or "paragraph").lower()
+            if kind in {"image", "figure"}:
+                data = block.data if isinstance(block.data, dict) else {}
+                url = str(data.get("url") or data.get("path") or "")
+                if project_id is not None and resolve_document_image_path(project_id, url) is None:
+                    raise DocumentProjectError(f"图片引用无效或不属于当前项目: {key}[{index}]")
 
 
 def instantiate_document_project(
@@ -94,12 +123,14 @@ def instantiate_document_project(
         organization_context=dict(organization_context),
         metadata={"source": "document_package", "package_id": package.id},
     )
-    validate_section_content(definition, project.sections)
+    validate_section_content(definition, project.sections, project.id)
     return project
 
 
 def editor_schema(definition: TemplateDefinition) -> dict[str, Any]:
     return {
+        "mode": definition.mode,
+        "export_strategy": definition.export_strategy,
         "fields": [field.model_dump(mode="json") for field in definition.fields],
         "sections": flatten_template_sections(definition),
         "styles": {key: style.model_dump(mode="json") for key, style in definition.styles.items()},

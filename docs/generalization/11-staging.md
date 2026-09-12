@@ -15,6 +15,10 @@ the data volume defaults to `paperguard_staging_data`. This prevents a local
 staging rehearsal from silently reusing production-style credentials or the
 default application volume.
 
+The backend and worker explicitly use `/app/data/paperguard.db` and
+`/app/data` for the database and persisted assets. This matches the mounted
+volume; the path binding is part of the staging and release configuration.
+
 ## Release Manifest
 
 | Identity | Phase 11 value |
@@ -78,14 +82,25 @@ The following must be filled with output from the exact branch head before
 declaring the phase complete:
 
 - Compose config validation: PASS locally.
-- Docker image build: **NOT RUN locally**; the Docker registry timed out while
-  resolving `python:3.12-slim` and `nginx:alpine`.
+- Docker image build: **NOT RUN locally**; on 2026-09-12 Docker Hub token
+  requests timed out while resolving `python:3.12-slim` and `nginx:alpine`.
 - Backend live/ready probes through Nginx: **NOT RUN locally**.
 - Staging browser E2E through the built frontend: **NOT RUN locally**.
 - Clean-volume migration: **NOT RUN locally**.
-- Representative existing-data migration/restore: **NOT RUN**
-- Staging rollback rehearsal: **NOT RUN**
+- Representative existing-data migration/restore: **PASS** in an isolated
+  temporary data root. The rehearsal initialized the full migration ledger,
+  stored an existing generic document package and project, restored the
+  database and persisted template asset, and verified both records afterward.
+- Backup-restore rollback rehearsal: **PASS** in the same isolated root; the
+  retained pre-restore state was promoted back and the changed setting/asset
+  were verified. Docker image/config rollback on a target staging host:
+  **NOT RUN**.
 - Production deployment and online verification: **NOT RUN** by authorization
+
+The local disposable Compose project was explicitly named
+`paperguard-local-phase13`, used port `18081` and volume
+`paperguard_local_phase13_data`, and was cleaned up after the failed image
+resolution. No production-style project or volume was used.
 
 ## Hosted Evidence
 
@@ -111,11 +126,17 @@ revision.
   report before removing the disposable containers and named volume. Password
   output remained masked.
 
+Latest regression for the current Phase 13 head
+`2ff07d2802031e430d448cdb16cbdf27f7a4867b` also passed in staging run
+`34692442641`; it used the Node 24 workflow and completed image build, probes,
+migration, built-frontend generic E2E, evidence capture, and teardown.
+
 ## Phase Gate
 
-The disposable staging execution is **GO** on the exact PR head. Phase 11 as a
-production release gate remains **NO-GO** because representative existing-data
-restore and rollback rehearsal are still **NOT RUN**. Phase 12 may prepare the
-release and rollback controls, but production deployment and online verification
-remain blocked until separate authorization, backup, immutable artifact, and
-rollback approvals exist.
+The disposable staging execution is **GO** on the exact PR head. The isolated
+existing-data restore and backup rollback rehearsal are now **PASS**; Phase 11
+as a production release gate remains **NO-GO** because target-host image/config
+rollback, production deployment, and online verification are not authorized or
+executed. Phase 12 may prepare the release controls, but production use still
+requires separate authorization, immutable artifacts, and a named rollback
+owner.

@@ -9,6 +9,7 @@ const router = createRouter({
     { path: '/login', component: () => import('./views/Login.vue'), meta: { title: '登录', titleKey: 'route.login', public: true } },
     { path: '/templates', component: () => import('./views/Templates.vue'), meta: { title: '模板管理', titleKey: 'route.templates' } },
     { path: '/templates/:id/edit', component: () => import('./views/TemplateEditor.vue'), meta: { title: '编辑模板', titleKey: 'route.templateEditor' } },
+    { path: '/document-packages/publish', component: () => import('./views/DocumentPackagePublisher.vue'), meta: { title: '发布通用文档', titleKey: 'route.documentPackagePublisher', roles: ['admin', 'college_admin', 'teacher'] } },
     { path: '/document-projects', component: () => import('./views/DocumentProjects.vue'), meta: { title: '通用文档', titleKey: 'route.documentProjects' } },
     { path: '/document-projects/:id', component: () => import('./views/DocumentProjectEditor.vue'), meta: { title: '文档编辑', titleKey: 'route.documentProjectEditor' } },
     { path: '/policies', component: () => import('./views/Policies.vue'), meta: { title: '写作规范', titleKey: 'route.policies' } },

@@ -7,6 +7,7 @@ const e2eDataDir = mkdtempSync(join(tmpdir(), 'paperguard-e2e-'))
 const e2ePassword = process.env.E2E_ADMIN_PASSWORD ?? ''
 const backendPort = process.env.E2E_BACKEND_PORT ?? '8000'
 const frontendPort = process.env.E2E_FRONTEND_PORT ?? '5173'
+const workerReadyPort = process.env.E2E_WORKER_READY_PORT ?? '8001'
 const localPython = join(process.cwd(), '../.venv/bin/python')
 const pythonBin = process.env.E2E_PYTHON_BIN ?? (existsSync(localPython) ? localPython : 'python')
 const e2eEnvironment = {
@@ -16,6 +17,7 @@ const e2eEnvironment = {
   PAPERGUARD_DB_PATH: process.env.E2E_DB_PATH ?? join(e2eDataDir, 'paperguard.db'),
   PAPERGUARD_TEMPLATE_DIR: process.env.E2E_TEMPLATE_DIR ?? join(e2eDataDir, 'templates'),
   PAPERGUARD_ARTIFACT_DIR: process.env.E2E_ARTIFACT_DIR ?? join(e2eDataDir, 'artifacts'),
+  PAPERGUARD_WORKER_INTERVAL_SECONDS: '5',
 }
 const localWebServers = [
   {
@@ -23,6 +25,15 @@ const localWebServers = [
     url: `http://127.0.0.1:${backendPort}/openapi.json`,
     env: e2eEnvironment,
     reuseExistingServer: Boolean(process.env.TEST_REUSE_SERVER),
+    timeout: 120_000,
+  },
+  {
+    command: `cd ../backend && (${pythonBin} -m app.worker & worker_pid=$!; ready_dir=$(mktemp -d /tmp/paperguard-e2e-ready.XXXXXX); trap 'kill $worker_pid; rmdir "$ready_dir"' EXIT TERM INT; ${pythonBin} -m http.server ${workerReadyPort} --bind 127.0.0.1 --directory "$ready_dir" >/dev/null 2>&1)`,
+    // The worker has no HTTP port. A loopback-only readiness server keeps the
+    // worker in the same lifecycle without exposing any application files.
+    url: `http://127.0.0.1:${workerReadyPort}`,
+    env: e2eEnvironment,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
   {
@@ -40,6 +51,9 @@ const localWebServers = [
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
+  // The local harness intentionally shares one disposable SQLite database
+  // across legacy and generic lifecycle suites.
+  workers: 1,
   timeout: 60_000,
   retries: process.env.CI ? 1 : 0,
   reporter: [['html', { open: 'never' }]],

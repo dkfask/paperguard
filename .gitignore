@@ -90,3 +90,7 @@ uv.lock
 # 本地凭据（已放进 ~/.config/paperguard/secrets.env）
 ~/.config/paperguard/secrets.env
 
+# Playwright 瞬态产物（报告与原始结果不入库；*.spec.ts-snapshots/ 基线按需提交）
+frontend/playwright-report/
+frontend/test-results/
+

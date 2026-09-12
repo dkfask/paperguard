@@ -45,6 +45,12 @@ thesis APIs.
 Publication revalidates both candidates, requires `confirmed` status, requires
 the template source asset to be security-validated and present under the
 controlled template source directory, and emits a metadata-only audit event.
+Parse candidates are persisted as server-owned workflow records. The JSON sent
+back to the browser is only an editable review projection: confirmation binds
+the submitted review to the stored candidate identity and source asset, while
+publication reloads both confirmed candidates from the server. Template and
+specification candidates must also carry the same organization context; the
+published package inherits that context rather than the caller's request body.
 The returned package pins `generic-docx-v1` and `generic-check-v1` by default;
 both can be changed only at publication time and are then immutable.
 
@@ -64,7 +70,9 @@ Verification recorded for this phase:
 - Frontend paragraph checks: `PASS`.
 - Frontend production build: `PASS`.
 - `git diff --check` after final Phase 4 changes: `PASS`.
-- Hosted CI for the Phase 4 branch: NOT RUN yet.
+- Hosted CI for the Phase 4 branch: `34674196409` **success** on head
+  `81fe84570c9827ad63a42485d0394f17b738ce84` (Python 3.11/3.12 and frontend
+  build).
 - Staging/production deployment and online verification: NOT RUN by scope.
 
 ## Explicit non-goals

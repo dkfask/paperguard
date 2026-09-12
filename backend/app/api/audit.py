@@ -7,7 +7,6 @@ from io import StringIO
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from app.api.templates import get_store
 from app.auth import current_user
 from app.contracts.common import AuditEventResponse
 from app.db import Store
@@ -15,6 +14,11 @@ from app.services.audit_service import list_audit_events
 
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
+
+
+def get_store() -> Store:
+    """Use a read-only dependency; template routes lazily seed default data."""
+    return Store()
 
 
 def _ensure_audit_manager(user: dict) -> None:
@@ -26,6 +30,7 @@ def _ensure_audit_manager(user: dict) -> None:
 def audit_center(
     limit: int = Query(default=100, ge=1, le=500),
     resource_type: str = Query(default="", max_length=80),
+    resource_id: str = Query(default="", max_length=120),
     action: str = Query(default="", max_length=120),
     actor_id: str = Query(default="", max_length=120),
     organization_id: str = Query(default="", max_length=120),
@@ -38,6 +43,7 @@ def audit_center(
         user,
         limit=limit,
         resource_type=resource_type.strip(),
+        resource_id=resource_id.strip(),
         action=action.strip(),
         actor_id=actor_id.strip(),
         organization_id=organization_id.strip(),
@@ -48,6 +54,7 @@ def audit_center(
 def export_audit_events(
     limit: int = Query(default=500, ge=1, le=500),
     resource_type: str = Query(default="", max_length=80),
+    resource_id: str = Query(default="", max_length=120),
     action: str = Query(default="", max_length=120),
     actor_id: str = Query(default="", max_length=120),
     organization_id: str = Query(default="", max_length=120),
@@ -61,6 +68,7 @@ def export_audit_events(
         user,
         limit=limit,
         resource_type=resource_type.strip(),
+        resource_id=resource_id.strip(),
         action=action.strip(),
         actor_id=actor_id.strip(),
         organization_id=organization_id.strip(),

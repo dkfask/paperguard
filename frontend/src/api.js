@@ -1177,6 +1177,76 @@ export async function unbindTeacherStudent(studentId) {
 
 // ---------- 通用文档项目 ----------
 
+async function postDocumentCandidate(path, file, fallback) {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  const resp = await api(`${API_BASE}${path}`, { method: 'POST', body: form })
+  if (!resp.ok) throw await responseError(resp, fallback)
+  return resp.json()
+}
+
+export async function parseDocumentTemplate(file) {
+  return postDocumentCandidate('/templates/parse', file, '解析 DOCX 模板失败')
+}
+
+export async function getDocumentTemplateCandidates() {
+  const resp = await api(`${API_BASE}/templates/parse/candidates`)
+  if (!resp.ok) throw await responseError(resp, '获取模板解析候选失败')
+  return resp.json()
+}
+
+export async function getDocumentTemplateCandidate(candidateId) {
+  const resp = await api(`${API_BASE}/templates/parse/candidates/${encodeURIComponent(candidateId)}`)
+  if (!resp.ok) throw await responseError(resp, '获取模板解析候选失败')
+  return resp.json()
+}
+
+export async function confirmDocumentTemplateCandidate(candidate) {
+  const resp = await api(`${API_BASE}/templates/parse/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(candidate),
+  })
+  if (!resp.ok) throw await responseError(resp, '确认 DOCX 模板失败')
+  return resp.json()
+}
+
+export async function parseDocumentSpec(file) {
+  return postDocumentCandidate('/specs/parse', file, '解析文档规范失败')
+}
+
+export async function getDocumentSpecCandidates() {
+  const resp = await api(`${API_BASE}/specs/parse/candidates`)
+  if (!resp.ok) throw await responseError(resp, '获取规范解析候选失败')
+  return resp.json()
+}
+
+export async function getDocumentSpecCandidate(candidateId) {
+  const resp = await api(`${API_BASE}/specs/parse/candidates/${encodeURIComponent(candidateId)}`)
+  if (!resp.ok) throw await responseError(resp, '获取规范解析候选失败')
+  return resp.json()
+}
+
+export async function confirmDocumentSpecCandidate(candidate) {
+  const resp = await api(`${API_BASE}/specs/parse/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(candidate),
+  })
+  if (!resp.ok) throw await responseError(resp, '确认文档规范失败')
+  return resp.json()
+}
+
+export async function publishDocumentPackage(payload) {
+  const resp = await api(`${API_BASE}/document-packages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw await responseError(resp, '发布文档包失败')
+  return resp.json()
+}
+
 export async function getDocumentPackages() {
   const resp = await api(`${API_BASE}/document-packages`)
   if (!resp.ok) throw await responseError(resp, '获取通用文档模板失败')
@@ -1212,6 +1282,16 @@ export async function updateDocumentProject(projectId, payload) {
     body: JSON.stringify(payload),
   })
   if (!resp.ok) throw await responseError(resp, '保存通用文档项目失败')
+  return resp.json()
+}
+
+export async function uploadDocumentProjectImage(projectId, file) {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/images`, {
+    method: 'POST', body: form,
+  })
+  if (!resp.ok) throw await responseError(resp, '上传通用文档图片失败')
   return resp.json()
 }
 

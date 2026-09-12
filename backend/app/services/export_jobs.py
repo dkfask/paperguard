@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -19,6 +20,7 @@ from app.services.template_source import resolve_template_source
 
 EXPORT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "exports"
 EXPORT_JOB_TYPE = "project.export"
+EXPORT_ID_RE = re.compile(r"^export-[0-9a-f]{12}$")
 
 
 def _safe_filename(title: str) -> str:
@@ -134,6 +136,8 @@ def _now() -> str:
 
 def run_project_export(store: Store, export_id: str, actor_id: str = "system") -> dict[str, Any]:
     """Render one frozen project snapshot, leaving only a controlled final artifact."""
+    if not EXPORT_ID_RE.fullmatch(str(export_id)):
+        return {"status": "failed", "error_code": "EXPORT_RECORD_NOT_FOUND"}
     record = store.get_workflow_record("project_export", export_id)
     if not record:
         return {"status": "failed", "error_code": "EXPORT_RECORD_NOT_FOUND"}
@@ -153,8 +157,13 @@ def run_project_export(store: Store, export_id: str, actor_id: str = "system") -
         project = WritingProject.model_validate(record["project_snapshot"])
         template = PaperTemplate.model_validate(record["template_snapshot"])
         EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"{export_id}-", dir=str(EXPORT_DIR)))
-        temp_path = temp_dir / record.get("filename", "paper.docx")
+        filename = _safe_filename(str(record.get("filename") or "paper.docx"))
+        if "/" in filename or "\\" in filename or set(filename) <= {"."}:
+            raise ValueError("导出文件名不合法")
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"{export_id}-", dir=str(EXPORT_DIR))).resolve()
+        temp_path = (temp_dir / filename).resolve()
+        if temp_path.parent != temp_dir:
+            raise ValueError("导出文件名解析越界")
         export_project_to_docx(
             project,
             template,

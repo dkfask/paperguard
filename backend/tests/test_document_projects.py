@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
+import uuid
 
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.document_assets import document_upload_dir
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "minimal.docx"
@@ -29,11 +32,20 @@ HARD_SPEC = SPEC.replace(
     "    severity: error\n    enforce: hard\n    description: 正文不少于 10 字",
 )
 
+ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
+)
+
 
 def _admin_headers(client: TestClient) -> dict[str, str]:
     login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
     assert login.status_code == 200, login.text
     return {"Authorization": f"Bearer {login.json()['token']}"}
+
+
+def _random_password(prefix: str) -> str:
+    """随机生成符合策略(≥12 位、含字母数字)的测试口令, 避免静态凭据。"""
+    return f"{prefix}-{uuid.uuid4().hex}-A1"
 
 
 def _published_package(client: TestClient, headers: dict[str, str], spec_content: str = SPEC) -> dict:
@@ -197,6 +209,60 @@ def test_document_project_render_returns_docx_artifact() -> None:
     assert response.content[:2] == b"PK"
 
 
+def test_document_project_image_upload_is_owned_and_renderable(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PAPERGUARD_DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    package = _published_package(client, headers)
+    created = client.post(
+        "/api/document-projects",
+        headers=headers,
+        json={"package_id": package["id"], "title": "带图片的报告"},
+    )
+    assert created.status_code == 201, created.text
+    project_id = created.json()["id"]
+
+    uploaded = client.post(
+        f"/api/document-projects/{project_id}/images",
+        headers=headers,
+        files={"file": ("figure.png", ONE_PIXEL_PNG, "image/png")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    image_url = uploaded.json()["url"]
+    image_path = document_upload_dir() / uploaded.json()["filename"]
+    assert image_url.startswith(f"/media/uploads/{project_id}-")
+    assert image_path.is_file()
+    assert client.get(image_url, headers=headers).status_code == 200
+
+    sections = created.json()["sections"]
+    first_key = next(iter(sections))
+    sections[first_key][0].update({
+        "kind": "image",
+        "data": {"url": image_url, "caption": "示例图片"},
+    })
+    updated = client.put(
+        f"/api/document-projects/{project_id}",
+        headers=headers,
+        json={"sections": sections, "base_revision": 0},
+    )
+    assert updated.status_code == 200, updated.text
+    rendered = client.post(f"/api/document-projects/{project_id}/render", headers=headers)
+    assert rendered.status_code == 200, rendered.text
+    assert rendered.content[:2] == b"PK"
+
+    foreign = sections[first_key][0].copy()
+    foreign["data"] = {"url": "/media/uploads/docproj-other-figure.png"}
+    rejected = client.put(
+        f"/api/document-projects/{project_id}",
+        headers=headers,
+        json={
+            "sections": {first_key: [foreign]},
+            "base_revision": updated.json()["revision"],
+        },
+    )
+    assert rejected.status_code == 422, rejected.text
+
+
 def test_document_project_render_job_is_durable_idempotent_and_downloadable(tmp_path, monkeypatch) -> None:
     from app.services.document_render_jobs import artifact_dir
     from app.worker import run_once
@@ -251,3 +317,63 @@ def test_document_project_render_job_is_durable_idempotent_and_downloadable(tmp_
     artifact = artifact.with_suffix(".docx")
     if artifact.exists():
         artifact.unlink()
+
+
+def test_document_project_render_job_can_be_cancelled_and_force_is_role_scoped() -> None:
+    from app.worker import run_once
+
+    client = TestClient(app)
+    admin_headers = _admin_headers(client)
+    package = _published_package(client, admin_headers)
+    created = client.post(
+        "/api/document-projects",
+        headers=admin_headers,
+        json={"package_id": package["id"], "title": "可取消报告"},
+    )
+    assert created.status_code == 201, created.text
+    project_id = created.json()["id"]
+    queued = client.post(f"/api/document-projects/{project_id}/render-jobs", headers=admin_headers)
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+
+    cancelled = client.post(
+        f"/api/document-projects/{project_id}/render-jobs/{task['id']}/cancel",
+        headers=admin_headers,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+    run_result = run_once()
+    assert task["job_id"] not in run_result["document_renders"]["succeeded"]
+    current = client.get(
+        f"/api/document-projects/{project_id}/render-jobs/{task['id']}",
+        headers=admin_headers,
+    )
+    assert current.status_code == 200
+    assert current.json()["status"] == "cancelled"
+
+    username = f"generic_student_{uuid.uuid4().hex[:8]}"
+    student_password = _random_password("student")
+    registered = client.post(
+        "/api/auth/register",
+        json={"username": username, "password": student_password, "display_name": "普通学生", "role": "student"},
+    )
+    assert registered.status_code == 201, registered.text
+    login = client.post("/api/auth/login", json={"username": username, "password": student_password})
+    assert login.status_code == 200, login.text
+    student_headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    student_project = client.post(
+        "/api/document-projects",
+        headers=student_headers,
+        json={"package_id": package["id"], "title": "学生报告"},
+    )
+    assert student_project.status_code == 201, student_project.text
+    force = client.post(
+        f"/api/document-projects/{student_project.json()['id']}/render-jobs?force=true",
+        headers=student_headers,
+    )
+    assert force.status_code == 403, force.text
+
+    audit = client.get("/api/audit", headers=admin_headers, params={"resource_type": "document_render_job"})
+    assert audit.status_code == 200, audit.text
+    actions = {item["action"] for item in audit.json() if item["resource_id"] == task["id"]}
+    assert "document.project.render.cancelled" in actions

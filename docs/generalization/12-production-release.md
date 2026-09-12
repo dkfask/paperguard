@@ -15,6 +15,11 @@ endpoint, or invoke `deploy.sh`. It only validates the production topology as
 a disposable release candidate and uploads a manifest containing
 source/configuration hashes and local image identity.
 
+The production Compose services explicitly bind the application data root and
+SQLite database to `/app/data` (`PAPERGUARD_DATA_DIR` and
+`PAPERGUARD_DB_PATH`). This is required because the named volume is mounted at
+that path; a release must not fall back to an image-layer database.
+
 ## Release Identity
 
 Every real release must bind the following values before approval:
@@ -63,26 +68,35 @@ recovery.
 ## Test And Evidence Status
 
 - Production Compose configuration: PASS locally with an ephemeral password.
-- Release manifest schema: validated structurally by review; automated JSON
-  Schema validation: **NOT RUN** because no JSON Schema validator is pinned in
-  the repository.
+- Persisted data-root binding: PASS locally; backend and worker point at the
+  mounted `/app/data` volume.
+- Release manifest schema: automated JSON Schema validation **PASS** locally
+  with the pinned `ops/requirements.txt` validator and
+  `ops/validate-release-manifest.py`; a valid manifest was accepted and a
+  manifest with `production_deployment: true` was rejected.
 - `deploy.sh` shell syntax: PASS locally.
-- Hosted disposable production-topology preflight run `34679655510`:
-  **success** on executable source revision
-  `86367f6218ff266b97c8603d7096ede9a7f7bb8a`; production Compose config,
-  three-image build/start, live/ready probes, disposable migration ledger,
-  secret-free manifest generation, identity/log capture, artifact upload, and
-  teardown all passed.
+- Hosted disposable production-topology preflight run `34690470963`:
+  **success** on final executable source revision
+  `e0c889d605e0c77090756130154c2218207f8f08`; production Compose config,
+  three-image build/start, live/ready probes, real package migration command,
+  manifest generation plus JSON Schema validation, secret-free identity/log
+  capture, artifact upload, and teardown all passed.
 - The uploaded manifest was independently parsed and checked for its required
   fields; it records three image entries and `production_deployment: false`.
-- Hosted staging run `34679655592`: **success**; probes, clean migration,
+- Hosted staging run `34690470772`: **success**; probes, clean migration,
   desktop/mobile generic E2E, capture, upload, and teardown passed.
-- Hosted standalone generic E2E run `34679655502`: **success**.
-- Existing CI matrix run `34679762298`: **success**; frontend build and Python
+- Hosted standalone generic E2E run `34690470830`: **success**.
+- Existing CI matrix run `34690485516`: **success**; frontend build and Python
   3.11/3.12 backend tests all passed.
+- Current Phase 13 head `2ff07d2802031e430d448cdb16cbdf27f7a4867b` was rechecked
+  by CI run `34692470703`, staging run `34692442641`, and production-topology
+  preflight run `34692442655`; all completed successfully. The CI frontend
+  checks use Node 24 to match the locked dependency engine requirements.
 - Production image registry push and immutable digest capture: **NOT RUN**.
 - Target-host backup, representative restore, and rollback rehearsal:
-  **NOT RUN**.
+  **NOT RUN**. The corresponding isolated local backup/restore/rollback
+  rehearsal is recorded in Phase 11; no target host or production data was
+  touched.
 - Production deployment and online verification: **NOT RUN** by authorization.
 
 ## Phase Gate
