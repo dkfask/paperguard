@@ -126,6 +126,11 @@ revision.
   report before removing the disposable containers and named volume. Password
   output remained masked.
 
+Latest regression for the current Phase 13 head
+`2ff07d2802031e430d448cdb16cbdf27f7a4867b` also passed in staging run
+`34692442641`; it used the Node 24 workflow and completed image build, probes,
+migration, built-frontend generic E2E, evidence capture, and teardown.
+
 ## Phase Gate
 
 The disposable staging execution is **GO** on the exact PR head. The isolated

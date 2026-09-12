@@ -88,6 +88,10 @@ recovery.
 - Hosted standalone generic E2E run `34690470830`: **success**.
 - Existing CI matrix run `34690485516`: **success**; frontend build and Python
   3.11/3.12 backend tests all passed.
+- Current Phase 13 head `2ff07d2802031e430d448cdb16cbdf27f7a4867b` was rechecked
+  by CI run `34692470703`, staging run `34692442641`, and production-topology
+  preflight run `34692442655`; all completed successfully. The CI frontend
+  checks use Node 24 to match the locked dependency engine requirements.
 - Production image registry push and immutable digest capture: **NOT RUN**.
 - Target-host backup, representative restore, and rollback rehearsal:
   **NOT RUN**. The corresponding isolated local backup/restore/rollback

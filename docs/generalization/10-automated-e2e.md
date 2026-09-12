@@ -123,14 +123,15 @@ Historical hosted evidence for the Phase 10 gate was collected at
   runner environment; hosted logs show the value as `***`.
 
 Current hosted regression for the Phase 13 executable source
-`e0c889d605e0c77090756130154c2218207f8f08`:
+`2ff07d2802031e430d448cdb16cbdf27f7a4867b`:
 
-- CI run `34690485516`: success; frontend build, Python 3.11/3.12 backend
-  tests, and loopback verifier contract passed.
-- Generic E2E run `34690470830`: success.
-- Disposable staging run `34690470772`: success; built-frontend desktop/mobile
+- CI run `34692470703`: success; frontend unit/typecheck/paragraph/build,
+  Python 3.11/3.12 backend tests, and loopback verifier contract passed on
+  Node 24.
+- Generic E2E run `34692442646`: success.
+- Disposable staging run `34692442641`: success; built-frontend desktop/mobile
   generic E2E, migration, probes, evidence capture, and teardown passed.
-- Production-topology preflight run `34690470963`: success; Compose build,
+- Production-topology preflight run `34692442655`: success; Compose build,
   real migration command, manifest schema validation, evidence capture, and
   teardown passed.
 

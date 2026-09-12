@@ -60,13 +60,13 @@ plan.
 - Full verifier contract against a local loopback mock: **PASS**; all 8
   non-destructive checks passed and the mock service was stopped afterward.
 - Hosted evidence for the final executable source revision
-  `e0c889d605e0c77090756130154c2218207f8f08`:
-  - CI run `34690485516`: **success**; Python 3.11/3.12 backend tests,
-    frontend build, and loopback verifier contract passed.
-  - Generic document E2E `34690470830`: **success**.
-  - Disposable staging `34690470772`: **success**; probes, clean migration,
+  `2ff07d2802031e430d448cdb16cbdf27f7a4867b`:
+  - CI run `34692470703`: **success**; Python 3.11/3.12 backend tests,
+    frontend checks, and loopback verifier contract passed.
+  - Generic document E2E `34692442646`: **success**.
+  - Disposable staging `34692442641`: **success**; probes, clean migration,
     built-frontend desktop/mobile E2E, evidence capture, and teardown passed.
-  - Production-topology preflight `34690470963`: **success**; it completed
+  - Production-topology preflight `34692442655`: **success**; it completed
     the production Compose build/start, real migration CLI, manifest creation
     and JSON Schema validation, capture, upload, and teardown.
 - This documentation-only evidence update follows the tested executable
