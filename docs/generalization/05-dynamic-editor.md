@@ -81,7 +81,9 @@ Verification completed for this phase:
 - Frontend paragraph checks: `PASS`.
 - Frontend production build: `PASS`.
 - `git diff --check`: `PASS`.
-- Hosted CI for the Phase 5 branch: NOT RUN yet.
+- Hosted CI for the Phase 5 branch: `34674821627` green for head `f8593c5`;
+  Python 3.11, Python 3.12, and frontend build all passed. GitHub annotated
+  the existing Node.js 20 action deprecation, but no job failed.
 - Staging/production deployment and online verification: NOT RUN by scope.
 
 ## Explicit non-goals
