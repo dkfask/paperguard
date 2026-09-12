@@ -1,0 +1,188 @@
+"""Generic document-domain contracts used by compatibility adapters.
+
+These models describe the stable shape introduced in Phase 1. They do not
+persist anything and deliberately keep legacy-specific details in extensions
+so existing PaperGuard data can be mapped without loss.
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class DocumentTypeStatus(str, Enum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class VersionStatus(str, Enum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
+
+
+class TemplateAsset(BaseModel):
+    """A controlled file reference; bytes remain outside the domain model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    content_type: str = "application/octet-stream"
+    size_bytes: int = Field(default=0, ge=0)
+    checksum: str = ""
+    purpose: str = "template"
+    scan_status: str = "unknown"
+
+
+class StyleDefinition(BaseModel):
+    """Normalized style properties with room for renderer-specific extensions."""
+
+    model_config = ConfigDict(extra="allow")
+
+    font_zh: str = ""
+    font_en: str = ""
+    size_pt: float = 12.0
+    bold: bool = False
+    italic: bool = False
+    underline: bool = False
+    align: str = "justify"
+    line_spacing: float = 1.5
+    line_spacing_rule: str = "auto"
+    space_before_pt: float = 0.0
+    space_after_pt: float = 0.0
+    first_line_indent_chars: float = 0.0
+    hanging_indent_cm: float = 0.0
+    color: str = ""
+    highlight: str | None = None
+    vert_align: str | None = None
+    page_break_before: bool = False
+
+
+class TemplateField(BaseModel):
+    """A user-entered value declared by a template."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    label: str = ""
+    type: str = "text"
+    required: bool = False
+    location: str = "metadata"
+    section_key: str = ""
+    default: Any = None
+    constraints: dict[str, Any] = Field(default_factory=dict)
+    source: str = ""
+
+
+class TemplateSection(BaseModel):
+    """A recursive section tree independent of academic-thesis semantics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    title: str = ""
+    kind: str = "content"
+    order: int = 0
+    parent_key: str = ""
+    required: bool = True
+    style_ref: str = ""
+    style: StyleDefinition | None = None
+    fields: list[str] = Field(default_factory=list)
+    content_schema: dict[str, Any] = Field(default_factory=dict)
+    children: list["TemplateSection"] = Field(default_factory=list)
+    extensions: dict[str, Any] = Field(default_factory=dict)
+
+
+class TemplateDefinition(BaseModel):
+    """The normalized, versioned definition used to build an editor."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sections: list[TemplateSection] = Field(default_factory=list)
+    fields: list[TemplateField] = Field(default_factory=list)
+    styles: dict[str, StyleDefinition] = Field(default_factory=dict)
+    page_layout: dict[str, float] = Field(default_factory=dict)
+    allow_structure_edit: bool = True
+    source_docx: str = ""
+    cover_blocks: list[dict[str, Any]] = Field(default_factory=list)
+    rule_packs: list[str] = Field(default_factory=list)
+    requirement_set_ids: list[str] = Field(default_factory=list)
+    organization_context: dict[str, str] = Field(default_factory=dict)
+    extensions: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentType(BaseModel):
+    """A product-level document category such as thesis or application."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    status: DocumentTypeStatus = DocumentTypeStatus.ACTIVE
+    capabilities: dict[str, bool] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentTemplate(BaseModel):
+    """A logical template whose published content lives in versions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    document_type_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    description: str = ""
+    owner_id: str = ""
+    organization_context: dict[str, str] = Field(default_factory=dict)
+    status: DocumentTypeStatus = DocumentTypeStatus.ACTIVE
+    current_version_id: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TemplateVersion(BaseModel):
+    """An immutable template definition and its execution compatibility."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1)
+    template_id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    status: VersionStatus = VersionStatus.DRAFT
+    definition: TemplateDefinition
+    source_asset_id: str = ""
+    definition_hash: str = ""
+    schema_version: str = "1"
+    renderer_version: str = "legacy-docx-v1"
+    rule_engine_version: str = "legacy-check-v1"
+    created_at: str = ""
+    published_at: str = ""
+    created_by: str = ""
+    extensions: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentPackage(BaseModel):
+    """Published composition of exact template, spec, and execution versions."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1)
+    document_type_id: str = Field(min_length=1)
+    template_version_id: str = Field(min_length=1)
+    spec_version_id: str = Field(min_length=1)
+    renderer_version: str = Field(min_length=1)
+    rule_engine_version: str = Field(min_length=1)
+    status: VersionStatus = VersionStatus.DRAFT
+    published_at: str = ""
+    published_by: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+TemplateSection.model_rebuild()
