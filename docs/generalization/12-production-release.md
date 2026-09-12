@@ -8,11 +8,12 @@ Dockerfiles, migration CLI, health endpoints, backup/restore implementation,
 authentication bootstrap, and worker topology. It runs in an isolated Compose
 project with a disposable volume on a hosted runner.
 
-The manual workflow is `.github/workflows/release-preflight.yml`. It does not
-push an image, change a production database, open a public endpoint, or invoke
-`deploy.sh`. It only validates the production topology as a disposable
-release candidate and uploads a manifest containing source/configuration
-hashes and local image identity.
+The workflow is `.github/workflows/release-preflight.yml`. It runs on the Phase
+12 pull request and can also be manually dispatched with an explicit source
+ref. It does not push an image, change a production database, open a public
+endpoint, or invoke `deploy.sh`. It only validates the production topology as
+a disposable release candidate and uploads a manifest containing
+source/configuration hashes and local image identity.
 
 ## Release Identity
 
@@ -66,8 +67,8 @@ recovery.
   Schema validation: **NOT RUN** because no JSON Schema validator is pinned in
   the repository.
 - `deploy.sh` shell syntax: PASS locally.
-- Hosted disposable production-topology preflight: **NOT RUN** in this phase;
-  it is manual-only and has not been authorized for this turn.
+- Hosted disposable production-topology preflight: **PENDING** for the Phase 12
+  pull request; it is isolated and does not require production authorization.
 - Production image registry push and immutable digest capture: **NOT RUN**.
 - Target-host backup, representative restore, and rollback rehearsal:
   **NOT RUN**.

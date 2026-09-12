@@ -1,6 +1,7 @@
 name: PaperGuard production release preflight
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       source_ref:
@@ -25,7 +26,7 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Generate isolated preflight password
         run: |
@@ -57,8 +58,8 @@ jobs:
       - name: Write release manifest
         if: always()
         env:
-          RELEASE_ID: ${{ inputs.release_id }}
-          SOURCE_REF: ${{ inputs.source_ref }}
+          RELEASE_ID: ${{ inputs.release_id || format('pr-{0}', github.event.pull_request.number || github.run_number) }}
+          SOURCE_REF: ${{ inputs.source_ref || github.ref }}
         run: |
           compose_images='[]'
           if docker compose -p paperguard-release-preflight -f docker-compose.yml images --format json > compose-images.json 2>/dev/null; then
