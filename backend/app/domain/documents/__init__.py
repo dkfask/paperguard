@@ -15,6 +15,7 @@ from app.domain.documents.schemas import (
     DocumentTemplate,
     DocumentType,
     ContentBlock,
+    Artifact,
     StyleDefinition,
     TemplateAsset,
     TemplateDefinition,
@@ -23,6 +24,7 @@ from app.domain.documents.schemas import (
     TemplateVersion,
     ValidationFinding,
     ValidationRun,
+    RenderJob,
 )
 from app.domain.documents.snapshots import ProjectSnapshot, package_from_snapshot
 from app.domain.documents.specs import SpecRule, SpecSet, SpecVersion, requirement_set_to_spec
@@ -34,6 +36,7 @@ __all__ = [
     "DocumentTemplate",
     "DocumentType",
     "ContentBlock",
+    "Artifact",
     "LegacyStoreProjectSnapshotRepository",
     "LegacyStoreSpecRepository",
     "LegacyStoreTemplateRepository",
@@ -49,6 +52,7 @@ __all__ = [
     "TemplateVersion",
     "ValidationFinding",
     "ValidationRun",
+    "RenderJob",
     "domain_to_paper_template",
     "document_project_content_hash",
     "package_from_snapshot",

@@ -18,6 +18,7 @@ ARCHIVE_JOB_STATES: Final[frozenset[str]] = frozenset({
     "queued", "running", "succeeded", "failed",
 })
 PROJECT_EXPORT_STATES: Final[frozenset[str]] = ARCHIVE_JOB_STATES
+DOCUMENT_RENDER_JOB_STATES: Final[frozenset[str]] = ARCHIVE_JOB_STATES
 
 # One transition table is shared by HTTP mutations and the standalone worker.
 # Creation states are assigned when the record is first persisted; every later
@@ -59,6 +60,12 @@ STATE_TRANSITIONS: Final[dict[str, dict[str, frozenset[str]]]] = {
         "succeeded": frozenset(),
     },
     "project_export": {
+        "queued": frozenset({"running", "failed"}),
+        "running": frozenset({"queued", "succeeded", "failed"}),
+        "failed": frozenset({"queued"}),
+        "succeeded": frozenset(),
+    },
+    "document_render_job": {
         "queued": frozenset({"running", "failed"}),
         "running": frozenset({"queued", "succeeded", "failed"}),
         "failed": frozenset({"queued"}),
