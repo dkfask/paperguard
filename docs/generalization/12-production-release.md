@@ -67,8 +67,19 @@ recovery.
   Schema validation: **NOT RUN** because no JSON Schema validator is pinned in
   the repository.
 - `deploy.sh` shell syntax: PASS locally.
-- Hosted disposable production-topology preflight: **PENDING** for the Phase 12
-  pull request; it is isolated and does not require production authorization.
+- Hosted disposable production-topology preflight run `34679655510`:
+  **success** on executable source revision
+  `86367f6218ff266b97c8603d7096ede9a7f7bb8a`; production Compose config,
+  three-image build/start, live/ready probes, disposable migration ledger,
+  secret-free manifest generation, identity/log capture, artifact upload, and
+  teardown all passed.
+- The uploaded manifest was independently parsed and checked for its required
+  fields; it records three image entries and `production_deployment: false`.
+- Hosted staging run `34679655592`: **success**; probes, clean migration,
+  desktop/mobile generic E2E, capture, upload, and teardown passed.
+- Hosted standalone generic E2E run `34679655502`: **success**.
+- Existing CI matrix run `34679762298`: **success**; frontend build and Python
+  3.11/3.12 backend tests all passed.
 - Production image registry push and immutable digest capture: **NOT RUN**.
 - Target-host backup, representative restore, and rollback rehearsal:
   **NOT RUN**.
@@ -76,8 +87,8 @@ recovery.
 
 ## Phase Gate
 
-Phase 12 is **GO for release-preflight implementation** and **NO-GO for
-production release**. The remaining gates require a target host, immutable
-registry artifacts, a real backup/restore rehearsal, explicit production
-authorization, and a separately recorded Phase 13 online verification. No
-production state has been changed by this phase.
+Phase 12 is **GO for release-preflight implementation and hosted disposable
+verification** and **NO-GO for production release**. The remaining gates
+require a target host, immutable registry artifacts, a real backup/restore
+rehearsal, explicit production authorization, and a separately recorded Phase
+13 online verification. No production state has been changed by this phase.
