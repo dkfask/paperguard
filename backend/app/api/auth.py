@@ -6,6 +6,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from app.auth import (
+    exchange_mp_code,
+    mini_program_bind,
+    mini_program_login,
+    mini_program_unbind,
     public_user,
     change_password,
     current_user,
@@ -38,6 +42,20 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class MiniProgramLoginRequest(BaseModel):
+    code: str
+
+
+class MiniProgramBindRequest(BaseModel):
+    bind_ticket: str
+    username: str
+    password: str
+
+
+class MiniProgramUnbindRequest(BaseModel):
+    password: str
+
+
 @router.post("/register", status_code=201)
 def register(req: RegisterRequest, store: Store = Depends(get_store)) -> dict:
     """注册账号 (可选择学生 student 或教师 teacher)。"""
@@ -48,6 +66,23 @@ def register(req: RegisterRequest, store: Store = Depends(get_store)) -> dict:
 def login(req: LoginRequest, store: Store = Depends(get_store)) -> dict:
     """登录, 返回 {token, user}。"""
     return login_user(store, req.username, req.password)
+
+
+@router.post("/mp/login")
+async def mini_program_login_endpoint(req: MiniProgramLoginRequest,
+                                      store: Store = Depends(get_store)) -> dict:
+    if not req.code.strip():
+        raise HTTPException(status_code=422, detail={"code": "MP_CODE_REQUIRED", "message": "微信登录凭证不能为空"})
+    openid = await exchange_mp_code(req.code.strip())
+    return mini_program_login(store, openid)
+
+
+@router.post("/mp/bind")
+def mini_program_bind_endpoint(req: MiniProgramBindRequest,
+                               store: Store = Depends(get_store)) -> dict:
+    if not req.bind_ticket.strip():
+        raise HTTPException(status_code=422, detail={"code": "MP_BIND_TICKET_REQUIRED", "message": "绑定票据不能为空"})
+    return mini_program_bind(store, req.bind_ticket.strip(), req.username, req.password)
 
 
 @router.post("/logout")
@@ -68,6 +103,17 @@ def change_user_password(req: ChangePasswordRequest,
                          store: Store = Depends(get_store)) -> dict:
     change_password(store, user, req.current_password, req.new_password)
     return {"status": "ok", "message": "密码已更新, 请重新登录"}
+
+
+@router.post("/mp/unbind")
+def mini_program_unbind_endpoint(req: MiniProgramUnbindRequest,
+                                 authorization: str | None = Header(default=None),
+                                 user: dict = Depends(current_user),
+                                 store: Store = Depends(get_store)) -> dict:
+    mini_program_unbind(store, user, req.password)
+    if authorization and authorization.startswith("Bearer "):
+        logout_user(store, authorization.removeprefix("Bearer ").strip())
+    return {"status": "ok"}
 
 
 @router.get("/me")

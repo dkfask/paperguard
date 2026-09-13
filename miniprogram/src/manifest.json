@@ -1,0 +1,16 @@
+{
+  "name": "PaperGuard",
+  "appid": "__UNI__PAPERGUARD",
+  "description": "PaperGuard 移动工作台",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false
+    },
+    "usingComponents": true,
+    "lazyCodeLoading": "requiredComponents"
+  }
+}

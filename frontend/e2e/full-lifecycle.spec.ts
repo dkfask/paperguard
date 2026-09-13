@@ -129,6 +129,7 @@ async function completeRequiredWriterGates(page: Page, thesisTitle: string) {
     }
     await expect(paragraph).toBeVisible()
     await paragraph.fill(section.text)
+    await expect(page.locator('.writer-save-status')).not.toHaveClass(/pending/)
   }
 
   const coverRow = page.locator('.nav-row').filter({ hasText: /封面/ }).first()
@@ -239,7 +240,8 @@ test.describe('PaperGuard browser lifecycle', () => {
       await new PaperGuardPage(teacher).waitForMutation('/documents', async () => {
         await policyEditor.locator('.upload-row input[type=file]').setInputFiles(files.policy)
       })
-      await expect(policyEditor.getByText(path.basename(files.policy))).toBeVisible()
+      await expect(policyEditor.locator('[role=status]')).toContainText('参考文档已上传', { timeout: 30_000 })
+      await expect(policyEditor.getByText(path.basename(files.policy))).toBeVisible({ timeout: 30_000 })
       await new PaperGuardPage(teacher).waitForMutation('/publish', async () => {
         await policyEditor.getByRole('button', { name: '发布版本' }).click()
       })
@@ -386,12 +388,32 @@ test.describe('PaperGuard browser lifecycle', () => {
       await expect(admin).toHaveScreenshot('full-lifecycle-admin-shell.png', {
         animations: 'disabled',
         maxDiffPixels: 1000,
-        mask: [admin.locator('.user-tray'), admin.locator('main')],
+        mask: [
+          admin.locator('.user-tray'),
+          admin.locator('.workflow-summary'),
+          admin.locator('.workflow-identity'),
+          admin.locator('.cohort-panel h3'),
+          admin.locator('.cohort-panel p'),
+          admin.locator('.cohort-panel .stage-row'),
+          admin.locator('.task-row .task-copy h3'),
+          admin.locator('.task-row .task-copy p'),
+          admin.locator('.task-row .task-side'),
+          admin.locator('.archive-row strong'),
+          admin.locator('.archive-row > div > span'),
+        ],
       })
       await expect(student).toHaveScreenshot('full-lifecycle-student-shell.png', {
         animations: 'disabled',
         maxDiffPixels: 1000,
-        mask: [student.locator('.user-tray'), student.locator('main')],
+        mask: [
+          student.locator('.user-tray'),
+          student.locator('.workflow-summary'),
+          student.locator('.workflow-identity'),
+          student.locator('.student-task h3'),
+          student.locator('.student-task .task-meta'),
+          student.locator('.student-task .task-actions'),
+          student.locator('.reference-panel .reference-row small'),
+        ],
       })
 
       await student.goto('/templates')
@@ -423,5 +445,10 @@ test.describe('PaperGuard browser lifecycle', () => {
     await expect(page.locator('body')).toContainText(/登录|欢迎登录|Available Templates|论文模板/)
     const viewportWidth = await page.evaluate(() => document.documentElement.clientWidth)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewportWidth)
+    await expect(page).toHaveScreenshot('responsive-login-mobile.png', {
+      animations: 'disabled',
+      maxDiffPixels: 800,
+      timeout: 15_000,
+    })
   })
 })

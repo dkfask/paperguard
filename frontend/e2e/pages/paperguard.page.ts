@@ -64,10 +64,11 @@ export class PaperGuardPage {
   }
 
   async waitForMutation(urlPart: string, action: () => Promise<void>, method = 'POST') {
-    const response = this.page.waitForResponse((response) => response.url().includes(urlPart)
+    const responsePromise = this.page.waitForResponse((response) => response.url().includes(urlPart)
       && response.request().method() === method
       && response.status() >= 200 && response.status() < 300)
     await action()
-    await response
+    const response = await responsePromise
+    await response.finished()
   }
 }
