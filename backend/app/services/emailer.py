@@ -1,10 +1,10 @@
-"""SMTP 邮件发送 — 邮箱注册验证码与后续通知通道。
+"""邮件发送 — 邮箱注册验证码与后续通知通道。
 
-环境变量:
-- PAPERGUARD_SMTP_HOST / PAPERGUARD_SMTP_PORT(默认 587, STARTTLS)
-- PAPERGUARD_SMTP_USER / PAPERGUARD_SMTP_PASSWORD(可选认证)
-- PAPERGUARD_SMTP_FROM(发件人, 与 HOST 同时配置才视为已配置)
-未配置时 send 抛出 EmailNotConfigured, 调用方降级(注册免验证并在账号上标记未验证)。
+通道优先级:
+1. Resend HTTP API:PAPERGUARD_RESEND_API_KEY + PAPERGUARD_RESEND_FROM(推荐)
+   - 沙箱(未验证域名)仅能发给 Resend 账号所有者邮箱;生产需在 Resend 控制台验证发信域名
+2. SMTP:PAPERGUARD_SMTP_HOST/PORT/USER/PASSWORD/FROM(+PAPERGUARD_SMTP_SSL=1 走 465 隐式 SSL)
+两者都未配置时抛 EmailNotConfigured, 调用方降级(注册免验证并在账号上标记未验证)。
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from email.utils import formataddr
+
+import httpx
 
 LOGGER = logging.getLogger("paperguard.emailer")
 
@@ -27,12 +29,39 @@ def smtp_configured() -> bool:
     return bool(host and os.environ.get("PAPERGUARD_SMTP_FROM", "").strip())
 
 
+def resend_configured() -> bool:
+    return bool(os.environ.get("PAPERGUARD_RESEND_API_KEY", "").strip())
+
+
+def email_configured() -> bool:
+    """是否具备任一发信通道(决定注册是否强制验证码)。"""
+    return resend_configured() or smtp_configured()
+
+
 def _from_address() -> str:
     return os.environ.get("PAPERGUARD_SMTP_FROM", "").strip()
 
 
+def send_via_resend(api_key: str, to: str, subject: str, body: str) -> None:
+    from_addr = os.environ.get("PAPERGUARD_RESEND_FROM", "").strip() or "onboarding@resend.dev"
+    response = httpx.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={"from": f"论文卫士Pro <{from_addr}>", "to": [to], "subject": subject, "text": body},
+        timeout=15,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"Resend 发送失败: HTTP {response.status_code} {response.text[:200]}")
+    LOGGER.info("email.sent via=resend to_domain=%s", to.split("@")[-1])
+
+
 def send_email(to: str, subject: str, body: str) -> None:
+    api_key = os.environ.get("PAPERGUARD_RESEND_API_KEY", "").strip()
+    if api_key:
+        send_via_resend(api_key, to, subject, body)
+        return
     if not smtp_configured():
+        raise EmailNotConfigured("邮件通道未配置")
         raise EmailNotConfigured("SMTP 未配置")
     host = os.environ.get("PAPERGUARD_SMTP_HOST", "").strip()
     port = int(os.environ.get("PAPERGUARD_SMTP_PORT", "587"))

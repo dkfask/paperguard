@@ -117,7 +117,7 @@ def register_user(store: Store, username: str, password: str,
     email_verified = 0
     if email:
         _validate_email(store, email)
-        if emailer.smtp_configured():
+        if emailer.email_configured():
             if not email_code.strip():
                 raise HTTPException(status_code=422, detail={
                     "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
@@ -191,6 +191,10 @@ def send_email_code(store: Store, email: str, purpose: str = "register") -> dict
     except emailer.EmailNotConfigured as exc:
         raise HTTPException(status_code=503, detail={
             "code": "EMAIL_NOT_CONFIGURED", "message": "邮件服务尚未配置, 请联系管理员或使用账号密码注册",
+        }) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail={
+            "code": "EMAIL_SEND_FAILED", "message": "验证码邮件发送失败, 请稍后重试",
         }) from exc
     store.save_email_code(email, _email_code_hash(code), purpose, expires_at, _now())
     return {"ok": True, "expires_in": _EMAIL_CODE_MINUTES * 60}
@@ -422,7 +426,7 @@ def mp_bind_email(store: Store, user: dict, email: str, code: str, password: str
         raise HTTPException(status_code=409, detail={
             "code": "EMAIL_ALREADY_BOUND", "message": "该账号已绑定邮箱，换绑请联系管理员",
         })
-    if emailer.smtp_configured():
+    if emailer.email_configured():
         if not code.strip():
             raise HTTPException(status_code=422, detail={
                 "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
@@ -435,7 +439,7 @@ def mp_bind_email(store: Store, user: dict, email: str, code: str, password: str
     updated = store.save_user({
         **user,
         "email": email,
-        "email_verified": 1 if emailer.smtp_configured() else 0,
+        "email_verified": 1 if emailer.email_configured() else 0,
         "password_set": 1,
         "password_hash": ph,
         "salt": salt,
