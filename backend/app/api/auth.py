@@ -11,6 +11,7 @@ from app.auth import (
     mini_program_login,
     mini_program_unbind,
     public_user,
+    report_mp_subscription,
     change_password,
     current_user,
     login_user,
@@ -114,6 +115,23 @@ def mini_program_unbind_endpoint(req: MiniProgramUnbindRequest,
     if authorization and authorization.startswith("Bearer "):
         logout_user(store, authorization.removeprefix("Bearer ").strip())
     return {"status": "ok"}
+
+
+class MiniProgramSubscribeRequest(BaseModel):
+    template_id: str
+    accepted: bool
+
+
+@router.post("/mp/subscribe")
+def mini_program_subscribe_endpoint(req: MiniProgramSubscribeRequest,
+                                    user: dict = Depends(current_user),
+                                    store: Store = Depends(get_store)) -> dict:
+    """记录用户在小程序内对订阅消息模板的授权结果(一次性配额)。"""
+    template_id = req.template_id.strip()
+    if not template_id:
+        raise HTTPException(status_code=422, detail={"code": "MP_TEMPLATE_REQUIRED", "message": "模板 ID 不能为空"})
+    remaining = report_mp_subscription(store, user, template_id, req.accepted)
+    return {"ok": True, "remaining": remaining}
 
 
 @router.get("/me")

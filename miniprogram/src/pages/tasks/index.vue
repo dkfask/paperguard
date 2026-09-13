@@ -106,12 +106,16 @@ function primaryLabel(task: Task) {
 }
 
 function primaryAction(task: Task) {
+  const submissionId = task.current_submission?.id || ''
   if (isTeacher.value) {
-    uni.showToast({ title: '移动端审阅将在 MP2 开放，请先使用电脑端', icon: 'none' })
+    if (String(task.state) === 'submitted' && submissionId) {
+      uni.navigateTo({ url: `/pages/review/index?id=${submissionId}` })
+      return
+    }
+    uni.showToast({ title: '该任务暂无可审阅的提交', icon: 'none' })
     return
   }
   const state = String(task.state || '')
-  const submissionId = task.current_submission?.id || ''
   if (state === 'in_progress') {
     const stage = encodeURIComponent(task.stage_name || '')
     uni.navigateTo({ url: `/pages/submit/index?participant_id=${task.id}&stage=${stage}` })
