@@ -42,7 +42,8 @@ def _from_address() -> str:
     return os.environ.get("PAPERGUARD_SMTP_FROM", "").strip()
 
 
-def send_via_resend(api_key: str, to: str, subject: str, body: str) -> None:
+def send_via_resend(api_key: str, to: str, subject: str, body: str) -> str:
+    """发送并返回 Resend 邮件 id(可与控制台活动记录对账)。"""
     from_addr = os.environ.get("PAPERGUARD_RESEND_FROM", "").strip() or "onboarding@resend.dev"
     response = httpx.post(
         "https://api.resend.com/emails",
@@ -52,7 +53,9 @@ def send_via_resend(api_key: str, to: str, subject: str, body: str) -> None:
     )
     if response.status_code >= 400:
         raise RuntimeError(f"Resend 发送失败: HTTP {response.status_code} {response.text[:200]}")
-    LOGGER.info("email.sent via=resend to_domain=%s", to.split("@")[-1])
+    email_id = str(response.json().get("id") or "")
+    LOGGER.info("email.sent via=resend to_domain=%s email_id=%s", to.split("@")[-1], email_id)
+    return email_id
 
 
 def send_email(to: str, subject: str, body: str) -> None:
