@@ -17,6 +17,8 @@ export const useSessionStore = defineStore('session', {
     token: String(uni.getStorageSync(TOKEN_KEY) || ''),
     user: readUser() as User | null,
     bindTicket: '',
+    /** 「请先修改初始密码」弹窗每次登录流程只提示一次 */
+    passwordNoticeShown: false,
   }),
   getters: {
     isAuthenticated: (state) => Boolean(state.token && state.user),
@@ -26,16 +28,21 @@ export const useSessionStore = defineStore('session', {
       this.token = token
       this.user = user
       this.bindTicket = ''
+      this.passwordNoticeShown = false
       uni.setStorageSync(TOKEN_KEY, token)
       uni.setStorageSync(USER_KEY, user)
     },
     setBindTicket(ticket: string) {
       this.bindTicket = ticket
     },
+    markPasswordNoticeShown() {
+      this.passwordNoticeShown = true
+    },
     clear() {
       this.token = ''
       this.user = null
       this.bindTicket = ''
+      this.passwordNoticeShown = false
       uni.removeStorageSync(TOKEN_KEY)
       uni.removeStorageSync(USER_KEY)
     },

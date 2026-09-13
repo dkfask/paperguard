@@ -16,8 +16,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { ApiError, fetchNotifications, markNotificationRead } from '../../api/request'
+import { describeError, fetchNotifications, markNotificationRead } from '../../api/request'
 import { useSessionStore } from '../../stores/session'
+import { ensureSessionReady } from '../../utils/session-guard'
 
 const session = useSessionStore()
 const items = ref<Array<Record<string, unknown>>>([])
@@ -26,10 +27,7 @@ const loading = ref(false)
 const errorMessage = ref('')
 
 onShow(() => {
-  if (!session.isAuthenticated) {
-    uni.redirectTo({ url: '/pages/login/index' })
-    return
-  }
+  if (!ensureSessionReady()) return
   void loadMessages()
 })
 
@@ -41,7 +39,7 @@ async function loadMessages() {
     items.value = result.items
     unread.value = result.unread
   } catch (error) {
-    errorMessage.value = error instanceof ApiError ? error.message : '消息加载失败'
+    errorMessage.value = describeError(error)
   } finally {
     loading.value = false
   }
@@ -54,7 +52,7 @@ async function read(item: Record<string, unknown>) {
     item.read_at = new Date().toISOString()
     unread.value = Math.max(0, unread.value - 1)
   } catch (error) {
-    errorMessage.value = error instanceof ApiError ? error.message : '消息状态更新失败'
+    errorMessage.value = describeError(error)
   }
 }
 </script>
