@@ -11,6 +11,7 @@ import base64
 import hashlib
 import hmac
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -19,12 +20,16 @@ from fastapi import Depends, Header, HTTPException, Request
 
 from app.core.context import context_for_user, set_request_context
 from app.db import Store, new_id
+from app.services import emailer
 
 _PBKDF2_ITERATIONS = 200_000
 
 _SESSION_HOURS = 24
 _MP_SESSION_DAYS = 30
 _MP_BIND_TICKET_MINUTES = 10
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_EMAIL_CODE_MINUTES = 10
+_EMAIL_CODE_MAX_ATTEMPTS = 5
 ADMIN_USERNAME = "admin"
 ADMIN_DISPLAY = "管理员"
 
@@ -99,11 +104,28 @@ def _password_error(password: str) -> str | None:
 
 
 def register_user(store: Store, username: str, password: str,
-                  display_name: str = "", role: str = "student") -> dict:
+                  display_name: str = "", role: str = "student",
+                  email: str = "", email_code: str = "") -> dict:
     """注册新用户, 返回用户 dict(不含敏感字段)。
-    学生直接 active; 教师默认 pending 待管理员认证。
+
+    - 学生直接 active; 教师默认 pending 待管理员认证
+    - username 可缺省: 提供邮箱时由邮箱本地部分派生
+    - email 提供时作为桌面端登录与找回凭证; SMTP 已配置则必须携带邮箱验证码
     """
     username = username.strip()
+    email = email.strip().lower()
+    email_verified = 0
+    if email:
+        _validate_email(store, email)
+        if emailer.smtp_configured():
+            if not email_code.strip():
+                raise HTTPException(status_code=422, detail={
+                    "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
+                })
+            _verify_email_code(store, email, email_code.strip(), purpose="register")
+            email_verified = 1
+    if not username and email:
+        username = _username_from_email(store, email)
     if len(username) < 3:
         raise HTTPException(status_code=400, detail="用户名至少 3 个字符")
     password_error = _password_error(password)
@@ -119,6 +141,9 @@ def register_user(store: Store, username: str, password: str,
     user = store.save_user({
         "id": new_id("user"),
         "username": username,
+        "email": email,
+        "email_verified": email_verified,
+        "password_set": 1,
         "password_hash": ph,
         "salt": salt,
         "role": target_role,
@@ -129,6 +154,60 @@ def register_user(store: Store, username: str, password: str,
         "created_at": _now(),
     })
     return public_user(user)
+
+
+def _validate_email(store: Store, email: str) -> None:
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail={"code": "EMAIL_INVALID", "message": "邮箱格式不正确"})
+    if store.get_user_by_email(email):
+        raise HTTPException(status_code=409, detail={"code": "EMAIL_TAKEN", "message": "该邮箱已被其他账号使用"})
+
+
+def _username_from_email(store: Store, email: str) -> str:
+    """由邮箱本地部分派生唯一用户名(不合法字符转 '-', 冲突加随机后缀)。"""
+    base = re.sub(r"[^a-zA-Z0-9_-]+", "-", email.split("@", 1)[0]).strip("-") or "user"
+    candidate = base[:24]
+    while len(candidate) < 3 or store.get_user_by_username(candidate):
+        candidate = f"{base[:18]}-{secrets.token_hex(3)}"
+    return candidate
+
+
+def _email_code_hash(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
+def send_email_code(store: Store, email: str, purpose: str = "register") -> dict:
+    """生成并邮件发送 6 位验证码; SMTP 未配置时明确报 503。"""
+    email = email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail={"code": "EMAIL_INVALID", "message": "邮箱格式不正确"})
+    existing = store.get_email_code(email)
+    if existing and (datetime.now(timezone.utc) - datetime.fromisoformat(existing["created_at"])).total_seconds() < 60:
+        raise HTTPException(status_code=429, detail={"code": "EMAIL_CODE_COOLDOWN", "message": "验证码发送过于频繁, 请 1 分钟后再试"})
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=_EMAIL_CODE_MINUTES)).isoformat(timespec="seconds")
+    try:
+        emailer.send_verification_code(email, code, _EMAIL_CODE_MINUTES)
+    except emailer.EmailNotConfigured as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "EMAIL_NOT_CONFIGURED", "message": "邮件服务尚未配置, 请联系管理员或使用账号密码注册",
+        }) from exc
+    store.save_email_code(email, _email_code_hash(code), purpose, expires_at, _now())
+    return {"ok": True, "expires_in": _EMAIL_CODE_MINUTES * 60}
+
+
+def _verify_email_code(store: Store, email: str, code: str, *, purpose: str) -> None:
+    record = store.get_email_code(email)
+    if not record or record.get("purpose") != purpose:
+        raise HTTPException(status_code=400, detail={"code": "EMAIL_CODE_INVALID", "message": "请先获取邮箱验证码"})
+    if record["expires_at"] <= _now():
+        raise HTTPException(status_code=400, detail={"code": "EMAIL_CODE_EXPIRED", "message": "验证码已过期, 请重新获取"})
+    if int(record.get("attempts", 0)) >= _EMAIL_CODE_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail={"code": "EMAIL_CODE_LOCKED", "message": "尝试次数过多, 请重新获取验证码"})
+    if not hmac.compare_digest(record["code_hash"], _email_code_hash(code.strip())):
+        store.bump_email_code_attempts(email)
+        raise HTTPException(status_code=400, detail={"code": "EMAIL_CODE_MISMATCH", "message": "验证码不正确"})
+    store.delete_email_code(email)
 
 
 def _issue_session(store: Store, user: dict, *, source: str = "web") -> dict:
@@ -147,8 +226,8 @@ def _issue_session(store: Store, user: dict, *, source: str = "web") -> dict:
 
 
 def login_user(store: Store, username: str, password: str) -> dict:
-    """登录, 返回带过期时间的随机 bearer token。"""
-    user = store.get_user_by_username(username.strip())
+    """登录, 返回带过期时间的随机 bearer token。identifier 支持用户名或邮箱。"""
+    user = store.get_user_by_identifier(username.strip())
     if user is None or not verify_password(password, user["password_hash"], user["salt"]):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     return _issue_session(store, user)
@@ -260,7 +339,7 @@ def mini_program_bind(store: Store, bind_ticket: str, username: str, password: s
             "code": "MP_BIND_TICKET_INVALID",
             "message": "绑定已失效，请重新发起微信登录",
         })
-    user = store.get_user_by_username(username.strip())
+    user = store.get_user_by_identifier(username.strip())
     if user is None or not verify_password(password, user["password_hash"], user["salt"]):
         raise HTTPException(status_code=401, detail={
             "code": "INVALID_CREDENTIALS",
@@ -286,6 +365,82 @@ def mini_program_bind(store: Store, bind_ticket: str, username: str, password: s
             "message": "微信或账号已绑定其他身份",
         })
     return {"bound": True, **_issue_session(store, user, source="mp")}
+
+
+def mp_register(store: Store, bind_ticket: str) -> dict:
+    """微信一键注册: 无需预先拥有校内账号, 以 openid 直接建号并绑定。
+
+    新账号 username 自动生成、无密码(password_set=0), 登录仅经微信;
+    绑定邮箱并设置密码后才可在桌面端使用账号密码登录(见 mp_bind_email)。
+    """
+    ticket = store.get_mini_program_bind_ticket(_token_hash(bind_ticket))
+    if not ticket or ticket.get("used_at") or ticket["expires_at"] <= _now():
+        raise HTTPException(status_code=400, detail={
+            "code": "MP_BIND_TICKET_INVALID", "message": "注册已失效，请重新发起微信登录",
+        })
+    openid_hash = ticket["openid_hash"]
+    if store.get_mini_program_binding_by_openid(openid_hash):
+        raise HTTPException(status_code=409, detail={
+            "code": "MP_BINDING_CONFLICT", "message": "该微信已绑定账号，请直接登录",
+        })
+    username = f"wx_{openid_hash[:10]}"
+    while store.get_user_by_username(username):
+        username = f"wx_{secrets.token_hex(4)}"
+    user = store.save_user({
+        "id": new_id("user"),
+        "username": username,
+        "password_hash": secrets.token_hex(32),  # 占位: 绑定邮箱时设置真实密码
+        "salt": secrets.token_hex(16),
+        "role": "student",
+        "display_name": "微信用户",
+        "token": None,
+        "must_change_password": 0,
+        "password_set": 0,
+        "status": "active",
+        "created_at": _now(),
+    })
+    result = store.bind_mini_program(
+        _token_hash(bind_ticket), user["id"], openid_hash,
+        str(ticket.get("openid_cipher") or ""), _now(),
+    )
+    if result is None or result.get("conflict"):
+        raise HTTPException(status_code=409, detail={
+            "code": "MP_BINDING_CONFLICT", "message": "该微信已绑定账号，请直接登录",
+        })
+    return {"bound": True, "needs_email_setup": True, **_issue_session(store, user, source="mp")}
+
+
+def mp_bind_email(store: Store, user: dict, email: str, code: str, password: str) -> dict:
+    """为账号绑定邮箱并设置密码(微信注册账号的桌面端凭证来源)。"""
+    if user.get("session_source") != "mp":
+        raise HTTPException(status_code=403, detail={
+            "code": "MP_SESSION_REQUIRED", "message": "请使用小程序会话执行绑定",
+        })
+    email = email.strip().lower()
+    _validate_email(store, email)
+    if user.get("email"):
+        raise HTTPException(status_code=409, detail={
+            "code": "EMAIL_ALREADY_BOUND", "message": "该账号已绑定邮箱，换绑请联系管理员",
+        })
+    if emailer.smtp_configured():
+        if not code.strip():
+            raise HTTPException(status_code=422, detail={
+                "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
+            })
+        _verify_email_code(store, email, code.strip(), purpose="bind")
+    password_error = _password_error(password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+    ph, salt = hash_password(password)
+    updated = store.save_user({
+        **user,
+        "email": email,
+        "email_verified": 1 if emailer.smtp_configured() else 0,
+        "password_set": 1,
+        "password_hash": ph,
+        "salt": salt,
+    })
+    return public_user(updated)
 
 
 def report_mp_subscription(store: Store, user: dict, template_id: str, accepted: bool) -> int:
@@ -334,9 +489,16 @@ def change_password(store: Store, user: dict, current_password: str, new_passwor
 
 def public_user(user: dict) -> dict:
     """去除敏感字段。"""
+    email = str(user.get("email") or "")
+    if email and "@" in email:
+        local, domain = email.split("@", 1)
+        email = f"{local[:2]}***@{domain}"
     return {
         "id": user["id"],
         "username": user["username"],
+        "email": email,
+        "email_verified": bool(user.get("email_verified", 0)),
+        "password_set": bool(user.get("password_set", 1)),
         "role": user["role"],
         "display_name": user["display_name"],
         "status": user.get("status", "active"),

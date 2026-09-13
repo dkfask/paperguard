@@ -11,14 +11,28 @@
       <button class="primary-button" :loading="loading" @tap="startWechatLogin">微信登录</button>
     </view>
 
-    <view v-else class="panel bind-panel">
-      <text class="panel-title">绑定校内账号</text>
-      <text class="panel-copy">绑定后可查看任务、消息和审核反馈。绑定票据仅短时有效。</text>
-      <input v-model="username" class="field" placeholder="校内账号" maxlength="64" />
-      <input v-model="password" class="field" password placeholder="账号密码" maxlength="128" />
-      <button class="primary-button" :loading="loading" @tap="bindAccount">确认绑定</button>
-      <button class="text-button" @tap="resetBinding">重新获取微信登录凭证</button>
-    </view>
+    <template v-else>
+      <view class="path-pills">
+        <view class="path-pill" :class="{ active: !registerMode }" @tap="registerMode = false">绑定已有账号</view>
+        <view class="path-pill" :class="{ active: registerMode }" @tap="registerMode = true">微信注册新账号</view>
+      </view>
+
+      <view v-if="!registerMode" class="panel bind-panel">
+        <text class="panel-title">绑定校内账号</text>
+        <text class="panel-copy">绑定后可查看任务、消息和审核反馈。支持账号或邮箱作为登录名。绑定票据仅短时有效。</text>
+        <input v-model="username" class="field" placeholder="校内账号 / 邮箱" maxlength="64" />
+        <input v-model="password" class="field" password placeholder="账号密码" maxlength="128" />
+        <button class="primary-button" :loading="loading" @tap="bindAccount">确认绑定</button>
+        <button class="text-button" @tap="resetBinding">重新获取微信登录凭证</button>
+      </view>
+
+      <view v-else class="panel bind-panel">
+        <text class="panel-title">微信一键注册</text>
+        <text class="panel-copy">无需预先拥有账号，直接以当前微信创建学生账号；注册后绑定邮箱并设置密码，即可在电脑端登录。</text>
+        <button class="primary-button" :loading="loading" @tap="registerWithWechat">以微信身份注册</button>
+        <button class="text-button" @tap="resetBinding">重新获取微信登录凭证</button>
+      </view>
+    </template>
 
     <text v-if="errorMessage" class="error-text">{{ errorMessage }}</text>
     <text class="legal-copy">继续即表示同意论文卫士Pro隐私说明与校内账号使用规则</text>
@@ -28,12 +42,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { mpBind, mpLogin, ApiError } from '../../api/request'
+import { mpBind, mpLogin, mpRegister, describeError } from '../../api/request'
 import { useSessionStore } from '../../stores/session'
 
 const session = useSessionStore()
 const loading = ref(false)
 const bindTicket = ref(session.bindTicket)
+const registerMode = ref(false)
 const username = ref('')
 const password = ref('')
 const errorMessage = ref('')
@@ -45,7 +60,23 @@ onLoad(() => {
 })
 
 function showError(error: unknown) {
-  errorMessage.value = error instanceof ApiError ? error.message : '请求失败，请稍后重试'
+  errorMessage.value = describeError(error)
+}
+
+async function registerWithWechat() {
+  loading.value = true
+  errorMessage.value = ''
+  try {
+    const result = await mpRegister(bindTicket.value)
+    if (!result.token || !result.user) throw new Error('注册响应缺少会话')
+    session.setAuth(result.token, result.user)
+    // 微信注册账号无密码: 引导绑定邮箱设置桌面端密码
+    uni.redirectTo({ url: '/pages/profile/bind-email?first=1' })
+  } catch (error) {
+    showError(error)
+  } finally {
+    loading.value = false
+  }
 }
 
 async function startWechatLogin() {
@@ -117,4 +148,7 @@ function resetBinding() {
 .text-button { margin-top: 18rpx; background: transparent; color: #004ac6; font-size: 25rpx; }
 .error-text { margin-top: 24rpx; color: #ba1a1a; font-size: 25rpx; line-height: 1.5; }
 .legal-copy { margin-top: auto; padding-top: 80rpx; color: #9ca3af; text-align: center; font-size: 21rpx; line-height: 1.6; }
+.path-pills { display: flex; gap: 14rpx; margin-top: 40rpx; }
+.path-pill { flex: 1; height: 68rpx; line-height: 68rpx; text-align: center; border: 1rpx solid #e5e7eb; border-radius: 999rpx; background: #fff; color: #6b7280; font-size: 24rpx; }
+.path-pill.active { border-color: #004ac6; background: #e5efff; color: #004ac6; font-weight: 700; }
 </style>

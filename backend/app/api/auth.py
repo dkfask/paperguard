@@ -10,8 +10,11 @@ from app.auth import (
     mini_program_bind,
     mini_program_login,
     mini_program_unbind,
+    mp_bind_email,
+    mp_register,
     public_user,
     report_mp_subscription,
+    send_email_code,
     change_password,
     current_user,
     login_user,
@@ -32,10 +35,12 @@ def get_store() -> Store:
 
 
 class RegisterRequest(BaseModel):
-    username: str
+    username: str = ""
     password: str
     display_name: str = ""
     role: str = "student"
+    email: str = ""
+    email_code: str = ""
 
 
 class LoginRequest(BaseModel):
@@ -59,8 +64,20 @@ class MiniProgramUnbindRequest(BaseModel):
 
 @router.post("/register", status_code=201)
 def register(req: RegisterRequest, store: Store = Depends(get_store)) -> dict:
-    """注册账号 (可选择学生 student 或教师 teacher)。"""
-    return register_user(store, req.username, req.password, req.display_name, req.role)
+    """注册账号 (username 缺省时由邮箱派生; SMTP 已配置时需邮箱验证码)。"""
+    return register_user(store, req.username, req.password, req.display_name, req.role,
+                         email=req.email, email_code=req.email_code)
+
+
+class EmailCodeRequest(BaseModel):
+    email: str
+    purpose: str = "register"
+
+
+@router.post("/email/code")
+def request_email_code(req: EmailCodeRequest, store: Store = Depends(get_store)) -> dict:
+    """发送邮箱验证码 (SMTP 未配置返回 503 EMAIL_NOT_CONFIGURED)。"""
+    return send_email_code(store, req.email, purpose=req.purpose if req.purpose in {"register", "bind"} else "register")
 
 
 @router.post("/login")
@@ -84,6 +101,33 @@ def mini_program_bind_endpoint(req: MiniProgramBindRequest,
     if not req.bind_ticket.strip():
         raise HTTPException(status_code=422, detail={"code": "MP_BIND_TICKET_REQUIRED", "message": "绑定票据不能为空"})
     return mini_program_bind(store, req.bind_ticket.strip(), req.username, req.password)
+
+
+class MiniProgramRegisterRequest(BaseModel):
+    bind_ticket: str
+
+
+@router.post("/mp/register", status_code=201)
+def mini_program_register_endpoint(req: MiniProgramRegisterRequest,
+                                   store: Store = Depends(get_store)) -> dict:
+    """微信一键注册: 以 openid 直接创建学生账号 (随后绑定邮箱设置桌面端密码)。"""
+    if not req.bind_ticket.strip():
+        raise HTTPException(status_code=422, detail={"code": "MP_BIND_TICKET_REQUIRED", "message": "绑定票据不能为空"})
+    return mp_register(store, req.bind_ticket.strip())
+
+
+@router.post("/mp/bind-email")
+def mini_program_bind_email_endpoint(req: MiniProgramBindEmailRequest,
+                                     user: dict = Depends(current_user),
+                                     store: Store = Depends(get_store)) -> dict:
+    """为当前小程序账号绑定邮箱并设置桌面端登录密码。"""
+    return {"user": mp_bind_email(store, user, req.email, req.email_code, req.password)}
+
+
+class MiniProgramBindEmailRequest(BaseModel):
+    email: str
+    email_code: str = ""
+    password: str
 
 
 @router.post("/logout")

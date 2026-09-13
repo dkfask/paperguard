@@ -26,6 +26,12 @@
       }
     },
     {
+      "path": "pages/profile/bind-email",
+      "style": {
+        "navigationBarTitleText": "绑定邮箱"
+      }
+    },
+    {
       "path": "pages/submit/index",
       "style": {
         "navigationBarTitleText": "提交确认"

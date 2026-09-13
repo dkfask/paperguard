@@ -7,6 +7,18 @@ export function ensureSessionReady(): boolean {
     uni.reLaunch({ url: '/pages/login/index' })
     return false
   }
+  if (session.user?.password_set === false && !session.passwordHintShown) {
+    session.markPasswordHintShown()
+    uni.showModal({
+      title: '绑定邮箱并设置密码',
+      content: '绑定后可在电脑端用「邮箱 + 密码」登录，并用于账号找回。',
+      confirmText: '去绑定',
+      cancelText: '暂不',
+      success: (result) => {
+        if (result.confirm) uni.navigateTo({ url: '/pages/profile/bind-email' })
+      },
+    })
+  }
   if (session.user?.must_change_password) {
     if (!session.passwordNoticeShown) {
       session.markPasswordNoticeShown()

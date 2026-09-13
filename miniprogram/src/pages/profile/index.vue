@@ -2,7 +2,7 @@
   <view class="page">
     <text class="eyebrow">ACCOUNT</text>
     <text class="title">我的</text>
-    <view v-if="user" class="panel identity"><view class="avatar">{{ (user.display_name || user.username).slice(0, 1) }}</view><view><text class="name">{{ user.display_name || user.username }}</text><text class="muted">{{ user.username }} · {{ roleLabel }}</text></view></view>
+    <view v-if="user" class="panel identity"><view class="avatar">{{ (user.display_name || user.username).slice(0, 1) }}</view><view><text class="name">{{ user.display_name || user.username }}</text><text class="muted">{{ user.username }} · {{ roleLabel }}</text><text class="email-line" @tap="goBindEmail">{{ emailLine }}</text></view></view>
     <view class="panel">
       <text class="section-title">账号安全</text>
       <input v-model="currentPassword" class="field" password placeholder="当前密码" />
@@ -25,6 +25,14 @@ import { ensureSessionReady } from '../../utils/session-guard'
 const session = useSessionStore()
 const user = computed(() => session.user)
 const roleLabel = computed(() => session.user?.role === 'teacher' ? '指导教师' : '学生')
+const emailLine = computed(() => {
+  if (!session.user?.email) return '未绑定邮箱 · 点击去绑定（电脑端登录需要）'
+  const verified = session.user.email_verified ? '' : '（未验证）'
+  return `邮箱 ${session.user.email}${verified}`
+})
+function goBindEmail() {
+  if (!session.user?.email) uni.navigateTo({ url: '/pages/profile/bind-email' })
+}
 const currentPassword = ref('')
 const newPassword = ref('')
 const loading = ref(false)
@@ -103,6 +111,7 @@ function showError(error: unknown) {
 .avatar { width: 78rpx; height: 78rpx; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #e5efff; color: #004ac6; font-size: 34rpx; font-weight: 800; }
 .name { display: block; color: #111827; font-size: 31rpx; font-weight: 750; }
 .muted { display: block; margin-top: 8rpx; color: #6b7280; font-size: 23rpx; }
+.email-line { display: block; margin-top: 8rpx; color: #004ac6; font-size: 22rpx; }
 .section-title { display: block; color: #111827; font-size: 28rpx; font-weight: 750; }
 .field { box-sizing: border-box; height: 86rpx; margin-top: 20rpx; padding: 0 22rpx; background: #f5f7fb; border: 1rpx solid #e5e7eb; border-radius: 12rpx; color: #111827; font-size: 24rpx; }
 .secondary-button, .danger-button, .logout-button { height: 78rpx; line-height: 78rpx; margin: 24rpx 0 0; border-radius: 12rpx; font-size: 25rpx; }
