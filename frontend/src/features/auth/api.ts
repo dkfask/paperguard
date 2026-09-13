@@ -13,11 +13,17 @@ export const authApi = {
     authRequired: false,
     body: credentials,
   }),
-  register: (payload: LoginInput & { display_name?: string; role?: string }) => apiClient.request<User>({
+  register: (payload: LoginInput & { display_name?: string; role?: string; email?: string; email_code?: string }) => apiClient.request<User>({
     url: '/api/auth/register',
     method: 'POST',
     authRequired: false,
     body: payload,
+  }),
+  requestEmailCode: (email: string) => apiClient.request<{ ok: boolean; expires_in: number }>({
+    url: '/api/auth/email/code',
+    method: 'POST',
+    authRequired: false,
+    body: { email, purpose: 'register' },
   }),
   changePassword: (currentPassword: string, newPassword: string) => apiClient.request<void>({
     url: '/api/auth/change-password',

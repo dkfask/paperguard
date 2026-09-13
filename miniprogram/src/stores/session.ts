@@ -19,6 +19,8 @@ export const useSessionStore = defineStore('session', {
     bindTicket: '',
     /** 「请先修改初始密码」弹窗每次登录流程只提示一次 */
     passwordNoticeShown: false,
+    /** 「绑定邮箱设置密码」引导每次登录只提示一次 */
+    passwordHintShown: false,
   }),
   getters: {
     isAuthenticated: (state) => Boolean(state.token && state.user),
@@ -29,11 +31,15 @@ export const useSessionStore = defineStore('session', {
       this.user = user
       this.bindTicket = ''
       this.passwordNoticeShown = false
+      this.passwordHintShown = false
       uni.setStorageSync(TOKEN_KEY, token)
       uni.setStorageSync(USER_KEY, user)
     },
     setBindTicket(ticket: string) {
       this.bindTicket = ticket
+    },
+    markPasswordHintShown() {
+      this.passwordHintShown = true
     },
     markPasswordNoticeShown() {
       this.passwordNoticeShown = true
@@ -43,6 +49,7 @@ export const useSessionStore = defineStore('session', {
       this.user = null
       this.bindTicket = ''
       this.passwordNoticeShown = false
+      this.passwordHintShown = false
       uni.removeStorageSync(TOKEN_KEY)
       uni.removeStorageSync(USER_KEY)
     },

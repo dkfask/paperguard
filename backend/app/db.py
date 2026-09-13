@@ -94,6 +94,9 @@ class Store:
                 CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
                     username TEXT UNIQUE NOT NULL,
+                    email TEXT,
+                    email_verified INTEGER NOT NULL DEFAULT 0,
+                    password_set INTEGER NOT NULL DEFAULT 1,
                     password_hash TEXT NOT NULL,
                     salt TEXT NOT NULL,
                     role TEXT NOT NULL DEFAULT 'student',
@@ -103,6 +106,16 @@ class Store:
                     status TEXT NOT NULL DEFAULT 'active',
                     teacher_id TEXT,
                     ai_config TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+                    ON users(email) WHERE email IS NOT NULL AND email != '';
+                CREATE TABLE IF NOT EXISTS email_verification_codes (
+                    email TEXT PRIMARY KEY,
+                    code_hash TEXT NOT NULL,
+                    purpose TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -350,6 +363,17 @@ class Store:
             mp_ticket_columns = {row[1] for row in conn.execute("PRAGMA table_info(mini_program_bind_tickets)")}
             if "openid_cipher" not in mp_ticket_columns:
                 conn.execute("ALTER TABLE mini_program_bind_tickets ADD COLUMN openid_cipher TEXT NOT NULL DEFAULT ''")
+            user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+            if "email" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
+                    "ON users(email) WHERE email IS NOT NULL AND email != ''"
+                )
+            if "email_verified" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
+            if "password_set" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN password_set INTEGER NOT NULL DEFAULT 1")
             for version in SCHEMA_MIGRATIONS:
                 conn.execute(
                     "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
@@ -361,12 +385,16 @@ class Store:
     def save_user(self, user: dict) -> dict:
         """保存用户, 兼容旧数据库新增的账号与组织字段。"""
         sql = """
-            INSERT INTO users (id, username, password_hash, salt, role, display_name, token,
+            INSERT INTO users (id, username, email, email_verified, password_set,
+                               password_hash, salt, role, display_name, token,
                                must_change_password, status, teacher_id, ai_config,
                                organization_context, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 username = excluded.username,
+                email = excluded.email,
+                email_verified = excluded.email_verified,
+                password_set = excluded.password_set,
                 password_hash = excluded.password_hash,
                 salt = excluded.salt,
                 role = excluded.role,
@@ -380,7 +408,9 @@ class Store:
                 created_at = excluded.created_at
         """
         params = (
-            user["id"], user["username"], user["password_hash"], user["salt"],
+            user["id"], user["username"], user.get("email") or "", int(user.get("email_verified", 0)),
+            int(user.get("password_set", 1)),
+            user["password_hash"], user["salt"],
             user["role"], user["display_name"], user.get("token"),
             int(user.get("must_change_password", 0)),
             user.get("status", "active"),
@@ -392,6 +422,50 @@ class Store:
         with self._connect() as conn:
             conn.execute(sql, params)
         return user
+
+    def get_user_by_email(self, email: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE email = ?", (email.strip().lower(),)
+            ).fetchone()
+        return self._hydrate_user(dict(row)) if row else None
+
+    def get_user_by_identifier(self, identifier: str) -> dict | None:
+        """用户名或邮箱任一命中即视为同一账号(邮箱注册场景)。"""
+        user = self.get_user_by_username(identifier)
+        if user is None and "@" in identifier:
+            user = self.get_user_by_email(identifier)
+        return user
+
+    # -------------------------- 邮箱验证码 --------------------------
+
+    def save_email_code(self, email: str, code_hash: str, purpose: str, expires_at: str, now: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO email_verification_codes (email, code_hash, purpose, expires_at, attempts, created_at) "
+                "VALUES (?, ?, ?, ?, 0, ?) "
+                "ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, purpose = excluded.purpose, "
+                "expires_at = excluded.expires_at, attempts = 0, created_at = excluded.created_at",
+                (email.strip().lower(), code_hash, purpose, expires_at, now),
+            )
+
+    def get_email_code(self, email: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM email_verification_codes WHERE email = ?", (email.strip().lower(),)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_email_code(self, email: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM email_verification_codes WHERE email = ?", (email.strip().lower(),))
+
+    def bump_email_code_attempts(self, email: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE email_verification_codes SET attempts = attempts + 1 WHERE email = ?",
+                (email.strip().lower(),),
+            )
 
     def get_user_by_username(self, username: str) -> dict | None:
         with self._connect() as conn:

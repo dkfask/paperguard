@@ -58,6 +58,17 @@
             <input id="displayName" v-model="displayName" :placeholder="t('auth.fullNamePlaceholder')" />
           </div>
 
+          <div v-if="mode === 'register'" class="form-field">
+            <label for="email">{{ t('auth.emailLabel') }}</label>
+            <div class="email-row">
+              <input id="email" v-model="email" type="email" autocomplete="email" :placeholder="t('auth.emailPlaceholder')" />
+              <button type="button" class="code-button" :disabled="codeCooldown > 0 || !email" @click="sendCode">
+                {{ codeCooldown > 0 ? `${codeCooldown}s` : t('auth.sendCode') }}
+              </button>
+            </div>
+            <input v-if="email" v-model="emailCode" inputmode="numeric" :placeholder="t('auth.emailCodePlaceholder')" />
+          </div>
+
           <div class="form-field">
             <label for="password">{{ t('auth.passwordLabel') }}</label>
             <input id="password" v-model="password" type="password" autocomplete="current-password" :placeholder="t('auth.passwordPlaceholder')" required />
@@ -135,6 +146,9 @@ const password = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
 const displayName = ref('')
+const email = ref('')
+const emailCode = ref('')
+const codeCooldown = ref(0)
 const error = ref('')
 const noticeType = ref('error')
 const loading = ref(false)
@@ -143,6 +157,21 @@ function switchMode(m) {
   mode.value = m
   error.value = ''
   noticeType.value = 'error'
+}
+
+async function sendCode() {
+  if (!email.value || codeCooldown.value > 0) return
+  try {
+    await authApi.requestEmailCode(email.value.trim())
+    setNotice(t('auth.codeSent'), 'success')
+    codeCooldown.value = 60
+    const timer = setInterval(() => {
+      codeCooldown.value -= 1
+      if (codeCooldown.value <= 0) clearInterval(timer)
+    }, 1000)
+  } catch (err) {
+    setNotice(err?.message || '验证码发送失败', 'error')
+  }
 }
 
 function setNotice(message, type = 'error') {
@@ -178,6 +207,8 @@ async function submit() {
         password: password.value,
         display_name: displayName.value,
         role: role.value,
+        email: email.value.trim(),
+        email_code: emailCode.value.trim(),
       })
       mode.value = 'login'
       if (role.value === 'teacher') {
@@ -445,5 +476,33 @@ async function submit() {
     align-items: center;
     gap: 6px;
   }
+}
+
+.email-row {
+  display: flex;
+  gap: 8px;
+}
+
+.email-row input:first-child {
+  flex: 1;
+}
+
+.code-button {
+  box-sizing: border-box;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--primary, #004ac6);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--primary, #004ac6);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.code-button:disabled {
+  border-color: #cbd5e1;
+  color: #94a3b8;
+  cursor: not-allowed;
 }
 </style>
