@@ -10,6 +10,7 @@ import time
 from app.db import Store
 from app.core.context import RequestContext
 from app.core.structured_logging import log_event
+from app.services.wechat_push import deliver_wechat_push
 from app.services.workflow_jobs import (
     consume_archive_jobs,
     consume_document_render_jobs,
@@ -38,12 +39,14 @@ def run_once(store: Store | None = None) -> dict:
     exports = consume_project_export_jobs(store, consumer_id=consumer_id)
     document_renders = consume_document_render_jobs(store, consumer_id=consumer_id)
     outbox = consume_in_app_outbox(store, consumer_id=consumer_id)
+    wechat_pushes = deliver_wechat_push(store, consumer_id=consumer_id)
     return {
         "reminders": reminders,
         "archives": archives,
         "exports": exports,
         "document_renders": document_renders,
         "outbox": outbox,
+        "wechat_pushes": wechat_pushes,
     }
 
 

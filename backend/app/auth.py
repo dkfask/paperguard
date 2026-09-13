@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import os
@@ -171,6 +172,32 @@ def _mini_program_openid_hash(openid: str) -> str:
     ).hexdigest()
 
 
+def _openid_cipher(openid: str) -> str:
+    """openid 的可逆保护: 绑定密钥派生流加密 + 随机 nonce, 仅用于服务端推送。"""
+    secret = _mini_program_binding_secret().encode("utf-8")
+    nonce = os.urandom(12)
+    data = openid.encode("utf-8")
+    stream = b""
+    block = 0
+    while len(stream) < len(data):
+        stream += hashlib.sha256(nonce + block.to_bytes(4, "big") + secret).digest()
+        block += 1
+    cipher = bytes(a ^ b for a, b in zip(data, stream))
+    return base64.urlsafe_b64encode(nonce + cipher).decode("ascii")
+
+
+def _openid_from_cipher(cipher_text: str) -> str:
+    raw = base64.urlsafe_b64decode(cipher_text.encode("ascii"))
+    secret = _mini_program_binding_secret().encode("utf-8")
+    nonce, cipher = raw[:12], raw[12:]
+    stream = b""
+    block = 0
+    while len(stream) < len(cipher):
+        stream += hashlib.sha256(nonce + block.to_bytes(4, "big") + secret).digest()
+        block += 1
+    return bytes(a ^ b for a, b in zip(cipher, stream)).decode("utf-8")
+
+
 async def exchange_mp_code(code: str) -> str:
     """Exchange a WeChat login code without exposing provider credentials."""
     app_id = os.environ.get("PAPERGUARD_WECHAT_APP_ID", "").strip()
@@ -212,6 +239,7 @@ def mini_program_login(store: Store, openid: str) -> dict:
             "id": new_id("mp-ticket"),
             "ticket_hash": _token_hash(ticket),
             "openid_hash": openid_hash,
+            "openid_cipher": _openid_cipher(openid),
             "created_at": now.isoformat(timespec="seconds"),
             "expires_at": expires_at,
         })
@@ -244,7 +272,8 @@ def mini_program_bind(store: Store, bind_ticket: str, username: str, password: s
             "message": "账号当前不可绑定",
         })
     result = store.bind_mini_program(
-        _token_hash(bind_ticket), user["id"], ticket["openid_hash"], _now()
+        _token_hash(bind_ticket), user["id"], ticket["openid_hash"],
+        str(ticket.get("openid_cipher") or ""), _now(),
     )
     if result is None:
         raise HTTPException(status_code=400, detail={
@@ -257,6 +286,15 @@ def mini_program_bind(store: Store, bind_ticket: str, username: str, password: s
             "message": "微信或账号已绑定其他身份",
         })
     return {"bound": True, **_issue_session(store, user, source="mp")}
+
+
+def report_mp_subscription(store: Store, user: dict, template_id: str, accepted: bool) -> int:
+    """记录小程序内订阅消息授权结果: 接受 +1 次推送机会, 拒绝清零。"""
+    now = _now()
+    if accepted:
+        return store.grant_push_quota(user["id"], template_id, 1, now)
+    store.reset_push_quota(user["id"], template_id, now)
+    return 0
 
 
 def mini_program_unbind(store: Store, user: dict, password: str) -> None:

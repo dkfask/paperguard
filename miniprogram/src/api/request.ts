@@ -217,3 +217,9 @@ export const changePassword = (currentPassword: string, newPassword: string) => 
   method: 'POST',
   data: { current_password: currentPassword, new_password: newPassword },
 })
+
+/** 上报订阅消息授权结果: 接受 +1 次推送机会, 拒绝清零(一次性订阅)。 */
+export const reportSubscribe = (templateId: string, accepted: boolean) => request<{ ok: boolean; remaining: number }>('/api/auth/mp/subscribe', {
+  method: 'POST',
+  data: { template_id: templateId, accepted },
+})

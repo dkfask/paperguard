@@ -37,6 +37,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import { reportSubscribe } from '../../api/request'
 
 const submissionNumber = ref('—')
 const submittedAt = ref('')
@@ -64,6 +65,13 @@ function requestSubscribe() {
   uni.requestSubscribeMessage({
     tmplIds: templateIds,
     complete: () => uni.showToast({ title: '已按微信授权结果处理', icon: 'none' }),
+    success: (result) => {
+      // 授权结果逐模板上报后端记账(一次性订阅配额)
+      for (const templateId of templateIds) {
+        const accepted = (result as unknown as Record<string, string>)[templateId] === 'accept'
+        void reportSubscribe(templateId, accepted).catch(() => {})
+      }
+    },
   })
 }
 

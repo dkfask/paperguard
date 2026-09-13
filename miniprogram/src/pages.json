@@ -55,6 +55,12 @@
       "style": {
         "navigationBarTitleText": "审阅意见"
       }
+    },
+    {
+      "path": "pages/review/index",
+      "style": {
+        "navigationBarTitleText": "论文审阅"
+      }
     }
   ],
   "tabBar": {

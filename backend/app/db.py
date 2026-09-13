@@ -120,6 +120,7 @@ class Store:
                     id TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL UNIQUE,
                     openid_hash TEXT NOT NULL UNIQUE,
+                    openid_cipher TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -128,12 +129,29 @@ class Store:
                     id TEXT PRIMARY KEY,
                     ticket_hash TEXT UNIQUE NOT NULL,
                     openid_hash TEXT NOT NULL,
+                    openid_cipher TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     expires_at TEXT NOT NULL,
                     used_at TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_mp_bind_tickets_expires
                     ON mini_program_bind_tickets (expires_at, used_at);
+                CREATE TABLE IF NOT EXISTS mini_program_push_quotas (
+                    user_id TEXT NOT NULL,
+                    template_id TEXT NOT NULL,
+                    remaining INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, template_id)
+                );
+                CREATE TABLE IF NOT EXISTS mini_program_push_log (
+                    id TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL UNIQUE,
+                    recipient_id TEXT NOT NULL,
+                    template_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    error_code TEXT,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS system_settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL,
@@ -326,6 +344,12 @@ class Store:
                 conn.execute("ALTER TABLE workflow_events ADD COLUMN leased_by TEXT")
             if "last_error" not in event_columns:
                 conn.execute("ALTER TABLE workflow_events ADD COLUMN last_error TEXT")
+            mp_binding_columns = {row[1] for row in conn.execute("PRAGMA table_info(mini_program_bindings)")}
+            if "openid_cipher" not in mp_binding_columns:
+                conn.execute("ALTER TABLE mini_program_bindings ADD COLUMN openid_cipher TEXT NOT NULL DEFAULT ''")
+            mp_ticket_columns = {row[1] for row in conn.execute("PRAGMA table_info(mini_program_bind_tickets)")}
+            if "openid_cipher" not in mp_ticket_columns:
+                conn.execute("ALTER TABLE mini_program_bind_tickets ADD COLUMN openid_cipher TEXT NOT NULL DEFAULT ''")
             for version in SCHEMA_MIGRATIONS:
                 conn.execute(
                     "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
@@ -476,11 +500,11 @@ class Store:
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO mini_program_bind_tickets "
-                "(id, ticket_hash, openid_hash, created_at, expires_at, used_at) "
-                "VALUES (?, ?, ?, ?, ?, NULL)",
+                "(id, ticket_hash, openid_hash, openid_cipher, created_at, expires_at, used_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, NULL)",
                 (
                     ticket["id"], ticket["ticket_hash"], ticket["openid_hash"],
-                    ticket["created_at"], ticket["expires_at"],
+                    ticket.get("openid_cipher", ""), ticket["created_at"], ticket["expires_at"],
                 ),
             )
 
@@ -493,7 +517,7 @@ class Store:
         return dict(row) if row else None
 
     def bind_mini_program(self, ticket_hash: str, user_id: str,
-                          openid_hash: str, now: str) -> dict | None:
+                          openid_hash: str, openid_cipher: str, now: str) -> dict | None:
         """Atomically consume a valid ticket after conflict checks."""
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -518,8 +542,8 @@ class Store:
             binding_id = new_id("mp-binding")
             conn.execute(
                 "INSERT INTO mini_program_bindings "
-                "(id, user_id, openid_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                (binding_id, user_id, openid_hash, now, now),
+                "(id, user_id, openid_hash, openid_cipher, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (binding_id, user_id, openid_hash, openid_cipher, now, now),
             )
             conn.execute(
                 "UPDATE mini_program_bind_tickets SET used_at = ? WHERE id = ?",
@@ -533,6 +557,72 @@ class Store:
                 "DELETE FROM mini_program_bindings WHERE user_id = ?", (user_id,)
             )
         return result.rowcount > 0
+
+    # ----------------------- 小程序订阅消息配额/推送日志 -----------------------
+
+    def grant_push_quota(self, user_id: str, template_id: str, amount: int, now: str) -> int:
+        """用户在小程序内接受订阅后 +1(一次性订阅, 每次授权对应一次推送机会)。"""
+        with self._connect() as conn:
+            row = conn.execute(
+                "INSERT INTO mini_program_push_quotas (user_id, template_id, remaining, updated_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(user_id, template_id) DO UPDATE SET "
+                "remaining = MIN(remaining + ?, 5), updated_at = ?",
+                (user_id, template_id, amount, now, amount, now),
+            )
+            after = conn.execute(
+                "SELECT remaining FROM mini_program_push_quotas WHERE user_id = ? AND template_id = ?",
+                (user_id, template_id),
+            ).fetchone()
+        return int(after["remaining"]) if after else 0
+
+    def reset_push_quota(self, user_id: str, template_id: str, now: str) -> None:
+        """微信返回未订阅(43101)时说明账本与实际授权不一致, 清零纠偏。"""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO mini_program_push_quotas (user_id, template_id, remaining, updated_at) "
+                "VALUES (?, ?, 0, ?) "
+                "ON CONFLICT(user_id, template_id) DO UPDATE SET remaining = 0, updated_at = ?",
+                (user_id, template_id, now, now),
+            )
+
+    def consume_push_quota(self, user_id: str, template_id: str, now: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE mini_program_push_quotas SET remaining = remaining - 1, updated_at = ? "
+                "WHERE user_id = ? AND template_id = ? AND remaining > 0",
+                (now, user_id, template_id),
+            )
+        return cur.rowcount == 1
+
+    def record_mini_program_push(self, entry: dict) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO mini_program_push_log "
+                "(id, event_id, recipient_id, template_id, status, error_code, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry["id"], entry["event_id"], entry["recipient_id"], entry["template_id"],
+                    entry["status"], entry.get("error_code"), entry["created_at"],
+                ),
+            )
+
+    def has_mini_program_push(self, event_id: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM mini_program_push_log WHERE event_id = ?", (event_id,)
+            ).fetchone()
+        return row is not None
+
+    def list_delivered_push_events(self, since: str, limit: int = 100) -> list[dict]:
+        """取最近已投递、可尝试微信订阅推送的事件(调用方按模板映射与日志去重过滤)。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workflow_events WHERE delivery_status = 'delivered' "
+                "AND COALESCE(delivered_at, created_at) >= ? ORDER BY created_at DESC LIMIT ?",
+                (since, max(1, min(limit, 500))),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def list_students_by_teacher(self, teacher_id: str) -> list[dict]:
         with self._connect() as conn:
