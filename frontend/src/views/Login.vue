@@ -21,27 +21,15 @@
           <img alt="PaperGuard Logo" src="/logo.png" />
         </div>
         <h1 class="auth-title">
-          {{ forceChange ? t('auth.setPasswordTitle') : (mode === 'login' ? t('auth.welcomeTitle') : t('auth.registerTitle')) }}
+          {{ forceChange ? t('auth.setPasswordTitle') : t('auth.welcomeTitle') }}
         </h1>
         <p class="auth-sub">
-          {{ forceChange ? t('auth.setPasswordSub') : (mode === 'login' ? t('auth.loginSub') : t('auth.registerSub')) }}
+          {{ forceChange ? t('auth.setPasswordSub') : t('auth.loginSub') }}
         </p>
       </div>
 
       <!-- Stitch Glassmorphic Card -->
       <div class="stitch-auth-card">
-        <!-- Role Selector Tabs (学生账号 vs 教师账号) -->
-        <div v-if="mode === 'register'" class="stitch-role-tabs">
-          <button type="button" class="role-tab-btn" :class="{ active: role === 'student' }" @click="role = 'student'">
-            <span class="material-symbols-outlined text-[16px]">school</span>
-            <span>{{ t('auth.studentAccount') }}</span>
-          </button>
-          <button type="button" class="role-tab-btn" :class="{ active: role === 'teacher' }" @click="role = 'teacher'">
-            <span class="material-symbols-outlined text-[16px]">psychology</span>
-            <span>{{ t('auth.teacherAccount') }}</span>
-          </button>
-        </div>
-
         <div v-if="error" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'" style="margin-bottom: 16px">
           <span class="material-symbols-outlined text-[16px]">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>
           <span>{{ error }}</span>
@@ -51,22 +39,6 @@
           <div class="form-field">
             <label for="username">{{ t('auth.usernameLabel') }}</label>
             <input id="username" v-model="username" autocomplete="username" :placeholder="t('auth.usernamePlaceholder')" required />
-          </div>
-
-          <div v-if="mode === 'register'" class="form-field">
-            <label for="displayName">{{ t('auth.fullNameLabel') }}</label>
-            <input id="displayName" v-model="displayName" :placeholder="t('auth.fullNamePlaceholder')" />
-          </div>
-
-          <div v-if="mode === 'register'" class="form-field">
-            <label for="email">{{ t('auth.emailLabel') }}</label>
-            <div class="email-row">
-              <input id="email" v-model="email" type="email" autocomplete="email" :placeholder="t('auth.emailPlaceholder')" />
-              <button type="button" class="code-button" :disabled="codeCooldown > 0 || !email" @click="sendCode">
-                {{ codeCooldown > 0 ? `${codeCooldown}s` : t('auth.sendCode') }}
-              </button>
-            </div>
-            <input v-if="email" v-model="emailCode" inputmode="numeric" :placeholder="t('auth.emailCodePlaceholder')" />
           </div>
 
           <div class="form-field">
@@ -85,20 +57,14 @@
           </div>
 
           <button class="primary auth-submit-btn" type="submit" :disabled="loading">
-            <span>{{ loading ? t('auth.processing') : (mode === 'login' ? t('auth.signIn') : (role === 'teacher' ? t('auth.registerTeacher') : t('auth.registerStudent'))) }}</span>
+            <span>{{ loading ? t('auth.processing') : t('auth.signIn') }}</span>
             <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
           </button>
         </form>
 
         <div v-if="!forceChange" class="auth-switch-footer">
-          <template v-if="mode === 'login'">
-            <span>{{ t('auth.noAccount') }}</span>
-            <a href="#" @click.prevent="switchMode('register')">{{ t('auth.createAccount') }}</a>
-          </template>
-          <template v-else>
-            <span>{{ t('auth.hasAccount') }}</span>
-            <a href="#" @click.prevent="switchMode('login')">{{ t('auth.backToLogin') }}</a>
-          </template>
+          <span>{{ t('auth.noAccount') }}</span>
+          <router-link to="/register">{{ t('auth.createAccount') }}</router-link>
         </div>
       </div>
 
@@ -138,41 +104,15 @@ function toggleLang() {
   setLang(lang.value === 'zh' ? 'en' : 'zh')
 }
 
-const mode = ref('login')
-const role = ref('student')
 const forceChange = computed(() => route.query.forceChange === '1' && !!auth.token)
 const username = ref('')
 const password = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
-const displayName = ref('')
-const email = ref('')
-const emailCode = ref('')
-const codeCooldown = ref(0)
 const error = ref('')
 const noticeType = ref('error')
 const loading = ref(false)
 
-function switchMode(m) {
-  mode.value = m
-  error.value = ''
-  noticeType.value = 'error'
-}
-
-async function sendCode() {
-  if (!email.value || codeCooldown.value > 0) return
-  try {
-    await authApi.requestEmailCode(email.value.trim())
-    setNotice(t('auth.codeSent'), 'success')
-    codeCooldown.value = 60
-    const timer = setInterval(() => {
-      codeCooldown.value -= 1
-      if (codeCooldown.value <= 0) clearInterval(timer)
-    }, 1000)
-  } catch (err) {
-    setNotice(err?.message || '验证码发送失败', 'error')
-  }
-}
 
 function setNotice(message, type = 'error') {
   error.value = message
@@ -191,7 +131,7 @@ async function submit() {
       setNotice(t('auth.passwordUpdated'), 'success')
       return
     }
-    if (mode.value === 'login') {
+    {
       const data = await authApi.login({ username: username.value, password: password.value })
       setAuth(data.token, data.user)
       const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
@@ -200,21 +140,6 @@ async function submit() {
         router.replace({ path: '/login', query: { forceChange: '1', redirect } })
       } else {
         router.replace(redirect)
-      }
-    } else {
-      await authApi.register({
-        username: username.value,
-        password: password.value,
-        display_name: displayName.value,
-        role: role.value,
-        email: email.value.trim(),
-        email_code: emailCode.value.trim(),
-      })
-      mode.value = 'login'
-      if (role.value === 'teacher') {
-        setNotice(t('auth.teacherRegistered'), 'success')
-      } else {
-        setNotice(t('auth.registrationSuccess'), 'success')
       }
     }
   } catch (e) {
