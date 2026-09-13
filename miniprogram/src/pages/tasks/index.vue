@@ -3,7 +3,7 @@
     <view class="page-header">
       <view>
         <text class="eyebrow">{{ greeting }}</text>
-        <text class="title">我的任务</text>
+        <text class="title">{{ pageTitle }}</text>
       </view>
       <view class="role-mark">{{ roleLabel }}</view>
     </view>
@@ -18,11 +18,17 @@
       <text class="muted">阶段发布后，任务会显示在这里。</text>
     </view>
     <view v-else>
-      <view v-for="task in tasks" :key="task.id" class="panel task-card">
-        <view class="task-head"><text class="task-kicker">当前阶段</text><text class="status">{{ stateLabel(task.state) }}</text></view>
-        <text class="task-title">{{ task.title || task.stage_name || '论文阶段任务' }}</text>
-        <text class="muted">截止时间：{{ formatDeadline(task.effective_deadline_at) }}</text>
-        <button class="secondary-button" @tap="goDesktop">去电脑端处理</button>
+      <view v-for="task in tasks" :key="task.id" class="panel task-card" :class="`state-${stateTone(task.state)}`">
+        <view class="task-head">
+          <text class="task-kicker">{{ task.cohort_name || '论文批次' }} · {{ task.stage_name || '阶段任务' }}</text>
+          <text class="status" :class="`tone-${stateTone(task.state)}`">{{ stateLabel(task.state) }}</text>
+        </view>
+        <text class="task-title">{{ task.title || '论文阶段任务' }}</text>
+        <view class="deadline-row">
+          <text class="muted">截止：{{ formatDeadline(task) }}</text>
+          <text v-if="task.is_late" class="late-tag">已逾期</text>
+        </view>
+        <button class="secondary-button" @tap="primaryAction(task)">{{ primaryLabel(task) }}</button>
       </view>
     </view>
   </view>
@@ -31,21 +37,23 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { ApiError, fetchTasks, type Task } from '../../api/request'
+import { describeError, fetchTasks, type Task } from '../../api/request'
 import { useSessionStore } from '../../stores/session'
+import { ensureSessionReady } from '../../utils/session-guard'
 
 const session = useSessionStore()
 const tasks = ref<Task[]>([])
 const loading = ref(false)
 const errorMessage = ref('')
+const isTeacher = computed(() => session.user?.role === 'teacher')
 const greeting = computed(() => session.user?.display_name || session.user?.username || '你好')
-const roleLabel = computed(() => session.user?.role === 'teacher' ? '指导教师' : '学生')
+const pageTitle = computed(() => (isTeacher.value ? '待我审核' : '我的任务'))
+const roleLabel = computed(() => (isTeacher.value ? '指导教师' : '学生'))
 
 onShow(() => {
-  if (!session.isAuthenticated) {
-    uni.redirectTo({ url: '/pages/login/index' })
-    return
-  }
+  if (!ensureSessionReady()) return
+  // 角色自适应首屏标签(设计方案 §5.1): 教师首屏为待审核队列
+  uni.setTabBarItem({ index: 0, text: isTeacher.value ? '待审核' : '任务' })
   void loadTasks()
 })
 
@@ -55,23 +63,51 @@ async function loadTasks() {
   try {
     tasks.value = await fetchTasks()
   } catch (error) {
-    errorMessage.value = error instanceof ApiError ? error.message : '任务加载失败'
+    errorMessage.value = describeError(error)
   } finally {
     loading.value = false
   }
 }
 
+// 状态三表达(文字+颜色+卡片色条): 蓝=进行/待审, 橙=需处理, 绿=完成, 灰=未开始/退出
+const STATE_TONES: Record<string, { label: string; tone: 'blue' | 'orange' | 'green' | 'gray' }> = {
+  not_started: { label: '未开始', tone: 'gray' },
+  in_progress: { label: '进行中', tone: 'blue' },
+  submitted: { label: '待审核', tone: 'blue' },
+  needs_revision: { label: '需修改', tone: 'orange' },
+  approved: { label: '已通过', tone: 'green' },
+  pending_archive: { label: '待归档', tone: 'blue' },
+  archived: { label: '已归档', tone: 'green' },
+  exited: { label: '已退出', tone: 'gray' },
+}
+
+function stateMeta(state: unknown) {
+  return STATE_TONES[String(state)] || { label: '进行中', tone: 'blue' as const }
+}
 function stateLabel(state: unknown) {
-  return ({ submitted: '待审核', needs_revision: '需修改', approved: '已通过', archived: '已归档' } as Record<string, string>)[String(state)] || '进行中'
+  return stateMeta(state).label
+}
+function stateTone(state: unknown) {
+  return stateMeta(state).tone
 }
 
-function formatDeadline(value: unknown) {
-  if (!value) return '以桌面端任务要求为准'
-  return String(value).replace('T', ' ').replace('+00:00', '')
+function formatDeadline(task: Task) {
+  const value = task.revision_deadline_at || task.effective_deadline_at
+  if (!value) return '以电脑端任务要求为准'
+  return String(value).replace('T', ' ').slice(0, 16)
 }
 
-function goDesktop() {
-  uni.showToast({ title: '长篇写作请使用电脑端', icon: 'none' })
+function primaryLabel(task: Task) {
+  const state = String(task.state || '')
+  if (isTeacher.value) return '去审阅'
+  if (state === 'needs_revision') return '查看审阅意见'
+  if (state === 'in_progress') return '预检提交'
+  return '在电脑端处理'
+}
+
+function primaryAction(_task: Task) {
+  // MP0 引导动作: 提交/审阅/批注闭环在 MP1/MP2 落地, 现阶段明确指向电脑端
+  uni.showToast({ title: '该操作请使用电脑端完成', icon: 'none' })
 }
 </script>
 
@@ -85,10 +121,21 @@ function goDesktop() {
 .state-panel { display: flex; flex-direction: column; min-height: 180rpx; justify-content: center; }
 .empty-title { display: block; color: #111827; font-size: 31rpx; font-weight: 750; }
 .muted { display: block; margin-top: 12rpx; color: #6b7280; font-size: 24rpx; line-height: 1.5; }
+.task-card { border-left: 8rpx solid #004ac6; }
+.task-card.state-orange { border-left-color: #d97706; }
+.task-card.state-green { border-left-color: #16a34a; }
+.task-card.state-gray { border-left-color: #9ca3af; }
 .task-head { display: flex; justify-content: space-between; align-items: center; }
-.task-kicker { color: #004ac6; font-size: 23rpx; font-weight: 700; }
-.status { color: #9a6700; font-size: 23rpx; }
+.task-kicker { color: #6b7280; font-size: 23rpx; }
+.status { font-size: 23rpx; font-weight: 700; }
+.tone-blue { color: #004ac6; }
+.tone-orange { color: #d97706; }
+.tone-green { color: #16a34a; }
+.tone-gray { color: #6b7280; }
 .task-title { display: block; margin-top: 20rpx; color: #111827; font-size: 34rpx; font-weight: 750; }
+.deadline-row { display: flex; align-items: center; gap: 16rpx; }
+.deadline-row .muted { margin-top: 12rpx; }
+.late-tag { margin-top: 12rpx; padding: 4rpx 14rpx; border-radius: 999rpx; background: #fef3c7; color: #b45309; font-size: 21rpx; font-weight: 700; }
 .secondary-button { margin: 28rpx 0 0; height: 78rpx; line-height: 78rpx; border: 1rpx solid #004ac6; border-radius: 12rpx; background: #fff; color: #004ac6; font-size: 26rpx; }
 .error-text { color: #ba1a1a; font-size: 25rpx; line-height: 1.5; }
 </style>

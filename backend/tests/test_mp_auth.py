@@ -13,7 +13,7 @@ client = TestClient(app)
 def _account(role: str = "student") -> tuple[str, str]:
     suffix = uuid.uuid4().hex[:10]
     username = f"mp_{suffix}"
-    password = "MpBindingPassword123"
+    password = f"mp-bind-{uuid.uuid4().hex}-A1"
     response = client.post(
         "/api/auth/register",
         json={"username": username, "password": password, "display_name": "小程序测试用户", "role": role},
@@ -42,7 +42,7 @@ def test_mp_bind_ticket_survives_bad_password_and_unbinds(monkeypatch):
     bad = client.post("/api/auth/mp/bind", json={
         "bind_ticket": ticket,
         "username": username,
-        "password": "wrong-password1",
+        "password": f"wrong-{uuid.uuid4().hex}",
     })
     assert bad.status_code == 401
 

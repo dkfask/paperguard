@@ -18,8 +18,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { ApiError, changePassword, fetchMe, mpUnbind } from '../../api/request'
+import { changePassword, describeError, fetchMe, mpUnbind } from '../../api/request'
 import { useSessionStore } from '../../stores/session'
+import { ensureSessionReady } from '../../utils/session-guard'
 
 const session = useSessionStore()
 const user = computed(() => session.user)
@@ -31,10 +32,7 @@ const message = ref('')
 const isError = ref(false)
 
 onShow(() => {
-  if (!session.isAuthenticated) {
-    uni.redirectTo({ url: '/pages/login/index' })
-    return
-  }
+  if (!ensureSessionReady()) return
   void refresh()
 })
 
@@ -91,7 +89,7 @@ function logout() {
 }
 
 function showError(error: unknown) {
-  message.value = error instanceof ApiError || error instanceof Error ? error.message : '操作失败'
+  message.value = describeError(error)
   isError.value = true
 }
 </script>
