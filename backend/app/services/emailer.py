@@ -36,14 +36,18 @@ def send_email(to: str, subject: str, body: str) -> None:
         raise EmailNotConfigured("SMTP 未配置")
     host = os.environ.get("PAPERGUARD_SMTP_HOST", "").strip()
     port = int(os.environ.get("PAPERGUARD_SMTP_PORT", "587"))
+    use_ssl = os.environ.get("PAPERGUARD_SMTP_SSL", "").strip().lower() in {"1", "true", "yes"}
     user = os.environ.get("PAPERGUARD_SMTP_USER", "").strip()
     password = os.environ.get("PAPERGUARD_SMTP_PASSWORD", "")
     message = MIMEText(body, "plain", "utf-8")
     message["Subject"] = subject
     message["From"] = formataddr(("论文卫士Pro", _from_address()))
     message["To"] = to
-    with smtplib.SMTP(host, port, timeout=15) as client:
-        client.starttls()
+    # 465 端口为隐式 SSL(QQ/企业邮常用), 587 为 STARTTLS; 腾讯云封出站 25 端口
+    client_ctx = smtplib.SMTP_SSL(host, port, timeout=15) if use_ssl else smtplib.SMTP(host, port, timeout=15)
+    with client_ctx as client:
+        if not use_ssl:
+            client.starttls()
         if user:
             client.login(user, password)
         client.sendmail(_from_address(), [to], message.as_string())
