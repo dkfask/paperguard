@@ -64,6 +64,16 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
 
   本地开发也可以把这三行写进仓库根目录的 `.env`(参考 `.env.example`, 已被 gitignore), 后端与 docker-compose 会自动加载; 已显式设置的环境变量优先于 `.env`。
 
+- **邮箱注册验证码**(Resend 推荐, 或任意 SMTP):
+
+  ```bash
+  export PAPERGUARD_RESEND_API_KEY='re_xxx'
+  export PAPERGUARD_RESEND_FROM='noreply@your-domain.com'   # 需在 Resend 验证域名
+  # 备选 SMTP: PAPERGUARD_SMTP_HOST/PORT/USER/PASSWORD/FROM(+PAPERGUARD_SMTP_SSL=1 走 465)
+  ```
+
+  两者都未配置时, 邮箱注册降级为免验证(账号标记「未验证」), 微信注册的绑定邮箱流程不强制验证码。
+
 - **用户自带**:写作页左上角「✨AI」→ 填自己的 Base URL / API Key / 模型,可先「测试连接」再保存。仅对本账号生效,优先于系统默认。
 
 说明:用户 API Key 以明文存储在本机 SQLite(与服务器环境变量同信任域,请勿把数据库文件外传);两者都未配置时 AI 按钮自动隐藏。

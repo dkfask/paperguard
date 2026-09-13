@@ -26,7 +26,9 @@ def _register_payload(**overrides) -> dict:
     return payload
 
 
-def test_register_with_email_and_login_by_email():
+def test_register_with_email_and_login_by_email(monkeypatch):
+    monkeypatch.delenv("PAPERGUARD_RESEND_API_KEY", raising=False)
+
     email = f"{uuid.uuid4().hex[:10]}@example.edu"
     password = f"Mail-{uuid.uuid4().hex}-A1"
     registered = client.post("/api/auth/register", json=_register_payload(email=email, password=password))
@@ -51,6 +53,8 @@ def test_email_code_flow_required_when_smtp_configured(monkeypatch):
     def fake_send(to: str, code: str, minutes: int = 10):
         captured["to"], captured["code"] = to, code
 
+    monkeypatch.setattr(emailer, "smtp_configured", lambda: False)
+    monkeypatch.setattr(emailer, "email_configured", lambda: True)
     monkeypatch.setattr(emailer, "send_verification_code", fake_send)
     email = f"{uuid.uuid4().hex[:10]}@example.edu"
     password = f"Mail-{uuid.uuid4().hex}-A1"
@@ -76,6 +80,7 @@ def test_email_code_flow_required_when_smtp_configured(monkeypatch):
 
 
 def test_mp_wechat_register_then_bind_email(monkeypatch):
+    monkeypatch.delenv("PAPERGUARD_RESEND_API_KEY", raising=False)
     monkeypatch.setenv("PAPERGUARD_MP_BINDING_SECRET", "test-only-mp-binding-secret")
     suffix = uuid.uuid4().hex[:10]
 
@@ -119,6 +124,7 @@ def test_mp_wechat_register_then_bind_email(monkeypatch):
 
 
 def test_mp_bind_accepts_email_identifier(monkeypatch):
+    monkeypatch.delenv("PAPERGUARD_RESEND_API_KEY", raising=False)
     email = f"{uuid.uuid4().hex[:10]}@example.edu"
     password = f"Mail-{uuid.uuid4().hex}-A1"
     registered = client.post("/api/auth/register", json=_register_payload(email=email, password=password))
@@ -136,3 +142,52 @@ def test_mp_bind_accepts_email_identifier(monkeypatch):
     bound = client.post("/api/auth/mp/bind", json={"bind_ticket": ticket, "username": email, "password": password})
     assert bound.status_code == 200, bound.text
     assert bound.json()["user"]["email"].endswith("@example.edu")
+
+
+def test_resend_provider_used_when_key_present(monkeypatch):
+    monkeypatch.setenv("PAPERGUARD_RESEND_API_KEY", "re_test-key-not-real")
+    monkeypatch.delenv("PAPERGUARD_SMTP_HOST", raising=False)
+    captured: dict[str, object] = {}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs.get("json")
+
+        class Response:
+            status_code = 200
+            text = "{}"
+
+            def json(self):
+                return {"id": "email-1"}
+
+        return Response()
+
+    monkeypatch.setattr(emailer.httpx, "post", fake_post)
+    assert emailer.email_configured() is True
+    emailer.send_email("owner@example.com", "主题", "正文")
+    assert "api.resend.com/emails" in str(captured["url"])
+    payload = captured["json"]
+    assert payload["to"] == ["owner@example.com"]
+    assert payload["subject"] == "主题"
+    assert str(payload["from"]).startswith("论文卫士Pro <")
+
+
+def test_send_failure_maps_to_502(monkeypatch):
+    monkeypatch.setenv("PAPERGUARD_RESEND_API_KEY", "re_test-key-not-real")
+    monkeypatch.setenv("PAPERGUARD_RESEND_FROM", "onboarding@resend.dev")
+
+    def fake_post(url, **kwargs):
+        class Response:
+            status_code = 422
+            text = '{"message":"Invalid to field"}'
+
+            def json(self):
+                return {}
+
+        return Response()
+
+    monkeypatch.setattr(emailer.httpx, "post", fake_post)
+    email = f"{uuid.uuid4().hex[:10]}@example.edu"
+    code_resp = client.post("/api/auth/email/code", json={"email": email})
+    assert code_resp.status_code == 502
+    assert code_resp.json()["detail"]["code"] == "EMAIL_SEND_FAILED"
