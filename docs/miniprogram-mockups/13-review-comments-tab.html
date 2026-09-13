@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-background text-on-surface" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>审阅 · 批注页签</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-primary-container": "#b8c8ff",
+            "on-error": "#ffffff",
+            "primary-fixed-dim": "#b4c5ff",
+            "on-primary-fixed-variant": "#003ea8",
+            "on-primary-fixed": "#00174b",
+            "inverse-primary": "#b4c5ff",
+            "on-secondary": "#ffffff",
+            "on-surface": "#0b1c30",
+            "primary-container": "#004ac6",
+            "surface-dim": "#cbdbf6",
+            "on-tertiary-fixed-variant": "#005320",
+            "secondary": "#0051d5",
+            "on-background": "#0b1c30",
+            "background": "#f8f9ff",
+            "tertiary-fixed": "#7ffc97",
+            "on-tertiary": "#ffffff",
+            "tertiary-container": "#006228",
+            "surface-container-high": "#dde9ff",
+            "tertiary": "#00481b",
+            "on-tertiary-container": "#64e17f",
+            "surface-container-highest": "#d3e3ff",
+            "secondary-fixed": "#dbe1ff",
+            "inverse-on-surface": "#ebf1ff",
+            "inverse-surface": "#213146",
+            "primary-fixed": "#dbe1ff",
+            "surface-container": "#e6eeff",
+            "primary": "#003594",
+            "on-error-container": "#93000a",
+            "error": "#ba1a1a",
+            "surface-container-low": "#eff4ff",
+            "tertiary-fixed-dim": "#62df7d",
+            "surface-container-lowest": "#ffffff",
+            "error-container": "#ffdad6",
+            "surface-variant": "#d3e3ff",
+            "on-secondary-container": "#fefcff",
+            "on-secondary-fixed-variant": "#003ea8",
+            "surface": "#f8f9ff",
+            "on-surface-variant": "#434654",
+            "outline-variant": "#c3c6d6",
+            "on-tertiary-fixed": "#002109",
+            "outline": "#737685",
+            "on-secondary-fixed": "#00174b",
+            "surface-bright": "#f8f9ff",
+            "secondary-container": "#316bf3",
+            "surface-tint": "#1b55d0",
+            "secondary-fixed-dim": "#b4c5ff",
+            "on-primary": "#ffffff"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-base": "1rem",
+            "margin-md": "1.5rem",
+            "gutter-lg": "1.5rem",
+            "space-2xl": "3rem",
+            "space-xl": "2rem",
+            "space-sm": "0.5rem",
+            "space-2xs": "0.125rem",
+            "space-md": "0.75rem",
+            "margin-lg": "2rem",
+            "margin": "1rem",
+            "space-lg": "1.5rem",
+            "gutter": "1rem",
+            "space-xs": "0.25rem"
+          },
+          "fontFamily": {
+            "headline-md": ["Geist", "sans-serif"],
+            "body-sm": ["Geist", "sans-serif"],
+            "code-sm": ["JetBrains Mono", "monospace"],
+            "body-md": ["Geist", "sans-serif"],
+            "body-lg": ["Geist", "sans-serif"],
+            "label-sm": ["Geist", "sans-serif"],
+            "label-md": ["Geist", "sans-serif"],
+            "headline-sm": ["Geist", "sans-serif"]
+          },
+          "fontSize": {
+            "headline-md": ["1.25rem", { lineHeight: "1.75rem", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "body-sm": ["0.8125rem", { lineHeight: "1.25rem", letterSpacing: "0.005em", fontWeight: "400" }],
+            "code-sm": ["0.75rem", { lineHeight: "1rem", letterSpacing: "0em", fontWeight: "400" }],
+            "body-md": ["0.875rem", { lineHeight: "1.5rem", letterSpacing: "0em", fontWeight: "400" }],
+            "body-lg": ["1rem", { lineHeight: "1.625rem", letterSpacing: "0em", fontWeight: "400" }],
+            "label-sm": ["0.75rem", { lineHeight: "1rem", letterSpacing: "0.02em", fontWeight: "500" }],
+            "label-md": ["0.8125rem", { lineHeight: "1.125rem", letterSpacing: "0.01em", fontWeight: "500" }],
+            "headline-sm": ["1.0625rem", { lineHeight: "1.5rem", letterSpacing: "-0.005em", fontWeight: "600" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 20px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-smoothing: antialiased;
+      vertical-align: middle;
+    }
+    body {
+      -webkit-tap-highlight-color: transparent;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="min-h-full flex flex-col font-body-md text-body-md bg-background antialiased selection:bg-surface-container-high selection:text-primary">
+<!-- 小程序原生风格顶栏 (带胶囊与状态栏预留) -->
+<header class="sticky top-0 z-50 bg-surface-container-lowest/95 backdrop-blur-md border-b border-outline-variant/30 shadow-[0_1px_3px_0_rgba(11,28,48,0.02)]">
+<!-- 微信小程序伪状态栏 -->
+<div class="h-6 w-full flex items-center justify-between px-5 text-[11px] font-label-sm text-on-surface-variant select-none">
+<span class="font-code-sm text-code-sm tracking-tight text-on-surface">09:41</span>
+<div class="flex items-center space-x-1.5 opacity-80">
+<span class="material-symbols-outlined text-[14px]" data-icon="signal_cellular_alt">signal_cellular_alt</span>
+<span class="material-symbols-outlined text-[14px]" data-icon="wifi">wifi</span>
+<span class="material-symbols-outlined text-[16px]" data-icon="battery_full">battery_full</span>
+</div>
+</div>
+<!-- 导航操作栏与微信右上角胶囊 -->
+<div class="h-11 px-3 flex items-center justify-between relative">
+<div class="flex items-center space-x-1">
+<button aria-label="返回" class="w-8 h-8 rounded-full flex items-center justify-center text-on-surface hover:bg-surface-container-low active:opacity-70 transition-opacity">
+<span class="material-symbols-outlined text-[20px]" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-sm text-headline-sm text-on-surface tracking-tight font-semibold">论文审阅</h1>
+</div>
+<!-- 微信小程序标配胶囊按钮 (Capsule Pill) -->
+<div class="flex items-center bg-surface border border-outline-variant/60 rounded-full h-7 px-2.5 space-x-2.5 shadow-sm">
+<button aria-label="更多操作" class="flex items-center justify-center text-on-surface hover:opacity-75">
+<span class="material-symbols-outlined text-[15px] font-bold" data-icon="more_horiz">more_horiz</span>
+</button>
+<span class="w-[1px] h-3 bg-outline-variant/50"></span>
+<button aria-label="小程序关闭" class="flex items-center justify-center text-on-surface hover:opacity-75">
+<div class="w-2.5 h-2.5 rounded-full border-[1.5px] border-on-surface"></div>
+</button>
+</div>
+</div>
+</header>
+<!-- 主视图流动区域 -->
+<main class="flex-1 max-w-lg mx-auto w-full px-3.5 pt-3 pb-32 space-y-3">
+<!-- 1. 学生信息与存证条 (紧凑白卡) -->
+<section class="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-3 shadow-[0_1px_2px_0_rgba(11,28,48,0.03)] flex items-center justify-between">
+<div class="flex items-center space-x-2.5 min-w-0">
+<div class="w-8 h-8 rounded-full bg-surface-container text-primary font-headline-sm text-headline-sm flex items-center justify-center font-semibold shrink-0">
+          晓
+        </div>
+<div class="min-w-0">
+<div class="flex items-center space-x-1.5 flex-wrap">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate">陈晓</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-primary font-label-sm text-[11px] font-medium">提交 S2</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-low text-on-surface-variant font-label-sm text-[11px]">只读快照</span>
+</div>
+<div class="flex items-center space-x-2 mt-0.5 text-on-surface-variant font-body-sm text-[11px]">
+<span class="font-code-sm text-code-sm text-outline">学号: 2023011234</span>
+<span class="inline-block w-1 h-1 rounded-full bg-outline-variant"></span>
+<span class="truncate">人工智能与深度学习实验室</span>
+</div>
+</div>
+</div>
+<!-- 存证图标徽章 -->
+<div class="flex items-center space-x-1 text-primary bg-primary/5 px-2 py-1 rounded-lg border border-primary/10 shrink-0 ml-2" title="不可篡改学术链存证">
+<span class="material-symbols-outlined text-[15px] text-primary" data-icon="verified_user">verified_user</span>
+<span class="font-label-sm text-[10px] text-primary font-medium tracking-tight">已存证</span>
+</div>
+</section>
+<!-- 2. 分段切换药丸栏 (三选项，批注高亮) -->
+<nav aria-label="审阅视图切换" class="bg-surface-container-low/90 p-1 rounded-xl border border-outline-variant/30 flex items-center text-center shadow-inner">
+<button class="flex-1 py-1.5 rounded-lg font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors flex items-center justify-center space-x-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="article">article</span>
+<span>正文</span>
+</button>
+<!-- 当前选中：批注 (2) -->
+<button aria-current="page" class="flex-1 py-1.5 rounded-lg bg-surface-container-lowest text-primary font-label-md text-label-md font-semibold shadow-sm border border-outline-variant/40 flex items-center justify-center space-x-1 transition-all">
+<span class="material-symbols-outlined text-[16px] text-primary" data-icon="comment">comment</span>
+<span>批注 (2)</span>
+</button>
+<button class="flex-1 py-1.5 rounded-lg font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors flex items-center justify-center space-x-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="rule">rule</span>
+<span>检查</span>
+</button>
+</nav>
+<!-- 3. 批注操作提示条 (浅蓝底柔和边框) -->
+<aside class="bg-surface-container-low/70 border border-secondary/15 rounded-lg px-3 py-2 flex items-center space-x-2 text-secondary">
+<span class="material-symbols-outlined text-[16px] shrink-0" data-icon="touch_app">touch_app</span>
+<p class="font-body-sm text-[12px] leading-tight text-on-surface-variant">
+        点击批注卡片可在正文模式下精准锚定并定位原文段落。
+      </p>
+</aside>
+<!-- 4. 阻断批注卡 (高风险红色左侧粗强调边条) -->
+<article class="bg-surface-container-lowest border border-outline-variant/50 rounded-xl shadow-[0_1px_3px_0_rgba(11,28,48,0.03)] overflow-hidden relative transition-all hover:border-error/40">
+<!-- 4px 红色状态条 -->
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-error"></div>
+<div class="p-3.5 pl-4 space-y-3">
+<!-- 头部：层级分类与状态徽标 -->
+<div class="flex items-start justify-between gap-2">
+<div class="flex items-center space-x-1.5 text-error font-headline-sm text-headline-sm font-semibold min-w-0">
+<span class="material-symbols-outlined text-[18px] shrink-0" data-icon="shield_alert">flip_camera_ios</span>
+<span class="tracking-tight truncate text-[13.5px]">阻断 · 3.2 实验分析 第2段</span>
+</div>
+<!-- 状态徽标：已回复·待确认 (暖橙色) -->
+<div class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-600/20 text-amber-700 font-label-sm text-[11px] font-medium shrink-0">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+<span>已回复 · 待确认</span>
+</div>
+</div>
+<!-- 原文摘录 (软黄底浅米色引用块) -->
+<blockquote class="bg-[#fefbe8] border-l-2 border-amber-400/70 p-2.5 rounded-r-lg font-body-sm text-[12.5px] leading-relaxed text-on-surface/90">
+<div class="flex items-center space-x-1 text-amber-800/80 font-label-sm text-[11px] mb-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="format_quote">format_quote</span>
+<span>原文定位引用</span>
+</div>
+          “……在测试集上的对比实验中，本研究提出的改进模型在准确率指标上较基准模型提升 12%，吞吐量达到 142 FPS……”
+        </blockquote>
+<!-- 导师历史批注概要 -->
+<div class="text-on-surface-variant font-body-sm text-[12.5px] leading-normal bg-surface-container-low/40 p-2 rounded border border-outline-variant/20">
+<span class="font-medium text-on-surface">评审意见：</span>缺乏基准测试细节及对比参数环境，未交代硬件配置即声明提升12%缺乏复现说服力。
+        </div>
+<!-- 学生回复气泡 (浅灰底卡片) -->
+<div class="bg-surface-container-low/80 border border-outline-variant/40 rounded-lg p-2.5 space-y-1.5">
+<div class="flex items-center justify-between">
+<div class="flex items-center space-x-1.5">
+<span class="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">陈</span>
+<span class="font-label-md text-label-md text-on-surface font-semibold">陈晓回复</span>
+</div>
+<time class="font-code-sm text-[11px] text-outline">今天 10:15</time>
+</div>
+<p class="font-body-sm text-[12px] leading-relaxed text-on-surface-variant pl-6">
+            已补充基线对照与消融测试参数指标，见图 4-6 与表 3，并详细记录了 RTX 4090 单卡测试环境配置。
+          </p>
+</div>
+<!-- 教师核验操作区 (Action Bar) -->
+<div class="pt-1 border-t border-outline-variant/30 space-y-2">
+<div class="flex items-center space-x-2">
+<!-- 确认解决主按钮 -->
+<button class="flex-1 h-8 rounded-lg bg-[#004ac6] hover:bg-[#2563eb] text-white font-label-md text-label-md font-medium flex items-center justify-center space-x-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)] active:scale-[0.98] transition-transform">
+<span class="material-symbols-outlined text-[16px]" data-icon="check_circle">check_circle</span>
+<span>确认解决</span>
+</button>
+<!-- 重新打开次按钮 -->
+<button class="h-8 px-3 rounded-lg bg-surface-container-lowest border border-outline-variant text-on-surface font-label-md text-label-md hover:bg-surface-container-low active:opacity-75 transition-opacity flex items-center justify-center space-x-1">
+<span class="material-symbols-outlined text-[16px] text-outline" data-icon="refresh">refresh</span>
+<span>重新打开</span>
+</button>
+</div>
+<div class="flex items-center space-x-1 text-outline font-body-sm text-[11px]">
+<span class="material-symbols-outlined text-[13px] text-error" data-icon="info">info</span>
+<span>确认解决后该阻断项关闭，方可通过论文终审。</span>
+</div>
+</div>
+</div>
+</article>
+<!-- 5. 建议批注卡 (蓝色左侧强调边条) -->
+<article class="bg-surface-container-lowest border border-outline-variant/50 rounded-xl shadow-[0_1px_3px_0_rgba(11,28,48,0.03)] overflow-hidden relative transition-all hover:border-primary/40">
+<!-- 4px 蓝色状态条 -->
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-secondary"></div>
+<div class="p-3.5 pl-4 space-y-2.5">
+<!-- 头部：层级分类与状态徽标 -->
+<div class="flex items-start justify-between gap-2">
+<div class="flex items-center space-x-1.5 text-secondary font-headline-sm text-headline-sm font-semibold min-w-0">
+<span class="material-symbols-outlined text-[18px] shrink-0" data-icon="lightbulb">lightbulb</span>
+<span class="tracking-tight truncate text-[13.5px]">建议 · 摘要 第1段</span>
+</div>
+<!-- 状态徽标：待学生回复 (中灰柔和) -->
+<div class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-surface-container text-on-surface-variant font-label-sm text-[11px] font-medium shrink-0 border border-outline-variant/30">
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+<span>待学生回复</span>
+</div>
+</div>
+<!-- 批注正文内容 -->
+<div class="bg-surface-container-low/40 p-2.5 rounded-lg border border-outline-variant/20">
+<p class="font-body-md text-[13px] leading-relaxed text-on-surface">
+            建议补充关键词检索说明及中英文对照，以便后续会议投稿检索规范。
+          </p>
+</div>
+<!-- 底部辅助说明 -->
+<div class="flex items-center justify-between pt-1 border-t border-outline-variant/20 text-[11px] font-body-sm text-outline">
+<div class="flex items-center space-x-1">
+<span class="material-symbols-outlined text-[13px]" data-icon="help_outline">help_outline</span>
+<span>提示：建议级批注不阻断终审通过</span>
+</div>
+<span class="font-code-sm text-outline">2天前</span>
+</div>
+</div>
+</article>
+</main>
+<!-- 6. 底部固定操作栏 (无底部通用TabBar，专用于论文审阅) -->
+<footer class="fixed bottom-0 left-0 right-0 z-40 bg-surface-container-lowest border-t border-outline-variant/50 shadow-[0_-4px_16px_rgba(11,28,48,0.06)] px-4 pt-2.5 pb-6">
+<div class="max-w-lg mx-auto space-y-2">
+<!-- 提示文案：阻断项存在 -->
+<div class="flex items-center justify-center space-x-1 text-error font-label-sm text-[11.5px] bg-error/5 py-1 px-2 rounded-md border border-error/15">
+<span class="material-symbols-outlined text-[14px]" data-icon="error">error</span>
+<span>存在 1 条阻断项待确认解决，暂不可通过</span>
+</div>
+<!-- 双按钮操作区 -->
+<div class="flex items-center space-x-3">
+<!-- 退回按钮 -->
+<button class="flex-1 h-10 rounded-lg border border-error/70 text-error bg-surface-container-lowest hover:bg-error/5 active:bg-error/10 font-label-md text-label-md font-semibold flex items-center justify-center space-x-1.5 transition-colors">
+<span class="material-symbols-outlined text-[18px]" data-icon="assignment_return">assignment_return</span>
+<span>退回修改</span>
+</button>
+<!-- 通过按钮 (当前禁用锁死状态) -->
+<button class="flex-1 h-10 rounded-lg bg-outline-variant/40 text-on-surface-variant/50 border border-outline-variant/40 font-label-md text-label-md font-semibold flex items-center justify-center space-x-1.5 cursor-not-allowed select-none" disabled="" title="阻断项未解决无法通过">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant/40" data-icon="lock">lock</span>
+<span>审核通过</span>
+</button>
+</div>
+</div>
+</footer>
+</body></html>

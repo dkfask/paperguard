@@ -1,0 +1,234 @@
+<html><head><meta charset="utf-8"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+          "surface-tint": "#1b55d0",
+          "secondary-fixed": "#dbe1ff",
+          "surface-container-highest": "#d3e3ff",
+          "tertiary": "#00481b",
+          "tertiary-fixed-dim": "#62df7d",
+          "secondary-container": "#316bf3",
+          "tertiary-fixed": "#7ffc97",
+          "tertiary-container": "#006228",
+          "on-primary-fixed-variant": "#003ea8",
+          "on-primary-container": "#b8c8ff",
+          "on-error-container": "#93000a",
+          "outline-variant": "#c3c6d6",
+          "error-container": "#ffdad6",
+          "on-primary-fixed": "#00174b",
+          "on-surface-variant": "#434654",
+          "surface-container": "#e6eeff",
+          "on-secondary-container": "#fefcff",
+          "primary-fixed-dim": "#b4c5ff",
+          "background": "#f8f9ff",
+          "on-secondary": "#ffffff",
+          "inverse-on-surface": "#ebf1ff",
+          "on-tertiary-container": "#64e17f",
+          "surface-dim": "#cbdbf6",
+          "surface-bright": "#f8f9ff",
+          "inverse-surface": "#213146",
+          "on-tertiary": "#ffffff",
+          "on-background": "#0b1c30",
+          "surface-container-high": "#dde9ff",
+          "primary": "#003594",
+          "error": "#ba1a1a",
+          "on-tertiary-fixed": "#002109",
+          "secondary-fixed-dim": "#b4c5ff",
+          "surface-variant": "#d3e3ff",
+          "on-tertiary-fixed-variant": "#005320",
+          "secondary": "#0051d5",
+          "on-primary": "#ffffff",
+          "surface-container-lowest": "#ffffff",
+          "primary-fixed": "#dbe1ff",
+          "surface-container-low": "#eff4ff",
+          "primary-container": "#004ac6",
+          "on-secondary-fixed": "#00174b",
+          "on-secondary-fixed-variant": "#003ea8",
+          "outline": "#737685",
+          "on-error": "#ffffff",
+          "inverse-primary": "#b4c5ff",
+          "surface": "#f8f9ff",
+          "on-surface": "#0b1c30"
+        },
+        "borderRadius": {
+          "DEFAULT": "0.25rem",
+          "lg": "0.5rem",
+          "xl": "0.75rem",
+          "full": "9999px"
+        },
+        "spacing": {
+          "margin": "1rem",
+          "gutter": "1rem",
+          "space-xl": "2rem",
+          "margin-lg": "2rem",
+          "space-sm": "0.5rem",
+          "space-2xs": "0.125rem",
+          "space-lg": "1.5rem",
+          "space-2xl": "3rem",
+          "gutter-lg": "1.5rem",
+          "space-md": "0.75rem",
+          "margin-md": "1.5rem",
+          "space-xs": "0.25rem",
+          "space-base": "1rem"
+        },
+        "fontFamily": {
+          "body-lg": ["Geist"],
+          "display-lg": ["Newsreader"],
+          "label-md": ["Geist"],
+          "body-md": ["Geist"],
+          "headline-lg": ["Newsreader"],
+          "code-sm": ["JetBrains Mono"],
+          "headline-md": ["Geist"],
+          "body-sm": ["Geist"],
+          "headline-sm": ["Geist"],
+          "label-sm": ["Geist"]
+        },
+        "fontSize": {
+          "body-lg": ["1rem", {"lineHeight": "1.625rem", "letterSpacing": "0em", "fontWeight": "400"}],
+          "display-lg": ["2.25rem", {"lineHeight": "2.75rem", "letterSpacing": "-0.02em", "fontWeight": "500"}],
+          "label-md": ["0.8125rem", {"lineHeight": "1.125rem", "letterSpacing": "0.01em", "fontWeight": "500"}],
+          "body-md": ["0.875rem", {"lineHeight": "1.5rem", "letterSpacing": "0em", "fontWeight": "400"}],
+          "headline-lg": ["1.75rem", {"lineHeight": "2.25rem", "letterSpacing": "-0.015em", "fontWeight": "500"}],
+          "code-sm": ["0.75rem", {"lineHeight": "1rem", "letterSpacing": "0em", "fontWeight": "400"}],
+          "headline-md": ["1.25rem", {"lineHeight": "1.75rem", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+          "body-sm": ["0.8125rem", {"lineHeight": "1.25rem", "letterSpacing": "0.005em", "fontWeight": "400"}],
+          "headline-sm": ["1.0625rem", {"lineHeight": "1.5rem", "letterSpacing": "-0.005em", "fontWeight": "600"}],
+          "label-sm": ["0.75rem", {"lineHeight": "1rem", "letterSpacing": "0.02em", "fontWeight": "500"}]
+        }
+      }
+    }
+  }
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Newsreader:wght@100..900&display=swap" rel="stylesheet"/>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-background text-on-background font-body-md antialiased min-h-screen flex flex-col justify-between selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 left-0 w-full z-50 flex items-center justify-between px-margin h-12 bg-surface dark:bg-inverse-surface shadow-sm dark:shadow-none">
+<div class="flex items-center gap-2">
+<button class="text-primary dark:text-inverse-primary hover:bg-surface-container dark:hover:bg-surface-container-high transition-colors duration-150 p-1 rounded-full active:opacity-75 transition-opacity duration-100">
+<span class="material-symbols-outlined text-xl">arrow_back</span>
+</button>
+<h1 class="text-headline-sm font-headline-sm font-semibold text-on-surface dark:text-inverse-on-surface">论文审阅</h1>
+</div>
+<div class="flex items-center">
+<button class="text-on-surface-variant dark:text-outline-variant hover:bg-surface-container dark:hover:bg-surface-container-high transition-colors duration-150 p-1 rounded-full active:opacity-75 transition-opacity duration-100">
+<span class="material-symbols-outlined text-xl">more_horiz</span>
+</button>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 pt-16 pb-28 px-margin max-w-md mx-auto w-full flex flex-col gap-space-md">
+<!-- 顶部紧凑条 -->
+<div class="flex items-center justify-between px-space-md py-space-xs bg-surface-container-low rounded-lg border border-outline-variant/30 text-body-sm text-on-surface-variant">
+<span class="font-medium text-on-surface">陈晓 · 提交 S2</span>
+<span class="text-xs bg-surface-container px-2 py-0.5 rounded text-primary">只读快照</span>
+</div>
+<!-- 分段药丸 -->
+<div class="flex bg-surface-container p-1 rounded-full border border-outline-variant/20">
+<button class="flex-1 py-1.5 text-center text-label-md rounded-full text-on-surface-variant hover:text-on-surface transition-colors">正文/批注 (2)</button>
+<button class="flex-1 py-1.5 text-center text-label-md rounded-full bg-primary-container text-on-primary-container font-semibold shadow-sm">检查</button>
+</div>
+<!-- 检查总览卡 -->
+<div class="bg-surface-container-lowest border border-[#e2e8f0] rounded-xl p-space-md shadow-[0_1px_2px_0_rgba(11,28,48,0.03),0_1px_3px_0_rgba(11,28,48,0.02)] flex flex-col gap-space-sm">
+<div class="flex items-center justify-between pb-2 border-b border-[#f1f5f9]">
+<div class="flex items-center gap-space-xs">
+<div class="w-7 h-7 rounded-full bg-[#16a34a]/10 flex items-center justify-center text-[#16a34a]">
+<span class="material-symbols-outlined text-base" style="font-variation-settings: 'FILL' 1;">verified</span>
+</div>
+<span class="font-headline-sm text-on-surface text-sm">自动检查全部通过</span>
+</div>
+<span class="text-code-sm text-outline">依据学校规范 v2</span>
+</div>
+<div class="flex flex-col gap-2 pt-1">
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant">格式规范 GB/T 7713</span>
+<div class="flex items-center gap-1 text-[#16a34a] font-medium text-xs">
+<span class="material-symbols-outlined text-sm">check_circle</span>
+<span>通过</span>
+</div>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant">引用规范 GB/T 7714</span>
+<div class="flex items-center gap-1 text-[#16a34a] font-medium text-xs">
+<span class="material-symbols-outlined text-sm">check_circle</span>
+<span>通过</span>
+</div>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant">模板样式一致性</span>
+<div class="flex items-center gap-1 text-[#16a34a] font-medium text-xs">
+<span class="material-symbols-outlined text-sm">check_circle</span>
+<span>通过</span>
+</div>
+</div>
+</div>
+<div class="pt-2 border-t border-[#f1f5f9] flex justify-between items-center text-code-sm text-outline">
+<span>检查引擎 v1.4 · 09-12 14:28</span>
+<span>已豁免 0 项</span>
+</div>
+</div>
+<!-- 教师人工确认卡 -->
+<div class="bg-surface-container-lowest border-2 border-[#16a34a] rounded-xl p-space-md shadow-[0_4px_12px_-2px_rgba(11,28,48,0.05),0_2px_4px_-2px_rgba(11,28,48,0.03)] flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<h3 class="font-headline-sm text-on-surface text-sm">通过前人工确认</h3>
+<span class="text-[10px] bg-[#16a34a]/10 text-[#16a34a] px-2 py-0.5 rounded font-medium">必须项</span>
+</div>
+<div class="flex items-start gap-space-xs pt-1">
+<div class="w-5 h-5 rounded bg-[#16a34a] flex items-center justify-center text-white shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-sm">check</span>
+</div>
+<div class="flex flex-col">
+<span class="text-body-md text-on-surface font-medium leading-tight">确认实验数据完整性</span>
+<span class="text-code-sm text-outline mt-1">王建国 教授 · 09-12 15:02 确认</span>
+</div>
+</div>
+<div class="pt-2 border-t border-[#f1f5f9] text-code-sm text-outline italic">
+        人工确认不可由自动检查替代
+      </div>
+</div>
+<!-- 材料清单卡 -->
+<div class="bg-surface-container-lowest border border-[#e2e8f0] rounded-xl p-space-md shadow-[0_1px_2px_0_rgba(11,28,48,0.03),0_1px_3px_0_rgba(11,28,48,0.02)] flex flex-col gap-space-sm">
+<h3 class="font-headline-sm text-on-surface text-sm pb-1 border-b border-[#f1f5f9]">材料清单</h3>
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between text-body-sm">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-base text-primary">description</span>
+<span class="text-on-surface font-medium">开题报告.pdf</span>
+</div>
+<span class="text-xs text-[#16a34a] bg-[#16a34a]/10 px-2 py-0.5 rounded font-medium">已上传</span>
+</div>
+<div class="flex items-center justify-between text-body-sm">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-base text-primary">description</span>
+<span class="text-on-surface font-medium">查重报告.pdf</span>
+</div>
+<span class="text-xs text-[#16a34a] bg-[#16a34a]/10 px-2 py-0.5 rounded font-medium">已上传</span>
+</div>
+</div>
+</div>
+</main>
+<!-- 底部固定操作条 -->
+<footer class="fixed bottom-0 left-0 w-full bg-surface/90 backdrop-blur-md border-t border-outline-variant/20 px-margin py-space-sm z-40 flex flex-col items-center">
+<div class="w-full max-w-md flex flex-col gap-2">
+<span class="text-center text-code-sm text-outline">通过后初稿阶段解锁,终稿进入归档流程</span>
+<div class="flex gap-space-sm w-full">
+<button class="flex-1 h-9 rounded-lg border border-error text-error hover:bg-error-container/20 font-label-md transition-colors active:opacity-75">
+          退回
+        </button>
+<button class="flex-2 h-9 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary transition-colors font-label-md shadow-sm active:opacity-75 flex items-center justify-center">
+          通过
+        </button>
+</div>
+</div>
+</footer>
+</body></html>
