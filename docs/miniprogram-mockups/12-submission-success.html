@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>提交结果凭证</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Fonts: Newsreader, Geist, JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container-highest": "#d3e3ff",
+            "primary-fixed-dim": "#b4c5ff",
+            "surface": "#f8f9ff",
+            "on-surface-variant": "#434654",
+            "on-surface": "#0b1c30",
+            "on-secondary-fixed": "#00174b",
+            "surface-bright": "#f8f9ff",
+            "on-primary-fixed-variant": "#003ea8",
+            "inverse-on-surface": "#ebf1ff",
+            "on-primary-container": "#b8c8ff",
+            "surface-tint": "#1b55d0",
+            "surface-container-lowest": "#ffffff",
+            "on-secondary": "#ffffff",
+            "tertiary-container": "#006228",
+            "surface-container": "#e6eeff",
+            "outline-variant": "#c3c6d6",
+            "surface-container-high": "#dde9ff",
+            "secondary-fixed": "#dbe1ff",
+            "outline": "#737685",
+            "on-tertiary-fixed": "#002109",
+            "tertiary-fixed-dim": "#62df7d",
+            "secondary": "#0051d5",
+            "on-tertiary-container": "#64e17f",
+            "on-tertiary-fixed-variant": "#005320",
+            "tertiary": "#00481b",
+            "secondary-fixed-dim": "#b4c5ff",
+            "error": "#ba1a1a",
+            "on-tertiary": "#ffffff",
+            "on-secondary-fixed-variant": "#003ea8",
+            "on-error": "#ffffff",
+            "background": "#f8f9ff",
+            "tertiary-fixed": "#7ffc97",
+            "on-primary-fixed": "#00174b",
+            "surface-container-low": "#eff4ff",
+            "inverse-surface": "#213146",
+            "on-secondary-container": "#fefcff",
+            "on-background": "#0b1c30",
+            "primary-fixed": "#dbe1ff",
+            "error-container": "#ffdad6",
+            "surface-dim": "#cbdbf6",
+            "on-error-container": "#93000a",
+            "secondary-container": "#316bf3",
+            "primary-container": "#004ac6",
+            "surface-variant": "#d3e3ff",
+            "on-primary": "#ffffff",
+            "inverse-primary": "#b4c5ff",
+            "primary": "#003594"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-xs": "0.25rem",
+            "space-xl": "2rem",
+            "space-base": "1rem",
+            "margin-md": "1.5rem",
+            "space-sm": "0.5rem",
+            "space-md": "0.75rem",
+            "margin-lg": "2rem",
+            "space-2xl": "3rem",
+            "space-lg": "1.5rem",
+            "gutter": "1rem",
+            "gutter-lg": "1.5rem",
+            "margin": "1rem",
+            "space-2xs": "0.125rem"
+          },
+          "fontFamily": {
+            "label-sm": ["Geist"],
+            "code-sm": ["JetBrains Mono"],
+            "headline-lg": ["Newsreader"],
+            "headline-md": ["Geist"],
+            "body-lg": ["Geist"],
+            "body-md": ["Geist"],
+            "label-md": ["Geist"],
+            "headline-sm": ["Geist"],
+            "display-lg": ["Newsreader"],
+            "body-sm": ["Geist"]
+          },
+          "fontSize": {
+            "label-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "code-sm": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "letterSpacing": "-0.015em", "fontWeight": "500" }],
+            "headline-md": ["1.25rem", { "lineHeight": "1.75rem", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "body-lg": ["1rem", { "lineHeight": "1.625rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "body-md": ["0.875rem", { "lineHeight": "1.5rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "label-md": ["0.8125rem", { "lineHeight": "1.125rem", "letterSpacing": "0.01em", "fontWeight": "500" }],
+            "headline-sm": ["1.0625rem", { "lineHeight": "1.5rem", "letterSpacing": "-0.005em", "fontWeight": "600" }],
+            "display-lg": ["2.25rem", { "lineHeight": "2.75rem", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+            "body-sm": ["0.8125rem", { "lineHeight": "1.25rem", "letterSpacing": "0.005em", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 20px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-feature-settings: 'liga';
+      -webkit-font-smoothing: antialiased;
+    }
+    .academic-card {
+      box-shadow: 0 1px 2px 0 rgba(11, 28, 48, 0.03), 0 1px 3px 0 rgba(11, 28, 48, 0.02);
+    }
+    .primary-btn-depth {
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 6px -1px rgba(0, 74, 198, 0.28);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface antialiased min-h-screen flex justify-center selection:bg-surface-variant selection:text-primary">
+<!-- Mobile Screen Container (WeChat Mini Program Simulation) -->
+<div class="w-full max-w-md min-h-screen flex flex-col justify-between bg-surface relative pb-28">
+<!-- WeChat Mini Program Top Header & Status Bar Area -->
+<header class="w-full pt-3 px-4 pb-2 select-none sticky top-0 z-40 bg-surface/90 backdrop-blur-md">
+<!-- Status bar mockup -->
+<div class="flex justify-between items-center text-xs font-label-sm text-on-surface-variant px-1 pt-1 mb-2">
+<span class="font-semibold tracking-tight text-on-surface">09:41</span>
+<div class="flex items-center space-x-1.5 opacity-80">
+<span class="material-symbols-outlined text-[14px]">signal_cellular_alt</span>
+<span class="material-symbols-outlined text-[14px]">wifi</span>
+<span class="material-symbols-outlined text-[14px]">battery_full</span>
+</div>
+</div>
+<!-- Shared TopAppBar Container (From JSON Anchor Execution) -->
+<div class="flex justify-between items-center w-full h-11 px-1">
+<!-- Left: Status Icon (Anchored leading_icon="task_alt") -->
+<div class="flex items-center space-x-1.5 text-primary">
+<span class="material-symbols-outlined text-[20px]" data-icon="task_alt" style="font-variation-settings: 'FILL' 1;">task_alt</span>
+<span class="font-headline-sm text-headline-sm font-semibold tracking-tight text-on-surface">提交结果</span>
+</div>
+<!-- WeChat Mini Program Capsule Placeholder (Right Native Navigation Action) -->
+<div class="flex items-center bg-surface-container-lowest/80 border border-outline-variant/60 rounded-full px-2.5 py-1 space-x-2 shadow-sm backdrop-blur">
+<span class="material-symbols-outlined text-on-surface text-[17px] leading-none" data-icon="more_horiz">more_horiz</span>
+<div class="w-[1px] h-3 bg-outline-variant/80"></div>
+<span class="w-2.5 h-2.5 rounded-full border-[1.5px] border-on-surface flex items-center justify-center">
+<span class="w-1 h-1 rounded-full bg-on-surface"></span>
+</span>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 px-4 space-y-4 pt-1">
+<!-- 1. Center Celebration & Status Zone -->
+<section class="flex flex-col items-center text-center pt-2 pb-2">
+<!-- Modern Layered Micro-Badge with Success Green -->
+<div class="relative flex items-center justify-center mb-3">
+<div class="w-16 h-16 rounded-full bg-[#16a34a]/10 flex items-center justify-center p-1.5 ring-4 ring-[#16a34a]/5">
+<div class="w-12 h-12 rounded-full bg-[#16a34a] flex items-center justify-center shadow-sm text-white">
+<span class="material-symbols-outlined text-[28px] font-bold" data-icon="check" style="font-variation-settings: 'FILL' 1; font-weight: 700;">check</span>
+</div>
+</div>
+</div>
+<h1 class="text-[32px] leading-tight font-bold text-on-surface tracking-tight mb-1 font-headline-md">
+          提交成功
+        </h1>
+<p class="text-body-sm font-body-sm text-on-surface-variant max-w-[280px]">
+          学位论文审查版本已正式入库，数字存证完成
+        </p>
+</section>
+<!-- 2. Core Academic Submission Certificate Card -->
+<div class="bg-surface-container-lowest rounded-xl border border-surface-dim p-4 academic-card relative overflow-hidden">
+<!-- Subtle Top Aesthetic Indicator Ribbon -->
+<div class="absolute top-0 left-0 right-0 h-[3px] bg-primary-container"></div>
+<div class="flex items-start justify-between mb-1 pt-1">
+<div>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-medium tracking-wide uppercase">本次提交编号</span>
+<div class="font-code-sm text-[38px] leading-tight font-bold text-primary-container tracking-tight mt-0.5">
+              S3
+            </div>
+</div>
+<!-- Verification Verified Chip -->
+<div class="flex items-center space-x-1 px-2.5 py-1 bg-surface-container-low rounded-full border border-surface-dim">
+<span class="material-symbols-outlined text-[#16a34a] text-[15px]" data-icon="verified" style="font-variation-settings: 'FILL' 1;">verified</span>
+<span class="text-label-sm font-label-sm text-on-surface font-medium">存证有效</span>
+</div>
+</div>
+<!-- Academic Metadata Rows -->
+<div class="pt-3 border-t border-surface border-dashed space-y-2">
+<div class="flex items-center text-body-sm font-body-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px] mr-1.5 text-outline opacity-80" data-icon="calendar_today">calendar_today</span>
+<span>初稿 · 第3轮 · 2026-09-25 14:30</span>
+</div>
+<div class="flex items-center text-label-sm font-code-sm text-on-surface-variant bg-surface rounded-lg px-2.5 py-1.5 border border-surface-dim/60">
+<span class="material-symbols-outlined text-[15px] mr-1.5 text-primary-container flex-shrink-0" data-icon="lock" style="font-variation-settings: 'FILL' 1;">lock</span>
+<span class="truncate font-code-sm text-on-surface">版本快照 7c21b4a0…9f3e · 提交后不可变</span>
+</div>
+</div>
+</div>
+<!-- 3. Idempotency Notice Bar -->
+<div class="bg-surface-container-low rounded-lg p-3 border border-surface-dim/80 flex items-start space-x-2.5">
+<span class="material-symbols-outlined text-primary-container text-[18px] mt-0.5 flex-shrink-0" data-icon="info" style="font-variation-settings: 'FILL' 1;">info</span>
+<p class="text-label-sm font-label-sm text-on-surface-variant leading-relaxed">
+          重复点击不会产生重复提交；结果可在<span class="text-on-surface font-semibold">「提交历史」</span>中随时查询。
+        </p>
+</div>
+<!-- 4. Review Process Preview Card -->
+<div class="bg-surface-container-lowest rounded-xl border border-surface-dim p-4 academic-card">
+<div class="flex items-center justify-between mb-2.5">
+<div class="flex items-center space-x-3">
+<!-- Mentor Avatar with Academic Badge -->
+<div class="relative">
+<div class="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed font-semibold text-sm border border-primary-fixed-dim">
+                王
+              </div>
+<span class="absolute -bottom-1 -right-1 bg-primary text-white rounded-full p-0.5 flex items-center justify-center ring-2 ring-white">
+<span class="material-symbols-outlined text-[10px]" data-icon="school" style="font-variation-settings: 'FILL' 1;">school</span>
+</span>
+</div>
+<div>
+<div class="flex items-center space-x-1.5">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">王建国 教授</span>
+<span class="text-[10px] font-label-sm text-primary bg-surface-container px-1.5 py-0.5 rounded font-medium">指导导师</span>
+</div>
+<p class="text-label-sm font-label-sm text-on-surface-variant">将收到微信服务通知</p>
+</div>
+</div>
+<!-- Triple-Signaling Status: In Progress -->
+<div class="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-[rgba(0,74,198,0.08)] text-[#004ac6] border border-[#004ac6]/15">
+<span class="material-symbols-outlined text-[13px] animate-spin" data-icon="sync">sync</span>
+<span class="text-label-sm font-label-sm font-medium">流转中</span>
+</div>
+</div>
+<div class="bg-surface rounded-lg p-2.5 text-body-sm font-body-sm text-on-surface-variant leading-relaxed border border-surface-dim/40 flex items-center space-x-2">
+<span class="material-symbols-outlined text-outline text-[16px] flex-shrink-0" data-icon="schedule">schedule</span>
+<span>审核结果将通过微信服务通知与站内消息推送，预计 3-5 个工作日完成审阅。</span>
+</div>
+</div>
+<!-- 5. WeChat Service Notification Subscription Card -->
+<div class="bg-surface-container-low rounded-xl border border-surface-container-highest/80 p-3.5 flex items-center justify-between academic-card">
+<div class="flex items-start space-x-3 mr-2">
+<div class="w-9 h-9 rounded-lg bg-primary-container/10 text-primary-container flex items-center justify-center flex-shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[20px]" data-icon="notifications_active" style="font-variation-settings: 'FILL' 1;">notifications_active</span>
+</div>
+<div>
+<div class="font-headline-sm text-body-md font-semibold text-on-surface">
+              开启审核结果提醒
+            </div>
+<p class="text-label-sm font-label-sm text-on-surface-variant mt-0.5">
+              退回或通过时第一时间收到微信通知
+            </p>
+</div>
+</div>
+<!-- WeChat Action Switch / Capsule -->
+<button class="flex-shrink-0 px-3.5 py-1.5 bg-primary-container hover:bg-secondary active:opacity-80 transition-all text-white font-label-sm text-label-sm font-medium rounded-full shadow-sm flex items-center space-x-1" id="authBtn" onclick="toggleAuth(this)">
+<span>去开启</span>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+</button>
+</div>
+<!-- 6. Academic Compliance Regulatory Footnote -->
+<div class="text-center pt-1 pb-2">
+<div class="inline-flex items-center justify-center space-x-1 text-label-sm font-label-sm text-outline opacity-90">
+<span class="material-symbols-outlined text-[13px]" data-icon="gavel">gavel</span>
+<span>教育部高校学位论文过程管理规范支持 · CAS 全程数字存证</span>
+</div>
+</div>
+</main>
+<!-- 7. Fixed Bottom Action Buttons Area (Zero TabBar, High-Clarity Actions) -->
+<footer class="fixed bottom-0 left-0 right-0 w-full flex justify-center bg-surface/95 backdrop-blur-md border-t border-surface-dim/80 py-3 px-4 z-50">
+<div class="w-full max-w-md flex flex-col space-y-2 pb-safe">
+<!-- Primary Action Button -->
+<button class="w-full h-12 bg-primary-container hover:bg-secondary active:opacity-90 text-white font-headline-sm text-body-lg font-semibold rounded-xl flex items-center justify-center primary-btn-depth transition-all duration-150">
+<span>返回我的任务</span>
+</button>
+<!-- Secondary Action Button -->
+<button class="w-full h-11 bg-surface-container-lowest hover:bg-surface active:bg-surface-container-low text-primary-container font-headline-sm text-body-md font-medium rounded-xl border border-surface-dim transition-colors flex items-center justify-center">
+<span>查看提交历史</span>
+</button>
+</div>
+</footer>
+</div>
+<script>
+    function toggleAuth(btn) {
+      if (btn.dataset.subscribed === "true") {
+        return;
+      }
+      btn.dataset.subscribed = "true";
+      btn.classList.remove("bg-primary-container", "hover:bg-secondary", "text-white");
+      btn.classList.add("bg-tertiary-fixed", "text-on-tertiary-fixed", "border", "border-tertiary-fixed-dim");
+      btn.innerHTML = `
+        <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">check</span>
+        <span>已订阅</span>
+      `;
+    }
+  </script>
+</body></html>
