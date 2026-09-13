@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>注册账号 - PaperGuard 学术论文格式与诚信合规平台</title>
+<!-- Google Fonts: Geist, Newsreader, JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-variant": "#d3e3ff",
+            "inverse-primary": "#b4c5ff",
+            "tertiary": "#00481b",
+            "on-primary": "#ffffff",
+            "surface-container": "#e6eeff",
+            "on-secondary-container": "#fefcff",
+            "on-secondary": "#ffffff",
+            "tertiary-fixed": "#7ffc97",
+            "secondary": "#0051d5",
+            "primary-fixed-dim": "#b4c5ff",
+            "primary-container": "#004ac6",
+            "surface-container-highest": "#d3e3ff",
+            "surface-container-high": "#dde9ff",
+            "error-container": "#ffdad6",
+            "on-surface": "#0b1c30",
+            "outline": "#737685",
+            "inverse-surface": "#213146",
+            "secondary-fixed": "#dbe1ff",
+            "background": "#f8f9ff",
+            "surface-dim": "#cbdbf6",
+            "on-tertiary-fixed": "#002109",
+            "on-primary-fixed-variant": "#003ea8",
+            "primary": "#003594",
+            "on-error-container": "#93000a",
+            "on-tertiary-fixed-variant": "#005320",
+            "surface-tint": "#1b55d0",
+            "tertiary-fixed-dim": "#62df7d",
+            "surface-container-low": "#eff4ff",
+            "primary-fixed": "#dbe1ff",
+            "secondary-fixed-dim": "#b4c5ff",
+            "inverse-on-surface": "#ebf1ff",
+            "on-surface-variant": "#434654",
+            "outline-variant": "#c3c6d6",
+            "on-tertiary": "#ffffff",
+            "on-primary-fixed": "#00174b",
+            "error": "#ba1a1a",
+            "surface": "#f8f9ff",
+            "on-tertiary-container": "#64e17f",
+            "secondary-container": "#316bf3",
+            "on-secondary-fixed-variant": "#003ea8",
+            "on-error": "#ffffff",
+            "surface-container-lowest": "#ffffff",
+            "on-primary-container": "#b8c8ff",
+            "on-background": "#0b1c30",
+            "surface-bright": "#f8f9ff",
+            "tertiary-container": "#006228",
+            "on-secondary-fixed": "#00174b"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "margin": "1rem",
+            "gutter-lg": "1.5rem",
+            "space-base": "1rem",
+            "space-lg": "1.5rem",
+            "space-xl": "2rem",
+            "space-2xl": "3rem",
+            "margin-md": "1.5rem",
+            "space-xs": "0.25rem",
+            "space-md": "0.75rem",
+            "margin-lg": "2rem",
+            "space-2xs": "0.125rem",
+            "gutter": "1rem",
+            "space-sm": "0.5rem"
+          },
+          "fontFamily": {
+            "code-sm": ["JetBrains Mono"],
+            "body-sm": ["Geist"],
+            "label-sm": ["Geist"],
+            "headline-sm": ["Geist"],
+            "headline-md": ["Geist"],
+            "headline-lg": ["Newsreader"],
+            "display-lg": ["Newsreader"],
+            "body-lg": ["Geist"],
+            "body-md": ["Geist"],
+            "label-md": ["Geist"]
+          },
+          "fontSize": {
+            "code-sm": ["0.75rem", { lineHeight: "1rem", letterSpacing: "0em", fontWeight: "400" }],
+            "body-sm": ["0.8125rem", { lineHeight: "1.25rem", letterSpacing: "0.005em", fontWeight: "400" }],
+            "label-sm": ["0.75rem", { lineHeight: "1rem", letterSpacing: "0.02em", fontWeight: "500" }],
+            "headline-sm": ["1.0625rem", { lineHeight: "1.5rem", letterSpacing: "-0.005em", fontWeight: "600" }],
+            "headline-md": ["1.25rem", { lineHeight: "1.75rem", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "headline-lg": ["1.75rem", { lineHeight: "2.25rem", letterSpacing: "-0.015em", fontWeight: "500" }],
+            "display-lg": ["2.25rem", { lineHeight: "2.75rem", letterSpacing: "-0.02em", fontWeight: "500" }],
+            "body-lg": ["1rem", { lineHeight: "1.625rem", letterSpacing: "0em", fontWeight: "400" }],
+            "body-md": ["0.875rem", { lineHeight: "1.5rem", letterSpacing: "0em", fontWeight: "400" }],
+            "label-md": ["0.8125rem", { lineHeight: "1.125rem", letterSpacing: "0.01em", fontWeight: "500" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      vertical-align: middle;
+      display: inline-block;
+      line-height: 1;
+    }
+    .academic-grid-pattern {
+      background-size: 24px 24px;
+      background-image: 
+        linear-gradient(to right, rgba(0, 74, 198, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 74, 198, 0.04) 1px, transparent 1px);
+    }
+    .academic-shadow {
+      box-shadow: 0 1px 3px 0 rgba(11, 28, 48, 0.04), 0 4px 12px -2px rgba(11, 28, 48, 0.03);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md min-h-screen flex flex-col justify-between selection:bg-surface-variant selection:text-primary">
+<!-- 1. Top Header / Utility Bar (Following Shared Components JSON: TopNavBar) -->
+<header class="bg-surface-container-lowest dark:bg-surface-container-low border-b border-outline-variant/30 dark:border-outline/20 shadow-sm w-full">
+<div class="flex justify-between items-center w-full px-6 py-3 max-w-full">
+<!-- Brand Anchor -->
+<a class="flex items-center gap-2.5 text-headline-sm font-headline-sm text-primary dark:text-primary-fixed tracking-tight hover:opacity-90 transition-opacity" href="#">
+<div class="w-8 h-8 rounded bg-primary-container text-on-primary flex items-center justify-center shadow-xs">
+<span class="material-symbols-outlined" data-icon="shield" style="font-variation-settings: 'FILL' 1; font-size: 19px;">shield</span>
+</div>
+<div class="flex flex-col leading-none">
+<span class="font-bold tracking-tight text-on-surface text-[17px]">PaperGuard</span>
+<span class="text-[10px] text-outline font-medium tracking-wide">论文卫士 PRO · 学术规范平台</span>
+</div>
+</a>
+<!-- Trailing Action Items -->
+<div class="flex items-center gap-4">
+<a class="flex items-center gap-1.5 text-label-md font-label-md text-on-surface-variant hover:text-on-surface transition-colors duration-150" href="#help">
+<span class="material-symbols-outlined text-[17px]" data-icon="help_outline">help_outline</span>
+<span>帮助中心 / 学术服务网 CAS 支持</span>
+</a>
+<div class="h-4 w-px bg-outline-variant/40"></div>
+<button class="text-label-md font-label-md text-on-surface-variant hover:text-primary transition-colors duration-150 py-1 px-2 rounded hover:bg-surface-container" type="button">
+          中文 / EN
+        </button>
+<a class="text-label-md font-label-md text-primary font-medium hover:underline px-2 py-1" href="#login">
+          Sign In
+        </a>
+</div>
+</div>
+</header>
+<!-- 2. Main Content Canvas: 1440px Centered Workspace with Two-Column Registration Bento Card -->
+<main class="flex-1 flex items-center justify-center px-4 py-8 md:py-10">
+<div class="w-full max-w-[1140px] grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+<!-- Left Column: Registration Form Module (approx 480px) -->
+<div class="lg:col-span-6 xl:col-span-5 bg-surface-container-lowest rounded-xl border border-[#cbdbf6] p-6 sm:p-8 academic-shadow flex flex-col justify-between">
+<div>
+<!-- Header Area -->
+<div class="mb-5">
+<div class="flex items-center gap-2 text-primary font-medium mb-1">
+<span class="material-symbols-outlined text-lg" data-icon="verified_user">verified_user</span>
+<span class="text-label-sm font-label-sm tracking-wider uppercase">高校学位论文全生命周期认证</span>
+</div>
+<h1 class="text-headline-md font-headline-md font-bold text-on-surface tracking-tight">注册 PaperGuard 账号</h1>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">邮箱或用户名均可作为登录名，绑定学籍即享教务自检额度</p>
+</div>
+<!-- Error Alert Banner -->
+<div class="mb-5 p-3 rounded-lg bg-error-container/70 border border-error/20 flex items-start justify-between gap-3 text-on-error-container">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-error text-[18px] shrink-0 mt-0.5" data-icon="error">error</span>
+<div class="text-label-sm font-label-sm leading-tight">
+<span class="font-semibold">该邮箱已被其他账号使用</span>
+<span class="font-code-sm text-code-sm block text-outline mt-0.5 opacity-80">request_id: req_8f3a_90d2</span>
+</div>
+</div>
+<button aria-label="关闭警示" class="text-outline hover:text-on-surface transition-colors p-0.5 shrink-0" type="button">
+<span class="material-symbols-outlined text-base" data-icon="close">close</span>
+</button>
+</div>
+<!-- Role Selection Segmented Pill Controls -->
+<div class="mb-5 p-1 bg-surface-container-low rounded-lg border border-outline-variant/40 grid grid-cols-2 gap-1">
+<button class="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md bg-primary-container text-on-primary text-label-md font-label-md font-medium shadow-xs transition-all" type="button">
+<span class="material-symbols-outlined text-base" data-icon="school" style="font-variation-settings: 'FILL' 1;">school</span>
+<span>学生账号</span>
+</button>
+<button class="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-on-surface-variant hover:text-on-surface text-label-md font-label-md transition-all" type="button">
+<span class="material-symbols-outlined text-base text-outline" data-icon="lock">lock</span>
+<span class="text-xs">教师账号 <span class="text-[11px] text-outline">(需认证)</span></span>
+</button>
+</div>
+<!-- Form Fields Container -->
+<form class="space-y-3.5" onsubmit="event.preventDefault();">
+<!-- 1. Email Field with Embedded Verification Code Button -->
+<div>
+<div class="flex justify-between items-center mb-1">
+<label class="text-label-sm font-label-sm font-medium text-on-surface flex items-center gap-1" for="email">
+<span>常用/机构邮箱</span>
+<span class="text-[10px] text-primary font-normal bg-surface-variant/40 px-1 py-0.2 rounded">推荐 edu 邮箱</span>
+</label>
+<span class="text-[11px] text-outline font-label-sm">用于登录与找回</span>
+</div>
+<div class="relative flex items-center">
+<div class="absolute left-3 text-outline pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="mail">mail</span>
+</div>
+<input class="w-full h-9 pl-9 pr-28 bg-surface-container-lowest border border-error text-on-surface text-body-sm font-body-sm rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 transition-all" id="email" placeholder="name@university.edu.cn" type="email" value="zhang.wei@tsinghua.edu.cn"/>
+<button class="absolute right-1 px-2.5 h-7 text-xs font-label-md rounded bg-primary-container text-on-primary hover:bg-secondary transition-colors font-medium" type="button">
+                  发送验证码
+                </button>
+</div>
+</div>
+<!-- 2. Email Verification Code -->
+<div>
+<div class="flex justify-between items-center mb-1">
+<label class="text-label-sm font-label-sm font-medium text-on-surface" for="verify-code">邮箱验证码</label>
+<span class="text-[11px] text-outline font-code-sm">已发送至邮箱，59s 后可重新获取</span>
+</div>
+<div class="relative flex items-center">
+<div class="absolute left-3 text-outline pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="pin">pin</span>
+</div>
+<input class="w-full h-9 pl-9 pr-3 bg-surface-container-lowest border border-outline-variant/60 text-on-surface text-body-sm font-code-sm tracking-widest rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 transition-all" id="verify-code" maxlength="6" placeholder="6 位数字验证码" type="text"/>
+</div>
+</div>
+<!-- 3. Username Field -->
+<div>
+<div class="flex justify-between items-center mb-1">
+<label class="text-label-sm font-label-sm font-medium text-on-surface" for="username">用户名</label>
+<span class="text-[11px] text-outline font-label-sm">留空则由邮箱自动生成</span>
+</div>
+<div class="relative flex items-center">
+<div class="absolute left-3 text-outline pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="badge">badge</span>
+</div>
+<input class="w-full h-9 pl-9 pr-3 bg-surface-container-lowest border border-outline-variant/60 text-on-surface text-body-sm font-body-sm rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 transition-all" id="username" placeholder="例如: academic_zhang" type="text"/>
+</div>
+</div>
+<!-- 4. Real Name Field -->
+<div>
+<div class="flex justify-between items-center mb-1">
+<label class="text-label-sm font-label-sm font-medium text-on-surface" for="realname">真实姓名</label>
+<span class="text-[11px] text-outline font-label-sm">用于毕业论文版权及答辩留痕</span>
+</div>
+<div class="relative flex items-center">
+<div class="absolute left-3 text-outline pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="person">person</span>
+</div>
+<input class="w-full h-9 pl-9 pr-3 bg-surface-container-lowest border border-outline-variant/60 text-on-surface text-body-sm font-body-sm rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 transition-all" id="realname" placeholder="与教务系统档案一致" type="text"/>
+</div>
+</div>
+<!-- 5. Password Field -->
+<div>
+<div class="flex justify-between items-center mb-1">
+<label class="text-label-sm font-label-sm font-medium text-on-surface" for="password">登录密码</label>
+<span class="text-[11px] text-outline font-label-sm">至少 12 位，含字母与数字</span>
+</div>
+<div class="relative flex items-center">
+<div class="absolute left-3 text-outline pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="lock_clock">lock_clock</span>
+</div>
+<input class="w-full h-9 pl-9 pr-9 bg-surface-container-lowest border border-outline-variant/60 text-on-surface text-body-sm font-body-sm rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 transition-all" id="password" placeholder="输入复杂度合规密码" type="password"/>
+<button class="absolute right-2.5 text-outline hover:text-on-surface flex items-center" type="button">
+<span class="material-symbols-outlined text-[18px]" data-icon="visibility_off">visibility_off</span>
+</button>
+</div>
+</div>
+<!-- 6. Password Confirmation Field -->
+<div>
+<label class="block text-label-sm font-label-sm font-medium text-on-surface mb-1" for="confirm-password">确认密码</label>
+<div class="relative flex items-center">
+<div class="absolute left-3 text-outline pointer-events-none flex items-center">
+<span class="material-symbols-outlined text-[18px]" data-icon="check_circle">check_circle</span>
+</div>
+<input class="w-full h-9 pl-9 pr-9 bg-surface-container-lowest border border-outline-variant/60 text-on-surface text-body-sm font-body-sm rounded-lg focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 transition-all" id="confirm-password" placeholder="再次输入以校验一致性" type="password"/>
+<div class="absolute right-2.5 text-outline flex items-center">
+<span class="material-symbols-outlined text-[18px] text-outline/60" data-icon="sync_alt">sync_alt</span>
+</div>
+</div>
+</div>
+<!-- Agreement Row -->
+<div class="pt-1 flex items-start gap-2">
+<input checked="" class="mt-1 w-4 h-4 text-primary-container rounded border-outline-variant/70 focus:ring-primary/20 focus:ring-2 focus:ring-offset-0 cursor-pointer" id="terms" type="checkbox"/>
+<label class="text-xs text-on-surface-variant leading-tight select-none" for="terms">
+                我已阅读并同意
+                <a class="text-primary hover:underline font-medium" href="#terms">《服务条款》</a>
+                与
+                <a class="text-primary hover:underline font-medium" href="#privacy">《学术诚信数据留痕协议》</a>
+</label>
+</div>
+<!-- Primary Action Button -->
+<button class="w-full h-10 mt-2 bg-primary-container hover:bg-secondary text-on-primary font-label-md font-semibold rounded-lg shadow-xs flex items-center justify-center gap-2 transition-all duration-150 active:scale-[0.99] border-t border-white/20" type="submit">
+<span>注册学生账号</span>
+<span class="material-symbols-outlined text-sm font-bold" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</form>
+</div>
+<!-- Footer Direct Link -->
+<div class="mt-6 pt-4 border-t border-outline-variant/30 text-center">
+<p class="text-body-sm font-body-sm text-on-surface-variant">
+            已有账号？ 
+            <a class="text-primary font-medium hover:underline hover:text-secondary transition-colors" href="#login">直接登录</a>
+</p>
+</div>
+</div>
+<!-- Right Column: Scholarly Endorsement & Institutional Precision Area (approx 620px) -->
+<div class="lg:col-span-6 xl:col-span-7 rounded-xl border border-[#cbdbf6] bg-gradient-to-br from-[#eff4ff] to-[#dde9ff]/50 p-8 sm:p-10 flex flex-col justify-between academic-grid-pattern relative overflow-hidden">
+<!-- Subtle Top Accents -->
+<div class="flex items-center justify-between border-b border-outline-variant/30 pb-4 mb-6">
+<div class="flex items-center gap-2">
+<span class="inline-flex items-center justify-center px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-surface-container-lowest text-primary border border-[#cbdbf6]">
+              ISO / GB-T 7713
+            </span>
+<span class="text-xs text-outline font-medium">学术写作全链路受控治理</span>
+</div>
+<div class="flex items-center gap-1 text-xs text-outline">
+<span class="material-symbols-outlined text-[14px] text-tertiary" data-icon="lock">lock</span>
+<span class="font-mono text-[11px]">SHA-256 / AES-256</span>
+</div>
+</div>
+<!-- Scholarly Manifesto Typography -->
+<div class="space-y-3 mb-8">
+<h2 class="text-headline-lg font-headline-lg text-on-surface leading-tight tracking-tight font-serif text-[28px] lg:text-[32px]">
+            把论文格式从事后检查，<br/>
+<span class="text-primary italic font-normal">变为写作时约束。</span>
+</h2>
+<p class="text-body-md font-body-md text-on-surface-variant max-w-[54ch] leading-relaxed">
+            PaperGuard 专为高校硕博学位论文打造，提供结构级模板闭环校准与不可篡改修订留痕，严谨护航文献综述、盲审送审至终稿归档的全周期。
+          </p>
+</div>
+<!-- High-Value Feature Micro-Cards -->
+<div class="space-y-3.5 mb-8">
+<!-- Feature Item 1 -->
+<div class="bg-surface-container-lowest/90 backdrop-blur-sm rounded-lg p-3.5 border border-[#cbdbf6] flex items-start gap-3.5 transition-all hover:border-primary/40 hover:shadow-xs">
+<div class="w-9 h-9 rounded bg-surface-container text-primary flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[20px]" data-icon="format_shapes">format_shapes</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="text-label-md font-label-md font-semibold text-on-surface">模板约束写作</h3>
+<span class="text-[10px] text-tertiary bg-[#16a34a]/10 px-1.5 py-0.2 rounded font-medium">实时校验</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 leading-snug">
+                内置 GB/T 7714 参考文献与全国 300+ 所高校专属学位论文规范，边写边排，从源头杜绝格式返工。
+              </p>
+</div>
+</div>
+<!-- Feature Item 2 -->
+<div class="bg-surface-container-lowest/90 backdrop-blur-sm rounded-lg p-3.5 border border-[#cbdbf6] flex items-start gap-3.5 transition-all hover:border-primary/40 hover:shadow-xs">
+<div class="w-9 h-9 rounded bg-surface-container text-primary flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[20px]" data-icon="file_download">file_download</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="text-label-md font-label-md font-semibold text-on-surface">一键导出 docx 标准母版</h3>
+<span class="text-[10px] text-secondary bg-secondary-fixed/40 px-1.5 py-0.2 rounded font-medium">教务规范</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 leading-snug">
+                完全遵循研究生院排版章程，导出即可直接交付盲审与知网/万方格式预审，无需手动调整页眉页脚。
+              </p>
+</div>
+</div>
+<!-- Feature Item 3 -->
+<div class="bg-surface-container-lowest/90 backdrop-blur-sm rounded-lg p-3.5 border border-[#cbdbf6] flex items-start gap-3.5 transition-all hover:border-primary/40 hover:shadow-xs">
+<div class="w-9 h-9 rounded bg-surface-container text-primary flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[20px]" data-icon="history_edu">history_edu</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="text-label-md font-label-md font-semibold text-on-surface">全流程版本哈希留痕</h3>
+<span class="text-[10px] text-primary bg-primary-fixed/60 px-1.5 py-0.2 rounded font-medium">学术诚信链</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5 leading-snug">
+                修订历史逐字点对点哈希防篡改存证，导师评审批注云端在线闭环签署，为原创性声明提供直接凭证。
+              </p>
+</div>
+</div>
+</div>
+<!-- Academic Authority & CAS Integration Footer Pill -->
+<div class="pt-4 border-t border-outline-variant/40 space-y-3">
+<div class="flex items-center gap-2 text-label-sm font-label-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-base text-primary" data-icon="security">security</span>
+<span class="font-medium text-on-surface">GB/T 7713-1987 / 2006 标准规范 · AES-256 加密传输 · 高校 CAS 统一身份互认</span>
+</div>
+<!-- Partner Institution Badge Simulation -->
+<div class="flex flex-wrap items-center gap-2 text-[11px] text-outline">
+<span class="text-on-surface-variant font-medium">已支持的教务与学位管理系统：</span>
+<span class="px-2 py-0.5 bg-surface-container-lowest/80 border border-outline-variant/50 rounded text-on-surface-variant font-medium">正方教务</span>
+<span class="px-2 py-0.5 bg-surface-container-lowest/80 border border-outline-variant/50 rounded text-on-surface-variant font-medium">清华同方</span>
+<span class="px-2 py-0.5 bg-surface-container-lowest/80 border border-outline-variant/50 rounded text-on-surface-variant font-medium">青果软件</span>
+<span class="px-2 py-0.5 bg-surface-container-lowest/80 border border-outline-variant/50 rounded text-on-surface-variant font-medium">联奕智慧</span>
+<span class="px-2 py-0.5 bg-surface-container-lowest/80 border border-outline-variant/50 rounded text-on-surface-variant font-medium">金智教育</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- 3. Minimal Precision Footer (Following Shared Components JSON: Footer) -->
+<footer class="bg-surface-container-lowest dark:bg-surface-container-low border-t border-outline-variant/30 dark:border-outline/20 flat no shadows w-full">
+<div class="flex flex-col md:flex-row justify-between items-center w-full px-8 py-4 text-center md:text-left gap-4 max-w-full">
+<div class="text-body-sm font-body-sm text-on-surface-variant dark:text-outline">
+        © 2025 PaperGuard Academic Integrity Platform. All rights reserved. FERPA &amp; GDPR Compliant.
+      </div>
+<div class="flex flex-wrap justify-center gap-6 text-label-sm font-label-sm">
+<a class="text-on-surface-variant dark:text-outline hover:text-primary dark:hover:text-primary-fixed transition-colors duration-150" href="#privacy">
+          Privacy Policy
+        </a>
+<a class="text-on-surface-variant dark:text-outline hover:text-primary dark:hover:text-primary-fixed transition-colors duration-150" href="#terms">
+          Terms of Service
+        </a>
+<a class="text-on-surface-variant dark:text-outline hover:text-primary dark:hover:text-primary-fixed transition-colors duration-150" href="#security">
+          Security &amp; Compliance
+        </a>
+<a class="text-on-surface-variant dark:text-outline hover:text-primary dark:hover:text-primary-fixed transition-colors duration-150" href="#support">
+          Institutional Support
+        </a>
+</div>
+</div>
+</footer>
+</body></html>

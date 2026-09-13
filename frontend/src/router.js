@@ -7,6 +7,7 @@ const router = createRouter({
   routes: [
     { path: '/', component: () => import('./views/Home.vue'), meta: { title: '首页', titleKey: 'route.home', requiresAuth: true } },
     { path: '/login', component: () => import('./views/Login.vue'), meta: { title: '登录', titleKey: 'route.login', public: true } },
+    { path: '/register', component: () => import('./views/Register.vue'), meta: { title: '注册', titleKey: 'route.register', public: true } },
     { path: '/templates', component: () => import('./views/Templates.vue'), meta: { title: '模板管理', titleKey: 'route.templates' } },
     { path: '/templates/:id/edit', component: () => import('./views/TemplateEditor.vue'), meta: { title: '编辑模板', titleKey: 'route.templateEditor' } },
     { path: '/document-packages/publish', component: () => import('./views/DocumentPackagePublisher.vue'), meta: { title: '发布通用文档', titleKey: 'route.documentPackagePublisher', roles: ['admin', 'college_admin', 'teacher'] } },
