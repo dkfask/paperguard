@@ -3,7 +3,7 @@
     {
       "path": "pages/login/index",
       "style": {
-        "navigationBarTitleText": "登录 PaperGuard",
+        "navigationBarTitleText": "登录论文卫士Pro",
         "navigationStyle": "custom"
       }
     },
@@ -23,6 +23,37 @@
       "path": "pages/profile/index",
       "style": {
         "navigationBarTitleText": "我的"
+      }
+    },
+    {
+      "path": "pages/submit/index",
+      "style": {
+        "navigationBarTitleText": "提交确认"
+      }
+    },
+    {
+      "path": "pages/submit/success",
+      "style": {
+        "navigationBarTitleText": "提交成功",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/submissions/detail",
+      "style": {
+        "navigationBarTitleText": "提交详情"
+      }
+    },
+    {
+      "path": "pages/submissions/history",
+      "style": {
+        "navigationBarTitleText": "提交历史"
+      }
+    },
+    {
+      "path": "pages/submissions/comments",
+      "style": {
+        "navigationBarTitleText": "审阅意见"
       }
     }
   ],
@@ -48,7 +79,7 @@
   },
   "globalStyle": {
     "navigationBarTextStyle": "black",
-    "navigationBarTitleText": "PaperGuard",
+    "navigationBarTitleText": "论文卫士Pro",
     "navigationBarBackgroundColor": "#ffffff",
     "backgroundColor": "#f5f7fb",
     "backgroundTextStyle": "light"
