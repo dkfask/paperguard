@@ -13,6 +13,7 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import Depends, Header, HTTPException, Request
 
 from app.core.context import context_for_user, set_request_context
@@ -21,6 +22,8 @@ from app.db import Store, new_id
 _PBKDF2_ITERATIONS = 200_000
 
 _SESSION_HOURS = 24
+_MP_SESSION_DAYS = 30
+_MP_BIND_TICKET_MINUTES = 10
 ADMIN_USERNAME = "admin"
 ADMIN_DISPLAY = "管理员"
 
@@ -81,8 +84,9 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _expires_at() -> str:
-    return (datetime.now(timezone.utc) + timedelta(hours=_SESSION_HOURS)).isoformat(timespec="seconds")
+def _expires_at(*, hours: int | None = None, days: int | None = None) -> str:
+    delta = timedelta(hours=hours or 0, days=days or 0)
+    return (datetime.now(timezone.utc) + delta).isoformat(timespec="seconds")
 
 
 def _password_error(password: str) -> str | None:
@@ -126,11 +130,7 @@ def register_user(store: Store, username: str, password: str,
     return public_user(user)
 
 
-def login_user(store: Store, username: str, password: str) -> dict:
-    """登录, 返回带过期时间的随机 bearer token。"""
-    user = store.get_user_by_username(username.strip())
-    if user is None or not verify_password(password, user["password_hash"], user["salt"]):
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
+def _issue_session(store: Store, user: dict, *, source: str = "web") -> dict:
     token = secrets.token_hex(32)
     now = _now()
     store.create_session({
@@ -138,10 +138,139 @@ def login_user(store: Store, username: str, password: str) -> dict:
         "user_id": user["id"],
         "token_hash": _token_hash(token),
         "created_at": now,
-        "expires_at": _expires_at(),
+        "expires_at": _expires_at(days=_MP_SESSION_DAYS) if source == "mp" else _expires_at(hours=_SESSION_HOURS),
         "last_seen_at": now,
+        "source": source,
     })
     return {"token": token, "user": public_user(user)}
+
+
+def login_user(store: Store, username: str, password: str) -> dict:
+    """登录, 返回带过期时间的随机 bearer token。"""
+    user = store.get_user_by_username(username.strip())
+    if user is None or not verify_password(password, user["password_hash"], user["salt"]):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    return _issue_session(store, user)
+
+
+def _mini_program_binding_secret() -> str:
+    secret = os.environ.get("PAPERGUARD_MP_BINDING_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail={
+            "code": "MP_NOT_CONFIGURED",
+            "message": "小程序登录尚未配置服务端密钥",
+        })
+    return secret
+
+
+def _mini_program_openid_hash(openid: str) -> str:
+    return hmac.new(
+        _mini_program_binding_secret().encode("utf-8"),
+        openid.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+async def exchange_mp_code(code: str) -> str:
+    """Exchange a WeChat login code without exposing provider credentials."""
+    app_id = os.environ.get("PAPERGUARD_WECHAT_APP_ID", "").strip()
+    app_secret = os.environ.get("PAPERGUARD_WECHAT_APP_SECRET", "").strip()
+    if not app_id or not app_secret:
+        raise HTTPException(status_code=503, detail={
+            "code": "MP_NOT_CONFIGURED",
+            "message": "小程序登录尚未配置微信服务端参数",
+        })
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                "https://api.weixin.qq.com/sns/jscode2session",
+                params={"appid": app_id, "secret": app_secret, "js_code": code, "grant_type": "authorization_code"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail={
+            "code": "MP_PROVIDER_UNAVAILABLE",
+            "message": "微信登录服务暂时不可用",
+        }) from exc
+    if not isinstance(payload, dict) or payload.get("errcode") or not payload.get("openid"):
+        raise HTTPException(status_code=401, detail={
+            "code": "MP_LOGIN_FAILED",
+            "message": "微信登录凭证无效，请重试",
+        })
+    return str(payload["openid"])
+
+
+def mini_program_login(store: Store, openid: str) -> dict:
+    openid_hash = _mini_program_openid_hash(openid)
+    binding = store.get_mini_program_binding_by_openid(openid_hash)
+    if not binding:
+        ticket = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        expires_at = (now + timedelta(minutes=_MP_BIND_TICKET_MINUTES)).isoformat(timespec="seconds")
+        store.create_mini_program_bind_ticket({
+            "id": new_id("mp-ticket"),
+            "ticket_hash": _token_hash(ticket),
+            "openid_hash": openid_hash,
+            "created_at": now.isoformat(timespec="seconds"),
+            "expires_at": expires_at,
+        })
+        return {"bound": False, "bind_ticket": ticket, "expires_at": expires_at}
+    user = store.get_user(binding["user_id"])
+    if not user or user.get("status") != "active":
+        raise HTTPException(status_code=403, detail={
+            "code": "ACCOUNT_UNAVAILABLE",
+            "message": "账号当前不可使用",
+        })
+    return {"bound": True, **_issue_session(store, user, source="mp")}
+
+
+def mini_program_bind(store: Store, bind_ticket: str, username: str, password: str) -> dict:
+    ticket = store.get_mini_program_bind_ticket(_token_hash(bind_ticket))
+    if not ticket or ticket.get("used_at") or ticket["expires_at"] <= _now():
+        raise HTTPException(status_code=400, detail={
+            "code": "MP_BIND_TICKET_INVALID",
+            "message": "绑定已失效，请重新发起微信登录",
+        })
+    user = store.get_user_by_username(username.strip())
+    if user is None or not verify_password(password, user["password_hash"], user["salt"]):
+        raise HTTPException(status_code=401, detail={
+            "code": "INVALID_CREDENTIALS",
+            "message": "用户名或密码错误",
+        })
+    if user.get("status") != "active":
+        raise HTTPException(status_code=403, detail={
+            "code": "ACCOUNT_UNAVAILABLE",
+            "message": "账号当前不可绑定",
+        })
+    result = store.bind_mini_program(
+        _token_hash(bind_ticket), user["id"], ticket["openid_hash"], _now()
+    )
+    if result is None:
+        raise HTTPException(status_code=400, detail={
+            "code": "MP_BIND_TICKET_INVALID",
+            "message": "绑定已失效，请重新发起微信登录",
+        })
+    if result.get("conflict"):
+        raise HTTPException(status_code=409, detail={
+            "code": "MP_BINDING_CONFLICT",
+            "message": "微信或账号已绑定其他身份",
+        })
+    return {"bound": True, **_issue_session(store, user, source="mp")}
+
+
+def mini_program_unbind(store: Store, user: dict, password: str) -> None:
+    if user.get("session_source") != "mp":
+        raise HTTPException(status_code=403, detail={
+            "code": "MP_SESSION_REQUIRED",
+            "message": "请使用小程序会话执行解绑",
+        })
+    if not verify_password(password, user["password_hash"], user["salt"]):
+        raise HTTPException(status_code=400, detail={
+            "code": "INVALID_PASSWORD",
+            "message": "当前密码不正确",
+        })
+    store.delete_mini_program_binding(user["id"])
 
 
 def logout_user(store: Store, token: str) -> None:
@@ -185,7 +314,7 @@ def current_user(request: Request, authorization: str | None = Header(default=No
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="未登录")
     token = authorization.removeprefix("Bearer ").strip()
-    user = store.get_session_user(_token_hash(token), _now())
+    user = store.get_session_user(_token_hash(token), _now(), refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS))
     if user is None:
         raise HTTPException(status_code=401, detail="登录已失效, 请重新登录")
     context = context_for_user(user, request_id=getattr(request.state, "request_id", ""))

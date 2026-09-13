@@ -1,0 +1,56 @@
+{
+  "name": "paperguard-miniprogram",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev:mp-weixin": "uni -p mp-weixin",
+    "build:mp-weixin": "node scripts/validate-build-env.mjs mp-weixin && uni build -p mp-weixin",
+    "dev:h5": "uni",
+    "build:h5": "uni build",
+    "typecheck": "vue-tsc --noEmit",
+    "check:structure": "node scripts/check-structure.mjs"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-alpha-1000920260909822",
+    "@dcloudio/uni-mp-weixin": "3.0.0-alpha-1000920260909822",
+    "pinia": "^4.0.3",
+    "vue": "^3.5.42"
+  },
+  "devDependencies": {
+    "@dcloudio/types": "3.4.31",
+    "@dcloudio/vite-plugin-uni": "3.0.0-alpha-1000920260909822",
+    "@vue/tsconfig": "^0.7.0",
+    "typescript": "^5.8.3",
+    "vite": "8.2.2",
+    "vue-tsc": "^3.3.11"
+  },
+  "overrides": {
+    "@babel/core": "7.29.7",
+    "@intlify/core-base": "9.14.5",
+    "@intlify/message-compiler": "9.1.10",
+    "@intlify/message-resolver": "9.1.11",
+    "@intlify/runtime": "9.1.10",
+    "@intlify/shared": "9.14.5",
+    "@intlify/vue-devtools": "9.14.1",
+    "adm-zip": "0.6.1",
+    "body-parser": "1.20.8",
+    "cookie": "0.7.2",
+    "esbuild": "0.28.2",
+    "jpeg-js": "0.4.4",
+    "path-to-regexp": "0.1.13",
+    "phin": "3.7.1",
+    "postcss": "8.5.28",
+    "postcss-selector-parser": "6.1.4",
+    "qs": "6.16.0",
+    "send": "0.19.2",
+    "serve-static": "1.16.3",
+    "ws": "8.21.3",
+    "postcss-modules-local-by-default": {
+      "postcss-selector-parser": "7.1.6"
+    },
+    "postcss-modules-scope": {
+      "postcss-selector-parser": "7.1.6"
+    }
+  }
+}

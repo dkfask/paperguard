@@ -33,6 +33,7 @@ SCHEMA_MIGRATIONS = (
     "0005_document_projects",
     "0006_validation_runs",
     "0007_document_scope_indexes",
+    "0008_miniprogram_auth",
 )
 
 
@@ -112,8 +113,27 @@ class Store:
                     expires_at TEXT NOT NULL,
                     revoked_at TEXT,
                     last_seen_at TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'web',
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS mini_program_bindings (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL UNIQUE,
+                    openid_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS mini_program_bind_tickets (
+                    id TEXT PRIMARY KEY,
+                    ticket_hash TEXT UNIQUE NOT NULL,
+                    openid_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_mp_bind_tickets_expires
+                    ON mini_program_bind_tickets (expires_at, used_at);
                 CREATE TABLE IF NOT EXISTS system_settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL,
@@ -290,6 +310,9 @@ class Store:
                 conn.execute("ALTER TABLE users ADD COLUMN ai_config TEXT")
             if "organization_context" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN organization_context TEXT")
+            session_columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+            if "source" not in session_columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'web'")
             event_columns = {row[1] for row in conn.execute("PRAGMA table_info(workflow_events)")}
             if "delivered_at" not in event_columns:
                 conn.execute("ALTER TABLE workflow_events ADD COLUMN delivered_at TEXT")
@@ -388,27 +411,35 @@ class Store:
     def create_session(self, session: dict) -> None:
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, revoked_at, last_seen_at) "
-                "VALUES (?, ?, ?, ?, ?, NULL, ?)",
+                "INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, revoked_at, last_seen_at, source) "
+                "VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
                 (
                     session["id"], session["user_id"], session["token_hash"],
                     session["created_at"], session["expires_at"], session["last_seen_at"],
+                    session.get("source", "web"),
                 ),
             )
 
-    def get_session_user(self, token_hash: str, now: str) -> dict | None:
+    def get_session_user(self, token_hash: str, now: str,
+                         refresh_expires_at: str | None = None) -> dict | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT u.*, s.id AS session_id FROM sessions s "
+                "SELECT u.*, s.id AS session_id, s.source AS session_source FROM sessions s "
                 "JOIN users u ON u.id = s.user_id "
                 "WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?",
                 (token_hash, now),
             ).fetchone()
             if row:
-                conn.execute(
-                    "UPDATE sessions SET last_seen_at = ? WHERE id = ?",
-                    (now, row["session_id"]),
-                )
+                if refresh_expires_at and row["session_source"] == "mp":
+                    conn.execute(
+                        "UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?",
+                        (now, refresh_expires_at, row["session_id"]),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE sessions SET last_seen_at = ? WHERE id = ?",
+                        (now, row["session_id"]),
+                    )
         return self._hydrate_user(dict(row)) if row else None
 
     def revoke_session(self, token_hash: str, revoked_at: str) -> None:
@@ -424,6 +455,84 @@ class Store:
                 "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
                 (revoked_at, user_id),
             )
+
+    def get_mini_program_binding_by_openid(self, openid_hash: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM mini_program_bindings WHERE openid_hash = ?",
+                (openid_hash,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_mini_program_binding_by_user(self, user_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM mini_program_bindings WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def create_mini_program_bind_ticket(self, ticket: dict) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO mini_program_bind_tickets "
+                "(id, ticket_hash, openid_hash, created_at, expires_at, used_at) "
+                "VALUES (?, ?, ?, ?, ?, NULL)",
+                (
+                    ticket["id"], ticket["ticket_hash"], ticket["openid_hash"],
+                    ticket["created_at"], ticket["expires_at"],
+                ),
+            )
+
+    def get_mini_program_bind_ticket(self, ticket_hash: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM mini_program_bind_tickets WHERE ticket_hash = ?",
+                (ticket_hash,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def bind_mini_program(self, ticket_hash: str, user_id: str,
+                          openid_hash: str, now: str) -> dict | None:
+        """Atomically consume a valid ticket after conflict checks."""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            ticket = conn.execute(
+                "SELECT * FROM mini_program_bind_tickets WHERE ticket_hash = ?",
+                (ticket_hash,),
+            ).fetchone()
+            if not ticket or ticket["used_at"] or ticket["expires_at"] <= now:
+                return None
+            existing_openid = conn.execute(
+                "SELECT user_id FROM mini_program_bindings WHERE openid_hash = ?",
+                (openid_hash,),
+            ).fetchone()
+            if existing_openid:
+                return {"conflict": "openid", "user_id": existing_openid["user_id"]}
+            existing_user = conn.execute(
+                "SELECT openid_hash FROM mini_program_bindings WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+            if existing_user:
+                return {"conflict": "user", "openid_hash": existing_user["openid_hash"]}
+            binding_id = new_id("mp-binding")
+            conn.execute(
+                "INSERT INTO mini_program_bindings "
+                "(id, user_id, openid_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (binding_id, user_id, openid_hash, now, now),
+            )
+            conn.execute(
+                "UPDATE mini_program_bind_tickets SET used_at = ? WHERE id = ?",
+                (now, ticket["id"]),
+            )
+            return {"id": binding_id, "user_id": user_id, "openid_hash": openid_hash}
+
+    def delete_mini_program_binding(self, user_id: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                "DELETE FROM mini_program_bindings WHERE user_id = ?", (user_id,)
+            )
+        return result.rowcount > 0
 
     def list_students_by_teacher(self, teacher_id: str) -> list[dict]:
         with self._connect() as conn:

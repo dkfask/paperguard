@@ -23,6 +23,7 @@
 - **backend/app/db.py** — SQLite 存储(可用 `PAPERGUARD_DB_PATH` 覆盖)
 - **frontend/** — Vue 3 + Vite:模板编辑页、写作页、上传检查页
 - **工作流闭环** — 批次/阶段/成员导入、阶段配置版本、任务、提交快照、教师审核、过程材料、消息、报表和归档包
+- **小程序 MP0** — uni-app 微信小程序骨架、微信登录/校内账号绑定、任务/消息/账号安全 Tab；长篇写作继续使用桌面端
 
 ## 快速开始(本地开发)
 
@@ -96,6 +97,7 @@ docker compose up -d --build
 - 数据(论文项目 SQLite + 上传图片)持久化在 Docker volume `paperguard_data`,重建/升级容器不丢数据
 - `worker` 容器负责站内通知 outbox 消费和截止提醒调度，与后端共享数据库卷；可用 `PAPERGUARD_WORKER_INTERVAL_SECONDS` 调整周期
 - 首次部署前必须设置强密码环境变量 `PAPERGUARD_ADMIN_PASSWORD`(至少 12 位, 含字母和数字), 不再提供固定默认密码
+- 小程序服务端还需在受控 secrets 中设置 `PAPERGUARD_WECHAT_APP_ID`、`PAPERGUARD_WECHAT_APP_SECRET` 和独立的 `PAPERGUARD_MP_BINDING_SECRET`; 未配置时 MP 登录保持关闭并返回明确错误码
 - 上传检查和自动修复需要登录; 项目与图片按用户权限隔离
 - 上传检查文件只在处理期间使用; 写作项目和图片会持久化到 Docker volume, 删除项目后按引用回收图片
 - 导出和自动修复生成的临时文件在响应完成后清理
@@ -171,6 +173,9 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 | POST | `/api/outbox/{id}/ack`、`/fail`、`/retry` | 消费确认、失败回退/封顶和人工重试 |
 | GET/PUT/POST | `/api/operations/retention`、`/api/operations/backup` | 保留期限配置与管理员一致性备份下载 |
 | POST | `/api/projects/{id}/export-preview` | 正式下载前只读预览版本、规范门禁、缺失项、章节/表格/图片/公式摘要 |
+| POST | `/api/auth/mp/login` | 微信 code 换取已绑定会话或一次性绑定票据 |
+| POST | `/api/auth/mp/bind` | 用校内账号密码绑定当前微信身份 |
+| POST | `/api/auth/mp/unbind` | 小程序会话下经口令确认解绑微信 |
 
 ## 命令行
 
@@ -191,7 +196,7 @@ PAPERGUARD_WORKER_ONCE=1 python -m app.worker
 
 ```bash
 cd backend
-pytest -q        # 当前 552 passed: 引擎 / docx 读写 / 模板/项目 API / 规范生命周期 / 工作流与安全回归
+pytest -q        # 当前 608 passed: 引擎 / docx 读写 / 模板/项目 API / 规范生命周期 / 工作流与安全回归 / 小程序认证契约
 ```
 
 ## 模板与规则
