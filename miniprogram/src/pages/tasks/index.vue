@@ -105,8 +105,26 @@ function primaryLabel(task: Task) {
   return '在电脑端处理'
 }
 
-function primaryAction(_task: Task) {
-  // MP0 引导动作: 提交/审阅/批注闭环在 MP1/MP2 落地, 现阶段明确指向电脑端
+function primaryAction(task: Task) {
+  if (isTeacher.value) {
+    uni.showToast({ title: '移动端审阅将在 MP2 开放，请先使用电脑端', icon: 'none' })
+    return
+  }
+  const state = String(task.state || '')
+  const submissionId = task.current_submission?.id || ''
+  if (state === 'in_progress') {
+    const stage = encodeURIComponent(task.stage_name || '')
+    uni.navigateTo({ url: `/pages/submit/index?participant_id=${task.id}&stage=${stage}` })
+    return
+  }
+  if (state === 'needs_revision' && submissionId) {
+    uni.navigateTo({ url: `/pages/submissions/comments?id=${submissionId}` })
+    return
+  }
+  if (submissionId) {
+    uni.navigateTo({ url: `/pages/submissions/detail?id=${submissionId}` })
+    return
+  }
   uni.showToast({ title: '该操作请使用电脑端完成', icon: 'none' })
 }
 </script>

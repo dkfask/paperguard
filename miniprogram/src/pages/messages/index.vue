@@ -7,7 +7,7 @@
     <view v-else>
       <view v-for="item in items" :key="String(item.id)" class="panel message" :class="{ unread: !item.read_at }" @tap="read(item)">
         <view class="message-head"><text class="message-type">{{ String(item.event_type || '系统消息') }}</text><text class="muted">{{ String(item.created_at || '') }}</text></view>
-        <text class="message-body">{{ String(item.message || item.title || '你有一条新的 PaperGuard 消息') }}</text>
+        <text class="message-body">{{ String(item.message || item.title || '你有一条新的论文卫士Pro消息') }}</text>
       </view>
     </view>
   </view>

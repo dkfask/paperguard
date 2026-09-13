@@ -21,7 +21,7 @@
     </view>
 
     <text v-if="errorMessage" class="error-text">{{ errorMessage }}</text>
-    <text class="legal-copy">继续即表示同意 PaperGuard 隐私说明与校内账号使用规则</text>
+    <text class="legal-copy">继续即表示同意论文卫士Pro隐私说明与校内账号使用规则</text>
   </view>
 </template>
 
