@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services import emailer
 
 
 client = TestClient(app)
@@ -145,7 +147,7 @@ def test_student_cannot_manage_school_policy():
     assert client.get("/api/policies", headers=student_headers).status_code == 200
 
 
-def test_teacher_requirement_is_frozen_for_guided_student():
+def test_teacher_requirement_is_frozen_for_guided_student(monkeypatch):
     admin_headers = _admin_headers()
     suffix = uuid.uuid4().hex[:8]
     teacher_username = f"policy-teacher-{suffix}"
@@ -212,6 +214,27 @@ def test_teacher_requirement_is_frozen_for_guided_student():
         json={"username": student_username, "password": student_password},
     )
     student_headers = {"Authorization": f"Bearer {student_login.json()['token']}"}
+    email = f"{student_username}@example.edu"
+    code_box: dict[str, str] = {}
+    monkeypatch.setattr(emailer, "email_configured", lambda: True)
+    monkeypatch.setattr(emailer, "send_verification_code", lambda _to, code, _minutes=10: code_box.update(code=code))
+    code_response = client.post(
+        "/api/auth/email/code",
+        headers=student_headers,
+        json={"email": email, "purpose": "first_login"},
+    )
+    assert code_response.status_code == 200, code_response.text
+    completed = client.post(
+        "/api/auth/first-login/complete",
+        headers=student_headers,
+        json={
+            "email": email,
+            "email_code": code_box["code"],
+            "new_password": f"Updated-{uuid.uuid4().hex}-A1",
+        },
+    )
+    assert completed.status_code == 200, completed.text
+    student_headers = {"Authorization": f"Bearer {completed.json()['token']}"}
     project = client.post(
         "/api/projects",
         headers=student_headers,

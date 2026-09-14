@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
@@ -15,6 +17,7 @@ from app.auth import (
     public_user,
     report_mp_subscription,
     send_email_code,
+    complete_first_login,
     change_password,
     current_user,
     login_user,
@@ -77,7 +80,7 @@ class EmailCodeRequest(BaseModel):
 @router.post("/email/code")
 def request_email_code(req: EmailCodeRequest, store: Store = Depends(get_store)) -> dict:
     """发送邮箱验证码 (SMTP 未配置返回 503 EMAIL_NOT_CONFIGURED)。"""
-    return send_email_code(store, req.email, purpose=req.purpose if req.purpose in {"register", "bind"} else "register")
+    return send_email_code(store, req.email, purpose=req.purpose)
 
 
 @router.post("/login")
@@ -128,6 +131,20 @@ class MiniProgramBindEmailRequest(BaseModel):
     email: str
     email_code: str = ""
     password: str
+
+
+class FirstLoginCompleteRequest(BaseModel):
+    email: str
+    email_code: str
+    new_password: str
+
+
+@router.post("/first-login/complete")
+def first_login_complete(req: FirstLoginCompleteRequest,
+                         user: dict = Depends(current_user),
+                         store: Store = Depends(get_store)) -> dict:
+    """学校统一注册学生首次绑定邮箱并完成初始密码设置。"""
+    return complete_first_login(store, user, req.email, req.email_code, req.new_password)
 
 
 @router.post("/logout")
@@ -215,5 +232,7 @@ def update_user_role_status(user_id: str,
         raise HTTPException(status_code=400, detail="不可降级或禁用系统内置管理员")
 
     store.update_user_role_and_status(user_id, new_role, new_status)
+    if new_status != "active":
+        store.revoke_user_sessions(user_id, datetime.now(timezone.utc).isoformat(timespec="seconds"))
     updated = store.get_user(user_id)
     return public_user(updated)

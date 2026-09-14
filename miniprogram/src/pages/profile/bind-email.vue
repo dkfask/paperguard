@@ -16,7 +16,7 @@
       <input v-model="password" class="field" password placeholder="设置桌面端登录密码（至少 12 位，含字母和数字）" maxlength="128" />
       <input v-model="confirmPassword" class="field" password placeholder="再次输入密码" maxlength="128" />
       <button class="primary-button" :loading="submitting" @tap="submit">绑定邮箱并设置密码</button>
-      <text class="hint">校园邮件服务未接入时无需验证码，直接提交即可；账号将标记为「邮箱未验证」。</text>
+      <text class="hint">邮箱验证成功后才能进入论文任务；请使用本人可正常收信的邮箱。</text>
     </view>
 
     <text v-if="message" class="message">{{ message }}</text>
@@ -26,7 +26,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { bindMpEmail, describeError, sendEmailCode } from '../../api/request'
+import { bindMpEmail, completeFirstLogin, describeError, sendEmailCode } from '../../api/request'
 import { useSessionStore } from '../../stores/session'
 
 const session = useSessionStore()
@@ -49,7 +49,7 @@ onLoad((params) => {
 async function sendCode() {
   if (!email.value || cooldown.value > 0) return
   try {
-    await sendEmailCode(email.value.trim())
+    await sendEmailCode(email.value.trim(), first.value ? 'first_login' : 'bind')
     message.value = '验证码已发送，请查收邮箱'
     cooldown.value = 60
     const timer = setInterval(() => {
@@ -76,8 +76,11 @@ async function submit() {
   }
   submitting.value = true
   try {
-    const result = await bindMpEmail(email.value.trim(), emailCode.value.trim(), password.value)
-    session.user = result.user
+    const result = first.value
+      ? await completeFirstLogin(email.value.trim(), emailCode.value.trim(), password.value)
+      : await bindMpEmail(email.value.trim(), emailCode.value.trim(), password.value)
+    if (result.token) session.updateAuth(result.token, result.user)
+    else session.updateUser(result.user)
     uni.showToast({ title: '邮箱绑定成功', icon: 'none' })
     setTimeout(() => uni.switchTab({ url: '/pages/tasks/index' }), 600)
   } catch (error) {

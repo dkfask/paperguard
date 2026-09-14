@@ -35,6 +35,16 @@ export const useSessionStore = defineStore('session', {
       uni.setStorageSync(TOKEN_KEY, token)
       uni.setStorageSync(USER_KEY, user)
     },
+    updateUser(user: User) {
+      this.user = user
+      uni.setStorageSync(USER_KEY, user)
+    },
+    updateAuth(token: string, user: User) {
+      this.token = token
+      this.user = user
+      uni.setStorageSync(TOKEN_KEY, token)
+      uni.setStorageSync(USER_KEY, user)
+    },
     setBindTicket(ticket: string) {
       this.bindTicket = ticket
     },

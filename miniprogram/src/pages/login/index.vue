@@ -55,7 +55,11 @@ const errorMessage = ref('')
 
 onLoad(() => {
   if (session.isAuthenticated) {
-    uni.switchTab({ url: '/pages/tasks/index' })
+    if (session.user?.onboarding_required || session.user?.email_verified === false || session.user?.password_set === false || session.user?.must_change_password) {
+      uni.redirectTo({ url: '/pages/profile/bind-email?first=1' })
+    } else {
+      uni.switchTab({ url: '/pages/tasks/index' })
+    }
   }
 })
 
@@ -93,7 +97,11 @@ async function startWechatLogin() {
     const result = await mpLogin(login.code)
     if (result.bound && result.token && result.user) {
       session.setAuth(result.token, result.user)
-      uni.switchTab({ url: '/pages/tasks/index' })
+      if (result.user.onboarding_required || result.user.email_verified === false || result.user.password_set === false || result.user.must_change_password) {
+        uni.redirectTo({ url: '/pages/profile/bind-email?first=1' })
+      } else {
+        uni.switchTab({ url: '/pages/tasks/index' })
+      }
       return
     }
     bindTicket.value = result.bind_ticket || ''

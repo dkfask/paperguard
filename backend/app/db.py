@@ -108,8 +108,6 @@ class Store:
                     ai_config TEXT,
                     created_at TEXT NOT NULL
                 );
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
-                    ON users(email) WHERE email IS NOT NULL AND email != '';
                 CREATE TABLE IF NOT EXISTS email_verification_codes (
                     email TEXT PRIMARY KEY,
                     code_hash TEXT NOT NULL,
@@ -366,14 +364,15 @@ class Store:
             user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
             if "email" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
-                conn.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
-                    "ON users(email) WHERE email IS NOT NULL AND email != ''"
-                )
+                user_columns.add("email")
             if "email_verified" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
             if "password_set" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN password_set INTEGER NOT NULL DEFAULT 1")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
+                "ON users(email) WHERE email IS NOT NULL AND email != ''"
+            )
             for version in SCHEMA_MIGRATIONS:
                 conn.execute(
                     "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",

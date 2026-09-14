@@ -45,12 +45,12 @@
               <div class="form-field">
                 <label for="reg-email">{{ t('auth.emailLabel') }}</label>
                 <div class="email-row">
-                  <input id="reg-email" v-model="email" type="email" autocomplete="email" :placeholder="t('auth.emailPlaceholder')" />
+                  <input id="reg-email" v-model="email" type="email" autocomplete="email" :placeholder="t('auth.emailPlaceholder')" required />
                   <button type="button" class="code-button" :disabled="codeCooldown > 0 || !email" @click="sendCode">
                     {{ codeCooldown > 0 ? `${codeCooldown}s` : t('auth.sendCode') }}
                   </button>
                 </div>
-                <input v-if="email" v-model="emailCode" class="mt8" inputmode="numeric" :placeholder="t('auth.emailCodePlaceholder')" />
+                <input v-model="emailCode" class="mt8" inputmode="numeric" maxlength="6" :placeholder="t('auth.emailCodePlaceholder')" required />
               </div>
 
               <div class="form-field">
@@ -200,6 +200,14 @@ async function submit() {
   requestId.value = ''
   if (!agree.value) {
     setNotice(t('auth.agreeTerms'))
+    return
+  }
+  if (!email.value.trim()) {
+    setNotice(t('auth.emailRequired'))
+    return
+  }
+  if (!emailCode.value.trim()) {
+    setNotice(t('auth.emailCodeRequired'))
     return
   }
   if (email.value && !EMAIL_RE.test(email.value.trim())) {

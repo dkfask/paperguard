@@ -174,6 +174,7 @@ export interface User {
   email_verified?: boolean
   /** 微信注册账号在绑定邮箱前为 false */
   password_set?: boolean
+  onboarding_required?: boolean
 }
 
 export interface AuthResponse {
@@ -225,16 +226,21 @@ export const mpRegister = (bindTicket: string) => request<RegisterWithWechatResp
   data: { bind_ticket: bindTicket },
 })
 
-/** 绑定邮箱并设置桌面端密码 (SMTP 已配置时 emailCode 必填)。 */
-export const bindMpEmail = (email: string, emailCode: string, password: string) => request<{ user: User }>('/api/auth/mp/bind-email', {
+/** 绑定邮箱并设置桌面端密码。 */
+export const bindMpEmail = (email: string, emailCode: string, password: string) => request<{ user: User; token?: string }>('/api/auth/mp/bind-email', {
   method: 'POST',
   data: { email, email_code: emailCode, password },
 })
 
-export const sendEmailCode = (email: string) => request<{ ok: boolean; expires_in: number }>('/api/auth/email/code', {
+export const completeFirstLogin = (email: string, emailCode: string, password: string) => request<{ user: User; token: string }>('/api/auth/first-login/complete', {
+  method: 'POST',
+  data: { email, email_code: emailCode, new_password: password },
+})
+
+export const sendEmailCode = (email: string, purpose = 'register') => request<{ ok: boolean; expires_in: number }>('/api/auth/email/code', {
   method: 'POST',
   authRequired: false,
-  data: { email },
+  data: { email, purpose },
 })
 
 export const fetchMe = () => request<User>('/api/auth/me')

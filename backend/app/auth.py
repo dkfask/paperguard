@@ -110,20 +110,24 @@ def register_user(store: Store, username: str, password: str,
 
     - 学生直接 active; 教师默认 pending 待管理员认证
     - username 可缺省: 提供邮箱时由邮箱本地部分派生
-    - email 提供时作为桌面端登录与找回凭证; SMTP 已配置则必须携带邮箱验证码
+    - 个人邮箱注册在邮件通道可用时必须完成 register 验证码
+    - 无邮箱的旧账号注册保留为兼容路径, 不作为新的个人邮箱注册入口
     """
     username = username.strip()
     email = email.strip().lower()
     email_verified = 0
     if email:
         _validate_email(store, email)
-        if emailer.email_configured():
-            if not email_code.strip():
-                raise HTTPException(status_code=422, detail={
-                    "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
-                })
-            _verify_email_code(store, email, email_code.strip(), purpose="register")
-            email_verified = 1
+        if not emailer.email_configured():
+            raise HTTPException(status_code=503, detail={
+                "code": "EMAIL_NOT_CONFIGURED", "message": "邮件服务尚未配置，暂不能使用个人邮箱注册",
+            })
+        if not email_code.strip():
+            raise HTTPException(status_code=422, detail={
+                "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
+            })
+        _verify_email_code(store, email, email_code.strip(), purpose="register")
+        email_verified = 1
     if not username and email:
         username = _username_from_email(store, email)
     if len(username) < 3:
@@ -163,6 +167,58 @@ def _validate_email(store: Store, email: str) -> None:
         raise HTTPException(status_code=409, detail={"code": "EMAIL_TAKEN", "message": "该邮箱已被其他账号使用"})
 
 
+def _validate_email_for_user(store: Store, email: str, user_id: str) -> None:
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail={"code": "EMAIL_INVALID", "message": "邮箱格式不正确"})
+    existing = store.get_user_by_email(email)
+    if existing and existing.get("id") != user_id:
+        raise HTTPException(status_code=409, detail={"code": "EMAIL_TAKEN", "message": "该邮箱已被其他账号使用"})
+
+
+def complete_first_login(store: Store, user: dict, email: str, code: str, new_password: str) -> dict:
+    """学校统一注册学生首次绑定邮箱并设置新密码。"""
+    if user.get("role") != "student":
+        raise HTTPException(status_code=403, detail={
+            "code": "FIRST_LOGIN_STUDENT_REQUIRED", "message": "首次学生引导仅适用于学生账号",
+        })
+    if not onboarding_required(user):
+        raise HTTPException(status_code=409, detail={
+            "code": "ONBOARDING_NOT_REQUIRED", "message": "账号已完成首次登录引导",
+        })
+    email = email.strip().lower()
+    _validate_email_for_user(store, email, user["id"])
+    if not code.strip():
+        raise HTTPException(status_code=422, detail={
+            "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
+        })
+    _verify_email_code(store, email, code.strip(), purpose="first_login")
+    password_error = _password_error(new_password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+    ph, salt = hash_password(new_password)
+    updated = store.save_user({
+        **user,
+        "email": email,
+        "email_verified": 1,
+        "password_set": 1,
+        "password_hash": ph,
+        "salt": salt,
+        "must_change_password": 0,
+    })
+    store.revoke_user_sessions(user["id"], _now())
+    return _issue_session(store, updated, source=user.get("session_source", "web"))
+
+
+def onboarding_required(user: dict) -> bool:
+    """学生首次邮箱验证/密码初始化未完成时阻断业务访问。"""
+    if user.get("role") != "student":
+        return False
+    # Legacy no-email accounts created before the dual-track rollout remain usable.
+    if not user.get("email") and not user.get("must_change_password") and user.get("password_set", 1):
+        return False
+    return not bool(user.get("email_verified")) or not bool(user.get("password_set", 1)) or bool(user.get("must_change_password"))
+
+
 def _username_from_email(store: Store, email: str) -> str:
     """由邮箱本地部分派生唯一用户名(不合法字符转 '-', 冲突加随机后缀)。"""
     base = re.sub(r"[^a-zA-Z0-9_-]+", "-", email.split("@", 1)[0]).strip("-") or "user"
@@ -178,6 +234,10 @@ def _email_code_hash(code: str) -> str:
 
 def send_email_code(store: Store, email: str, purpose: str = "register") -> dict:
     """生成并邮件发送 6 位验证码; SMTP 未配置时明确报 503。"""
+    if purpose not in {"register", "bind", "first_login", "password_reset"}:
+        raise HTTPException(status_code=422, detail={
+            "code": "EMAIL_PURPOSE_INVALID", "message": "邮箱验证码用途不受支持",
+        })
     email = email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(status_code=422, detail={"code": "EMAIL_INVALID", "message": "邮箱格式不正确"})
@@ -426,12 +486,15 @@ def mp_bind_email(store: Store, user: dict, email: str, code: str, password: str
         raise HTTPException(status_code=409, detail={
             "code": "EMAIL_ALREADY_BOUND", "message": "该账号已绑定邮箱，换绑请联系管理员",
         })
-    if emailer.email_configured():
-        if not code.strip():
-            raise HTTPException(status_code=422, detail={
-                "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
-            })
-        _verify_email_code(store, email, code.strip(), purpose="bind")
+    if not emailer.email_configured():
+        raise HTTPException(status_code=503, detail={
+            "code": "EMAIL_NOT_CONFIGURED", "message": "邮件服务尚未配置，暂不能完成邮箱绑定",
+        })
+    if not code.strip():
+        raise HTTPException(status_code=422, detail={
+            "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
+        })
+    _verify_email_code(store, email, code.strip(), purpose="bind")
     password_error = _password_error(password)
     if password_error:
         raise HTTPException(status_code=400, detail=password_error)
@@ -439,10 +502,11 @@ def mp_bind_email(store: Store, user: dict, email: str, code: str, password: str
     updated = store.save_user({
         **user,
         "email": email,
-        "email_verified": 1 if emailer.email_configured() else 0,
+        "email_verified": 1,
         "password_set": 1,
         "password_hash": ph,
         "salt": salt,
+        "must_change_password": 0,
     })
     return public_user(updated)
 
@@ -503,6 +567,7 @@ def public_user(user: dict) -> dict:
         "email": email,
         "email_verified": bool(user.get("email_verified", 0)),
         "password_set": bool(user.get("password_set", 1)),
+        "onboarding_required": onboarding_required(user),
         "role": user["role"],
         "display_name": user["display_name"],
         "status": user.get("status", "active"),
@@ -512,15 +577,32 @@ def public_user(user: dict) -> dict:
     }
 
 
+_ONBOARDING_EXEMPT_PATHS = {
+    "/api/auth/me",
+    "/api/auth/first-login/complete",
+    "/api/auth/change-password",
+    "/api/auth/mp/bind-email",
+    "/api/auth/mp/unbind",
+}
+
+
+def _onboarding_path_exempt(path: str) -> bool:
+    return path in _ONBOARDING_EXEMPT_PATHS or path == "/api/auth/logout" or path == "/api/auth/email/code"
+
+
 def current_user(request: Request, authorization: str | None = Header(default=None),
                  store: Store = Depends(lambda: Store())) -> dict:
-    """从 Authorization 头解析未过期、未撤销的当前用户。"""
+    """从 Authorization 头解析未过期、未撤销的当前用户, 并阻断未完成学生引导的业务请求。"""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="未登录")
     token = authorization.removeprefix("Bearer ").strip()
     user = store.get_session_user(_token_hash(token), _now(), refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS))
     if user is None:
         raise HTTPException(status_code=401, detail="登录已失效, 请重新登录")
+    if onboarding_required(user) and not _onboarding_path_exempt(request.url.path):
+        raise HTTPException(status_code=403, detail={
+            "code": "ONBOARDING_REQUIRED", "message": "请先完成邮箱验证和首次登录设置",
+        })
     context = context_for_user(user, request_id=getattr(request.state, "request_id", ""))
     request.state.context = context
     request.state.actor_id = context.actor_id
