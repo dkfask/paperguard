@@ -77,6 +77,7 @@ _ALIGN_MAP = {
 
 _HEADING_TEXT_RE = re.compile(r"^第\s*[0-9一二三四五六七八九十百]+\s*[章节]")
 _NUMERIC_HEADING_RE = re.compile(r"^\d+(?:\.\d+){1,2}\s*\S")
+_ORDINAL_HEADING_RE = re.compile(r"^[一二三四五六七八九十百千万]+[、.．]\s*\S+")
 # 标题类元素: 未指定首行缩进时不应继承正文的缩进
 _TITLE_KEYS = {"abstract", "english_abstract", "toc", "heading1", "heading2", "heading3", "cover_title"}
 _SPECIAL_TITLES = {
@@ -93,6 +94,20 @@ def _norm(text: str) -> str:
 
 def _compact(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
+
+
+def _is_ordinal_heading(text: str) -> bool:
+    return bool(_ORDINAL_HEADING_RE.match(_compact(text)))
+
+
+def _is_structural_heading_text(text: str) -> bool:
+    compact = _compact(text)
+    return bool(
+        _norm(compact) in _SPECIAL_TITLES
+        or _HEADING_TEXT_RE.match(compact)
+        or _is_ordinal_heading(compact)
+        or _NUMERIC_HEADING_RE.match(compact)
+    )
 
 
 def _visible_paragraph_text(paragraph) -> str:
@@ -145,10 +160,16 @@ def import_template_styles(docx_path: str | Path) -> dict:
     id_to_name = style_id_to_name(styles_el)
     default_style_id = default_paragraph_style_id(styles_el)
     samples = sample_paragraphs(document_el)
+    has_ordinal_heading = any(
+        _ORDINAL_HEADING_RE.match(_compact(sample.text))
+        for sample in samples
+        if sample.text and not _is_instruction_run(sample.run)
+    )
 
     # 段落样本 → 模板键 (直接格式优先)
     from_samples: dict[str, list[dict[str, str]]] = {}
     in_cover = True
+    seen_ordinal_heading = False
     tail_section = ""      # 参考文献/致谢/附录 的正文上下文
     for sample in samples:
         # 红色文字是写给学生的填写说明, 不参与样式统计
@@ -162,7 +183,13 @@ def import_template_styles(docx_path: str | Path) -> dict:
         elif special in ("abstract", "english_abstract", "toc"):
             tail_section = ""
         key = _classify(sample, style_key, in_cover)
-        if _is_content_start(sample, style_key):
+        if _is_ordinal_heading(sample.text):
+            seen_ordinal_heading = True
+        if _is_content_start(
+            sample,
+            style_key,
+            allow_style_heading=not has_ordinal_heading or seen_ordinal_heading,
+        ):
             in_cover = False
         if key == "body" and tail_section:
             key = tail_section
@@ -178,11 +205,24 @@ def import_template_styles(docx_path: str | Path) -> dict:
     from_styles: dict[str, list[dict[str, str]]] = {}
     recognized: list[str] = []
     unmapped: list[str] = []
+    paragraph_style_ids = {
+        style.get(qn("w:styleId"))
+        for style in styles_el.findall(qn("w:style"))
+        if (style.get(qn("w:type")) or "paragraph") == "paragraph"
+    }
+    used_style_ids = {
+        sample.style_id or default_style_id
+        for sample in samples
+        if sample.text.strip()
+    }
     for style_id, attrs in style_table.items():
         name = id_to_name.get(style_id, "") or style_id
         key = _style_key(style_id, id_to_name)
         if key is None or key not in _KEEP_KEYS:
-            if name:
+            # styles.xml commonly contains unused Word defaults, table styles,
+            # headers, and balloon styles. Report only paragraph styles that
+            # actually occur in the document body.
+            if name and style_id in used_style_ids and style_id in paragraph_style_ids:
                 unmapped.append(name)
             continue
         recognized.append(name)
@@ -219,7 +259,12 @@ def _is_toc_style(style_id: str) -> bool:
     return _norm(style_id).startswith("toc")
 
 
-def _is_content_start(sample: ParaSample, style_key: str | None) -> bool:
+def _is_content_start(
+    sample: ParaSample,
+    style_key: str | None,
+    *,
+    allow_style_heading: bool = True,
+) -> bool:
     """判断该段落是否标志"封面结束/正文开始"。"""
     if _is_toc_style(sample.style_id):
         return False
@@ -230,7 +275,9 @@ def _is_content_start(sample: ParaSample, style_key: str | None) -> bool:
         return True
     if _HEADING_TEXT_RE.match(text):
         return True
-    return style_key in ("heading1", "heading2", "heading3")
+    if _is_ordinal_heading(text):
+        return True
+    return allow_style_heading and style_key in ("heading1", "heading2", "heading3")
 
 
 def _classify(sample: ParaSample, style_key: str | None, in_cover: bool) -> str | None:
@@ -425,6 +472,119 @@ def _paragraph_style_id(p: etree._Element) -> str:
         return ""
     pstyle = ppr.find(qn("w:pStyle"))
     return (pstyle.get(qn("w:val")) or "") if pstyle is not None else ""
+
+
+def _table_cell_text(cell: etree._Element) -> str:
+    paragraphs = [
+        _visible_paragraph_text(paragraph).strip()
+        for paragraph in cell.findall(qn("w:p"))
+    ]
+    return "\n".join(value for value in paragraphs if value)
+
+
+def _table_cell_span(cell: etree._Element) -> tuple[int, str]:
+    properties = cell.find(qn("w:tcPr"))
+    if properties is None:
+        return 1, ""
+    grid_span = properties.find(qn("w:gridSpan"))
+    try:
+        col_span = max(1, int(grid_span.get(qn("w:val")))) if grid_span is not None else 1
+    except (TypeError, ValueError):
+        col_span = 1
+    vertical_merge = properties.find(qn("w:vMerge"))
+    merge_value = ""
+    if vertical_merge is not None:
+        merge_value = vertical_merge.get(qn("w:val")) or "continue"
+    return col_span, merge_value
+
+
+def extract_document_structure(docx_path: str | Path) -> dict[str, object]:
+    """Extract safe structural metadata for generic Word templates.
+
+    The source DOCX remains the formatting authority. This projection is
+    intentionally limited to table dimensions, merge markers, and a small
+    text preview so the review UI can show what was recognized without
+    serializing the original XML into the candidate.
+    """
+    docx_path = Path(docx_path)
+    with zipfile.ZipFile(docx_path, "r") as zf:
+        document_el = load_part(zf, "word/document.xml")
+        styles_el = load_part(zf, "word/styles.xml")
+    if document_el is None:
+        return {"paragraph_count": 0, "table_count": 0, "tables": []}
+
+    body = document_el.find(qn("w:body"))
+    if body is None:
+        return {"paragraph_count": 0, "table_count": 0, "tables": []}
+
+    id_to_name = style_id_to_name(styles_el) if styles_el is not None else {}
+    paragraph_count = 0
+    current_section = ""
+    tables: list[dict[str, object]] = []
+    for child in body:
+        if child.tag == qn("w:p"):
+            text = _visible_paragraph_text(child).strip()
+            if text:
+                paragraph_count += 1
+            style_key = _style_key(_paragraph_style_id(child), id_to_name)
+            if text and (_is_structural_heading_text(text) or style_key in {"heading1", "heading2", "heading3"}):
+                current_section = text
+            continue
+        if child.tag != qn("w:tbl"):
+            continue
+
+        grid = child.find(qn("w:tblGrid"))
+        grid_columns = len(grid.findall(qn("w:gridCol"))) if grid is not None else 0
+        row_projections: list[list[dict[str, object]]] = []
+        non_empty_cells = 0
+        has_merged_cells = False
+        max_columns = grid_columns
+        for row in child.findall(qn("w:tr")):
+            row_projection: list[dict[str, object]] = []
+            logical_columns = 0
+            for cell in row.findall(qn("w:tc")):
+                text = _table_cell_text(cell)
+                col_span, vertical_merge = _table_cell_span(cell)
+                logical_columns += col_span
+                has_merged_cells = has_merged_cells or col_span > 1 or bool(vertical_merge)
+                if text:
+                    non_empty_cells += 1
+                row_projection.append({
+                    "text": text,
+                    "col_span": col_span,
+                    "vertical_merge": vertical_merge,
+                })
+            max_columns = max(max_columns, logical_columns)
+            row_projections.append(row_projection)
+
+        tables.append({
+            "index": len(tables) + 1,
+            "rows": len(row_projections),
+            "cols": max_columns,
+            "grid_columns": grid_columns,
+            "cell_count": sum(len(row) for row in row_projections),
+            "non_empty_cells": non_empty_cells,
+            "has_merged_cells": has_merged_cells,
+            "section_title": current_section,
+            "cells": [[str(cell["text"]) for cell in row] for row in row_projections],
+            "preview": [
+                [
+                    {
+                        "text": str(cell["text"])[:120],
+                        "col_span": cell["col_span"],
+                        "vertical_merge": cell["vertical_merge"],
+                    }
+                    for cell in row[:8]
+                ]
+                for row in row_projections[:6]
+            ],
+        })
+
+    return {
+        "paragraph_count": paragraph_count,
+        "table_count": len(tables),
+        "tables": tables,
+    }
 
 
 def _style_from_attrs(attrs: dict[str, str]) -> TextStyle:
@@ -627,8 +787,13 @@ def extract_cover_blocks(docx_path: str | Path) -> list[CoverBlock]:
     style_table = build_style_table(styles_el)
     default_style_id = default_paragraph_style_id(styles_el)
     id_to_name = style_id_to_name(styles_el)
+    has_ordinal_heading = any(
+        _is_ordinal_heading(_visible_paragraph_text(p))
+        for p in body.findall(qn("w:p"))
+    )
 
     blocks: list[CoverBlock] = []
+    seen_ordinal_heading = False
     for child in body:
         if child.tag == qn("w:tbl"):
             block = _cover_block_from_table(child, style_table, default_style_id)
@@ -640,7 +805,13 @@ def extract_cover_blocks(docx_path: str | Path) -> list[CoverBlock]:
         text = _visible_paragraph_text(child).strip()
         style_id = _paragraph_style_id(child)
         probe = ParaSample(index=0, text=text, style_id=style_id)
-        if _is_content_start(probe, _style_key(style_id, id_to_name)):
+        if _is_ordinal_heading(text):
+            seen_ordinal_heading = True
+        if _is_content_start(
+            probe,
+            _style_key(style_id, id_to_name),
+            allow_style_heading=not has_ordinal_heading or seen_ordinal_heading,
+        ):
             break
         blocks.extend(_cover_block_from_paragraph(child, style_table, default_style_id))
     return blocks
@@ -682,8 +853,6 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
     import re
     import zipfile
 
-    import lxml.etree as etree
-
     W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
     with zipfile.ZipFile(docx_path) as zf:
@@ -700,9 +869,14 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
 
     # 收集 (style_id, text), 同时支持正文中的中文/数字章节标题。
     items: list[tuple[str, str]] = []
+    has_ordinal_heading = any(
+        _is_ordinal_heading(_visible_paragraph_text(p))
+        for p in body.findall(f"{{{W}}}p")
+    )
+    seen_ordinal_heading = False
     toc_style_ids = {"TOC1", "TOC2", "TOC3", "TOC4", "TOC5", "TOC6", "TOC7", "TOC8", "TOC9", "toc 1", "toc 2", "toc 3"}
     in_toc = False
-    for p in body.iter(f"{{{W}}}p"):
+    for p in body.findall(f"{{{W}}}p"):
         style_id = None
         ppr = p.find(f"{{{W}}}pPr")
         if ppr is not None:
@@ -738,14 +912,18 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
             items.append(("special-acknowledgement", text))
         elif compact == "附录":
             items.append(("special-appendix", text))
+        elif _is_ordinal_heading(text) or re.match(
+            r"^第\s*[0-9一二三四五六七八九十百]+\s*[章节]", text, re.I
+        ) or re.match(r"^\d+(?:\.\d+){1,2}\s*\S", text):
+            items.append(("text-heading", text))
+            seen_ordinal_heading = seen_ordinal_heading or _is_ordinal_heading(text)
         elif style_id in _HEADING_STYLE_IDS or _norm(style_name) in {
                 "heading1", "heading2", "heading3",
                 "标题1", "标题2", "标题3"}:
             # 用显示名参与后续层级判断。中文模板经常使用 2/17 这类
             # 内部 styleId, 不能把它们直接当成标题级别。
-            items.append((style_name or style_id, text))
-        elif re.match(r"^(第\s*[0-9一二三四五六七八九十百]+\s*[章节]|\d+(?:\.\d+){1,2}\s*\S+)", text, re.I):
-            items.append(("text-heading", text))
+            if not has_ordinal_heading or seen_ordinal_heading:
+                items.append((style_name or style_id, text))
 
     if not items:
         return []
@@ -785,7 +963,10 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
         elif normalized in {"3", "heading3", "标题3"}:
             level = 3
         elif style_id == "text-heading":
-            level = 1 if re.match(r"^第\s*[0-9一二三四五六七八九十百]+\s*[章节]", text) else 2
+            level = 1 if (
+                _is_ordinal_heading(text)
+                or re.match(r"^第\s*[0-9一二三四五六七八九十百]+\s*[章节]", text)
+            ) else 2
         else:
             continue
 

@@ -4,7 +4,7 @@
 1. Resend HTTP API:PAPERGUARD_RESEND_API_KEY + PAPERGUARD_RESEND_FROM(推荐)
    - 沙箱(未验证域名)仅能发给 Resend 账号所有者邮箱;生产需在 Resend 控制台验证发信域名
 2. SMTP:PAPERGUARD_SMTP_HOST/PORT/USER/PASSWORD/FROM(+PAPERGUARD_SMTP_SSL=1 走 465 隐式 SSL)
-两者都未配置时抛 EmailNotConfigured, 调用方降级(注册免验证并在账号上标记未验证)。
+两者都未配置时抛 EmailNotConfigured, 由调用方返回明确的服务不可用错误。
 """
 
 from __future__ import annotations

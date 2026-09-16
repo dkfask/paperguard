@@ -5,6 +5,10 @@ export interface User {
   id: string
   username: string
   display_name?: string
+  email?: string
+  email_verified?: boolean
+  password_set?: boolean
+  onboarding_required?: boolean
   role: string
   status?: string
   teacher_id?: string | null
@@ -52,6 +56,17 @@ export const useAuthStore = defineStore('auth', () => {
     storage?.setItem(USER_KEY, JSON.stringify(nextUser))
   }
 
+  function updateUser(nextUser: Partial<User>) {
+    if (!user.value) return
+    const updatedUser = { ...user.value, ...nextUser }
+    user.value = updatedUser
+    storage?.setItem(USER_KEY, JSON.stringify(updatedUser))
+  }
+
+  function updateAuth(nextToken: string, nextUser: User) {
+    setAuth(nextToken, nextUser)
+  }
+
   function clearAuth() {
     token.value = ''
     user.value = null
@@ -80,5 +95,5 @@ export const useAuthStore = defineStore('auth', () => {
       && (user.value.role === 'admin' || user.value.status === 'active'))
   }
 
-  return { token, user, isAuthenticated, setAuth, clearAuth, restore, canManage }
+  return { token, user, isAuthenticated, setAuth, updateUser, updateAuth, clearAuth, restore, canManage }
 })

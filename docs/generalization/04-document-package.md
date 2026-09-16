@@ -7,7 +7,7 @@ specification candidate into a published generic document package. The
 existing thesis `templates` and `requirement_sets` stores remain unchanged.
 
 ```text
-confirmed template candidate + confirmed spec candidate
+confirmed template candidate + optional confirmed spec candidate
                          |
                          v
                  package_engine
@@ -38,19 +38,24 @@ thesis APIs.
 
 | Endpoint | Behavior |
 | --- | --- |
-| `POST /api/document-packages` | Manager-only publish of two confirmed candidates |
+| `POST /api/document-packages` | Manager-only publish of a confirmed template and an optional confirmed spec candidate |
 | `GET /api/document-packages` | Authenticated list of published packages visible to the user |
 | `GET /api/document-packages/{id}` | Authenticated read of the complete package snapshot |
 
-Publication revalidates both candidates, requires `confirmed` status, requires
+Publication revalidates the template and, when supplied, the spec candidate;
+both supplied candidates require `confirmed` status. A package without a
+separate specification pins an explicit empty spec version named
+`无额外规范`, so downstream consumers retain a stable non-null reference.
+Publication requires
 the template source asset to be security-validated and present under the
 controlled template source directory, and emits a metadata-only audit event.
 Parse candidates are persisted as server-owned workflow records. The JSON sent
 back to the browser is only an editable review projection: confirmation binds
 the submitted review to the stored candidate identity and source asset, while
-publication reloads both confirmed candidates from the server. Template and
-specification candidates must also carry the same organization context; the
-published package inherits that context rather than the caller's request body.
+publication reloads the confirmed candidates from the server. When a spec is
+supplied, template and specification candidates must also carry the same
+organization context; the published package inherits that context rather than
+the caller's request body.
 The returned package pins `generic-docx-v1` and `generic-check-v1` by default;
 both can be changed only at publication time and are then immutable.
 

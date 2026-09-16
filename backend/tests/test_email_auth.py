@@ -6,7 +6,8 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from app.db import Store
+from app.auth import _email_code_hash, hash_password
+from app.db import Store, new_id
 from app.main import app
 from app.services import emailer
 
@@ -28,21 +29,51 @@ def _register_payload(**overrides) -> dict:
 
 def test_register_with_email_and_login_by_email(monkeypatch):
     monkeypatch.delenv("PAPERGUARD_RESEND_API_KEY", raising=False)
+    monkeypatch.setattr(emailer, "email_configured", lambda: True)
+    captured: dict[str, str] = {}
 
+    def fake_send(to: str, code: str, minutes: int = 10):
+        captured["to"], captured["code"] = to, code
+
+    monkeypatch.setattr(emailer, "send_verification_code", fake_send)
     email = f"{uuid.uuid4().hex[:10]}@example.edu"
     password = f"Mail-{uuid.uuid4().hex}-A1"
-    registered = client.post("/api/auth/register", json=_register_payload(email=email, password=password))
+
+    sent = client.post("/api/auth/email/code", json={"email": email})
+    assert sent.status_code == 200
+    assert captured["to"] == email
+
+    registered = client.post(
+        "/api/auth/register",
+        json=_register_payload(email=email, password=password, email_code=captured["code"]),
+    )
     assert registered.status_code == 201, registered.text
     assert registered.json()["username"].startswith("mail_")
 
     by_email = client.post("/api/auth/login", json={"username": email, "password": password})
     assert by_email.status_code == 200, by_email.text
 
-    duplicate = client.post("/api/auth/register", json=_register_payload(email=email, password=password))
+    duplicate = client.post(
+        "/api/auth/register",
+        json=_register_payload(email=email, password=password, email_code=captured["code"]),
+    )
     assert duplicate.status_code == 409
 
     bad_format = client.post("/api/auth/register", json=_register_payload(email="not-an-email", password=password))
     assert bad_format.status_code == 422
+
+
+def test_register_with_email_requires_configured_provider(monkeypatch):
+    monkeypatch.delenv("PAPERGUARD_RESEND_API_KEY", raising=False)
+    monkeypatch.delenv("PAPERGUARD_SMTP_HOST", raising=False)
+    monkeypatch.setattr(emailer, "email_configured", lambda: False)
+    email = f"{uuid.uuid4().hex[:10]}@example.edu"
+    response = client.post(
+        "/api/auth/register",
+        json=_register_payload(email=email, password=f"Mail-{uuid.uuid4().hex}-A1", email_code="123456"),
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "EMAIL_NOT_CONFIGURED"
 
 
 def test_email_code_flow_required_when_smtp_configured(monkeypatch):
@@ -82,6 +113,13 @@ def test_email_code_flow_required_when_smtp_configured(monkeypatch):
 def test_mp_wechat_register_then_bind_email(monkeypatch):
     monkeypatch.delenv("PAPERGUARD_RESEND_API_KEY", raising=False)
     monkeypatch.setenv("PAPERGUARD_MP_BINDING_SECRET", "test-only-mp-binding-secret")
+    monkeypatch.setattr(emailer, "email_configured", lambda: True)
+    captured: dict[str, str] = {}
+
+    def fake_send(to: str, code: str, minutes: int = 10):
+        captured["to"], captured["code"] = to, code
+
+    monkeypatch.setattr(emailer, "send_verification_code", fake_send)
     suffix = uuid.uuid4().hex[:10]
 
     async def exchange(_code: str) -> str:
@@ -104,14 +142,20 @@ def test_mp_wechat_register_then_bind_email(monkeypatch):
 
     email = f"{suffix}@example.edu"
     new_password = f"Mail-{uuid.uuid4().hex}-A1"
+    code_resp = client.post(
+        "/api/auth/email/code",
+        headers={"Authorization": f"Bearer {body['token']}"},
+        json={"email": email, "purpose": "bind"},
+    )
+    assert code_resp.status_code == 200
     bound = client.post(
         "/api/auth/mp/bind-email",
         headers={"Authorization": f"Bearer {body['token']}"},
-        json={"email": email, "email_code": "", "password": new_password},
+        json={"email": email, "email_code": captured["code"], "password": new_password},
     )
     assert bound.status_code == 200, bound.text
     assert bound.json()["user"]["password_set"] is True
-    assert "@example.edu" in bound.json()["user"]["email"]
+    assert bound.json()["user"]["email_verified"] is True
 
     web_login = client.post("/api/auth/login", json={"username": email, "password": new_password})
     assert web_login.status_code == 200
@@ -125,9 +169,20 @@ def test_mp_wechat_register_then_bind_email(monkeypatch):
 
 def test_mp_bind_accepts_email_identifier(monkeypatch):
     monkeypatch.delenv("PAPERGUARD_RESEND_API_KEY", raising=False)
+    monkeypatch.setattr(emailer, "email_configured", lambda: True)
+    monkeypatch.setattr(emailer, "send_verification_code", lambda *_args, **_kwargs: None)
     email = f"{uuid.uuid4().hex[:10]}@example.edu"
     password = f"Mail-{uuid.uuid4().hex}-A1"
-    registered = client.post("/api/auth/register", json=_register_payload(email=email, password=password))
+    code_resp = client.post("/api/auth/email/code", json={"email": email})
+    assert code_resp.status_code == 200
+    store = Store()
+    record = store.get_email_code(email)
+    assert record is not None
+    store.save_email_code(email, _email_code_hash("123456"), "register", record["expires_at"], record["created_at"])
+    registered = client.post(
+        "/api/auth/register",
+        json=_register_payload(email=email, password=password, email_code="123456"),
+    )
     assert registered.status_code == 201
 
     monkeypatch.setenv("PAPERGUARD_MP_BINDING_SECRET", "test-only-mp-binding-secret")
@@ -142,6 +197,68 @@ def test_mp_bind_accepts_email_identifier(monkeypatch):
     bound = client.post("/api/auth/mp/bind", json={"bind_ticket": ticket, "username": email, "password": password})
     assert bound.status_code == 200, bound.text
     assert bound.json()["user"]["email"].endswith("@example.edu")
+
+
+def test_school_student_first_login_is_gated_and_rotates_session(monkeypatch):
+    monkeypatch.setattr(emailer, "email_configured", lambda: True)
+    captured: dict[str, str] = {}
+
+    def fake_send(to: str, code: str, minutes: int = 10):
+        captured["to"], captured["code"] = to, code
+
+    monkeypatch.setattr(emailer, "send_verification_code", fake_send)
+    store = Store()
+    username = f"school_{uuid.uuid4().hex[:8]}"
+    initial_password = f"Initial-{uuid.uuid4().hex}-A1"
+    password_hash, salt = hash_password(initial_password)
+    store.save_user({
+        "id": new_id("user"),
+        "username": username,
+        "email": "",
+        "email_verified": 0,
+        "password_set": 1,
+        "password_hash": password_hash,
+        "salt": salt,
+        "role": "student",
+        "display_name": "统一注册学生",
+        "token": None,
+        "must_change_password": 1,
+        "status": "active",
+        "teacher_id": "",
+        "created_at": "2026-01-01T00:00:00+00:00",
+    })
+
+    login = client.post("/api/auth/login", json={"username": username, "password": initial_password})
+    assert login.status_code == 200, login.text
+    old_token = login.json()["token"]
+    assert login.json()["user"]["onboarding_required"] is True
+
+    me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {old_token}"})
+    assert me.status_code == 200
+    blocked = client.get("/api/projects", headers={"Authorization": f"Bearer {old_token}"})
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"]["code"] == "ONBOARDING_REQUIRED"
+
+    email = f"{uuid.uuid4().hex[:10]}@example.edu"
+    code = client.post("/api/auth/email/code", json={"email": email, "purpose": "first_login"})
+    assert code.status_code == 200
+    assert captured["to"] == email
+
+    new_password = f"New-{uuid.uuid4().hex}-A1"
+    completed = client.post(
+        "/api/auth/first-login/complete",
+        headers={"Authorization": f"Bearer {old_token}"},
+        json={"email": email, "email_code": captured["code"], "new_password": new_password},
+    )
+    assert completed.status_code == 200, completed.text
+    new_token = completed.json()["token"]
+    assert new_token != old_token
+    assert completed.json()["user"]["onboarding_required"] is False
+
+    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {old_token}"}).status_code == 401
+    ready = client.get("/api/projects", headers={"Authorization": f"Bearer {new_token}"})
+    assert ready.status_code == 200
+    assert client.post("/api/auth/login", json={"username": email, "password": new_password}).status_code == 200
 
 
 def test_resend_provider_used_when_key_present(monkeypatch):

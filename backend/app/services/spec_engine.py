@@ -25,6 +25,9 @@ from app.services.policy_import import (
 from app.services.policy_parser import items_from_markdown, parse_frontmatter
 
 
+GENERIC_SPEC_IMPORT_EXTENSIONS = AI_IMPORT_EXTENSIONS | {".doc"}
+
+
 class SpecParseIssue(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -315,8 +318,8 @@ def parse_spec_document(
     the API boundary and makes tests network-free.
     """
     suffix = Path(filename or "").suffix.lower()
-    if suffix not in AI_IMPORT_EXTENSIONS:
-        raise ValueError("规范导入只支持 .docx、.pdf、.md、.markdown 或 .txt 文件")
+    if suffix not in GENERIC_SPEC_IMPORT_EXTENSIONS:
+        raise ValueError("规范导入只支持 .doc、.docx、.pdf、.md、.markdown 或 .txt 文件")
     source_text, source_truncated = extract_policy_text(data, filename)
     if suffix in {".md", ".markdown"} and has_explicit_markdown_rules(source_text):
         return parse_deterministic_spec_text(
@@ -374,6 +377,7 @@ __all__ = [
     "build_spec_import_messages",
     "build_spec_import_retry_messages",
     "confirm_spec_candidate",
+    "GENERIC_SPEC_IMPORT_EXTENSIONS",
     "has_explicit_markdown_rules",
     "parse_deterministic_spec_text",
     "parse_spec_document",

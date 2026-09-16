@@ -70,7 +70,18 @@ describe('DocumentPackagePublisher', () => {
     })
   })
 
-  it('requires both confirmed candidates before publishing a package', async () => {
+  it('allows legacy and modern Word files in both upload steps', () => {
+    const wrapper = mount(DocumentPackagePublisher, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    })
+
+    expect(wrapper.get('[data-test="template-file"]').attributes('accept')).toContain('.doc')
+    expect(wrapper.get('[data-test="template-file"]').attributes('accept')).toContain('.docx')
+    expect(wrapper.get('[data-test="spec-file"]').attributes('accept')).toContain('.doc')
+    expect(wrapper.get('[data-test="spec-file"]').attributes('accept')).toContain('.docx')
+  })
+
+  it('publishes with an optional separate standard when one is provided', async () => {
     const wrapper = mount(DocumentPackagePublisher, {
       global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
     })
@@ -101,6 +112,29 @@ describe('DocumentPackagePublisher', () => {
       spec_candidate: expect.objectContaining({ status: 'confirmed' }),
     }))
     expect(wrapper.text()).toContain('documentPackagePublisher.published')
+  })
+
+  it('allows a confirmed form template to publish without a separate standard', async () => {
+    const wrapper = mount(DocumentPackagePublisher, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    })
+    const templateFile = new File(['docx'], 'application-form.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+
+    await chooseFile(wrapper, '[data-test="template-file"]', templateFile)
+    await wrapper.get('[data-test="template-parse"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="template-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="spec-enabled"]').element.checked).toBe(false)
+    expect(wrapper.get('[data-test="publish"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-test="publish"]').trigger('click')
+    await flushPromises()
+
+    expect(api.publishDocumentPackage).toHaveBeenCalledWith({
+      document_type_id: 'generic',
+      template_candidate: expect.objectContaining({ status: 'confirmed' }),
+    })
   })
 
   it('reviews editable fields and rule params before confirmation', async () => {

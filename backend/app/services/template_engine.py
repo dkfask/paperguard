@@ -17,6 +17,7 @@ from app.domain.documents.schemas import (
 from app.services.docx_anchors import extract_docx_anchors
 from app.services.import_template import (
     extract_cover_blocks,
+    extract_document_structure,
     extract_meta_fields,
     extract_section_tree,
     import_template_styles,
@@ -42,7 +43,7 @@ class TemplateParseCandidate(BaseModel):
     name: str = Field(min_length=1)
     version: str = Field(default="1", min_length=1)
     filename: str = ""
-    parser_version: str = "docx-template-engine@1"
+    parser_version: str = "docx-template-engine@2"
     definition: TemplateDefinition
     source_asset: TemplateAsset | None = None
     issues: list[TemplateParseIssue] = Field(default_factory=list)
@@ -87,6 +88,7 @@ def parse_docx_template(
     """Parse a DOCX into a generic candidate without AI or persistence side effects."""
     path = Path(docx_path)
     imported_styles = import_template_styles(path)
+    source_document = extract_document_structure(path)
     raw_sections = extract_section_tree(path)
     anchors = extract_docx_anchors(path)
     meta_fields = extract_meta_fields(path)
@@ -126,8 +128,12 @@ def parse_docx_template(
     if not anchors:
         issues.append(TemplateParseIssue(
             code="stable_anchors_not_detected",
-            severity="warning",
-            message="未识别到明确的 DOCX 字段/章节锚点；导出将使用兼容渲染器，无法保证陌生模板的原位保真",
+            severity="info" if source_document["table_count"] else "warning",
+            message=(
+                "未识别到明确的 DOCX 字段/章节锚点；已识别源文档表格，确认后将保留源模板结构"
+                if source_document["table_count"]
+                else "未识别到明确的 DOCX 字段/章节锚点；导出将使用兼容渲染器，无法保证陌生模板的原位保真"
+            ),
             path="definition.anchors",
         ))
     if not meta_fields:
@@ -183,6 +189,7 @@ def parse_docx_template(
         },
         source_docx=source_asset.storage_key if source_asset else "",
         cover_blocks=[block.model_dump(mode="json") for block in extract_cover_blocks(path)],
+        extensions={"source_document": source_document},
     )
     return TemplateParseCandidate(
         candidate_id=candidate_id,

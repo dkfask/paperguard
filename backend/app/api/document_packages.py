@@ -30,7 +30,7 @@ router = APIRouter(
 
 class PublishPackageRequest(BaseModel):
     template_candidate: TemplateParseCandidate
-    spec_candidate: SpecParseCandidate
+    spec_candidate: SpecParseCandidate | None = None
     document_type_id: str = Field(default="generic", min_length=1, max_length=80)
     renderer_version: str = Field(default="generic-docx-v1", min_length=1, max_length=120)
     rule_engine_version: str = Field(default="generic-check-v1", min_length=1, max_length=120)
@@ -83,8 +83,11 @@ def publish_document_package(
     store: Store = Depends(get_store),
     manager: dict = Depends(require_manager),
 ) -> dict[str, Any]:
-    """Publish one exact template/spec composition after both confirmations."""
-    package_hint = f"{request.template_candidate.template_id}:{request.spec_candidate.spec_set_id}"
+    """Publish one exact template/spec composition after review.
+
+    A separate specification is optional for form-like document types.
+    """
+    package_hint = f"{request.template_candidate.template_id}:{request.spec_candidate.spec_set_id if request.spec_candidate else 'no-spec'}"
     try:
         template_candidate, template_record = load_confirmed_candidate_with_record(
             store,
@@ -93,17 +96,19 @@ def publish_document_package(
             TemplateParseCandidate,
             manager,
         )
-        spec_candidate, spec_record = load_confirmed_candidate_with_record(
-            store,
-            SPEC_CANDIDATE_KIND,
-            request.spec_candidate,
-            SpecParseCandidate,
-            manager,
-        )
         template_context = dict(template_record.get("organization_context") or {})
-        spec_context = dict(spec_record.get("organization_context") or {})
-        if template_context != spec_context:
-            raise CandidateBindingError("模板与规范候选的组织范围不一致")
+        spec_candidate = None
+        if request.spec_candidate is not None:
+            spec_candidate, spec_record = load_confirmed_candidate_with_record(
+                store,
+                SPEC_CANDIDATE_KIND,
+                request.spec_candidate,
+                SpecParseCandidate,
+                manager,
+            )
+            spec_context = dict(spec_record.get("organization_context") or {})
+            if template_context != spec_context:
+                raise CandidateBindingError("模板与规范候选的组织范围不一致")
         bundle = publish_package_candidates(
             template_candidate,
             spec_candidate,

@@ -8,6 +8,7 @@ const router = createRouter({
     { path: '/', component: () => import('./views/Home.vue'), meta: { title: '首页', titleKey: 'route.home', requiresAuth: true } },
     { path: '/login', component: () => import('./views/Login.vue'), meta: { title: '登录', titleKey: 'route.login', public: true } },
     { path: '/register', component: () => import('./views/Register.vue'), meta: { title: '注册', titleKey: 'route.register', public: true } },
+    { path: '/first-login', component: () => import('./views/FirstLogin.vue'), meta: { title: '首次登录', titleKey: 'route.firstLogin' } },
     { path: '/templates', component: () => import('./views/Templates.vue'), meta: { title: '模板管理', titleKey: 'route.templates' } },
     { path: '/templates/:id/edit', component: () => import('./views/TemplateEditor.vue'), meta: { title: '编辑模板', titleKey: 'route.templateEditor' } },
     { path: '/document-packages/publish', component: () => import('./views/DocumentPackagePublisher.vue'), meta: { title: '发布通用文档', titleKey: 'route.documentPackagePublisher', roles: ['admin', 'college_admin', 'teacher'] } },
@@ -37,6 +38,15 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
   if (auth.token && to.path === '/login' && to.query.forceChange !== '1' && to.query.logout !== '1') {
+    return { path: '/' }
+  }
+  const requiresFirstLogin = auth.token
+    && auth.user?.role === 'student'
+    && auth.user?.onboarding_required === true
+  if (requiresFirstLogin && to.path !== '/first-login') {
+    return { path: '/first-login', query: { redirect: to.fullPath } }
+  }
+  if (auth.token && to.path === '/first-login' && !requiresFirstLogin) {
     return { path: '/' }
   }
   const canManageTemplates = auth.user?.role === 'admin'

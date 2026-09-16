@@ -34,6 +34,7 @@ from app.services.import_template import (
     extract_section_tree,
     import_template_styles,
 )
+from app.services.legacy_word import LegacyWordConversionError, prepare_docx
 from app.services.projects import default_template, seed_default_template
 from app.services.template_source import (
     delete_template_source,
@@ -49,6 +50,7 @@ from app.services.template_engine import (
 from app.services.upload_security import IMPORT_MAX_BYTES, read_limited, validate_docx_bytes
 
 router = APIRouter(prefix="/api/templates")
+_WORD_TEMPLATE_EXTENSIONS = {".doc", ".docx"}
 
 
 def _now() -> str:
@@ -144,17 +146,17 @@ def create_default_template(store: Store = Depends(get_store),
 async def strip_template_comments(file: UploadFile = File(...),
                                   _: dict = Depends(require_template_manager)):
     """生成删除批注后的模板副本，不修改上传原文件。"""
-    if not file.filename or not file.filename.lower().endswith(".docx"):
-        raise HTTPException(status_code=400, detail="只支持 .docx 文件")
+    filename = Path(file.filename or "").name
+    if Path(filename).suffix.lower() not in _WORD_TEMPLATE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="只支持 .doc 或 .docx 文件")
     tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-strip-comments-"))
-    source = tmp_dir / "template.docx"
     output = tmp_dir / "template-no-comments.docx"
     try:
         data = read_limited(file, IMPORT_MAX_BYTES)
-        validate_docx_bytes(data)
-        source.write_bytes(data)
+        source = prepare_docx(data, filename, tmp_dir).path
+        validate_docx_bytes(source.read_bytes())
         counters = strip_comments_from_docx(source, output)
-        stem = Path(file.filename).stem
+        stem = Path(filename).stem
         filename = f"{stem}-no-comments.docx"
         return StreamingResponse(
             output.open("rb"),
@@ -169,6 +171,9 @@ async def strip_template_comments(file: UploadFile = File(...),
     except HTTPException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
+    except LegacyWordConversionError as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=422, detail=f"批注清理失败: {exc}") from exc
@@ -178,25 +183,25 @@ async def strip_template_comments(file: UploadFile = File(...),
 async def parse_docx_template_candidate(file: UploadFile = File(...),
                                         manager: dict = Depends(require_manager),
                                         store: Store = Depends(get_store)) -> TemplateParseCandidate:
-    """Parse an uploaded DOCX into a generic candidate for human confirmation."""
-    if not file.filename or not file.filename.lower().endswith(".docx"):
-        raise HTTPException(status_code=400, detail="只支持 .docx 文件")
+    """Parse an uploaded Word document into a generic candidate for human confirmation."""
+    filename = Path(file.filename or "").name
+    if Path(filename).suffix.lower() not in _WORD_TEMPLATE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="只支持 .doc 或 .docx 文件")
     tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-template-engine-"))
-    path = tmp_dir / "template.docx"
     try:
         data = read_limited(file, IMPORT_MAX_BYTES)
-        validate_docx_bytes(data)
-        path.write_bytes(data)
+        path = prepare_docx(data, filename, tmp_dir).path
+        validate_docx_bytes(path.read_bytes())
         candidate_id = new_id("tplcand")
         template_id = new_id("tpl")
         candidate = parse_template_candidate(
             path,
             candidate_id=candidate_id,
             template_id=template_id,
-            filename=file.filename,
-            name=Path(file.filename).stem,
+            filename=filename,
+            name=Path(filename).stem,
         )
-        source_docx = save_template_source(data)
+        source_docx = save_template_source(path.read_bytes())
         stored_path = resolve_template_source(source_docx)
         if stored_path is None:
             raise HTTPException(status_code=422, detail="模板源文件保存失败")
@@ -226,6 +231,8 @@ async def parse_docx_template_candidate(file: UploadFile = File(...),
         return candidate
     except HTTPException:
         raise
+    except LegacyWordConversionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"模板解析失败: {exc}") from exc
     finally:
@@ -310,15 +317,15 @@ def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
 @router.post("/import")
 async def import_docx_template(file: UploadFile = File(...),
                               _: dict = Depends(require_template_manager)) -> dict:
-    """上传 Word .docx, 识别其中的字体/字号/行距/缩进等样式, 返回可生成模板的配置。"""
-    if not file.filename or not file.filename.lower().endswith(".docx"):
-        raise HTTPException(status_code=400, detail="只支持 .docx 文件")
+    """上传 Word 文档, 识别字体/字号/行距/缩进等样式, 返回可生成模板的配置。"""
+    filename = Path(file.filename or "").name
+    if Path(filename).suffix.lower() not in _WORD_TEMPLATE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="只支持 .doc 或 .docx 文件")
     tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-import-"))
-    path = tmp_dir / "template.docx"
     try:
         data = read_limited(file, IMPORT_MAX_BYTES)
-        validate_docx_bytes(data)
-        path.write_bytes(data)
+        path = prepare_docx(data, filename, tmp_dir).path
+        validate_docx_bytes(path.read_bytes())
         result = import_template_styles(path)
         # 识别结果合并默认样式: 未识别到的键保留默认值, 保证返回完整样式集
         merged = {k: v.model_dump() for k, v in default_template().styles.items()}
@@ -326,9 +333,9 @@ async def import_docx_template(file: UploadFile = File(...),
         # 识别章节结构 (Heading 段落 → 章节树)
         sections = extract_section_tree(path)
         # 留档模板源文件: 导出时以它为排版基底, 完整继承 styles/页眉页脚/页边距
-        source_docx = save_template_source(data)
+        source_docx = save_template_source(path.read_bytes())
         return {
-            "filename": file.filename,
+            "filename": filename,
             **result,
             "styles": merged,
             "sections": sections,
@@ -338,6 +345,8 @@ async def import_docx_template(file: UploadFile = File(...),
         }
     except HTTPException:
         raise
+    except LegacyWordConversionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"模板识别失败: {exc}") from exc
     finally:

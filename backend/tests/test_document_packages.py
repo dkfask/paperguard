@@ -173,3 +173,32 @@ def test_publish_package_from_confirmed_candidates_is_persisted_and_readable() -
     actions = {event["action"] for event in audit.json() if event["resource_id"] == body["package"]["id"]}
     assert "document.package.published" in actions
     assert "lab-spec" not in json.dumps(audit.json(), ensure_ascii=False)
+
+
+def test_publish_package_without_separate_spec_uses_empty_spec_version() -> None:
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    template_content = FIXTURE.read_bytes()
+    parsed_template = client.post(
+        "/api/templates/parse",
+        headers=headers,
+        files={"file": ("application-form.docx", template_content, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert parsed_template.status_code == 200, parsed_template.text
+    confirmed_template = client.post("/api/templates/parse/confirm", headers=headers, json=parsed_template.json())
+    assert confirmed_template.status_code == 200, confirmed_template.text
+
+    published = client.post(
+        "/api/document-packages",
+        headers=headers,
+        json={
+            "template_candidate": confirmed_template.json(),
+            "document_type_id": "application-form-no-spec",
+        },
+    )
+    assert published.status_code == 201, published.text
+    body = published.json()
+    assert body["spec_set"]["name"] == "无额外规范"
+    assert body["spec_set"]["metadata"]["source"] == "no_spec"
+    assert body["spec_version"]["rules"] == []
+    assert body["package"]["spec_version_id"].startswith("no-spec:")

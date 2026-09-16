@@ -148,7 +148,10 @@ def bulk_import_students(
             "display_name": display_name,
             "status": "active",
             "teacher_id": user["id"],
-            "must_change_password": 1 if req.force_change_password else 0,
+            "must_change_password": 1,
+            "email": "",
+            "email_verified": 0,
+            "password_set": 1,
             "created_at": _now(),
         }
         store.save_user(new_student)
@@ -156,6 +159,7 @@ def bulk_import_students(
             "username": username,
             "display_name": display_name,
             "initial_password": req.default_password,
+            "first_login_required": True,
             "action": "created",
         })
 

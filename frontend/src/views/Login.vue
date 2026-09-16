@@ -136,7 +136,9 @@ async function submit() {
       setAuth(data.token, data.user)
       const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
         ? route.query.redirect : '/'
-      if (data.user.must_change_password) {
+      if (data.user.onboarding_required) {
+        router.replace({ path: '/first-login', query: { redirect } })
+      } else if (data.user.must_change_password) {
         router.replace({ path: '/login', query: { forceChange: '1', redirect } })
       } else {
         router.replace(redirect)

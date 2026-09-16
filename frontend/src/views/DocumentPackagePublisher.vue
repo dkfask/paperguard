@@ -36,7 +36,7 @@
 
           <label class="file-picker">
             <span>{{ t('documentPackagePublisher.templateFile') }}</span>
-            <input data-test="template-file" type="file" accept=".docx" :disabled="templateBusy || publishBusy" @change="selectTemplate" />
+            <input data-test="template-file" type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" :disabled="templateBusy || publishBusy" @change="selectTemplate" />
             <small>{{ templateFile?.name || t('documentPackagePublisher.noFile') }}</small>
           </label>
 
@@ -136,6 +136,18 @@
                 </label>
               </div>
             </div>
+            <div v-if="templateTables.length" class="detected-list" data-test="template-table-summary">
+              <h3>{{ t('documentPackagePublisher.detectedTables') }}: {{ templateTables.length }}</h3>
+              <div v-for="table in templateTables" :key="table.index" class="detected-row table-row" :data-test="`template-table-${table.index}`">
+                <span class="material-symbols-outlined" aria-hidden="true">table_chart</span>
+                <span>{{ t('documentPackagePublisher.tableNumber') }} {{ table.index }}</span>
+                <small>
+                  {{ table.rows }} × {{ table.cols }} · {{ t('documentPackagePublisher.nonEmptyCells') }} {{ table.non_empty_cells }}
+                  <span v-if="table.has_merged_cells"> · {{ t('documentPackagePublisher.mergedCells') }}</span>
+                  <span v-if="table.section_title"> · {{ table.section_title }}</span>
+                </small>
+              </div>
+            </div>
             <div v-if="templateCandidate.definition.fields.length" class="detected-list">
               <h3>{{ t('documentPackagePublisher.reviewFields') }}</h3>
               <div v-for="field in templateCandidate.definition.fields" :key="field.key" class="field-editor" :data-test="`template-field-${field.key}`">
@@ -195,11 +207,20 @@
 
           <label class="file-picker">
             <span>{{ t('documentPackagePublisher.specFile') }}</span>
-            <input data-test="spec-file" type="file" accept=".docx,.pdf,.md,.markdown,.txt" :disabled="specBusy || publishBusy" @change="selectSpec" />
+            <input ref="specFileInput" data-test="spec-file" type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.md,.markdown,.txt" :disabled="specBusy || publishBusy" @change="selectSpec" />
             <small>{{ specFile?.name || t('documentPackagePublisher.noFile') }}</small>
           </label>
 
-          <button data-test="spec-parse" class="small primary" type="button" :disabled="!specFile || specBusy || publishBusy" @click="parseSpec">
+          <label class="check-editor optional-toggle">
+            <input data-test="spec-enabled" v-model="specIncluded" type="checkbox" :disabled="specBusy || publishBusy" @change="toggleSpec" />
+            {{ t('documentPackagePublisher.specUseSeparate') }}
+          </label>
+          <p v-if="!specIncluded" class="optional-note">
+            <span class="material-symbols-outlined" aria-hidden="true">info</span>
+            {{ t('documentPackagePublisher.specOptional') }}
+          </p>
+
+          <button data-test="spec-parse" class="small primary" type="button" :disabled="!specIncluded || !specFile || specBusy || publishBusy" @click="parseSpec">
             <span class="material-symbols-outlined" aria-hidden="true">rule_folder</span>
             {{ specBusy ? t('documentPackagePublisher.parsing') : t('documentPackagePublisher.parse') }}
           </button>
@@ -333,12 +354,14 @@ const { t } = useI18n()
 const canManage = computed(() => auth.canManage())
 const templateFile = ref(null)
 const specFile = ref(null)
+const specFileInput = ref(null)
 const templateCandidate = ref(null)
 const specCandidate = ref(null)
 const templateCandidates = ref([])
 const specCandidates = ref([])
 const templateCandidateId = ref('')
 const specCandidateId = ref('')
+const specIncluded = ref(false)
 const specParams = ref({})
 const documentTypeId = ref('generic')
 const templateBusy = ref(false)
@@ -352,8 +375,8 @@ const exportStrategies = ['auto', 'source_template', 'legacy_adapter']
 const baseSectionKinds = ['content', 'heading1', 'heading2', 'heading3', 'cover', 'toc', 'abstract', 'keywords', 'references', 'appendix']
 
 const templateReady = computed(() => templateCandidate.value?.status === 'confirmed')
-const specReady = computed(() => specCandidate.value?.status === 'confirmed')
-const readyToPublish = computed(() => canManage.value && templateReady.value && specReady.value && documentTypeId.value.trim())
+const specReady = computed(() => !specIncluded.value || specCandidate.value?.status === 'confirmed')
+const readyToPublish = computed(() => Boolean(canManage.value && templateReady.value && specReady.value && documentTypeId.value.trim()))
 
 const templateSections = computed(() => {
   const flattened = []
@@ -366,6 +389,8 @@ const templateSections = computed(() => {
   walk(templateCandidate.value?.definition?.sections)
   return flattened
 })
+
+const templateTables = computed(() => templateCandidate.value?.definition?.extensions?.source_document?.tables || [])
 
 function upsertCandidate(collection, candidate) {
   if (!candidate?.candidate_id) return
@@ -430,9 +455,22 @@ function selectTemplate(event) {
 
 function selectSpec(event) {
   specFile.value = event.target.files?.[0] || null
+  specIncluded.value = Boolean(specFile.value)
   specCandidate.value = null
   specCandidateId.value = ''
   specParams.value = {}
+  packageResult.value = null
+  error.value = ''
+}
+
+function toggleSpec(event) {
+  if (!event.target.checked) {
+    specFile.value = null
+    specCandidate.value = null
+    specCandidateId.value = ''
+    specParams.value = {}
+    if (specFileInput.value) specFileInput.value.value = ''
+  }
   packageResult.value = null
   error.value = ''
 }
@@ -517,6 +555,7 @@ function restoreTemplate() {
 function restoreSpec() {
   const candidate = specCandidates.value.find(item => item.candidate_id === specCandidateId.value)
   if (!candidate) return
+  specIncluded.value = true
   specCandidate.value = candidate
   syncSpecParams(candidate)
   packageResult.value = null
@@ -529,11 +568,12 @@ async function publish() {
   error.value = ''
   packageResult.value = null
   try {
-    packageResult.value = await publishDocumentPackage({
+    const payload = {
       template_candidate: templateCandidate.value,
-      spec_candidate: specCandidate.value,
       document_type_id: documentTypeId.value.trim(),
-    })
+    }
+    if (specIncluded.value) payload.spec_candidate = specCandidate.value
+    packageResult.value = await publishDocumentPackage(payload)
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -546,11 +586,12 @@ onMounted(loadSavedCandidates)
 
 <style scoped>
 .publisher-page { max-width: 1240px; margin: 0 auto; padding: 22px 20px 56px; }
-.publisher-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 10px 0 28px; border-bottom: 1px solid var(--border); }
+/* This is an in-page heading, not the sticky 60px application header from style.css. */
+.publisher-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; min-height: 0; height: auto; position: static; z-index: auto; padding: 10px 0 28px; border-bottom: 1px solid var(--border); background: transparent; box-shadow: none; backdrop-filter: none; }
 .back-link { display: inline-flex; align-items: center; gap: 5px; color: var(--primary); font-size: 13px; text-decoration: none; }
 .back-link .material-symbols-outlined { font-size: 18px; }
 .publisher-header .workspace-kicker { margin-top: 22px; }
-.publisher-header h1 { margin: 4px 0 8px; font-size: 32px; }
+.publisher-header h1 { margin: 4px 0 8px; font-size: 32px; line-height: 1.2; }
 .publisher-header p:not(.workspace-kicker) { max-width: 720px; margin: 0; color: var(--on-surface-variant); line-height: 1.7; }
 .publisher-icon { color: var(--primary); font-size: 48px; }
 .publisher-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; padding: 26px 0; }
@@ -581,6 +622,9 @@ onMounted(loadSavedCandidates)
 .issue-list small { margin-left: auto; color: var(--on-surface-variant); font-size: 10px; overflow-wrap: anywhere; }
 .clean-note { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--success, #2f7d4a); font-size: 12px; }
 .clean-note .material-symbols-outlined { font-size: 17px; }
+.optional-toggle { margin: 2px 0 8px; font-size: 12px; }
+.optional-note { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 12px; color: var(--on-surface-variant); font-size: 12px; line-height: 1.5; }
+.optional-note .material-symbols-outlined { flex: none; font-size: 17px; }
 .detected-list { display: grid; gap: 6px; }
 .detected-list h3 { margin: 0 0 2px; font-size: 13px; }
 .detected-row { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 7px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
@@ -602,6 +646,9 @@ onMounted(loadSavedCandidates)
 .anchor-row { align-items: flex-start; }
 .anchor-row > span:nth-child(2) { flex: none; }
 .anchor-row small { margin-left: auto; text-align: right; }
+.table-row { align-items: flex-start; flex-wrap: wrap; }
+.table-row > span:nth-child(2) { flex: none; }
+.table-row small { flex: 1 1 180px; }
 .rule-editor { display: grid; gap: 7px; padding: 9px 0; border-bottom: 1px solid var(--border); }
 .rule-editor-grid { display: grid; grid-template-columns: minmax(70px, .9fr) minmax(70px, .7fr) minmax(90px, 1fr) minmax(110px, 1.2fr) minmax(80px, .7fr) minmax(70px, .7fr); gap: 7px; }
 .rule-editor textarea { resize: vertical; min-height: 44px; }

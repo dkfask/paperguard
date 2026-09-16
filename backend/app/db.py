@@ -364,6 +364,7 @@ class Store:
             user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
             if "email" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+                user_columns.add("email")
             if "email_verified" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0")
             if "password_set" not in user_columns:

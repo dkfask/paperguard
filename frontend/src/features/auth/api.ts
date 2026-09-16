@@ -6,6 +6,12 @@ export interface AuthResponse {
   user: User
 }
 
+export interface FirstLoginCompleteInput {
+  email: string
+  email_code: string
+  new_password: string
+}
+
 export const authApi = {
   login: (credentials: LoginInput) => apiClient.request<AuthResponse>({
     url: '/api/auth/login',
@@ -19,11 +25,16 @@ export const authApi = {
     authRequired: false,
     body: payload,
   }),
-  requestEmailCode: (email: string) => apiClient.request<{ ok: boolean; expires_in: number }>({
+  requestEmailCode: (email: string, purpose = 'register') => apiClient.request<{ ok: boolean; expires_in: number }>({
     url: '/api/auth/email/code',
     method: 'POST',
     authRequired: false,
-    body: { email, purpose: 'register' },
+    body: { email, purpose },
+  }),
+  completeFirstLogin: (payload: FirstLoginCompleteInput) => apiClient.request<AuthResponse>({
+    url: '/api/auth/first-login/complete',
+    method: 'POST',
+    body: payload,
   }),
   changePassword: (currentPassword: string, newPassword: string) => apiClient.request<void>({
     url: '/api/auth/change-password',
