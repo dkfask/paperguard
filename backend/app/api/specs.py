@@ -20,7 +20,7 @@ from app.services.document_candidates import (
     save_confirmed_candidate,
     save_parsed_candidate,
 )
-from app.services.policy_import import AI_IMPORT_EXTENSIONS
+from app.services.spec_engine import GENERIC_SPEC_IMPORT_EXTENSIONS
 from app.services.spec_engine import (
     SpecCandidateError,
     SpecParseCandidate,
@@ -69,8 +69,8 @@ async def parse_spec_candidate(
     """Parse a specification document into a review-only candidate."""
     filename = Path(file.filename or "specification").name
     suffix = Path(filename).suffix.lower()
-    if suffix not in AI_IMPORT_EXTENSIONS:
-        raise HTTPException(status_code=415, detail="规范导入只支持 .docx、.pdf、.md、.markdown 或 .txt 文件")
+    if suffix not in GENERIC_SPEC_IMPORT_EXTENSIONS:
+        raise HTTPException(status_code=415, detail="规范导入只支持 .doc、.docx、.pdf、.md、.markdown 或 .txt 文件")
     data = read_limited(file, _MAX_DOCUMENT_BYTES)
     candidate_id = new_id("speccand")
     spec_set_id = new_id("spec")

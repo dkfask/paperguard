@@ -103,8 +103,36 @@ def instantiate_document_project(
     organization_context: dict[str, str],
 ) -> DocumentProject:
     validate_field_values(definition, field_values)
+    source_document = definition.extensions.get("source_document")
+    source_tables = source_document.get("tables", []) if isinstance(source_document, dict) else []
+
+    def initial_blocks(section: dict[str, Any]) -> list[ContentBlock]:
+        blocks: list[ContentBlock] = []
+        for table in source_tables:
+            if not isinstance(table, dict) or table.get("section_title") != section["title"]:
+                continue
+            rows = max(1, int(table.get("rows") or 1))
+            cols = max(1, int(table.get("cols") or 1))
+            cells = table.get("cells") if isinstance(table.get("cells"), list) else []
+            blocks.append(ContentBlock(
+                id=f"{project_id}:{section['key']}:table:{table.get('index', len(blocks) + 1)}",
+                kind="table",
+                data={
+                    "rows": rows,
+                    "cols": cols,
+                    "cells": cells,
+                    "caption": "",
+                    "source_table_index": table.get("index", len(blocks) + 1),
+                    "has_merged_cells": bool(table.get("has_merged_cells")),
+                },
+                order=len(blocks),
+            ))
+        if blocks:
+            return blocks
+        return [ContentBlock(id=f"{project_id}:{section['key']}:0", order=0)]
+
     sections = {
-        section["key"]: [ContentBlock(id=f"{project_id}:{section['key']}:0", order=0)]
+        section["key"]: initial_blocks(section)
         for section in flatten_template_sections(definition)
         if section["kind"] not in {"cover", "toc"}
     }

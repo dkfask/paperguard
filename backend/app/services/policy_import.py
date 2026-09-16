@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from app.services.policy_format import (
     merge_format_overrides,
     normalize_layout_overrides,
 )
+from app.services.legacy_word import LegacyWordConversionError, convert_doc_bytes
 
 
 AI_IMPORT_EXTENSIONS = {".md", ".markdown", ".txt", ".pdf", ".docx"}
@@ -127,10 +129,17 @@ def extract_policy_text(data: bytes, filename: str) -> tuple[str, bool]:
         text = _decode_text(data)
     elif suffix == ".docx":
         text = _extract_docx_text(data)
+    elif suffix == ".doc":
+        try:
+            with tempfile.TemporaryDirectory(prefix="paperguard-legacy-doc-") as temp_dir:
+                converted, _parser_filename = convert_doc_bytes(data, filename, Path(temp_dir))
+        except LegacyWordConversionError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        text = _extract_docx_text(converted)
     elif suffix == ".pdf":
         text = _extract_pdf_text(data)
     else:
-        raise HTTPException(status_code=415, detail="AI 导入只支持 .docx、.pdf、.md、.markdown 或 .txt 文件")
+        raise HTTPException(status_code=415, detail="文档导入只支持 .doc、.docx、.pdf、.md、.markdown 或 .txt 文件")
 
     text = text.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
     text = "\n".join(line.rstrip() for line in text.splitlines())

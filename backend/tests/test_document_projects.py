@@ -8,8 +8,10 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+from app.domain.documents.schemas import DocumentPackage, TemplateDefinition, TemplateSection
 from app.main import app
 from app.services.document_assets import document_upload_dir
+from app.services.document_project_engine import instantiate_document_project
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "minimal.docx"
@@ -72,6 +74,47 @@ def _published_package(client: TestClient, headers: dict[str, str], spec_content
     )
     assert package.status_code == 201, package.text
     return package.json()["package"]
+
+
+def test_form_table_metadata_becomes_editable_table_blocks() -> None:
+    definition = TemplateDefinition(
+        sections=[TemplateSection(key="form", title="一、基本信息")],
+        extensions={
+            "source_document": {
+                "tables": [{
+                    "index": 1,
+                    "rows": 2,
+                    "cols": 2,
+                    "section_title": "一、基本信息",
+                    "cells": [["课题名称", ""], ["负责人", ""]],
+                    "has_merged_cells": True,
+                }],
+            },
+        },
+    )
+    package = DocumentPackage(
+        id="package:form-table",
+        document_type_id="application-form",
+        template_version_id="template:form@1",
+        spec_version_id="no-spec:form@1",
+        renderer_version="generic-docx-v1",
+        rule_engine_version="generic-check-v1",
+    )
+
+    project = instantiate_document_project(
+        package,
+        definition,
+        project_id="project:form-table",
+        owner_id="user-admin",
+        title="表格申报书",
+        field_values={},
+        organization_context={},
+    )
+
+    block = project.sections["form"][0]
+    assert block.kind == "table"
+    assert block.data["cells"][0][0] == "课题名称"
+    assert block.data["has_merged_cells"] is True
 
 
 def test_dynamic_project_schema_autosave_and_revision_conflict() -> None:

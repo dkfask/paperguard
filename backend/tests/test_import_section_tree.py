@@ -8,7 +8,7 @@ import docx
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-from app.services.import_template import extract_section_tree
+from app.services.import_template import extract_document_structure, extract_section_tree
 
 
 def test_extract_section_tree_recognizes_english_abstract_and_excludes_keywords_from_toc():
@@ -80,3 +80,31 @@ def test_extract_section_tree_ignores_pageref_field_result():
         assert sections[0]["title"] == "第1章 绪论"
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+
+
+def test_extracts_chinese_form_sections_and_table_structure(tmp_path):
+    doc = docx.Document()
+    doc.add_paragraph("研究会课题结题报告", style="Heading 1")
+    doc.add_paragraph("课题名称")
+    doc.add_paragraph("一、课题信息表")
+    table = doc.add_table(rows=2, cols=3)
+    table.cell(0, 0).text = "课题名称"
+    table.cell(0, 1).merge(table.cell(0, 2)).text = ""
+    table.cell(1, 0).text = "负责人姓名"
+    table.cell(1, 1).text = ""
+    table.cell(1, 2).text = "所在单位"
+    doc.add_paragraph("二、课题完成情况表")
+    doc.add_table(rows=1, cols=1).cell(0, 0).text = "1. 预期成果及完成情况"
+
+    path = tmp_path / "application-form.docx"
+    doc.save(path)
+
+    sections = extract_section_tree(path)
+    assert [section["title"] for section in sections] == ["一、课题信息表", "二、课题完成情况表"]
+
+    structure = extract_document_structure(path)
+    assert structure["table_count"] == 2
+    assert structure["tables"][0]["rows"] == 2
+    assert structure["tables"][0]["has_merged_cells"] is True
+    assert structure["tables"][0]["section_title"] == "一、课题信息表"
+    assert structure["tables"][0]["non_empty_cells"] == 3

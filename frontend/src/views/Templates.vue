@@ -85,7 +85,7 @@
             <span class="material-symbols-outlined" aria-hidden="true">upload_file</span>
             {{ importing ? t('templates.aiRecognizing') : t('templates.importWord') }}
           </button>
-          <input ref="importInput" type="file" accept=".docx" hidden @change="onImportPick" />
+          <input ref="importInput" type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden @change="onImportPick" />
         </div>
         <div v-else class="readonly-note">
           <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
@@ -280,7 +280,7 @@ async function createFromImport() {
     const importedMeta = importResult.value.meta_fields || []
     const tpl = {
       id: '',
-      name: importResult.value.filename.replace(/\.docx$/i, '') + ` (${t('templates.importWord')})`,
+      name: importResult.value.filename.replace(/\.docx?$/i, '') + ` (${t('templates.importWord')})`,
       description: t('templates.importDescription', { styles: importResult.value.style_names.join(lang.value === 'zh' ? '、' : ', ') }),
       sections: mergeImportedSections(
         importResult.value.sections && importResult.value.sections.length
@@ -308,10 +308,10 @@ async function createFromImport() {
   }
 }
 
-async function remove(t) {
-  confirmDialog.value = { open: true, title: t('templates.deleteTitle', { name: t.name }), description: t('templates.deleteDescription'), confirmLabel: t('templates.confirmDelete'), danger: true, action: async () => {
+async function remove(template) {
+  confirmDialog.value = { open: true, title: t('templates.deleteTitle', { name: template.name }), description: t('templates.deleteDescription'), confirmLabel: t('templates.confirmDelete'), danger: true, action: async () => {
     error.value = ''
-    await deleteTemplateApi(t.id)
+    await deleteTemplateApi(template.id)
     await loadTemplates()
   } }
 }

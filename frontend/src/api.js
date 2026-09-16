@@ -1186,7 +1186,7 @@ async function postDocumentCandidate(path, file, fallback) {
 }
 
 export async function parseDocumentTemplate(file) {
-  return postDocumentCandidate('/templates/parse', file, '解析 DOCX 模板失败')
+  return postDocumentCandidate('/templates/parse', file, '解析 Word 模板失败')
 }
 
 export async function getDocumentTemplateCandidates() {
@@ -1207,7 +1207,7 @@ export async function confirmDocumentTemplateCandidate(candidate) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(candidate),
   })
-  if (!resp.ok) throw await responseError(resp, '确认 DOCX 模板失败')
+  if (!resp.ok) throw await responseError(resp, '确认 Word 模板失败')
   return resp.json()
 }
 

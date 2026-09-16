@@ -31,7 +31,7 @@ def _now() -> str:
 
 def publish_package_candidates(
     template_candidate: TemplateParseCandidate,
-    spec_candidate: SpecParseCandidate,
+    spec_candidate: SpecParseCandidate | None,
     *,
     document_type_id: str,
     published_by: str,
@@ -39,16 +39,26 @@ def publish_package_candidates(
     rule_engine_version: str = "generic-check-v1",
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build exact versioned aggregates without writing to storage."""
+    """Build exact versioned aggregates without writing to storage.
+
+    A document type may have no separate specification. In that case the
+    package still pins an explicit empty specification version so consumers do
+    not need a second nullable reference.
+    """
     if template_candidate.status != "confirmed":
         raise PackagePublishError("模板候选必须先确认")
-    if spec_candidate.status != "confirmed":
-        raise PackagePublishError("规范候选必须先确认")
     template_candidate = validate_template_candidate(template_candidate)
-    spec_candidate = validate_spec_candidate(spec_candidate)
+    if spec_candidate is not None:
+        if spec_candidate.status != "confirmed":
+            raise PackagePublishError("规范候选必须先确认")
+        spec_candidate = validate_spec_candidate(spec_candidate)
     blocking = [
         *[f"template:{issue.code}" for issue in template_candidate.issues if issue.severity == "error"],
-        *[f"spec:{issue.code}" for issue in spec_candidate.issues if issue.severity == "error"],
+        *(
+            [f"spec:{issue.code}" for issue in spec_candidate.issues if issue.severity == "error"]
+            if spec_candidate is not None
+            else []
+        ),
     ]
     if blocking:
         raise PackagePublishError(f"候选存在阻断问题: {', '.join(blocking)}")
@@ -108,37 +118,58 @@ def publish_package_candidates(
         extensions={"source_asset": source_asset.model_dump(mode="json")},
     )
 
-    spec_version_id = f"{spec_candidate.spec_set_id}@{spec_candidate.version}"
+    if spec_candidate is None:
+        spec_set_id = f"no-spec:{template_candidate.template_id}"
+        spec_version = "1"
+        spec_name = "无额外规范"
+        spec_description = "该文档未提供单独规范，不执行额外规则。"
+        spec_rules: list[dict[str, Any]] = []
+        spec_format_overrides: dict[str, dict[str, Any]] = {}
+        spec_layout_overrides: dict[str, float] = {}
+        spec_metadata = {
+            "source": "no_spec",
+            "optional": True,
+        }
+    else:
+        spec_set_id = spec_candidate.spec_set_id
+        spec_version = spec_candidate.version
+        spec_name = spec_candidate.name
+        spec_description = spec_candidate.description
+        spec_rules = [rule.model_dump(mode="json") for rule in spec_candidate.rules]
+        spec_format_overrides = spec_candidate.format_overrides
+        spec_layout_overrides = spec_candidate.layout_overrides
+        spec_metadata = {
+            "source": "spec_candidate",
+            "candidate_id": spec_candidate.candidate_id,
+            "markdown_content": spec_candidate.markdown_content,
+        }
+
+    spec_version_id = f"{spec_set_id}@{spec_version}"
     spec_set = SpecSet(
-        id=spec_candidate.spec_set_id,
+        id=spec_set_id,
         document_type_id=document_type_id,
-        name=spec_candidate.name,
+        name=spec_name,
         owner_id=published_by,
         status="published",
         current_version_id=spec_version_id,
         metadata={
-            "source": "spec_candidate",
-            "candidate_id": spec_candidate.candidate_id,
+            **spec_metadata,
         },
     )
     spec_payload = {
         "id": spec_version_id,
         "spec_set_id": spec_set.id,
-        "version": spec_candidate.version,
+        "version": spec_version,
         "status": "published",
-        "description": spec_candidate.description,
+        "description": spec_description,
         "effective_from": "",
         "effective_to": "",
-        "rules": [rule.model_dump(mode="json") for rule in spec_candidate.rules],
+        "rules": spec_rules,
         "source_asset_ids": [],
-        "format_overrides": spec_candidate.format_overrides,
-        "layout_overrides": spec_candidate.layout_overrides,
+        "format_overrides": spec_format_overrides,
+        "layout_overrides": spec_layout_overrides,
         "bindings": [],
-        "metadata": {
-            "source": "spec_candidate",
-            "candidate_id": spec_candidate.candidate_id,
-            "markdown_content": spec_candidate.markdown_content,
-        },
+        "metadata": spec_metadata,
     }
     spec_version = SpecVersion(**spec_payload, content_hash=canonical_hash(spec_payload))
 
