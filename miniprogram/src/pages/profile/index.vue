@@ -3,6 +3,10 @@
     <text class="eyebrow">ACCOUNT</text>
     <text class="title">我的</text>
     <view v-if="user" class="panel identity"><view class="avatar">{{ (user.display_name || user.username).slice(0, 1) }}</view><view><text class="name">{{ user.display_name || user.username }}</text><text class="muted">{{ user.username }} · {{ roleLabel }}</text><text class="email-line" @tap="goBindEmail">{{ emailLine }}</text></view></view>
+    <view class="panel legal-entry" @tap="openAbout">
+      <text class="section-title">关于与隐私政策</text>
+      <text class="muted">查看采集范围、不采集项与分享限制</text>
+    </view>
     <view class="panel">
       <text class="section-title">账号安全</text>
       <input v-model="currentPassword" class="field" password placeholder="当前密码" />
@@ -17,10 +21,12 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
-import { changePassword, describeError, fetchMe, mpUnbind } from '../../api/request'
+import { onShow, onShareAppMessage } from '@dcloudio/uni-app'
+import { changePassword, describeError, fetchMe, fetchNotifications, mpUnbind } from '../../api/request'
 import { useSessionStore } from '../../stores/session'
 import { ensureSessionReady } from '../../utils/session-guard'
+import { applySharePolicy, homeSharePayload } from '../../utils/privacy'
+import { applyMessageTabBadge } from '../../utils/tab-badge'
 
 const session = useSessionStore()
 const user = computed(() => session.user)
@@ -39,10 +45,27 @@ const loading = ref(false)
 const message = ref('')
 const isError = ref(false)
 
+onShareAppMessage(() => homeSharePayload())
+
 onShow(() => {
+  applySharePolicy('/pages/profile/index')
   if (!ensureSessionReady()) return
   void refresh()
+  void refreshMessageBadge()
 })
+
+async function refreshMessageBadge() {
+  try {
+    const result = await fetchNotifications()
+    applyMessageTabBadge(result.unread)
+  } catch {
+    // 角标失败不阻断账号页
+  }
+}
+
+function openAbout() {
+  uni.navigateTo({ url: '/pages/profile/about' })
+}
 
 async function refresh() {
   try {
@@ -112,6 +135,7 @@ function showError(error: unknown) {
 .name { display: block; color: #111827; font-size: 31rpx; font-weight: 750; }
 .muted { display: block; margin-top: 8rpx; color: #6b7280; font-size: 23rpx; }
 .email-line { display: block; margin-top: 8rpx; color: #004ac6; font-size: 22rpx; }
+.legal-entry { display: flex; flex-direction: column; gap: 8rpx; }
 .section-title { display: block; color: #111827; font-size: 28rpx; font-weight: 750; }
 .field { box-sizing: border-box; height: 86rpx; margin-top: 20rpx; padding: 0 22rpx; background: #f5f7fb; border: 1rpx solid #e5e7eb; border-radius: 12rpx; color: #111827; font-size: 24rpx; }
 .secondary-button, .danger-button, .logout-button { height: 78rpx; line-height: 78rpx; margin: 24rpx 0 0; border-radius: 12rpx; font-size: 25rpx; }

@@ -55,6 +55,7 @@
         </view>
         <text v-if="comment.status === 'resolved'" class="resolved-note">教师已确认解决，本轮无需再处理。</text>
       </view>
+      <button v-if="canResubmitNow" class="bar-button primary" @tap="goResubmit">回复完成后重新预检提交</button>
     </template>
   </view>
 </template>
@@ -63,7 +64,10 @@
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { describeError } from '../../api/request'
+import { applySharePolicy } from '../../utils/privacy'
 import { fetchSubmission, respondComment, type Comment, type SubmissionDetail } from '../../api/submissions'
+import { formatDateTime } from '../../utils/format'
+import { canResubmit, resubmitUrl } from '../../utils/student-flow'
 
 const detail = ref<SubmissionDetail | null>(null)
 const loading = ref(false)
@@ -81,8 +85,11 @@ const blockingCount = computed(() => (detail.value?.comments || []).filter((item
 const pendingReply = computed(() => (detail.value?.comments || []).filter((item) => item.status === 'open').length)
 const resolvedCount = computed(() => (detail.value?.comments || []).filter((item) => item.status === 'resolved').length)
 const stageLabel = computed(() => String(detail.value?.stage?.name || ''))
+const canResubmitNow = computed(() => canResubmit(detail.value?.participant?.state))
+const submissionId = ref('')
 
 onLoad((params) => {
+  applySharePolicy('/pages/submissions/comments')
   submissionId.value = (params as Record<string, string>)?.id || ''
   if (!submissionId.value) {
     errorMessage.value = '缺少提交参数，请从任务或提交详情进入'
@@ -90,8 +97,6 @@ onLoad((params) => {
   }
   void loadDetail()
 })
-
-const submissionId = ref('')
 
 async function loadDetail() {
   loading.value = true
@@ -149,7 +154,16 @@ function anchorLabel(comment: Comment) {
   return comment.block_id ? `定位：${comment.block_id}` : '整段批注'
 }
 function formatTime(value: unknown) {
-  return value ? String(value).replace('T', ' ').slice(0, 16) : ''
+  return formatDateTime(value)
+}
+
+function goResubmit() {
+  const participantId = String(detail.value?.participant?.id || '')
+  if (!participantId) {
+    uni.showToast({ title: '缺少阶段任务参数', icon: 'none' })
+    return
+  }
+  uni.navigateTo({ url: resubmitUrl(participantId) })
 }
 </script>
 
@@ -193,6 +207,8 @@ function formatTime(value: unknown) {
 .mini-button.primary { background: #004ac6; color: #fff; }
 .mini-button.ghost { border: 1rpx solid #cbd5e1; background: #fff; color: #434655; }
 .resolved-note { display: block; margin-top: 18rpx; color: #16a34a; font-size: 23rpx; }
+.bar-button { height: 84rpx; line-height: 84rpx; margin-top: 28rpx; border-radius: 14rpx; font-size: 28rpx; font-weight: 700; }
+.bar-button.primary { background: #004ac6; color: #fff; }
 .error-text { color: #ba1a1a; font-size: 25rpx; line-height: 1.5; }
 .secondary-button { margin: 24rpx 0 0; height: 76rpx; line-height: 76rpx; border: 1rpx solid #004ac6; border-radius: 12rpx; background: #fff; color: #004ac6; font-size: 25rpx; }
 </style>

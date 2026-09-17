@@ -5,9 +5,9 @@
     <view v-else-if="errorMessage" class="panel"><text class="error-text">{{ errorMessage }}</text><button class="secondary-button" @tap="loadMessages">重新加载</button></view>
     <view v-else-if="items.length === 0" class="panel empty"><text class="empty-title">暂无消息</text><text class="muted">阶段发布、审核反馈和截止提醒会显示在这里。</text></view>
     <view v-else>
-      <view v-for="item in items" :key="String(item.id)" class="panel message" :class="{ unread: !item.read_at }" @tap="read(item)">
-        <view class="message-head"><text class="message-type">{{ String(item.event_type || '系统消息') }}</text><text class="muted">{{ String(item.created_at || '') }}</text></view>
-        <text class="message-body">{{ String(item.message || item.title || '你有一条新的论文卫士Pro消息') }}</text>
+      <view v-for="item in items" :key="String(item.id)" class="panel message" :class="{ unread: !item.read_at }" @tap="open(item)">
+        <view class="message-head"><text class="message-type">{{ eventLabel(item) }}</text><text class="muted">{{ formatTime(item.created_at) }}</text></view>
+        <text class="message-body">{{ notificationTitle(item) }}</text>
       </view>
     </view>
   </view>
@@ -19,6 +19,10 @@ import { onShow } from '@dcloudio/uni-app'
 import { describeError, fetchNotifications, markNotificationRead } from '../../api/request'
 import { useSessionStore } from '../../stores/session'
 import { ensureSessionReady } from '../../utils/session-guard'
+import { eventTypeLabel, formatDateTime } from '../../utils/format'
+import { notificationTarget, notificationTitle } from '../../utils/student-flow'
+import { applySharePolicy } from '../../utils/privacy'
+import { applyMessageTabBadge } from '../../utils/tab-badge'
 
 const session = useSessionStore()
 const items = ref<Array<Record<string, unknown>>>([])
@@ -27,6 +31,7 @@ const loading = ref(false)
 const errorMessage = ref('')
 
 onShow(() => {
+  applySharePolicy('/pages/messages/index')
   if (!ensureSessionReady()) return
   void loadMessages()
 })
@@ -38,6 +43,7 @@ async function loadMessages() {
     const result = await fetchNotifications()
     items.value = result.items
     unread.value = result.unread
+    applyMessageTabBadge(result.unread)
   } catch (error) {
     errorMessage.value = describeError(error)
   } finally {
@@ -45,15 +51,32 @@ async function loadMessages() {
   }
 }
 
-async function read(item: Record<string, unknown>) {
-  if (item.read_at || !item.id) return
-  try {
-    await markNotificationRead(String(item.id))
-    item.read_at = new Date().toISOString()
-    unread.value = Math.max(0, unread.value - 1)
-  } catch (error) {
-    errorMessage.value = describeError(error)
+function eventLabel(item: Record<string, unknown>) {
+  return eventTypeLabel(item.event_type)
+}
+
+function formatTime(value: unknown) {
+  return formatDateTime(value)
+}
+
+async function open(item: Record<string, unknown>) {
+  if (!item.read_at && item.id) {
+    try {
+      await markNotificationRead(String(item.id))
+      item.read_at = new Date().toISOString()
+      unread.value = Math.max(0, unread.value - 1)
+      applyMessageTabBadge(unread.value)
+    } catch (error) {
+      errorMessage.value = describeError(error)
+    }
   }
+  const target = notificationTarget(item, session.user?.role)
+  if (!target) return
+  if (target.startsWith('/pages/tasks/index')) {
+    uni.switchTab({ url: target })
+    return
+  }
+  uni.navigateTo({ url: target })
 }
 </script>
 

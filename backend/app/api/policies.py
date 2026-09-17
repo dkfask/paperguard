@@ -24,6 +24,7 @@ from app.models.policy import (
     RequirementStatus,
 )
 from app.models.organization import OrganizationType
+from app.services.access_service import visible_organization_ids
 from app.services.policy_resolver import content_hash, hydrate_requirement_set
 from app.services.policy_import import (
     AI_IMPORT_EXTENSIONS,
@@ -58,17 +59,9 @@ def _user_context(user: dict) -> dict[str, str]:
 
 
 def _user_scope_ids(store: Store | None, user: dict) -> set[str]:
-    visible = set(_user_context(user).values())
-    if store is None or user["role"] != "college_admin":
-        return visible
-    changed = True
-    while changed:
-        changed = False
-        for unit in store.list_organization_units():
-            if unit.parent_id in visible and unit.id not in visible:
-                visible.add(unit.id)
-                changed = True
-    return visible
+    if store is not None and user.get("role") == "college_admin":
+        return visible_organization_ids(store, user)
+    return set(_user_context(user).values())
 
 
 def _binding_visible(binding: dict, user: dict, store: Store | None = None) -> bool:
@@ -85,6 +78,8 @@ def _binding_visible(binding: dict, user: dict, store: Store | None = None) -> b
     }
     if not scope_id:
         return False
+    if user.get("role") == "college_admin":
+        return scope_id in _user_scope_ids(store, user)
     context_key = aliases.get(scope_type, scope_type)
     return _user_context(user).get(context_key) == scope_id or scope_id in _user_scope_ids(store, user)
 

@@ -28,6 +28,7 @@ import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { bindMpEmail, completeFirstLogin, describeError, sendEmailCode } from '../../api/request'
 import { useSessionStore } from '../../stores/session'
+import { applySharePolicy } from '../../utils/privacy'
 
 const session = useSessionStore()
 const first = ref(false)
@@ -40,6 +41,7 @@ const submitting = ref(false)
 const message = ref('')
 
 onLoad((params) => {
+  applySharePolicy('/pages/profile/bind-email')
   first.value = (params as Record<string, string>)?.first === '1'
   if (!session.isAuthenticated) {
     uni.reLaunch({ url: '/pages/login/index' })

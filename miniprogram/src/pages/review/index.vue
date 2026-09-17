@@ -13,7 +13,8 @@
           <text class="readonly-badge">🔒 只读快照</text>
         </view>
         <text class="meta">{{ studentLabel }} · {{ stageLabel }} · {{ formatTime(detail.submission.submitted_at) }}</text>
-        <text class="meta-sub">学生草稿修改不影响此处版本</text>
+        <text class="meta-sub">学生草稿修改不影响此处版本 · 第 {{ detail.submission.review_cycle || 1 }} 轮</text>
+        <text v-if="!canDecide" class="meta-sub">{{ approveHint }}</text>
       </view>
 
       <view class="tab-bar">
@@ -22,35 +23,41 @@
         <view class="tab" :class="{ active: tab === 'checks' }" @tap="tab = 'checks'">检查</view>
       </view>
 
-      <!-- 正文 -->
       <view v-if="tab === 'content'" class="panel content-card">
         <view v-if="contentLoading" class="muted">正在加载快照正文…</view>
         <view v-else-if="sections.length === 0" class="muted">该版本无可读文本(或正文为空)。</view>
         <view v-for="section in sections" :key="section.key" class="section">
           <text class="section-title">{{ section.title || section.key }}</text>
           <view v-for="paragraph in section.paragraphs || []" :key="paragraph.id">
-            <text v-if="paragraph.type === 'paragraph'" class="paragraph">{{ paragraph.text }}</text>
+            <text
+              v-if="paragraph.type === 'paragraph'"
+              class="paragraph"
+              :class="{ selected: selectedParagraph?.id === paragraph.id }"
+              @tap="canDecide && selectParagraph(section, paragraph)"
+            >{{ paragraph.text }}</text>
             <text v-else class="paragraph muted">[{{ blockTypeLabel(paragraph.type) }}]</text>
           </view>
         </view>
+        <text v-if="canDecide && selectedParagraph" class="muted">已选原文片段，可切到批注页引用。</text>
       </view>
 
-      <!-- 批注 -->
       <view v-if="tab === 'comments'">
-        <view class="panel add-comment">
+        <view v-if="canDecide" class="panel add-comment">
           <text class="panel-title">新增批注</text>
           <view class="severity-row">
             <view class="severity-pill" :class="{ active: newSeverity === 'blocking' }" @tap="newSeverity = 'blocking'">必须处理的阻断项</view>
             <view class="severity-pill" :class="{ active: newSeverity === 'info' }" @tap="newSeverity = 'info'">普通建议</view>
           </view>
           <input v-model="newAnchor" class="field" placeholder="定位段落(如 3.2 实验分析 第2段)" maxlength="120" />
+          <view v-if="newQuoted" class="quote-block"><text class="quote-text">“{{ newQuoted }}”</text></view>
           <textarea v-model="newBody" class="area" :maxlength="2000" placeholder="批注内容:具体、可执行,绑定原文片段更易定位" />
           <button class="bar-button primary" :loading="adding" @tap="submitComment">添加批注</button>
         </view>
 
-        <view v-for="comment in detail.comments" :key="comment.id" class="panel comment-card" :class="`border-${commentTone(comment)}`">
+        <text v-if="grouped.blocking.length" class="section-label">必须处理的阻断 · {{ grouped.blocking.length }}</text>
+        <view v-for="comment in grouped.blocking" :key="comment.id" class="panel comment-card border-red">
           <view class="card-head">
-            <text class="card-kicker" :class="`text-${commentTone(comment)}`">{{ severityLabel(comment) }}</text>
+            <text class="card-kicker text-red">{{ severityLabel(comment) }}</text>
             <text class="status" :class="`text-${statusTone(comment)}`">{{ statusLabel(comment) }}</text>
           </view>
           <view v-if="comment.quoted_text" class="quote-block"><text class="quote-text">“{{ comment.quoted_text }}”</text></view>
@@ -60,40 +67,78 @@
             <text class="reply-body">{{ response.body }}</text>
             <text class="reply-time">{{ formatTime(response.created_at) }}</text>
           </view>
-          <view v-if="comment.status !== 'resolved'" class="comment-actions">
+          <view v-if="canDecide && comment.status !== 'resolved'" class="comment-actions">
             <button class="mini-button primary" @tap="resolveComment(comment)">确认解决</button>
             <button class="mini-button ghost" @tap="reopenComment(comment)">重新打开</button>
           </view>
         </view>
+
+        <text v-if="grouped.suggestions.length" class="section-label">普通建议 · {{ grouped.suggestions.length }}</text>
+        <view v-for="comment in grouped.suggestions" :key="comment.id" class="panel comment-card">
+          <view class="card-head">
+            <text class="card-kicker text-blue">{{ severityLabel(comment) }}</text>
+            <text class="status" :class="`text-${statusTone(comment)}`">{{ statusLabel(comment) }}</text>
+          </view>
+          <view v-if="comment.quoted_text" class="quote-block"><text class="quote-text">“{{ comment.quoted_text }}”</text></view>
+          <text class="comment-body">{{ comment.body }}</text>
+          <view v-for="response in comment.responses" :key="response.id" class="reply-bubble">
+            <text class="reply-label">学生回复</text>
+            <text class="reply-body">{{ response.body }}</text>
+            <text class="reply-time">{{ formatTime(response.created_at) }}</text>
+          </view>
+          <view v-if="canDecide && comment.status !== 'resolved'" class="comment-actions">
+            <button class="mini-button primary" @tap="resolveComment(comment)">确认解决</button>
+            <button class="mini-button ghost" @tap="reopenComment(comment)">重新打开</button>
+          </view>
+        </view>
+
+        <text v-if="grouped.resolved.length" class="section-label">已确认解决 · {{ grouped.resolved.length }}</text>
+        <view v-for="comment in grouped.resolved" :key="comment.id" class="panel comment-card border-green">
+          <view class="card-head">
+            <text class="card-kicker text-green">{{ severityLabel(comment) }}</text>
+            <text class="status text-green">{{ statusLabel(comment) }}</text>
+          </view>
+          <text class="comment-body">{{ comment.body }}</text>
+        </view>
       </view>
 
-      <!-- 检查 -->
       <view v-if="tab === 'checks'" class="panel checks-card" :class="{ 'checks-ok': canApprove }">
         <text class="panel-title">自动检查</text>
         <view class="summary-row">
           <text class="summary-name">检查状态</text>
-          <text class="gate-badge" :class="candidateReady ? 'pass' : 'warn'">{{ candidateReady ? '全部通过' : '未通过/未运行' }}</text>
+          <text class="gate-badge" :class="candidateReady && blockingGates === 0 ? 'pass' : 'warn'">{{ candidateReady && blockingGates === 0 ? '全部通过' : '未通过/未运行' }}</text>
         </view>
         <view class="summary-row">
           <text class="summary-name">警告</text>
           <text class="summary-value">{{ candidate?.warning_count ?? 0 }} 条</text>
         </view>
+        <view v-for="gate in candidate?.gates || []" :key="gate.key" class="summary-row">
+          <text class="summary-name">{{ gate.label }}</text>
+          <text class="gate-badge" :class="gate.passed ? 'pass' : (gate.blocking ? 'warn' : 'pass')">{{ gate.passed ? '已通过' : '未满足' }}</text>
+        </view>
 
-        <text class="panel-title confirm-title">通过前人工确认</text>
-        <view v-for="checkName in manualChecks" :key="checkName" class="check-row" @tap="toggleConfirm(checkName)">
+        <text v-if="materialItems.length" class="panel-title confirm-title">必交材料</text>
+        <view v-for="item in materialItems" :key="item.label" class="summary-row">
+          <text class="summary-name">{{ item.label }}</text>
+          <text class="gate-badge" :class="item.passed ? 'pass' : 'warn'">{{ item.passed ? '已绑定' : '未绑定' }}</text>
+        </view>
+        <text v-if="materialItems.length" class="muted">材料绑定由学生在电脑端完成；此处只展示提交时门禁结果。</text>
+
+        <text v-if="canDecide" class="panel-title confirm-title">通过前人工确认</text>
+        <view v-if="canDecide" v-for="checkName in manualChecks" :key="checkName" class="check-row" @tap="toggleConfirm(checkName)">
           <view class="checkbox" :class="{ checked: confirmations[checkName] }">{{ confirmations[checkName] ? '✓' : '' }}</view>
           <text class="check-text">{{ checkName }}</text>
         </view>
-        <text class="muted">人工确认不可由自动检查替代;确认将记录操作者与时间。</text>
+        <text v-if="canDecide" class="muted">人工确认不可由自动检查替代;确认将记录操作者与时间。</text>
+        <text v-else class="muted">该提交已有最终决定，此处仅展示当时检查与材料门禁，不可再改。</text>
       </view>
 
-      <view class="bottom-bar">
+      <view v-if="canDecide" class="bottom-bar">
         <button class="bar-button danger" @tap="openReturn">退回</button>
         <button class="bar-button primary" :disabled="!canApprove || deciding" :loading="deciding" @tap="approve">通过</button>
       </view>
-      <text class="bar-hint">{{ approveHint }}</text>
+      <text v-if="canDecide" class="bar-hint">{{ approveHint }}</text>
 
-      <!-- 退回弹窗(视觉稿 11) -->
       <view v-if="returnOpen" class="mask" @tap="returnOpen = false">
         <view class="sheet" @tap.stop>
           <view class="sheet-head">
@@ -103,19 +148,19 @@
           <view class="sheet-warn"><text>退回将结束本轮审核，学生将收到修订任务与截止时间通知。</text></view>
           <text class="field-label">退回原因 <text class="required">*</text></text>
           <textarea v-model="returnReason" class="area" :maxlength="300" placeholder="例如：3.2 节缺少基线对照说明与消融实验指标…" />
-          <text class="field-label">修改要求与执行事项</text>
+          <text class="field-label">修改要求与执行事项 <text class="required">*</text></text>
           <textarea v-model="returnRequirements" class="area" :maxlength="500" placeholder="逐项列出学生需要完成的事项" />
           <view class="deadline-row">
             <picker mode="date" :value="returnDeadline" @change="(event: unknown) => returnDeadline = (event as { detail: { value: string } }).detail.value">
               <view class="deadline-picker"><text class="deadline-value">修订截止 {{ returnDeadline || '未选择' }}</text><text class="deadline-edit">修改 ›</text></view>
             </picker>
-            <text class="deadline-note">留空则按「现有截止与今天+{{ revisionDays }} 天」中较晚者</text>
+            <text class="deadline-note">默认取今天 + {{ revisionDays }} 天；退回必须选择修订截止</text>
           </view>
           <view class="sheet-actions">
             <button class="bar-button ghost" @tap="returnOpen = false">取消</button>
-            <button class="bar-button danger-solid" :disabled="!returnReason.trim() || deciding" :loading="deciding" @tap="confirmReturn">确认退回</button>
+            <button class="bar-button danger-solid" :disabled="!canReturn || deciding" :loading="deciding" @tap="confirmReturn">确认退回</button>
           </view>
-          <text v-if="!returnReason.trim()" class="sheet-hint">填写退回原因后可提交</text>
+          <text v-if="returnHint" class="sheet-hint">{{ returnHint }}</text>
         </view>
       </view>
     </template>
@@ -124,10 +169,22 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import { describeError } from '../../api/request'
 import { fetchSubmission, type Comment, type SubmissionDetail } from '../../api/submissions'
 import { addComment, decideSubmission, fetchVersionContent, setCommentStatus, type VersionContent } from '../../api/reviews'
+import { ensureSessionReady } from '../../utils/session-guard'
+import { formatDateTime } from '../../utils/format'
+import { materialGateItems } from '../../utils/student-flow'
+import {
+  buildReturnPayload,
+  canApproveReview,
+  canDecideReview,
+  commentPayload,
+  defaultRevisionDeadline,
+  groupComments,
+} from '../../utils/teacher-flow'
+import { applySharePolicy } from '../../utils/privacy'
 
 const detail = ref<SubmissionDetail | null>(null)
 const content = ref<VersionContent | null>(null)
@@ -138,8 +195,10 @@ const tab = ref<'content' | 'comments' | 'checks'>('content')
 
 const newSeverity = ref<'blocking' | 'info'>('blocking')
 const newAnchor = ref('')
+const newQuoted = ref('')
 const newBody = ref('')
 const adding = ref(false)
+const selectedParagraph = ref<{ id: string; text: string } | null>(null)
 
 const confirmations = ref<Record<string, boolean>>({})
 const deciding = ref(false)
@@ -158,21 +217,28 @@ const candidateReady = computed(() => {
   const value = candidate.value
   return Boolean(value) && value?.check_status === 'succeeded' && value?.status === 'ready'
 })
+const blockingGates = computed(() => (candidate.value?.gates || []).filter((gate) => gate.blocking && !gate.passed).length)
+const materialItems = computed(() => materialGateItems(candidate.value?.gates || []))
 const blockingOpen = computed(() => (detail.value?.comments || []).filter((item) => item.severity === 'blocking' && item.status !== 'resolved').length)
-const canApprove = computed(() => {
-  if (!detail.value) return false
-  if (String(detail.value.submission.state) !== 'submitted') return false
-  if (blockingOpen.value > 0) return false
-  return manualChecks.value.every((name) => confirmations.value[name] === true)
-})
-const approveHint = computed(() => {
-  if (!detail.value) return ''
-  if (String(detail.value.submission.state) !== 'submitted') return '该提交已有最终决定'
-  if (blockingOpen.value > 0) return `存在 ${blockingOpen.value} 条阻断项待确认解决，暂不可通过`
-  const pending = manualChecks.value.filter((name) => confirmations.value[name] !== true)
-  if (pending.length) return `完成 ${pending.length} 项人工确认后可通过`
-  return '通过后初稿阶段解锁，终稿阶段进入归档流程'
-})
+const grouped = computed(() => groupComments(detail.value?.comments || []))
+const approveGate = computed(() => canApproveReview({
+  submissionState: detail.value?.submission.state,
+  blockingOpen: blockingOpen.value,
+  manualChecks: manualChecks.value,
+  confirmations: confirmations.value,
+  candidateReady: candidateReady.value,
+  blockingGates: blockingGates.value,
+}))
+const canApprove = computed(() => approveGate.value.ok)
+  const canDecide = computed(() => canDecideReview(detail.value?.submission.state))
+  const approveHint = computed(() => canDecide.value ? approveGate.value.reason : '该提交已有最终决定，仅可查看当时快照')
+const returnDraft = computed(() => buildReturnPayload({
+  reason: returnReason.value,
+  requirements: returnRequirements.value,
+  deadline: returnDeadline.value,
+}))
+const canReturn = computed(() => returnDraft.value.ok)
+const returnHint = computed(() => returnDraft.value.ok ? '' : (returnDraft.value.reason || ''))
 const studentLabel = computed(() => {
   const participant = (detail.value?.participant || {}) as Record<string, unknown>
   return String(participant.student_name || participant.student_id || '学生')
@@ -182,8 +248,11 @@ const revisionDays = computed(() => {
   const config = (detail.value?.config || {}) as Record<string, unknown>
   return Number(config.revision_days ?? 7)
 })
+const submissionId = ref('')
 
 onLoad((params) => {
+  applySharePolicy('/pages/review/index')
+  if (!ensureSessionReady()) return
   submissionId.value = (params as Record<string, string>)?.id || ''
   if (!submissionId.value) {
     errorMessage.value = '缺少提交参数，请从待审核列表进入'
@@ -192,7 +261,9 @@ onLoad((params) => {
   void loadAll()
 })
 
-const submissionId = ref('')
+onShow(() => {
+  if (!ensureSessionReady()) return
+})
 
 async function loadAll() {
   loading.value = true
@@ -223,79 +294,97 @@ async function loadContent() {
   }
 }
 
+function selectParagraph(section: { title?: string; key: string }, paragraph: { id: string; text?: string }) {
+  if (!canDecide.value) return
+  const text = String(paragraph.text || '').trim()
+  selectedParagraph.value = { id: paragraph.id, text }
+  newAnchor.value = `${section.title || section.key} · ${paragraph.id}`
+  newQuoted.value = text.slice(0, 280)
+  uni.showToast({ title: '已引用该段落', icon: 'none' })
+}
+
 async function submitComment() {
-  if (!newBody.value.trim()) {
+  if (!canDecide.value) return
+  const payload = commentPayload({
+    body: newBody.value,
+    severity: newSeverity.value,
+    blockId: newAnchor.value,
+    quotedText: newQuoted.value,
+  })
+  if (!payload.body) {
     uni.showToast({ title: '请填写批注内容', icon: 'none' })
     return
   }
   adding.value = true
   try {
-    await addComment(submissionId.value, {
-      body: newBody.value.trim(),
-      severity: newSeverity.value,
-      block_id: newAnchor.value.trim(),
-      quoted_text: '',
-    })
+    await addComment(submissionId.value, payload)
     newBody.value = ''
     newAnchor.value = ''
+    newQuoted.value = ''
+    selectedParagraph.value = null
     uni.showToast({ title: '批注已添加', icon: 'none' })
     detail.value = await fetchSubmission(submissionId.value)
   } catch (error) {
-    uni.showToast({ title: describeError(error), icon: 'none' })
+    handleDecisionError(error)
   } finally {
     adding.value = false
   }
 }
 
 async function resolveComment(comment: Comment) {
+  if (!canDecide.value) return
   try {
     await setCommentStatus(comment.id, 'resolved')
     detail.value = await fetchSubmission(submissionId.value)
   } catch (error) {
-    uni.showToast({ title: describeError(error), icon: 'none' })
+    handleDecisionError(error)
   }
 }
 
 async function reopenComment(comment: Comment) {
+  if (!canDecide.value) return
   try {
     await setCommentStatus(comment.id, 'open')
     detail.value = await fetchSubmission(submissionId.value)
   } catch (error) {
-    uni.showToast({ title: describeError(error), icon: 'none' })
+    handleDecisionError(error)
   }
 }
 
 function toggleConfirm(name: string) {
+  if (!canDecide.value) return
   confirmations.value[name] = !confirmations.value[name]
 }
 
 function openReturn() {
+  if (!canDecide.value) return
   returnReason.value = ''
   returnRequirements.value = ''
-  returnDeadline.value = ''
+  returnDeadline.value = defaultRevisionDeadline(revisionDays.value)
   returnOpen.value = true
 }
 
 async function confirmReturn() {
-  if (!returnReason.value.trim()) return
+  if (!canDecide.value) return
+  const draft = returnDraft.value
+  if (!draft.ok || !draft.payload) {
+    uni.showToast({ title: draft.reason || '请补全退回信息', icon: 'none' })
+    return
+  }
   deciding.value = true
   try {
-    await decideSubmission(submissionId.value, {
-      decision: 'returned',
-      reason: [returnReason.value.trim(), returnRequirements.value.trim()].filter(Boolean).join('\n修改要求：'),
-      revision_deadline_at: returnDeadline.value ? `${returnDeadline.value}T23:59:00+00:00` : '',
-    })
+    await decideSubmission(submissionId.value, draft.payload)
     uni.showToast({ title: '已退回并通知学生', icon: 'none' })
     backToTasks()
   } catch (error) {
-    uni.showToast({ title: describeError(error), icon: 'none' })
+    handleDecisionError(error)
   } finally {
     deciding.value = false
   }
 }
 
 async function approve() {
-  if (!canApprove.value) return
+  if (!canDecide.value || !canApprove.value) return
   deciding.value = true
   try {
     await decideSubmission(submissionId.value, {
@@ -306,9 +395,17 @@ async function approve() {
     uni.showToast({ title: '审核通过', icon: 'none' })
     backToTasks()
   } catch (error) {
-    uni.showToast({ title: describeError(error), icon: 'none' })
+    handleDecisionError(error)
   } finally {
     deciding.value = false
+  }
+}
+
+function handleDecisionError(error: unknown) {
+  const message = describeError(error)
+  uni.showToast({ title: message, icon: 'none' })
+  if (message.includes('状态已变化')) {
+    void loadAll()
   }
 }
 
@@ -323,10 +420,6 @@ function severityLabel(comment: Comment) {
 function statusLabel(comment: Comment) {
   return ({ open: '待处理', addressed: '已回复 · 待确认', resolved: '已解决' } as Record<string, string>)[comment.status] || comment.status
 }
-function commentTone(comment: Comment) {
-  if (comment.status === 'resolved') return 'green'
-  return comment.severity === 'blocking' ? 'red' : 'blue'
-}
 function statusTone(comment: Comment) {
   if (comment.status === 'resolved') return 'green'
   if (comment.status === 'addressed') return 'orange'
@@ -336,7 +429,7 @@ function blockTypeLabel(type: string) {
   return ({ image: '图片', table: '表格', equation: '公式' } as Record<string, string>)[type] || type
 }
 function formatTime(value: unknown) {
-  return value ? String(value).replace('T', ' ').slice(0, 16) : '—'
+  return formatDateTime(value)
 }
 </script>
 
@@ -345,6 +438,7 @@ function formatTime(value: unknown) {
 .panel { margin-top: 24rpx; padding: 30rpx; background: #fff; border: 1rpx solid #e5e7eb; border-radius: 20rpx; }
 .state-panel { display: flex; flex-direction: column; min-height: 200rpx; justify-content: center; }
 .panel-title { display: block; color: #111827; font-size: 29rpx; font-weight: 750; }
+.section-label { display: block; margin: 28rpx 8rpx 0; color: #434655; font-size: 24rpx; font-weight: 700; }
 .head-card { border-left: 8rpx solid #004ac6; }
 .head-row { display: flex; align-items: center; justify-content: space-between; }
 .number { color: #004ac6; font-size: 40rpx; font-weight: 800; }
@@ -358,6 +452,7 @@ function formatTime(value: unknown) {
 .section { margin-top: 26rpx; }
 .section-title { display: block; color: #111827; font-size: 30rpx; font-weight: 750; }
 .paragraph { display: block; margin-top: 16rpx; color: #1f2937; font-size: 27rpx; line-height: 1.75; }
+.paragraph.selected { background: #e5efff; border-radius: 8rpx; padding: 8rpx; }
 .add-comment .field { box-sizing: border-box; height: 80rpx; margin-top: 18rpx; padding: 0 20rpx; background: #f5f7fb; border: 1rpx solid #e5e7eb; border-radius: 12rpx; color: #111827; font-size: 24rpx; }
 .severity-row { display: flex; gap: 16rpx; margin-top: 18rpx; }
 .severity-pill { padding: 10rpx 24rpx; border-radius: 999rpx; border: 1rpx solid #e5e7eb; color: #6b7280; font-size: 23rpx; }

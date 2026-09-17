@@ -7,7 +7,8 @@
     <template v-else>
       <view v-if="errorMessage" class="panel state-panel">
         <text class="error-text">{{ errorMessage }}</text>
-        <button class="secondary-button" @tap="runPreflight">重新预检</button>
+        <button v-if="recovery.kind === 'repreflight' || recovery.kind === 'refresh'" class="secondary-button" @tap="runPreflight">{{ recovery.label }}</button>
+        <button v-else class="secondary-button" @tap="followRecovery">{{ recovery.label }}</button>
       </view>
 
       <template v-else-if="candidate">
@@ -17,6 +18,10 @@
             <text class="block-name">{{ gate.label }}</text>
             <text class="block-detail">{{ gateDetail(gate) }}</text>
           </view>
+        </view>
+
+        <view v-if="deadlineText" class="deadline-bar" :class="{ late: deadlineLate }">
+          <text>{{ deadlineLate ? '已逾期' : '有效截止' }} · {{ deadlineText }}{{ deadlineCountdown ? ` · ${deadlineCountdown}` : '' }}</text>
         </view>
 
         <view class="panel">
@@ -33,6 +38,15 @@
               {{ gate.passed ? '已通过' : (gate.blocking ? '未满足' : '待确认') }}
             </text>
           </view>
+        </view>
+
+        <view v-if="materialItems.length" class="panel">
+          <text class="panel-title">必交材料</text>
+          <view v-for="item in materialItems" :key="item.label" class="gate-row">
+            <text class="gate-name">{{ item.label }}</text>
+            <text class="gate-badge" :class="item.passed ? 'pass' : 'block'">{{ item.passed ? '已绑定' : '未绑定' }}</text>
+          </view>
+          <text class="muted">材料绑定请使用电脑端过程材料；此处只展示门禁结果。</text>
         </view>
 
         <view v-if="candidate.warning_count > 0" class="panel">
@@ -75,9 +89,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { describeError } from '../../api/request'
+import { describeError, fetchParticipant, type Task } from '../../api/request'
 import { confirmSubmission, createCandidate, type Candidate, type Gate } from '../../api/submissions'
 import { idempotencyKey, renewIdempotencyKey } from '../../utils/idempotency'
+import { deadlineCountdownLabel, formatDateTime, isDeadlinePassed, shortHash as formatHash } from '../../utils/format'
+import { requestSubscribeAuthorization } from '../../utils/subscribe'
+import { applySharePolicy } from '../../utils/privacy'
+import { effectiveDeadline, materialGateItems, submitRecoveryAction, type SubmitRecoveryAction } from '../../utils/student-flow'
 
 const participantId = ref('')
 const stageName = ref('')
@@ -89,8 +107,15 @@ const modificationNote = ref('')
 const submitting = ref(false)
 // 修订再提交需要修改说明(后端 CandidateCreate.modification_note)
 const needsNote = ref(false)
+const recovery = ref<SubmitRecoveryAction>({ kind: 'repreflight', label: '重新预检' })
+const participant = ref<Task | null>(null)
+const deadlineRaw = computed(() => effectiveDeadline(participant.value))
+const deadlineText = computed(() => formatDateTime(deadlineRaw.value))
+const deadlineCountdown = computed(() => deadlineCountdownLabel(deadlineRaw.value))
+const deadlineLate = computed(() => Boolean(participant.value?.is_late) || isDeadlinePassed(deadlineRaw.value))
 
 const blockingGates = computed(() => candidate.value?.gates.filter((gate) => !gate.passed && gate.blocking) || [])
+const materialItems = computed(() => materialGateItems(candidate.value?.gates || []))
 const canSubmit = computed(() => {
   if (!candidate.value || candidate.value.status !== 'ready') return false
   if (candidate.value.warning_count > 0 && !warningAcknowledged.value) return false
@@ -104,6 +129,7 @@ const submitHint = computed(() => {
 })
 
 onLoad((params) => {
+  applySharePolicy('/pages/submit/index')
   const query = params as Record<string, string> | undefined
   participantId.value = query?.participant_id || ''
   stageName.value = query?.stage || ''
@@ -112,8 +138,19 @@ onLoad((params) => {
     errorMessage.value = '缺少阶段任务参数，请从「我的任务」进入'
     return
   }
+  void loadParticipant()
   void runPreflight()
 })
+
+async function loadParticipant() {
+  try {
+    const detail = await fetchParticipant(participantId.value)
+    participant.value = detail.participant
+    if (!stageName.value) stageName.value = String(detail.stage?.name || detail.participant.stage_name || '')
+  } catch {
+    participant.value = null
+  }
+}
 
 async function runPreflight() {
   loading.value = true
@@ -124,6 +161,7 @@ async function runPreflight() {
     warningAcknowledged.value = false
   } catch (error) {
     errorMessage.value = describeError(error)
+    recovery.value = submitRecoveryAction(error)
   } finally {
     loading.value = false
   }
@@ -133,6 +171,7 @@ async function submit() {
   if (!candidate.value || !canSubmit.value) return
   submitting.value = true
   try {
+    await requestSubscribeAuthorization({ silent: true })
     const submission = await confirmSubmission(
       candidate.value.id,
       idempotencyKey(`submission:${participantId.value}`),
@@ -143,12 +182,24 @@ async function submit() {
       url: `/pages/submit/success?number=${encodeURIComponent(submission.submission_number)}&hash=${encodeURIComponent(candidate.value.content_hash)}`,
     })
   } catch (error) {
-    uni.showToast({ title: describeError(error), icon: 'none' })
-    // 候选版本或正文变化(409)后旧候选不可用, 自动重新预检
-    if (error instanceof Error && /重新预检|已变化/.test(error.message)) void runPreflight()
+    const next = submitRecoveryAction(error)
+    recovery.value = next
+    errorMessage.value = describeError(error)
+    uni.showToast({ title: errorMessage.value, icon: 'none' })
+    if (next.kind === 'repreflight') void runPreflight()
   } finally {
     submitting.value = false
   }
+}
+
+function followRecovery() {
+  const url = recovery.value.url
+  if (!url) return
+  if (url === '/pages/tasks/index') {
+    uni.switchTab({ url })
+    return
+  }
+  uni.redirectTo({ url })
 }
 
 function gateDetail(gate: Gate) {
@@ -156,18 +207,19 @@ function gateDetail(gate: Gate) {
 }
 
 function formatTime(value: string) {
-  return String(value).replace('T', ' ').slice(0, 16)
+  return formatDateTime(value)
 }
 
 function shortHash(hash: string) {
-  const text = String(hash || '')
-  return text.length > 12 ? `${text.slice(0, 6)}…${text.slice(-4)}` : text
+  return formatHash(hash)
 }
 </script>
 
 <style scoped>
 .page { min-height: 100vh; box-sizing: border-box; padding: 24rpx 36rpx 200rpx; }
 .stage-bar { padding: 18rpx 24rpx; border-radius: 14rpx; background: #eff4ff; color: #004ac6; font-size: 24rpx; }
+.deadline-bar { display: flex; align-items: center; margin-top: 24rpx; padding: 20rpx 24rpx; border-radius: 14rpx; background: #fef3c7; color: #b45309; font-size: 25rpx; font-weight: 700; }
+.deadline-bar.late { background: #fdeaea; color: #ba1a1a; }
 .panel { margin-top: 24rpx; padding: 30rpx; background: #fff; border: 1rpx solid #e5e7eb; border-radius: 20rpx; }
 .state-panel { display: flex; flex-direction: column; min-height: 200rpx; justify-content: center; }
 .panel-title { display: block; color: #111827; font-size: 29rpx; font-weight: 750; }

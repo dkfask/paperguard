@@ -14,6 +14,8 @@
 <script setup>
 import { onErrorCaptured, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { auth } from '../auth'
+import { homePath } from '../shared/auth/permissions'
 import { useI18n } from '../i18n'
 
 const router = useRouter()
@@ -32,6 +34,6 @@ function retry() {
 
 function goHome() {
   error.value = null
-  router.push('/')
+  router.push(homePath(auth.user))
 }
 </script>

@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev:mp-weixin": "uni -p mp-weixin",
-    "build:mp-weixin": "node scripts/validate-build-env.mjs mp-weixin && uni build -p mp-weixin",
+    "build:mp-weixin": "node --experimental-strip-types scripts/validate-build-env.mjs mp-weixin && uni build -p mp-weixin",
     "dev:h5": "uni",
     "build:h5": "uni build",
     "typecheck": "vue-tsc --noEmit",
-    "check:structure": "node scripts/check-structure.mjs"
+    "check:structure": "node scripts/check-structure.mjs",
+    "check:wechat-uat": "node --experimental-strip-types scripts/check-wechat-uat.mjs",
+    "test:flow": "node --experimental-strip-types --test scripts/mp1-flow.test.ts scripts/mp2-flow.test.ts scripts/mp3-flow.test.ts scripts/mp-uat-preflight.test.ts scripts/mp-privacy.test.ts"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-alpha-1000920260909822",

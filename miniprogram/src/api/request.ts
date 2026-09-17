@@ -1,4 +1,5 @@
 import { useSessionStore } from '../stores/session'
+import { describeApiError } from '../utils/error-messages'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const REQUEST_TIMEOUT = 15_000
@@ -6,12 +7,14 @@ const REQUEST_TIMEOUT = 15_000
 export interface ApiErrorPayload {
   code?: string
   message?: string
+  submission_id?: string
 }
 
 export class ApiError extends Error {
   status: number
   code: string
   requestId: string
+  submissionId: string
 
   constructor(status: number, payload: ApiErrorPayload | string, requestId = '') {
     const detail = typeof payload === 'string' ? payload : payload.message || payload.code || '请求失败'
@@ -20,6 +23,7 @@ export class ApiError extends Error {
     this.status = status
     this.code = typeof payload === 'string' ? '' : payload.code || ''
     this.requestId = requestId
+    this.submissionId = typeof payload === 'string' ? '' : payload.submission_id || ''
   }
 }
 
@@ -44,33 +48,8 @@ function resolvePayload(value: unknown): ApiErrorPayload | string {
   return '请求失败'
 }
 
-// 后端 detail.code → 用户语言(设计方案 §7.3); 未命中时回退到通用状态码解释。
-const ERROR_MESSAGES: Record<string, string> = {
-  MP_NOT_CONFIGURED: '小程序登录尚未配置，请联系管理员',
-  MP_LOGIN_FAILED: '微信登录凭证无效，请重试',
-  MP_CODE_REQUIRED: '微信登录凭证缺失，请重试',
-  MP_BIND_TICKET_REQUIRED: '绑定会话已过期，请重新获取微信凭证',
-  ACCOUNT_UNAVAILABLE: '账号当前不可使用，请联系管理员',
-  CHECK_PENDING: '格式检查仍在进行，请稍后重试',
-  CHECK_FAILED: '格式检查失败，请稍后重试或联系管理员',
-  CHECK_STALE: '正文已在电脑端更新，请重新预检',
-  BLOCKING_FINDINGS: '存在未关闭的阻断项，暂不能提交',
-  DEADLINE_PASSED: '已超过有效截止时间，如需补交请联系教师或管理员',
-  SUBMISSION_ALREADY_PENDING: '已存在待审核的提交，请勿重复提交',
-  REVISION_CONFLICT: '内容已在他端修改，请在电脑端处理冲突',
-}
-
 export function describeError(error: unknown): string {
-  if (error instanceof ApiError) {
-    if (error.code && ERROR_MESSAGES[error.code]) return ERROR_MESSAGES[error.code]
-    if (error.status === 401) return '登录状态已过期，请重新登录'
-    if (error.status === 403) return '没有执行该操作的权限'
-    if (error.status === 404) return '资源不存在或无权访问'
-    if (error.status === 409) return '状态已变化，请刷新后重试'
-    if (error.status === 429 || error.status === 503) return '服务繁忙，请稍后重试'
-    return error.message || '请求失败，请稍后重试'
-  }
-  return error instanceof Error ? error.message : '请求失败，请稍后重试'
+  return describeApiError(error)
 }
 
 function wechatLoginCode(): Promise<string> {
@@ -190,11 +169,17 @@ export interface Task {
   title?: string
   stage_name?: string
   cohort_name?: string
+  project_title?: string
+  project_id?: string
   state?: string
   is_late?: boolean
   effective_deadline_at?: string
   revision_deadline_at?: string
-  current_submission?: { id: string; number: string; state: string } | null
+  initial_deadline_at?: string
+  acknowledged_snapshot_hash?: string
+  student_id?: string
+  student_name?: string
+  current_submission?: { id: string; number: string; state: string; submitted_at?: string; review_cycle?: number } | null
   [key: string]: unknown
 }
 
@@ -245,8 +230,17 @@ export const sendEmailCode = (email: string, purpose = 'register') => request<{ 
 
 export const fetchMe = () => request<User>('/api/auth/me')
 export const fetchTasks = () => request<Task[]>('/api/my-tasks')
+export const fetchParticipant = (participantId: string) =>
+  request<{ participant: Task; stage?: Record<string, unknown>; cohort?: Record<string, unknown>; config?: Record<string, unknown> }>(
+    `/api/stage-participants/${participantId}`,
+  )
 export const fetchNotifications = () => request<{ items: Array<Record<string, unknown>>; unread: number }>('/api/notifications')
 export const markNotificationRead = (id: string) => request<{ ok: boolean }>(`/api/notifications/${id}/read`, { method: 'POST' })
+export const acknowledgeTask = (participantId: string, snapshotHash = '') =>
+  request<Task>(`/api/stage-participants/${participantId}/acknowledge`, {
+    method: 'POST',
+    data: snapshotHash ? { snapshot_hash: snapshotHash } : {},
+  })
 export const changePassword = (currentPassword: string, newPassword: string) => request<{ status: string }>('/api/auth/change-password', {
   method: 'POST',
   data: { current_password: currentPassword, new_password: newPassword },

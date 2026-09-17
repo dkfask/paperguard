@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
+    "check:college-admin": "node scripts/check-college-admin.mjs && vitest run tests/permissions.test.js tests/AppErrorBoundary.test.js tests/Organizations.test.js tests/Workflow.reports.test.js",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "typecheck": "vue-tsc --noEmit",

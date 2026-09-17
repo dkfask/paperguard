@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { auth } from './auth'
-import { canAccessRoute } from './shared/auth/permissions'
+import { canAccessRoute, homePath } from './shared/auth/permissions'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -38,7 +38,7 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
   if (auth.token && to.path === '/login' && to.query.forceChange !== '1' && to.query.logout !== '1') {
-    return { path: '/' }
+    return { path: homePath(auth.user) }
   }
   const requiresFirstLogin = auth.token
     && auth.user?.role === 'student'
@@ -47,7 +47,7 @@ router.beforeEach(async (to) => {
     return { path: '/first-login', query: { redirect: to.fullPath } }
   }
   if (auth.token && to.path === '/first-login' && !requiresFirstLogin) {
-    return { path: '/' }
+    return { path: homePath(auth.user) }
   }
   const canManageTemplates = auth.user?.role === 'admin'
     || (auth.user?.role === 'teacher' && auth.user?.status === 'active')

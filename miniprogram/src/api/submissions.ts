@@ -56,10 +56,22 @@ export interface Submission {
   state: 'submitted' | 'returned' | 'approved' | 'withdrawn' | string
   review_cycle: number
   submitted_at: string
+  withdrawn_at?: string
   participant_id: string
   project_version_id?: string
   prior_submission_id?: string
+  project_id?: string
+  modification_note?: string
+  open_blocking_count?: number
   [key: string]: unknown
+}
+
+export interface SubmissionReview {
+  id: string
+  decision: 'returned' | 'approved' | string
+  reason: string
+  review_cycle?: number
+  created_at?: string
 }
 
 export interface SubmissionDetail {
@@ -70,6 +82,7 @@ export interface SubmissionDetail {
   version: Record<string, unknown> & { content_hash?: string }
   candidate: Candidate | null
   comments: Comment[]
+  review?: SubmissionReview | null
 }
 
 /** 预检: 冻结候选版本并运行门禁检查(同步返回, 检查失败时 check_status=failed)。 */
@@ -90,15 +103,26 @@ export const confirmSubmission = (candidateId: string, idempotencyKey: string, w
 
 export const fetchSubmission = (id: string) => request<SubmissionDetail>(`/api/submissions/${id}`)
 export const fetchSubmissions = () => request<Submission[]>('/api/submissions')
+export const withdrawSubmission = (id: string) =>
+  request<Submission>(`/api/submissions/${id}/withdraw`, { method: 'POST' })
 
 /** 学生回复批注: 批注状态转为 addressed, 等待教师确认解决。 */
 export const respondComment = (commentId: string, body: string) =>
   request<Comment>(`/api/comments/${commentId}/response`, { method: 'POST', data: { body } })
 
+export interface VersionDiffSection {
+  key: string
+  status: string
+  before?: unknown
+  after?: unknown
+  blocks?: unknown[]
+}
+
 export interface VersionDiff {
-  sections?: Array<{ key: string; status: string; before: unknown; after: unknown }>
+  sections?: VersionDiffSection[]
+  diff?: { sections?: VersionDiffSection[]; changed?: boolean }
   [key: string]: unknown
 }
 
 export const compareVersions = (projectId: string, leftVersionId: string, rightVersionId: string) =>
-  request<VersionDiff>(`/api/projects/${projectId}/versions/compare?left=${leftVersionId}&right=${rightVersionId}`)
+  request<VersionDiff>(`/api/projects/${projectId}/versions/compare?left=${encodeURIComponent(leftVersionId)}&right=${encodeURIComponent(rightVersionId)}`)
