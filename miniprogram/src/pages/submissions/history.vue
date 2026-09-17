@@ -23,6 +23,8 @@
           <text class="state" :class="`tone-${stateTone(item)}`">{{ stateLabel(item) }}</text>
         </view>
         <text class="meta">第 {{ item.review_cycle }} 轮 · {{ formatTime(item.submitted_at) }}</text>
+        <text v-if="itemNote(item).note" class="note">修改说明：{{ itemNote(item).note }}</text>
+        <text v-if="itemNote(item).openBlocking > 0" class="blocking">上轮未解决阻断 {{ itemNote(item).openBlocking }} 条</text>
         <view class="actions">
           <text class="link" @tap="goDetail(item)">查看详情 →</text>
           <text
@@ -50,6 +52,9 @@ import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { describeError } from '../../api/request'
 import { compareVersions, fetchSubmissions, type Submission, type VersionDiff } from '../../api/submissions'
+import { formatDateTime, submissionStateLabel, submissionStateTone } from '../../utils/format'
+import { flattenVersionDiff, historyItemNote } from '../../utils/student-flow'
+import { applySharePolicy } from '../../utils/privacy'
 
 const submissions = ref<Submission[]>([])
 const loading = ref(false)
@@ -59,6 +64,7 @@ const diffSummary = ref<Array<{ mark: string; text: string; tone: string }> | nu
 const diffLabel = ref('')
 
 onLoad((params) => {
+  applySharePolicy('/pages/submissions/history')
   projectId.value = (params as Record<string, string>)?.project_id || ''
   void loadHistory()
 })
@@ -68,7 +74,10 @@ async function loadHistory() {
   errorMessage.value = ''
   try {
     const items = await fetchSubmissions()
-    submissions.value = [...items].sort((a, b) => String(b.submitted_at || '').localeCompare(String(a.submitted_at || '')))
+    const scoped = projectId.value
+      ? items.filter((item) => String(item.project_id || '') === projectId.value)
+      : items
+    submissions.value = [...scoped].sort((a, b) => String(b.submitted_at || '').localeCompare(String(a.submitted_at || '')))
   } catch (error) {
     errorMessage.value = describeError(error)
   } finally {
@@ -76,17 +85,17 @@ async function loadHistory() {
   }
 }
 
-const STATE_LABELS: Record<string, string> = { submitted: '待审核', returned: '已退回', approved: '已通过', withdrawn: '已撤回' }
-const STATE_TONES: Record<string, string> = { submitted: 'blue', returned: 'red', approved: 'green', withdrawn: 'gray' }
-
 function stateLabel(item: Submission) {
-  return STATE_LABELS[String(item.state)] || String(item.state)
+  return submissionStateLabel(item.state)
 }
 function stateTone(item: Submission) {
-  return STATE_TONES[String(item.state)] || 'blue'
+  return submissionStateTone(item.state)
 }
 function formatTime(value: unknown) {
-  return value ? String(value).replace('T', ' ').slice(0, 16) : '—'
+  return formatDateTime(value) || '—'
+}
+function itemNote(item: Submission) {
+  return historyItemNote(item)
 }
 
 async function goDiff(current: Submission, prior: Submission) {
@@ -106,18 +115,7 @@ async function goDiff(current: Submission, prior: Submission) {
 }
 
 function renderDiff(diff: VersionDiff, prior: Submission, current: Submission) {
-  const sections = diff.sections || []
-  const marks: Record<string, { mark: string; tone: string }> = {
-    added: { mark: '+', tone: 'green' },
-    removed: { mark: '-', tone: 'red' },
-    modified: { mark: '~', tone: 'orange' },
-  }
-  diffSummary.value = sections.length
-    ? sections.map((section) => {
-        const style = marks[section.status] || { mark: '=', tone: 'gray' }
-        return { mark: style.mark, tone: style.tone, text: `${section.key}（${section.status}）` }
-      })
-    : [{ mark: '=', tone: 'gray', text: '两版本文本无结构差异' }]
+  diffSummary.value = flattenVersionDiff(diff)
   diffLabel.value = `${prior.submission_number} → ${current.submission_number}`
   uni.hideLoading()
 }
@@ -146,6 +144,8 @@ function goDetail(item: Submission) {
 .tone-green { background: #e8f7ee; color: #16a34a; }
 .tone-gray { background: #f3f4f6; color: #6b7280; }
 .meta { display: block; margin-top: 12rpx; color: #6b7280; font-size: 23rpx; }
+.note { display: block; margin-top: 12rpx; color: #111827; font-size: 24rpx; line-height: 1.5; }
+.blocking { display: block; margin-top: 8rpx; color: #ba1a1a; font-size: 22rpx; font-weight: 700; }
 .actions { display: flex; gap: 34rpx; margin-top: 20rpx; }
 .link { color: #004ac6; font-size: 24rpx; font-weight: 700; }
 .panel-title { display: block; color: #111827; font-size: 29rpx; font-weight: 750; }

@@ -94,6 +94,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setAuth, clearAuth, auth } from '../auth'
 import { authApi } from '../features/auth/api'
+import { homePath } from '../shared/auth/permissions'
 import { useI18n } from '../i18n'
 
 const route = useRoute()
@@ -135,7 +136,7 @@ async function submit() {
       const data = await authApi.login({ username: username.value, password: password.value })
       setAuth(data.token, data.user)
       const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
-        ? route.query.redirect : '/'
+        ? route.query.redirect : homePath(data.user)
       if (data.user.onboarding_required) {
         router.replace({ path: '/first-login', query: { redirect } })
       } else if (data.user.must_change_password) {

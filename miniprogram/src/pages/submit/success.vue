@@ -10,7 +10,7 @@
       <text class="voucher-number">{{ submissionNumber }}</text>
       <text class="voucher-meta">{{ submittedAt }}</text>
       <view class="hash-row">
-        <text class="hash">版本快照 {{ shortHash }}</text>
+        <text class="hash">版本快照 {{ snapshotHash }}</text>
         <text class="hash-note">🔒 提交后不可变</text>
       </view>
     </view>
@@ -37,42 +37,26 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { reportSubscribe } from '../../api/request'
+import { shortHash } from '../../utils/format'
+import { requestSubscribeAuthorization } from '../../utils/subscribe'
+import { applySharePolicy } from '../../utils/privacy'
 
 const submissionNumber = ref('—')
 const submittedAt = ref('')
 const contentHash = ref('')
-
-function shortHash() {
-  const text = contentHash.value
-  return text.length > 12 ? `${text.slice(0, 6)}…${text.slice(-4)}` : text || '—'
-}
+const snapshotHash = ref('—')
 
 onLoad((params) => {
+  applySharePolicy('/pages/submit/success')
   const query = params as Record<string, string> | undefined
   submissionNumber.value = query?.number ? decodeURIComponent(query.number) : '—'
   contentHash.value = query?.hash ? decodeURIComponent(query.hash) : ''
+  snapshotHash.value = shortHash(contentHash.value)
   submittedAt.value = new Date().toLocaleString('zh-CN', { hour12: false })
 })
 
-// 订阅消息模板 ID 上线前在 manifest 或配置中下发; 未配置时引导置灰不阻断
 function requestSubscribe() {
-  const templateIds = (import.meta.env.VITE_SUBSCRIBE_TEMPLATE_IDS || '').split(',').map((id) => id.trim()).filter(Boolean)
-  if (!templateIds.length) {
-    uni.showToast({ title: '提醒模板尚未配置，上线后开放', icon: 'none' })
-    return
-  }
-  uni.requestSubscribeMessage({
-    tmplIds: templateIds,
-    complete: () => uni.showToast({ title: '已按微信授权结果处理', icon: 'none' }),
-    success: (result) => {
-      // 授权结果逐模板上报后端记账(一次性订阅配额)
-      for (const templateId of templateIds) {
-        const accepted = (result as unknown as Record<string, string>)[templateId] === 'accept'
-        void reportSubscribe(templateId, accepted).catch(() => {})
-      }
-    },
-  })
+  void requestSubscribeAuthorization()
 }
 
 function backToTasks() {

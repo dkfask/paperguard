@@ -1,7 +1,12 @@
 import { useSessionStore } from '../stores/session'
+import { isPrivacyAccepted } from './privacy'
 
 /** 页面 onShow 统一守卫: 未登录回绑定页; 初始密码账号强制先改密(设计方案 §4.2)。 */
 export function ensureSessionReady(): boolean {
+  if (!isPrivacyAccepted()) {
+    uni.reLaunch({ url: '/pages/login/index' })
+    return false
+  }
   const session = useSessionStore()
   if (!session.isAuthenticated) {
     uni.reLaunch({ url: '/pages/login/index' })

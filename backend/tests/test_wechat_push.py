@@ -43,17 +43,26 @@ def _bind(monkeypatch, username: str, password: str) -> None:
     assert bound.status_code == 200, bound.text
 
 
-def _insert_delivered_event(store: Store, recipient_id: str, event_type: str, title: str) -> str:
+def _insert_delivered_event(
+    store: Store,
+    recipient_id: str,
+    event_type: str,
+    title: str,
+    *,
+    resource_type: str = "submission",
+    resource_id: str | None = None,
+) -> str:
     event_id = f"evt-{uuid.uuid4().hex[:12]}"
+    resource_id = resource_id or f"sub-{event_id}"
     with store.workflow_transaction() as conn:
         store.save_workflow_event_conn(
             conn,
             event_type=event_type,
             recipient_id=recipient_id,
-            resource_type="submission",
-            resource_id=f"sub-{event_id}",
+            resource_type=resource_type,
+            resource_id=resource_id,
             dedupe_key=f"{event_type}:{recipient_id}:{event_id}",
-            data={"title": title, "event_type": event_type},
+            data={"title": title, "event_type": event_type, "resource_type": resource_type, "resource_id": resource_id},
         )
     with store._connect() as conn:
         row = conn.execute(
@@ -66,18 +75,25 @@ def _insert_delivered_event(store: Store, recipient_id: str, event_type: str, ti
     return actual_id
 
 
-def _configure(monkeypatch, sent_result: list[tuple[str, str]] | None = None):
+def _configure(monkeypatch, sent_result: list[tuple[str, str, str, str]] | None = None):
     monkeypatch.setenv("PAPERGUARD_WECHAT_APP_ID", "wx-test-appid")
     monkeypatch.setenv("PAPERGUARD_WECHAT_APP_SECRET", "wx-test-secret")
     monkeypatch.setenv(
         "PAPERGUARD_WECHAT_SUBSCRIBE_TEMPLATES",
-        json.dumps({"submission.returned": "TMPL_RETURN", "submission.approved": "TMPL_APPROVE"}),
+        json.dumps({
+            "submission.returned": "TMPL_RETURN",
+            "submission.approved": "TMPL_APPROVE",
+            "submission.created": "TMPL_REVIEW",
+            "comment.created": "TMPL_COMMENT",
+            "participant.overdue": "TMPL_DEADLINE",
+            "participant.deadline_soon": "TMPL_DEADLINE",
+        }),
     )
     monkeypatch.setattr(wechat_push, "fetch_access_token", lambda app_id, secret: "test-token")
 
-    def fake_send(token: str, openid: str, template_id: str, title: str):
+    def fake_send(token: str, openid: str, template_id: str, title: str, page: str = "/pages/tasks/index"):
         if sent_result is not None:
-            sent_result.append((openid, template_id, title))
+            sent_result.append((openid, template_id, title, page))
         return (True, "0") if sent_result is not None else (False, "43101")
 
     monkeypatch.setattr(wechat_push, "send_subscribe", fake_send)
@@ -111,7 +127,7 @@ def test_push_delivers_once_and_consumes_quota(monkeypatch):
     _bind(monkeypatch, username, password)
     store = Store()
 
-    sent_calls: list[tuple[str, str, str]] = []
+    sent_calls: list[tuple[str, str, str, str]] = []
     _configure(monkeypatch, sent_result=sent_calls)
     store.grant_push_quota(user_id, "TMPL_RETURN", 2, "2026-09-13T00:00:00+00:00")
     event_id = _insert_delivered_event(store, user_id, "submission.returned", "论文需要修改")
@@ -119,10 +135,11 @@ def test_push_delivers_once_and_consumes_quota(monkeypatch):
     result = wechat_push.deliver_wechat_push(store, consumer_id="test", now=datetime.now(timezone.utc))
     assert result["sent"] == 1
     assert len(sent_calls) == 1
-    openid, template_id, title = sent_calls[0]
+    openid, template_id, title, page = sent_calls[0]
     assert openid.startswith("openid-push-")
     assert template_id == "TMPL_RETURN"
     assert title == "论文需要修改"
+    assert page.startswith("/pages/submissions/detail?id=")
     assert store.has_mini_program_push(event_id)
 
     # 同一事件幂等: 第二轮不再发送
@@ -163,7 +180,7 @@ def test_push_skips_without_binding_or_quota(monkeypatch):
     _, _, user_id = _account()
     store = Store()
 
-    sent_calls: list[tuple[str, str, str]] = []
+    sent_calls: list[tuple[str, str, str, str]] = []
     _configure(monkeypatch, sent_result=sent_calls)
 
     # 无绑定: 跳过
@@ -179,3 +196,83 @@ def test_push_skips_without_binding_or_quota(monkeypatch):
     result = wechat_push.deliver_wechat_push(store, consumer_id="test", now=datetime.now(timezone.utc))
     assert not sent_calls
     assert result["skipped_events"] >= 1
+
+
+def test_subscribe_page_maps_event_to_miniprogram_route():
+    assert wechat_push.subscribe_page({
+        "event_type": "submission.returned", "resource_type": "submission", "resource_id": "sub-1",
+    }) == "/pages/submissions/detail?id=sub-1"
+    assert wechat_push.subscribe_page({
+        "event_type": "submission.approved", "resource_type": "submission", "resource_id": "sub-1",
+    }) == "/pages/submissions/detail?id=sub-1"
+    assert wechat_push.subscribe_page({
+        "event_type": "submission.created", "resource_type": "submission", "resource_id": "sub-2",
+    }) == "/pages/review/index?id=sub-2"
+    assert wechat_push.subscribe_page({
+        "event_type": "comment.created", "resource_type": "submission", "resource_id": "sub-3",
+    }) == "/pages/submissions/comments?id=sub-3"
+    assert wechat_push.subscribe_page({
+        "event_type": "participant.overdue", "resource_type": "participant", "resource_id": "p-1",
+    }) == "/pages/tasks/index"
+
+
+def test_push_skips_stale_overdue_after_approve_or_extend(monkeypatch):
+    monkeypatch.setenv("PAPERGUARD_MP_BINDING_SECRET", "test-only-mp-binding-secret")
+    username, password, user_id = _account()
+    _bind(monkeypatch, username, password)
+    store = Store()
+    sent_calls: list[tuple[str, str, str, str]] = []
+    _configure(monkeypatch, sent_result=sent_calls)
+    store.grant_push_quota(user_id, "TMPL_DEADLINE", 3, "2026-09-13T00:00:00+00:00")
+    now = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+
+    approved = {
+        "id": f"p-approved-{uuid.uuid4().hex[:8]}",
+        "state": "approved",
+        "student_id": user_id,
+        "effective_deadline_at": "2026-09-10T12:00:00+00:00",
+        "revision": 0,
+    }
+    store.save_workflow_record("participant", approved)
+    _insert_delivered_event(
+        store, user_id, "participant.overdue", "阶段任务已逾期，请尽快处理",
+        resource_type="participant", resource_id=approved["id"],
+    )
+
+    extended = {
+        "id": f"p-extended-{uuid.uuid4().hex[:8]}",
+        "state": "in_progress",
+        "student_id": user_id,
+        "effective_deadline_at": "2026-09-30T12:00:00+00:00",
+        "revision": 1,
+    }
+    store.save_workflow_record("participant", extended)
+    _insert_delivered_event(
+        store, user_id, "participant.overdue", "阶段任务已逾期，请尽快处理",
+        resource_type="participant", resource_id=extended["id"],
+    )
+
+    still_due = {
+        "id": f"p-due-{uuid.uuid4().hex[:8]}",
+        "state": "in_progress",
+        "student_id": user_id,
+        "effective_deadline_at": "2026-09-15T12:00:00+00:00",
+        "revision": 0,
+    }
+    store.save_workflow_record("participant", still_due)
+    _insert_delivered_event(
+        store, user_id, "participant.overdue", "阶段任务已逾期，请尽快处理",
+        resource_type="participant", resource_id=still_due["id"],
+    )
+
+    result = wechat_push.deliver_wechat_push(store, consumer_id="test", now=now)
+    assert result["skipped_events"] == 2
+    assert result["sent"] == 1
+    assert len(sent_calls) == 1
+    assert sent_calls[0][3] == "/pages/tasks/index"
+    with store._connect() as conn:
+        row = conn.execute(
+            "SELECT remaining FROM mini_program_push_quotas WHERE user_id = ? AND template_id = ?",
+            (user_id, "TMPL_DEADLINE"),
+        ).fetchone()
+    assert row["remaining"] == 2

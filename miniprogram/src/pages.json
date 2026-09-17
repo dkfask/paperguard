@@ -32,6 +32,18 @@
       }
     },
     {
+      "path": "pages/profile/about",
+      "style": {
+        "navigationBarTitleText": "关于与隐私政策"
+      }
+    },
+    {
+      "path": "pages/requirements/index",
+      "style": {
+        "navigationBarTitleText": "确认阶段要求"
+      }
+    },
+    {
       "path": "pages/submit/index",
       "style": {
         "navigationBarTitleText": "提交确认"

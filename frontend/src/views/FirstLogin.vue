@@ -31,6 +31,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth, setAuth } from '../auth'
 import { authApi } from '../features/auth/api'
+import { homePath } from '../shared/auth/permissions'
 import { useI18n } from '../i18n'
 
 const route = useRoute()
@@ -63,7 +64,7 @@ async function submit() {
   try {
     const result = await authApi.completeFirstLogin({ email: email.value.trim(), email_code: emailCode.value.trim(), new_password: newPassword.value })
     setAuth(result.token, result.user)
-    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/') ? route.query.redirect : '/'
+    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/') ? route.query.redirect : homePath(result.user)
     router.replace(redirect)
   } catch (error) { setNotice(error?.message || t('auth.firstLoginFailed')) } finally { loading.value = false }
 }

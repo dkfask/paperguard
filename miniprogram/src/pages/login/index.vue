@@ -1,8 +1,8 @@
 <template>
   <view class="page auth-page">
     <view class="auth-mark">PG</view>
-    <text class="eyebrow">PAPERGUARD</text>
-    <text class="title">论文过程工作台</text>
+    <text class="eyebrow">PaperGuard</text>
+    <text class="title">论文卫士Pro</text>
     <text class="subtitle">使用微信登录后绑定校内账号</text>
 
     <view v-if="!bindTicket" class="panel intro-panel">
@@ -35,15 +35,32 @@
     </template>
 
     <text v-if="errorMessage" class="error-text">{{ errorMessage }}</text>
-    <text class="legal-copy">继续即表示同意论文卫士Pro隐私说明与校内账号使用规则</text>
+    <text class="legal-copy" @tap="openAbout">继续即表示同意论文卫士Pro隐私说明与校内账号使用规则 · 查看关于与隐私政策</text>
+
+    <view v-if="privacyOpen" class="privacy-mask">
+      <view class="privacy-sheet">
+        <text class="privacy-title">{{ privacyTitle }}</text>
+        <text class="privacy-copy">{{ privacySummary }}</text>
+        <button class="text-button" @tap="openAbout">查看关于与隐私政策</button>
+        <button class="primary-button" @tap="agreePrivacy">同意并继续</button>
+      </view>
+    </view>
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
 import { mpBind, mpLogin, mpRegister, describeError } from '../../api/request'
 import { useSessionStore } from '../../stores/session'
+import {
+  acceptPrivacy,
+  applySharePolicy,
+  homeSharePayload,
+  isPrivacyAccepted,
+  privacyNoticeSummary,
+  privacyNoticeTitle,
+} from '../../utils/privacy'
 
 const session = useSessionStore()
 const loading = ref(false)
@@ -52,8 +69,16 @@ const registerMode = ref(false)
 const username = ref('')
 const password = ref('')
 const errorMessage = ref('')
+const privacyOpen = ref(!isPrivacyAccepted())
+const privacyTitle = privacyNoticeTitle()
+const privacySummary = privacyNoticeSummary()
+
+onShareAppMessage(() => homeSharePayload())
 
 onLoad(() => {
+  applySharePolicy('/pages/login/index')
+  privacyOpen.value = !isPrivacyAccepted()
+  if (!isPrivacyAccepted()) return
   if (session.isAuthenticated) {
     if (session.user?.onboarding_required || session.user?.email_verified === false || session.user?.password_set === false || session.user?.must_change_password) {
       uni.redirectTo({ url: '/pages/profile/bind-email?first=1' })
@@ -63,11 +88,24 @@ onLoad(() => {
   }
 })
 
+function agreePrivacy() {
+  acceptPrivacy()
+  privacyOpen.value = false
+}
+
+function openAbout() {
+  uni.navigateTo({ url: '/pages/profile/about' })
+}
+
 function showError(error: unknown) {
   errorMessage.value = describeError(error)
 }
 
 async function registerWithWechat() {
+  if (!isPrivacyAccepted()) {
+    privacyOpen.value = true
+    return
+  }
   loading.value = true
   errorMessage.value = ''
   try {
@@ -84,6 +122,10 @@ async function registerWithWechat() {
 }
 
 async function startWechatLogin() {
+  if (!isPrivacyAccepted()) {
+    privacyOpen.value = true
+    return
+  }
   loading.value = true
   errorMessage.value = ''
   try {
@@ -114,6 +156,10 @@ async function startWechatLogin() {
 }
 
 async function bindAccount() {
+  if (!isPrivacyAccepted()) {
+    privacyOpen.value = true
+    return
+  }
   if (!username.value.trim() || !password.value) {
     errorMessage.value = '请输入校内账号和密码'
     return
@@ -159,4 +205,8 @@ function resetBinding() {
 .path-pills { display: flex; gap: 14rpx; margin-top: 40rpx; }
 .path-pill { flex: 1; height: 68rpx; line-height: 68rpx; text-align: center; border: 1rpx solid #e5e7eb; border-radius: 999rpx; background: #fff; color: #6b7280; font-size: 24rpx; }
 .path-pill.active { border-color: #004ac6; background: #e5efff; color: #004ac6; font-weight: 700; }
+.privacy-mask { position: fixed; inset: 0; background: rgba(17, 24, 39, .45); display: flex; align-items: flex-end; z-index: 20; }
+.privacy-sheet { width: 100%; box-sizing: border-box; padding: 48rpx 40rpx 56rpx; background: #fff; border-radius: 28rpx 28rpx 0 0; }
+.privacy-title { display: block; color: #111827; font-size: 36rpx; font-weight: 800; }
+.privacy-copy { display: block; margin-top: 20rpx; color: #4b5563; font-size: 26rpx; line-height: 1.7; }
 </style>

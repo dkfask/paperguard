@@ -307,11 +307,28 @@ def test_college_admin_can_manage_scoped_policy_but_not_template():
     })
     assert descendant_policy.status_code == 201, descendant_policy.text
     assert client.post(f"/api/policies/{descendant_policy.json()['id']}/publish", headers=college_admin).status_code == 200
+    sibling_college_id = f"scope-college-b-{suffix}"
+    assert client.post("/api/organizations", headers=admin, json={
+        "id": sibling_college_id, "name": "兄弟学院", "type": "college", "parent_id": school_id,
+    }).status_code == 201
     outside = client.post("/api/policies", headers=college_admin, json={
         "name": "越界规范", "level": "college", "version": "1", "status": "draft",
-        "bindings": [{"id": f"outside-binding-{suffix}", "scope_type": "college", "scope_id": "college-b"}],
+        "bindings": [{"id": f"outside-binding-{suffix}", "scope_type": "college", "scope_id": sibling_college_id}],
     })
-    assert outside.status_code == 403
+    assert outside.status_code == 403, outside.text
+    sibling_policy = client.post("/api/policies", headers=admin, json={
+        "name": "兄弟学院规范", "level": "college", "version": "1", "status": "draft",
+        "bindings": [{"id": f"sibling-binding-{suffix}", "scope_type": "college", "scope_id": sibling_college_id}],
+        "items": [{"id": "sibling-review", "type": "manual", "target": "document", "description": "兄弟学院确认项"}],
+    })
+    assert sibling_policy.status_code == 201, sibling_policy.text
+    assert client.post(f"/api/policies/{sibling_policy.json()['id']}/publish", headers=college_admin).status_code == 403
+    school_binding = client.post("/api/policies", headers=college_admin, json={
+        "name": "学校越界规范", "level": "college", "version": "1", "status": "draft",
+        "bindings": [{"id": f"school-binding-{suffix}", "scope_type": "school", "scope_id": school_id}],
+        "items": [{"id": "school-review", "type": "manual", "target": "document", "description": "学校确认项"}],
+    })
+    assert school_binding.status_code == 403, school_binding.text
     template = client.get("/api/templates/default-gb7713", headers=admin)
     assert template.status_code == 200
     assert client.post("/api/templates", headers=college_admin, json=template.json()).status_code == 403

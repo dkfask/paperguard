@@ -13,14 +13,22 @@
           <text class="state" :class="`tone-${stateTone}`">{{ stateLabel }}</text>
         </view>
         <text class="meta">{{ stageLabel }} · 第 {{ detail.submission.review_cycle }} 轮 · 提交于 {{ formatTime(detail.submission.submitted_at) }}</text>
+        <text class="history-link" @tap="goHistory">查看提交历史</text>
         <view class="hash-row">
-          <text class="hash">版本快照 {{ shortHash }}</text>
+          <text class="hash">版本快照 {{ snapshotHash }}</text>
           <text class="hash-note">只读 · 提交后不可变</text>
         </view>
       </view>
 
-      <view v-if="deadlineText" class="deadline-bar" :class="{ late: isLate }">
-        <text>{{ isLate ? '已逾期' : '修订截止' }} · {{ deadlineText }}</text>
+      <view v-if="returnReason" class="panel return-panel">
+        <text class="panel-title">退回理由</text>
+        <text class="return-reason">{{ returnReason.reason }}</text>
+        <text class="return-meta">{{ formatTime(returnReason.createdAt) }}{{ returnReason.revisionDeadlineAt ? ` · 修订截止 ${formatTime(returnReason.revisionDeadlineAt)}` : '' }}</text>
+        <text class="deadline-hint">长文修改请使用电脑端</text>
+      </view>
+
+      <view v-else-if="deadlineText" class="deadline-bar" :class="{ late: isLate }">
+        <text>{{ isLate ? '已逾期' : '修订截止' }} · {{ deadlineText }}{{ deadlineCountdown ? ` · ${deadlineCountdown}` : '' }}</text>
         <text class="deadline-hint">长文修改请使用电脑端</text>
       </view>
 
@@ -38,21 +46,24 @@
         </view>
       </view>
 
+      <view v-if="materialItems.length" class="panel">
+        <text class="panel-title">必交材料</text>
+        <view v-for="item in materialItems" :key="item.label" class="summary-row">
+          <text class="summary-name">{{ item.label }}</text>
+          <text class="gate-badge" :class="item.passed ? 'pass' : 'block'">{{ item.passed ? '已绑定' : '未绑定' }}</text>
+        </view>
+        <text class="muted">材料绑定请使用电脑端过程材料；此处只展示提交时门禁结果。</text>
+      </view>
+
       <view class="panel">
         <text class="panel-title">流转记录</text>
-        <view class="timeline">
-          <view class="timeline-item">
-            <view class="dot" :class="`tone-bg-${stateTone}`" />
+        <view v-if="timelineItems.length === 0" class="muted">暂无时间线</view>
+        <view v-else class="timeline">
+          <view v-for="(item, index) in timelineItems" :key="`${item.title}-${index}`" class="timeline-item">
+            <view class="dot" :class="`tone-bg-${item.tone}`" />
             <view class="timeline-body">
-              <text class="timeline-title">{{ stateLabel }}（{{ detail.submission.submission_number }}）</text>
-              <text class="timeline-time">{{ formatTime(detail.submission.submitted_at) }}</text>
-            </view>
-          </view>
-          <view class="timeline-item">
-            <view class="dot tone-bg-blue" />
-            <view class="timeline-body">
-              <text class="timeline-title">正式提交，冻结版本快照</text>
-              <text class="timeline-time">门禁 {{ checkPassed ? '全部通过' : '以提交时结果为准' }}</text>
+              <text class="timeline-title">{{ item.title }}</text>
+              <text class="timeline-time">{{ formatTime(item.time) }}</text>
             </view>
           </view>
         </view>
@@ -60,7 +71,9 @@
 
       <view class="bottom-bar">
         <button class="bar-button primary" @tap="goComments">查看审阅意见</button>
-        <button class="bar-button ghost" @tap="goHistory">提交历史</button>
+        <button v-if="canWithdrawNow" class="bar-button ghost" :loading="withdrawing" @tap="confirmWithdraw">撤回提交</button>
+        <button v-else-if="canResubmitNow" class="bar-button ghost" @tap="goResubmit">重新预检提交</button>
+        <button v-else class="bar-button ghost" @tap="goHistory">提交历史</button>
       </view>
     </template>
   </view>
@@ -70,30 +83,44 @@
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { describeError } from '../../api/request'
-import { fetchSubmission, type SubmissionDetail } from '../../api/submissions'
+import { applySharePolicy } from '../../utils/privacy'
+import { fetchSubmission, withdrawSubmission, type SubmissionDetail } from '../../api/submissions'
+import { useSessionStore } from '../../stores/session'
+import { deadlineCountdownLabel, formatDateTime, isDeadlinePassed, shortHash, submissionStateLabel, submissionStateTone } from '../../utils/format'
+import { canResubmit, canWithdrawSubmission, latestReturnReason, materialGateItems, resubmitUrl, submissionTimeline } from '../../utils/student-flow'
 
+const session = useSessionStore()
 const detail = ref<SubmissionDetail | null>(null)
 const loading = ref(false)
+const withdrawing = ref(false)
 const errorMessage = ref('')
 
-const stateLabel = computed(() => {
-  const state = String(detail.value?.submission.state || '')
-  return ({ submitted: '待审核', returned: '已退回', approved: '已通过', withdrawn: '已撤回' } as Record<string, string>)[state] || state
-})
-const stateTone = computed(() => {
-  const state = String(detail.value?.submission.state || '')
-  return ({ submitted: 'blue', returned: 'red', approved: 'green', withdrawn: 'gray' } as Record<string, string>)[state] || 'blue'
-})
+const stateLabel = computed(() => submissionStateLabel(detail.value?.submission.state))
+const stateTone = computed(() => submissionStateTone(detail.value?.submission.state))
 const stageLabel = computed(() => String(detail.value?.stage?.name || '阶段任务'))
-const checkPassed = computed(() => detail.value?.candidate?.check_status === 'succeeded' && (detail.value?.candidate?.status === 'ready' || detail.value?.candidate === null))
-const blockingOpen = computed(() => (detail.value?.comments || []).filter((item) => item.severity === 'blocking' && item.status !== 'resolved').length)
-const deadlineText = computed(() => {
-  const value = detail.value?.participant?.revision_deadline_at || (stateTone.value === 'red' ? detail.value?.participant?.revision_deadline_at : '')
-  return value ? String(value).replace('T', ' ').slice(0, 16) : ''
+const checkPassed = computed(() => {
+  const candidate = detail.value?.candidate
+  if (!candidate) return false
+  return candidate.check_status === 'succeeded' && candidate.status === 'ready'
 })
-const isLate = computed(() => deadlineText.value.includes('已'))
+const blockingOpen = computed(() => (detail.value?.comments || []).filter((item) => item.severity === 'blocking' && item.status !== 'resolved').length)
+const deadlineRaw = computed(() => {
+  const participant = detail.value?.participant || {}
+  return participant.revision_deadline_at || participant.effective_deadline_at || ''
+})
+const deadlineText = computed(() => formatDateTime(deadlineRaw.value))
+const deadlineCountdown = computed(() => deadlineCountdownLabel(deadlineRaw.value))
+const isLate = computed(() => Boolean(detail.value?.participant?.is_late) || isDeadlinePassed(deadlineRaw.value))
+const snapshotHash = computed(() => shortHash(detail.value?.version?.content_hash || detail.value?.candidate?.content_hash))
+const canResubmitNow = computed(() => canResubmit(detail.value?.participant?.state))
+const canWithdrawNow = computed(() => canWithdrawSubmission(detail.value, session.user?.role || 'student'))
+const returnReason = computed(() => latestReturnReason(detail.value))
+const materialItems = computed(() => materialGateItems(detail.value?.candidate?.gates || []))
+const timelineItems = computed(() => submissionTimeline(detail.value))
+const submissionId = ref('')
 
 onLoad((params) => {
+  applySharePolicy('/pages/submissions/detail')
   submissionId.value = (params as Record<string, string>)?.id || ''
   if (!submissionId.value) {
     errorMessage.value = '缺少提交参数，请从任务列表进入'
@@ -101,8 +128,6 @@ onLoad((params) => {
   }
   void loadDetail()
 })
-
-const submissionId = ref('')
 
 async function loadDetail() {
   loading.value = true
@@ -120,14 +145,45 @@ function goComments() {
   uni.navigateTo({ url: `/pages/submissions/comments?id=${submissionId.value}` })
 }
 function goHistory() {
-  uni.navigateTo({ url: '/pages/submissions/history' })
+  const projectId = encodeURIComponent(String(detail.value?.participant?.project_id || ''))
+  uni.navigateTo({ url: `/pages/submissions/history?project_id=${projectId}` })
+}
+function goResubmit() {
+  const participantId = String(detail.value?.participant?.id || '')
+  if (!participantId) {
+    uni.showToast({ title: '缺少阶段任务参数', icon: 'none' })
+    return
+  }
+  uni.navigateTo({ url: resubmitUrl(participantId) })
+}
+
+function confirmWithdraw() {
+  if (withdrawing.value) return
+  uni.showModal({
+    title: '撤回提交',
+    content: '撤回后教师将无法继续审核该版本，需要重新预检后再提交。',
+    confirmText: '确认撤回',
+    success: (result) => {
+      if (result.confirm) void doWithdraw()
+    },
+  })
+}
+
+async function doWithdraw() {
+  withdrawing.value = true
+  try {
+    await withdrawSubmission(submissionId.value)
+    uni.showToast({ title: '已撤回该提交', icon: 'none' })
+    await loadDetail()
+  } catch (error) {
+    uni.showToast({ title: describeError(error), icon: 'none' })
+    await loadDetail()
+  } finally {
+    withdrawing.value = false
+  }
 }
 function formatTime(value: unknown) {
-  return value ? String(value).replace('T', ' ').slice(0, 16) : '—'
-}
-function shortHash(hash: unknown) {
-  const text = String(hash || '')
-  return text.length > 12 ? `${text.slice(0, 6)}…${text.slice(-4)}` : text || '—'
+  return formatDateTime(value) || '—'
 }
 </script>
 
@@ -149,12 +205,17 @@ function shortHash(hash: unknown) {
 .tone-bg-green { background: #16a34a; }
 .tone-bg-gray { background: #9ca3af; }
 .meta { display: block; margin-top: 14rpx; color: #6b7280; font-size: 24rpx; }
+.history-link { display: block; margin-top: 12rpx; color: #004ac6; font-size: 23rpx; font-weight: 700; }
 .hash-row { display: flex; align-items: center; justify-content: space-between; margin-top: 20rpx; padding: 14rpx 18rpx; border-radius: 10rpx; background: #f5f7fb; }
 .hash { color: #434655; font-size: 21rpx; }
 .hash-note { color: #9ca3af; font-size: 20rpx; }
 .deadline-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 24rpx; padding: 20rpx 24rpx; border-radius: 14rpx; background: #fef3c7; color: #b45309; font-size: 25rpx; font-weight: 700; }
 .deadline-bar.late { background: #fdeaea; color: #ba1a1a; }
 .deadline-hint { color: inherit; font-size: 21rpx; font-weight: 400; }
+.return-panel { border-left: 8rpx solid #ba1a1a; background: #fff8f8; }
+.return-reason { display: block; margin-top: 16rpx; color: #111827; font-size: 28rpx; line-height: 1.55; }
+.return-meta { display: block; margin-top: 12rpx; color: #6b7280; font-size: 22rpx; }
+.muted { display: block; margin-top: 14rpx; color: #6b7280; font-size: 22rpx; line-height: 1.5; }
 .summary-row { display: flex; justify-content: space-between; align-items: center; margin-top: 22rpx; }
 .summary-name { color: #111827; font-size: 26rpx; }
 .gate-badge { padding: 6rpx 18rpx; border-radius: 999rpx; font-size: 22rpx; font-weight: 700; }

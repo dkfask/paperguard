@@ -151,11 +151,46 @@ def test_workflow_happy_path_and_idempotency():
     raced = client.post("/api/submissions", headers=student, json={
         "candidate_id": concurrent_candidate.json()["id"], "idempotency_key": f"submit-{suffix}-race",
     })
-    assert raced.status_code == 409 and "当前已有待审核提交" in raced.text
+    assert raced.status_code == 409 and raced.json()["detail"]["code"] == "SUBMISSION_ALREADY_PENDING"
+    assert raced.json()["detail"]["submission_id"] == submission_id
     repeated = client.post("/api/submissions", headers=student, json={
         "candidate_id": candidate_id, "idempotency_key": f"submit-{suffix}-1",
     })
     assert repeated.status_code == 200 and repeated.json()["submission"]["id"] == submission_id
+    listing = client.get("/api/submissions", headers=student)
+    assert listing.status_code == 200, listing.text
+    listed = next(item for item in listing.json() if item["id"] == submission_id)
+    assert listed["modification_note"] == "首次提交"
+    assert listed["project_id"] == project_id
+    assert listed["open_blocking_count"] == 0
+    forbidden_withdraw = client.post(f"/api/submissions/{submission_id}/withdraw", headers=teacher)
+    assert forbidden_withdraw.status_code == 403
+    withdrawn = client.post(f"/api/submissions/{submission_id}/withdraw", headers=student)
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["state"] == "withdrawn"
+    after_withdraw = client.get(f"/api/stage-participants/{participant_id}", headers=student)
+    assert after_withdraw.status_code == 200, after_withdraw.text
+    assert after_withdraw.json()["participant"]["state"] == "in_progress"
+    assert after_withdraw.json()["participant"]["current_submission_id"] == ""
+    assert after_withdraw.json()["participant"]["current_submission"]["id"] == submission_id
+    assert after_withdraw.json()["participant"]["current_submission"]["state"] == "withdrawn"
+    teacher_after_withdraw = client.get("/api/my-tasks", headers=teacher)
+    assert teacher_after_withdraw.status_code == 200, teacher_after_withdraw.text
+    withdrawn_task = next(item for item in teacher_after_withdraw.json() if item["id"] == participant_id)
+    assert withdrawn_task["state"] == "in_progress"
+    assert withdrawn_task["current_submission"]["id"] == submission_id
+    assert withdrawn_task["current_submission"]["state"] == "withdrawn"
+    not_pending = client.post(f"/api/submissions/{submission_id}/withdraw", headers=student)
+    assert not_pending.status_code == 409 and not_pending.json()["detail"]["code"] == "WITHDRAW_NOT_PENDING"
+    resubmitted = client.post("/api/submission-candidates", headers=student, json={
+        "participant_id": participant_id, "modification_note": "撤回后再次提交",
+    })
+    assert resubmitted.status_code == 201 and resubmitted.json()["status"] == "ready", resubmitted.text
+    submitted = client.post("/api/submissions", headers=student, json={
+        "candidate_id": resubmitted.json()["id"], "idempotency_key": f"submit-{suffix}-1b",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
 
     comment = client.post(f"/api/submissions/{submission_id}/comments", headers=teacher, json={
         "body": "请补充实验分析", "severity": "blocking", "block_id": "ch1-p1",
@@ -167,6 +202,18 @@ def test_workflow_happy_path_and_idempotency():
     })
     assert returned.status_code == 200, returned.text
     assert returned.json()["participant"]["state"] == "needs_revision"
+    teacher_after_return = client.get("/api/my-tasks", headers=teacher)
+    assert teacher_after_return.status_code == 200, teacher_after_return.text
+    returned_task = next(item for item in teacher_after_return.json() if item["id"] == participant_id)
+    assert returned_task["state"] == "needs_revision"
+    assert returned_task["current_submission"]["id"] == submission_id
+    assert returned_task["current_submission"]["state"] == "returned"
+    returned_detail = client.get(f"/api/submissions/{submission_id}", headers=student)
+    assert returned_detail.status_code == 200, returned_detail.text
+    review = returned_detail.json()["review"]
+    assert review["decision"] == "returned"
+    assert review["reason"] == "需要补充实验分析"
+    assert "reviewer_id" not in review
     assert client.post(f"/api/comments/{comment_id}/response", headers=student,
                        json={"body": "已补充实验分析"}).status_code == 201
     assert client.post(f"/api/comments/{comment_id}/status", headers=teacher,
@@ -716,7 +763,7 @@ def test_candidate_rejects_project_changes_after_precheck():
     submitted = client.post("/api/submissions", headers=student, json={
         "candidate_id": candidate.json()["id"], "idempotency_key": f"stale-{suffix}-1234",
     })
-    assert submitted.status_code == 409 and "正文" in submitted.text
+    assert submitted.status_code == 409 and submitted.json()["detail"]["code"] == "CHECK_STALE"
 
 
 def test_workflow_project_write_respects_stage_open_time():
@@ -971,6 +1018,35 @@ def test_submitted_version_isolated_from_student_draft_edits():
     snapshot = detail.json()["version"]["content_snapshot"]
     assert snapshot["meta"].get("title") != "提交后草稿标题"
     assert detail.json()["version"]["content_hash"] == candidate.json()["content_hash"]
+    assert detail.json()["review"] is None
+    participant = detail.json()["participant"]
+    assert participant["student_name"]
+    assert participant["current_submission"]["id"] == submission_id
+    assert participant["current_submission"]["submitted_at"]
+    teacher_tasks = client.get("/api/my-tasks", headers=teacher)
+    assert teacher_tasks.status_code == 200, teacher_tasks.text
+    queued = next(item for item in teacher_tasks.json() if item["current_submission"] and item["current_submission"]["id"] == submission_id)
+    assert queued["student_name"]
+    assert queued["current_submission"]["submitted_at"]
+
+
+def test_my_tasks_skips_incomplete_participant_records():
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    store = Store()
+    store.save_workflow_record("participant", {
+        "id": f"p-incomplete-{uuid.uuid4().hex[:8]}",
+        "state": "in_progress",
+        "student_id": student_id,
+        "effective_deadline_at": "2026-09-15T12:00:00+00:00",
+        "revision": 0,
+    })
+    teacher_tasks = client.get("/api/my-tasks", headers=teacher)
+    student_tasks = client.get("/api/my-tasks", headers=student)
+    assert teacher_tasks.status_code == 200, teacher_tasks.text
+    assert student_tasks.status_code == 200, student_tasks.text
+    assert all(item.get("cohort_id") and item.get("stage_id") for item in teacher_tasks.json())
+    assert all(item.get("cohort_id") and item.get("stage_id") for item in student_tasks.json())
 
 
 def test_docx_manuscript_import_previews_then_applies_with_revision_guard(tmp_path):

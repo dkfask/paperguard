@@ -30,3 +30,10 @@ export function canAccessRoute(route: Pick<RouteLocationNormalized, 'meta'>, use
 export function hasAnyRole(user: User | null | undefined, roles: string[]) {
   return Boolean(user && roles.includes(user.role))
 }
+
+export function homePath(user: User | null | undefined) {
+  if (user && ['admin', 'college_admin', 'teacher'].includes(user.role)) {
+    return '/workspace'
+  }
+  return '/'
+}

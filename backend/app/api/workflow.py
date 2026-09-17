@@ -61,6 +61,7 @@ from app.services.project_versions import project_attachment_refs, project_conte
 from app.services.resource_access import assert_resource_read
 from app.services.policy_resolver import hydrate_requirement_set
 from app.services.template_source import resolve_template_source
+from app.services.wechat_content_security import assert_ugc_safe
 
 router = APIRouter(prefix="/api", tags=["workflow"])
 
@@ -447,17 +448,31 @@ def _task_view(store: Store, participant: dict) -> dict:
     stage = _must(store, "stage", participant["stage_id"], "阶段")
     cohort = _must(store, "cohort", participant["cohort_id"], "批次")
     project = store.get_project(participant.get("project_id")) if participant.get("project_id") else None
-    submission = store.get_workflow_record("submission", participant.get("current_submission_id", "")) if participant.get("current_submission_id") else None
+    student = store.get_user(participant.get("student_id", "")) if participant.get("student_id") else None
+    submission_id = (
+        participant.get("current_submission_id", "")
+        or participant.get("last_submission_id", "")
+        or participant.get("previous_submission_id", "")
+    )
+    submission = store.get_workflow_record("submission", submission_id) if submission_id else None
+    student_name = ""
+    if student:
+        student_name = str(student.get("display_name") or student.get("username") or "")
     return {
         **participant,
         "stage_name": stage["name"],
         "stage_key": stage["key"],
         "cohort_name": cohort["name"],
         "project_title": project.title if project else "",
+        "student_name": student_name or participant.get("student_id", ""),
         "is_late": _late(participant),
         "first_submission_late": bool(participant.get("first_submission_late")),
         "current_submission": {
-            "id": submission["id"], "number": submission["submission_number"], "state": submission["state"]
+            "id": submission["id"],
+            "number": submission["submission_number"],
+            "state": submission["state"],
+            "submitted_at": submission.get("submitted_at", ""),
+            "review_cycle": submission.get("review_cycle", 1),
         } if submission else None,
     }
 
@@ -523,6 +538,39 @@ def _stale_candidate_waiver_ids(store: Store, candidate: dict) -> list[str]:
 
 def _comment_records(store: Store, submission_id: str) -> list[dict]:
     return [item for item in store.list_workflow_records("comment") if item.get("submission_id") == submission_id]
+
+
+def _conflict(code: str, message: str, **extra: Any) -> HTTPException:
+    detail: dict[str, Any] = {"code": code, "message": message}
+    for key, value in extra.items():
+        if value not in (None, ""):
+            detail[key] = value
+    return HTTPException(status_code=409, detail=detail)
+
+
+def _public_review(review: dict | None) -> dict | None:
+    if not review:
+        return None
+    return {
+        "id": review.get("id", ""),
+        "decision": review.get("decision", ""),
+        "reason": review.get("reason", ""),
+        "review_cycle": review.get("review_cycle", 0),
+        "created_at": review.get("created_at", ""),
+    }
+
+
+def _latest_review(store: Store, submission: dict) -> dict | None:
+    review_id = str(submission.get("review_id") or "")
+    if review_id:
+        record = store.get_workflow_record("review", review_id)
+        if record:
+            return _public_review(record)
+    reviews = [item for item in store.list_workflow_records("review") if item.get("submission_id") == submission.get("id")]
+    if not reviews:
+        return None
+    reviews.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+    return _public_review(reviews[0])
 
 
 def _archive_view(archive: dict) -> dict:
@@ -988,12 +1036,16 @@ def publish_stage(stage_id: str, store: Store = Depends(get_store), user: dict =
 def my_tasks(store: Store = Depends(get_store), user: dict = Depends(current_user)) -> list[dict]:
     result = []
     for participant in store.list_workflow_records("participant"):
-        allowed = participant.get("student_id") == user["id"]
+        cohort_id = participant.get("cohort_id")
+        student_id = participant.get("student_id")
+        if not cohort_id or not student_id or not participant.get("stage_id"):
+            continue
+        allowed = student_id == user["id"]
         if user["role"] == "teacher":
-            supervision = _current_supervision(store, participant["cohort_id"], participant["student_id"])
+            supervision = _current_supervision(store, cohort_id, student_id)
             allowed = bool(supervision and supervision.get("teacher_id") == user["id"])
         if user["role"] in _MANAGER_ROLES:
-            cohort = store.get_workflow_record("cohort", participant["cohort_id"])
+            cohort = store.get_workflow_record("cohort", cohort_id)
             allowed = bool(cohort and _cohort_access(store, user, cohort))
         if allowed:
             result.append(_task_view(store, participant))
@@ -1313,10 +1365,15 @@ def create_candidate(req: CandidateCreate, store: Store = Depends(get_store), us
         raise HTTPException(status_code=409, detail="批次已关闭，不能创建新的提交")
     if not participant.get("project_id"):
         raise HTTPException(status_code=409, detail="请先绑定主论文")
+    if req.modification_note.strip():
+        assert_ugc_safe(req.modification_note, field="modification_note")
     if participant.get("current_submission_id"):
         current = store.get_workflow_record("submission", participant["current_submission_id"])
         if current and current.get("state") == "submitted":
-            raise HTTPException(status_code=409, detail="当前已有待审核提交")
+            raise _conflict("SUBMISSION_ALREADY_PENDING", "当前已有待审核提交", submission_id=current.get("id"))
+    deadline = _parse_time(participant.get("revision_deadline_at") or participant.get("effective_deadline_at", ""), "截止时间")
+    if deadline and datetime.now(timezone.utc) > deadline:
+        raise _conflict("DEADLINE_PASSED", "已超过服务器确认的有效截止时间")
     project = store.get_project(participant["project_id"])
     if project is None:
         raise HTTPException(status_code=409, detail="主论文不存在")
@@ -1409,7 +1466,7 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
         raise HTTPException(status_code=409, detail="存在格式警告，请确认后再提交")
     deadline = _parse_time(participant.get("revision_deadline_at") or participant.get("effective_deadline_at", ""), "截止时间")
     if deadline and datetime.now(timezone.utc) > deadline:
-        raise HTTPException(status_code=409, detail="已超过服务器确认的有效截止时间")
+        raise _conflict("DEADLINE_PASSED", "已超过服务器确认的有效截止时间")
     with store.workflow_transaction() as conn:
         current_idempotency = store.get_workflow_idempotency(user["id"], "submission.confirm", req.idempotency_key)
         if current_idempotency:
@@ -1419,17 +1476,17 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
         current_candidate = store.get_workflow_record("candidate", candidate["id"])
         current_participant = store.get_workflow_record("participant", participant["id"])
         if current_candidate.get("status") != "ready" or current_participant.get("revision") != participant.get("revision"):
-            raise HTTPException(status_code=409, detail="候选版本或阶段任务已变化，请重新预检")
+            raise _conflict("REVISION_CONFLICT", "候选版本或阶段任务已变化，请重新预检")
         current_submission_id = current_participant.get("current_submission_id", "")
         if current_submission_id:
             current_submission = store.get_workflow_record("submission", current_submission_id)
             if current_submission and current_submission.get("state") == "submitted":
-                raise HTTPException(status_code=409, detail="当前已有待审核提交")
+                raise _conflict("SUBMISSION_ALREADY_PENDING", "当前已有待审核提交", submission_id=current_submission.get("id"))
         if current_participant.get("state") not in {"in_progress", "needs_revision"}:
             raise HTTPException(status_code=409, detail="当前阶段状态不允许正式提交")
         current_project = store.get_project(current_participant.get("project_id", ""))
         if current_project is None or current_project.revision != candidate.get("source_revision") or project_content_hash(current_project) != candidate.get("content_hash"):
-            raise HTTPException(status_code=409, detail="论文正文或写作依据已变化，请重新预检")
+            raise _conflict("CHECK_STALE", "论文正文或写作依据已变化，请重新预检")
         submission = {
             "id": new_id("submission"), "submission_number": f"SUB-{datetime.now(timezone.utc):%Y%m%d}-{new_id('n')[-6:].upper()}",
             "participant_id": participant["id"], "project_version_id": candidate["project_version_id"],
@@ -1478,8 +1535,22 @@ def _visible_submissions(store: Store, user: dict) -> list[dict]:
             cohort = store.get_workflow_record("cohort", participant["cohort_id"])
             allowed = bool(cohort and _cohort_access(store, user, cohort))
         if allowed:
-            result.append(submission)
+            result.append(_submission_list_view(store, submission, participant))
     return result
+
+
+def _submission_list_view(store: Store, submission: dict, participant: dict) -> dict:
+    candidate = store.get_workflow_record("candidate", submission.get("candidate_id", "")) if submission.get("candidate_id") else None
+    open_blocking = [
+        item for item in _comment_records(store, submission["id"])
+        if item.get("severity") == "blocking" and item.get("status") != "resolved"
+    ]
+    return {
+        **submission,
+        "project_id": participant.get("project_id", ""),
+        "modification_note": (candidate or {}).get("modification_note", ""),
+        "open_blocking_count": len(open_blocking),
+    }
 
 
 @router.get("/submissions")
@@ -1493,7 +1564,16 @@ def get_submission(submission_id: str, store: Store = Depends(get_store), user: 
     submission, participant, stage, config = _submission_access(store, user, submission)
     version = _must(store, "project_version", submission["project_version_id"], "论文版本")
     candidate = store.get_workflow_record("candidate", submission.get("candidate_id", ""))
-    return {"submission": submission, "participant": participant, "stage": stage, "config": config, "version": version, "candidate": candidate, "comments": _comment_records(store, submission_id)}
+    return {
+        "submission": submission,
+        "participant": _task_view(store, participant),
+        "stage": stage,
+        "config": config,
+        "version": version,
+        "candidate": candidate,
+        "comments": _comment_records(store, submission_id),
+        "review": _latest_review(store, submission),
+    }
 
 
 @router.post("/submissions/{submission_id}/withdraw")
@@ -1503,18 +1583,19 @@ def withdraw_submission(submission_id: str, store: Store = Depends(get_store), u
     if user["role"] != "student" or participant["student_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="只有提交学生可以撤回")
     if submission.get("state") != "submitted":
-        raise HTTPException(status_code=409, detail="只有待审核提交可以撤回")
+        raise _conflict("WITHDRAW_NOT_PENDING", "只有待审核提交可以撤回")
     deadline = _parse_time(
         participant.get("revision_deadline_at") or participant.get("effective_deadline_at", ""),
         "截止时间",
     )
     if deadline and datetime.now(timezone.utc) > deadline:
-        raise HTTPException(status_code=409, detail="已超过有效提交窗口，不能撤回")
+        raise _conflict("DEADLINE_PASSED", "已超过有效提交窗口，不能撤回")
     with store.workflow_transaction() as conn:
         _transition(submission, "submission", "withdrawn")
         submission["withdrawn_at"] = _now()
         _record(store, "submission", submission, expected_revision=submission.get("revision", 0), conn=conn)
         _transition(participant, "participant", "in_progress")
+        participant["last_submission_id"] = submission_id or participant.get("last_submission_id", "")
         participant["current_submission_id"] = ""
         _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
         cohort = _must(store, "cohort", participant["cohort_id"], "批次")
@@ -1580,6 +1661,7 @@ def create_comment(submission_id: str, req: CommentCreate, store: Store = Depend
     submission, participant, _, _ = _submission_access(store, user, submission)
     if user["role"] not in {"teacher", "admin", "college_admin"}:
         raise HTTPException(status_code=403, detail="只有审核人员可以新增批注")
+    assert_ugc_safe(req.body, field="comment")
     comment = {
         "id": new_id("comment"), "submission_id": submission_id, "author_id": user["id"],
         "body": req.body.strip(), "severity": req.severity, "block_id": req.block_id.strip(),
@@ -1602,6 +1684,7 @@ def respond_comment(comment_id: str, req: CommentResponse, store: Store = Depend
         raise HTTPException(status_code=403, detail="只有提交学生可以回复批注")
     if comment.get("status") == "resolved":
         raise HTTPException(status_code=409, detail="已解决的批注不能追加本轮回复")
+    assert_ugc_safe(req.body, field="comment_response")
     with store.workflow_transaction() as conn:
         comment.setdefault("responses", []).append({"id": new_id("response"), "author_id": user["id"], "body": req.body.strip(), "created_at": _now()})
         comment["status"] = transition_state("comment", str(comment.get("status") or ""), "addressed")

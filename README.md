@@ -108,6 +108,14 @@ docker compose up -d --build
 - `worker` 容器负责站内通知 outbox 消费和截止提醒调度，与后端共享数据库卷；可用 `PAPERGUARD_WORKER_INTERVAL_SECONDS` 调整周期
 - 首次部署前必须设置强密码环境变量 `PAPERGUARD_ADMIN_PASSWORD`(至少 12 位, 含字母和数字), 不再提供固定默认密码
 - 小程序服务端还需在受控 secrets 中设置 `PAPERGUARD_WECHAT_APP_ID`、`PAPERGUARD_WECHAT_APP_SECRET` 和独立的 `PAPERGUARD_MP_BINDING_SECRET`; 未配置时 MP 登录保持关闭并返回明确错误码
+- 订阅消息模板映射通过环境变量 `PAPERGUARD_WECHAT_SUBSCRIBE_TEMPLATES` 下发 JSON（事件类型 → 模板 ID），源码与 compose 不写入可用凭据或模板字面量；未配置时只走站内消息
+- 微信真机 / 合法域名 UAT 前置：在 `miniprogram/` 执行 `npm run check:wechat-uat`。该门禁只打印阻塞项（合法域名、AppID、服务端凭据是否已从环境注入、订阅模板、真机点击），**不能替代开发者工具/真机验收**。`localhost`、裸 IP、`example.com` / `example.edu` 等占位域名一律失败关闭；构建微信小程序时 `VITE_API_BASE_URL` 必须是备案 HTTPS 域名。凭据只从受控环境读取，源码与报告不写入可用字面量。
+- 学院管理员桌面端产品化门禁：在 `frontend/` 执行 `npm run check:college-admin`，并跑 `backend/tests/test_policy_lifecycle.py`。覆盖报表 `rate()`、组织树可见根、登录/错误边界落地 `/workspace`、规范不得绑定兄弟学院。这是本地代码门禁，不是 Chrome 真机复测。
+- 小程序隐私/分享/角标：首启需同意隐私说明（登录凭证、账号绑定、推送标识；不采集手机号/位置）；「我的」含关于与隐私政策；提交/审阅/正文页禁用分享，仅任务首页可分享；消息 Tab 用未读数设置角标。由 `miniprogram/` 的 `check:structure` 与 `test:flow` 覆盖，不是真机 UAT。
+- 小程序提交详情展示教师退回理由与修订截止；预检/确认提交对逾期、已有待审、正文过期返回稳定错误码，并给出「联系教师 / 查看待审核提交 / 重新预检」下一步。仍不是真机 UAT。
+- 小程序学生可撤回待审核提交（教师不能代撤）；提交历史展示修改说明与上轮未解决阻断；我的任务把已通过/归档阶段折叠为历史。由 `check:structure`、`test:flow` 与工作流 happy path 覆盖，不是真机 UAT。
+- 小程序登录页用户可见名称为「论文卫士Pro」；任务、提交详情与提交确认页展示截止倒计时/逾期时长；提交确认页、提交详情与教师审阅检查页签逐条展示必交材料绑定结果，检查未完成/失败给出重新预检；提交详情时间线按提交、撤回、退回、通过事件展示；教师「其他任务」打开已有决定的只读审阅记录，审阅页在已退回/已通过后不再显示退回、通过、新增批注或人工确认。`GET /api/my-tasks` 在撤回/重开后仍用 `last_submission_id` 回填只读 `current_submission`，不把撤回提交重新排进待审队列。仍不是真机 UAT。
+- 当前产品定位是**单学校/单学院试点**，不是共享多租户 SaaS。仓库没有 `tenant` 实体、没有计费/余额/支付代码路径；AI 计费需求仍未启用。不要把组织层级或学院作用域宣传成多租户 SaaS。
 - 上传检查和自动修复需要登录; 项目与图片按用户权限隔离
 - 上传检查文件只在处理期间使用; 写作项目和图片会持久化到 Docker volume, 删除项目后按引用回收图片
 - 导出和自动修复生成的临时文件在响应完成后清理

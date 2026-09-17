@@ -50,7 +50,27 @@ const form = reactive(emptyUnit()); const selectedUserId = ref(''); const select
 const confirmBusy = ref(false)
 const confirmDialog = reactive({ open: false, title: '', description: '', confirmLabel: '', danger: true, action: null })
 const canManage = computed(() => isManager() && ['admin', 'college_admin'].includes(auth.user?.role))
-const orderedUnits = computed(() => { const result = []; const walk = (parentId, depth) => { units.value.filter((unit) => unit.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name)).forEach((unit) => { result.push(unit); walk(unit.id, depth + 1) }) }; walk('', 0); return result })
+const orderedUnits = computed(() => {
+  const result = []
+  const ids = new Set(units.value.map((unit) => unit.id))
+  const walk = (parentId) => {
+    units.value
+      .filter((unit) => (unit.parent_id || '') === parentId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((unit) => {
+        result.push(unit)
+        walk(unit.id)
+      })
+  }
+  units.value
+    .filter((unit) => !unit.parent_id || !ids.has(unit.parent_id))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((unit) => {
+      result.push(unit)
+      walk(unit.id)
+    })
+  return result
+})
 function emptyUnit() { return { id: '', name: '', type: 'school', parent_id: '', code: '', status: 'active', metadata: { description: '' } } }
 function typeLabel(type) { return t(`organizations.type.${type}`) === `organizations.type.${type}` ? type : t(`organizations.type.${type}`) }
 function depth(unit) { let value = 0; let parent = units.value.find((item) => item.id === unit.parent_id); while (parent) { value += 1; parent = units.value.find((item) => item.id === parent.parent_id) }; return value }

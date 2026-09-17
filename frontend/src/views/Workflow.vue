@@ -816,6 +816,7 @@ function submissionStateLabel(state) { return t(`submission.${state}`) === `subm
 function archiveStatusLabel(status) { return t(`archive.${status}`) === `archive.${status}` ? status : t(`archive.${status}`) }
 function formatDate(value) { return value ? formatLocaleDate(value, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-' }
 function deadlineLabel(task) { return `${task.revision_deadline_at ? t('deadline.revision') : t('deadline.initial')} ${formatDate(task.revision_deadline_at || task.effective_deadline_at)}` }
+function rate(value) { return value === null || value === undefined ? '-' : `${Math.round(Number(value) * 100)}%` }
 
 onMounted(loadAll)
 </script>

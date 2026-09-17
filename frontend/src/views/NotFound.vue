@@ -5,7 +5,7 @@
     <h1>{{ t('state.notFound') }}</h1>
     <p>{{ t('notFound.description') }}</p>
     <div class="route-state-actions">
-      <button class="primary" type="button" @click="router.push('/')">{{ t('notFound.home') }}</button>
+      <button class="primary" type="button" @click="router.push(homePath(auth.user))">{{ t('notFound.home') }}</button>
       <button type="button" @click="router.back()">{{ t('notFound.back') }}</button>
     </div>
   </section>
@@ -13,6 +13,8 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
+import { auth } from '../auth'
+import { homePath } from '../shared/auth/permissions'
 import { useI18n } from '../i18n'
 
 const router = useRouter()
