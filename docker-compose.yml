@@ -23,6 +23,7 @@ services:
   worker:
     build:
       context: ./backend
+    command: ["python", "-m", "app.worker"]
     env_file:
       - path: .env
         required: false

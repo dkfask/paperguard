@@ -17,6 +17,7 @@ from docx.document import Document as DocumentType
 from docx.oxml.ns import qn
 from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
+from docx.text.run import Run
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
 from lxml import etree
@@ -76,7 +77,17 @@ def _image_from_run(paragraph: Paragraph, run) -> tuple[bytes, str] | None:
 
 def _paragraph_blocks(paragraph: Paragraph, block_prefix: str, unsupported: list[str]) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
-    for run in paragraph.runs:
+    # ``paragraph.runs`` omits runs inside ``w:hyperlink``. Walk direct
+    # paragraph children to retain link text in its original position.
+    for child in paragraph._element.iterchildren():
+        if child.tag == qn("w:hyperlink"):
+            text = "".join(node.text or "" for node in child.iter(qn("w:t")))
+            if text:
+                blocks.append({"id": f"{block_prefix}-link-{uuid4().hex[:8]}", "text": text})
+            continue
+        if child.tag != qn("w:r"):
+            continue
+        run = Run(child, paragraph)
         text = run.text or ""
         if text:
             blocks.append({

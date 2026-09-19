@@ -34,20 +34,14 @@ export class LoginPage {
     await expect(this.page).not.toHaveURL(/\/login/)
   }
 
-  async register(username: string, password: string, displayName: string, role: 'student' | 'teacher') {
-    await this.page.goto('/login')
-    await this.page.getByText('立即注册', { exact: true }).click()
-    const roleTabs = this.page.locator('.stitch-role-tabs')
-    if (role === 'teacher') {
-      await roleTabs.getByRole('button', { name: /教师账号/ }).click()
-    } else {
-      await roleTabs.getByRole('button', { name: /学生账号/ }).click()
-    }
-    await this.page.locator('#username').fill(username)
-    await this.page.locator('#displayName').fill(displayName)
-    await this.page.locator('#password').fill(password)
-    await this.page.locator('form.auth-form').getByRole('button').click()
-    await expect(this.page.locator('.ok-banner')).toBeVisible()
+  async createFixtureAccount(username: string, password: string, displayName: string, role: 'student' | 'teacher') {
+    // The browser lifecycle needs deterministic accounts. The UI registration
+    // flow requires a real email provider and verification code, so seed only
+    // the isolated test database through the compatibility API path here.
+    const response = await this.page.request.post('/api/auth/register', {
+      data: { username, password, display_name: displayName, role },
+    })
+    expect(response.status()).toBe(201)
   }
 }
 

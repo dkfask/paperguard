@@ -187,7 +187,7 @@ test.describe('PaperGuard browser lifecycle', () => {
     }
 
     try {
-      await new LoginPage(teacher).register(teacherUsername, teacherPassword, teacherDisplay, 'teacher')
+      await new LoginPage(teacher).createFixtureAccount(teacherUsername, teacherPassword, teacherDisplay, 'teacher')
 
       adminPasswordMayHaveChanged = true
       await new LoginPage(admin).login('admin', ADMIN_PASSWORD, adminReplacementPassword)
@@ -247,7 +247,7 @@ test.describe('PaperGuard browser lifecycle', () => {
       })
       await expect(policyEditor).toContainText('已发布')
 
-      await new LoginPage(student).register(studentUsername, studentPassword, studentDisplay, 'student')
+      await new LoginPage(student).createFixtureAccount(studentUsername, studentPassword, studentDisplay, 'student')
       await teacher.goto('/workflow')
       const workflow = new PaperGuardPage(teacher)
       await workflow.control('批次名称').fill(cohortName)

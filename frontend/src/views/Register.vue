@@ -22,7 +22,7 @@
             <span class="card-brand">论文卫士Pro</span>
           </div>
           <h1 class="card-title">{{ t('auth.registerTitle') }}</h1>
-          <p class="card-sub">{{ t('auth.emailOrUsernameHint') }}</p>
+          <p class="card-sub">{{ t('auth.registerSub') }}</p>
 
           <div v-if="error" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'">
             <span class="material-symbols-outlined text-[16px]">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>

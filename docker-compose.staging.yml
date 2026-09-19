@@ -30,6 +30,7 @@ services:
 
   worker:
     image: paperguard-staging-backend:${PAPERGUARD_STAGING_TAG:-local}
+    command: ["python", "-m", "app.worker"]
     environment:
       PAPERGUARD_WORKER_INTERVAL_SECONDS: ${PAPERGUARD_STAGING_WORKER_INTERVAL_SECONDS:-5}
       PAPERGUARD_WECHAT_APP_ID: ${PAPERGUARD_STAGING_WECHAT_APP_ID:-}

@@ -1,0 +1,13 @@
+{
+  "date": "20260919T135324Z",
+  "backup_sha256": "07456d1db1182d0a08b942f999e612ba4c606488603154ee54813ad49ef21938",
+  "backup_bytes": 3415654,
+  "asset_count": 13,
+  "assets_stable_during_backup": true,
+  "restored_assets_match": true,
+  "sqlite_integrity": "ok",
+  "disposable_database_rollback": "passed",
+  "live_database_replaced": false,
+  "backup_location": "/home/ubuntu/paperguard/backups/acceptance-20260919T135324Z/production.zip",
+  "code_rollback": "not_tested"
+}

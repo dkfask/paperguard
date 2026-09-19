@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from docx import Document
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 from app.core.export.docx_exporter import _export_paragraph
 from app.models.project import ParagraphBlock
@@ -17,6 +18,30 @@ def _add_equation(paragraph):
     run.append(text)
     math.append(run)
     paragraph._p.append(math)
+
+
+def _add_hyperlink(paragraph, text: str):
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("w:anchor"), "example")
+    run = OxmlElement("w:r")
+    text_node = OxmlElement("w:t")
+    text_node.text = text
+    run.append(text_node)
+    hyperlink.append(run)
+    paragraph._p.append(hyperlink)
+
+
+def test_import_keeps_hyperlink_text_when_mixed_with_regular_text(tmp_path):
+    source = Document()
+    paragraph = source.add_paragraph("前缀 ")
+    _add_hyperlink(paragraph, "参考链接")
+    paragraph.add_run(" 后缀")
+    path = tmp_path / "hyperlink.docx"
+    source.save(path)
+
+    imported = import_docx_project(path.read_bytes())
+    blocks = imported["sections"][0]["paragraphs"]
+    assert [block["text"] for block in blocks] == ["前缀 ", "参考链接", " 后缀"]
 
 
 def test_import_preserves_reference_section_and_office_math(tmp_path):

@@ -1,0 +1,22 @@
+{
+  "scope": "production-host isolated application and data copies",
+  "source_hashes": {
+    "production_app": "9344b9685363cf185f75633d9c77cd887ce822e03a806736f642d5bc3491c188",
+    "candidate_app": "756085e30b07083060c5ee7c962597fd1452e2ca98ac699efac9f48259aef604"
+  },
+  "checks": [
+    {
+      "stage": "candidate",
+      "readiness": "passed",
+      "route_contract": "passed"
+    },
+    {
+      "stage": "rollback_to_production_code",
+      "readiness": "passed",
+      "route_contract": "passed"
+    }
+  ],
+  "live_service_switched": false,
+  "live_database_replaced": false,
+  "same_listener_port": 60995
+}
