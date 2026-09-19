@@ -14,6 +14,9 @@ export interface User {
   teacher_id?: string | null
   must_change_password?: boolean
   organization_context?: Record<string, string>
+  requested_role?: string | null
+  requested_organization_context?: Record<string, string>
+  role_application_status?: string
 }
 
 export interface LoginInput {

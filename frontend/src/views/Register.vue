@@ -30,17 +30,6 @@
           </div>
 
           <template v-if="!registered">
-            <div class="role-tabs">
-              <button type="button" class="role-tab" :class="{ active: role === 'student' }" @click="role = 'student'">
-                <span class="material-symbols-outlined text-[16px]">school</span>
-                <span>{{ t('auth.studentAccount') }}</span>
-              </button>
-              <button type="button" class="role-tab" :class="{ active: role === 'teacher' }" @click="role = 'teacher'">
-                <span class="material-symbols-outlined text-[16px]">psychology</span>
-                <span>{{ t('auth.teacherAccount') }}</span>
-              </button>
-            </div>
-
             <form class="register-form" @submit.prevent="submit">
               <div class="form-field">
                 <label for="reg-email">{{ t('auth.emailLabel') }}</label>
@@ -81,7 +70,7 @@
               </label>
 
               <button class="submit-button" type="submit" :disabled="loading">
-                <span>{{ loading ? t('auth.processing') : (role === 'teacher' ? t('auth.registerTeacher') : t('auth.registerStudent')) }}</span>
+                <span>{{ loading ? t('auth.processing') : t('auth.registerAccount') }}</span>
                 <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
               </button>
             </form>
@@ -156,7 +145,6 @@ function toggleLang() {
   setLang(lang.value === 'zh' ? 'en' : 'zh')
 }
 
-const role = ref('student')
 const email = ref('')
 const emailCode = ref('')
 const codeCooldown = ref(0)
@@ -224,11 +212,11 @@ async function submit() {
       username: username.value.trim(),
       password: password.value,
       display_name: displayName.value,
-      role: role.value,
+      role: 'user',
       email: email.value.trim(),
       email_code: emailCode.value.trim(),
     })
-    registeredRole.value = role.value
+    registeredRole.value = 'user'
     registered.value = true
   } catch (err) {
     setNotice(err?.message || '注册失败', 'error', err?.requestId)

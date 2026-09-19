@@ -138,8 +138,16 @@ def register_user(store: Store, username: str, password: str,
     if store.get_user_by_username(username):
         raise HTTPException(status_code=409, detail="用户名已存在")
 
-    target_role = "teacher" if role == "teacher" else "student"
-    status = "pending" if target_role == "teacher" else "active"
+    # New email registration is identity-neutral. Keep the no-email path for
+    # legacy imports and test fixtures; it is not exposed by the web form.
+    if email:
+        target_role = "user"
+        status = "active"
+        application_status = "unselected"
+    else:
+        target_role = role if role in {"student", "teacher"} else "student"
+        status = "pending" if target_role == "teacher" else "active"
+        application_status = "approved"
 
     ph, salt = hash_password(password)
     user = store.save_user({
@@ -155,6 +163,9 @@ def register_user(store: Store, username: str, password: str,
         "token": None,
         "must_change_password": 0,
         "status": status,
+        "requested_role": None,
+        "requested_organization_context": {},
+        "role_application_status": application_status,
         "created_at": _now(),
     })
     return public_user(user)
@@ -574,6 +585,9 @@ def public_user(user: dict) -> dict:
         "teacher_id": user.get("teacher_id"),
         "must_change_password": bool(user.get("must_change_password", 0)),
         "organization_context": user.get("organization_context") or {},
+        "requested_role": user.get("requested_role"),
+        "requested_organization_context": user.get("requested_organization_context") or {},
+        "role_application_status": user.get("role_application_status", "unselected"),
     }
 
 

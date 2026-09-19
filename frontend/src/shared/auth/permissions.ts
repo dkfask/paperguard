@@ -32,6 +32,7 @@ export function hasAnyRole(user: User | null | undefined, roles: string[]) {
 }
 
 export function homePath(user: User | null | undefined) {
+  if (user?.role === 'user' && user.role_application_status === 'unselected') return '/role-certification'
   if (user && ['admin', 'college_admin', 'teacher'].includes(user.role)) {
     return '/workspace'
   }

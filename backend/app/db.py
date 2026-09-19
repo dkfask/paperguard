@@ -339,6 +339,12 @@ class Store:
                 conn.execute("ALTER TABLE users ADD COLUMN ai_config TEXT")
             if "organization_context" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN organization_context TEXT")
+            if "requested_role" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN requested_role TEXT")
+            if "requested_organization_context" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN requested_organization_context TEXT")
+            if "role_application_status" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN role_application_status TEXT NOT NULL DEFAULT 'unselected'")
             session_columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
             if "source" not in session_columns:
                 conn.execute("ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'web'")
@@ -387,8 +393,9 @@ class Store:
             INSERT INTO users (id, username, email, email_verified, password_set,
                                password_hash, salt, role, display_name, token,
                                must_change_password, status, teacher_id, ai_config,
-                               organization_context, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               organization_context, requested_role, requested_organization_context,
+                               role_application_status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 username = excluded.username,
                 email = excluded.email,
@@ -404,6 +411,9 @@ class Store:
                 teacher_id = excluded.teacher_id,
                 ai_config = excluded.ai_config,
                 organization_context = excluded.organization_context,
+                requested_role = excluded.requested_role,
+                requested_organization_context = excluded.requested_organization_context,
+                role_application_status = excluded.role_application_status,
                 created_at = excluded.created_at
         """
         params = (
@@ -416,6 +426,9 @@ class Store:
             user.get("teacher_id"),
             user.get("ai_config"),
             json.dumps(user.get("organization_context") or {}, ensure_ascii=False),
+            user.get("requested_role"),
+            json.dumps(user.get("requested_organization_context") or {}, ensure_ascii=False),
+            user.get("role_application_status", "unselected"),
             user["created_at"],
         )
         with self._connect() as conn:
@@ -503,6 +516,15 @@ class Store:
                 user["organization_context"] = {}
         elif not isinstance(raw, dict):
             user["organization_context"] = {}
+        requested = user.get("requested_organization_context")
+        if isinstance(requested, str):
+            try:
+                parsed = json.loads(requested)
+                user["requested_organization_context"] = parsed if isinstance(parsed, dict) else {}
+            except (TypeError, ValueError):
+                user["requested_organization_context"] = {}
+        elif not isinstance(requested, dict):
+            user["requested_organization_context"] = {}
         return user
 
     def create_session(self, session: dict) -> None:

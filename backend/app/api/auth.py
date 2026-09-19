@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.auth import (
     exchange_mp_code,
@@ -41,7 +41,7 @@ class RegisterRequest(BaseModel):
     username: str = ""
     password: str
     display_name: str = ""
-    role: str = "student"
+    role: str = "user"
     email: str = ""
     email_code: str = ""
 
@@ -70,6 +70,63 @@ def register(req: RegisterRequest, store: Store = Depends(get_store)) -> dict:
     """注册账号 (username 缺省时由邮箱派生; SMTP 已配置时需邮箱验证码)。"""
     return register_user(store, req.username, req.password, req.display_name, req.role,
                          email=req.email, email_code=req.email_code)
+
+
+class RoleCertificationRequest(BaseModel):
+    role: str
+    organization_context: dict[str, str] = Field(default_factory=dict)
+
+
+@router.get("/role-certification")
+def role_certification_options(user: dict = Depends(current_user), store: Store = Depends(get_store)) -> dict:
+    units = [
+        {"id": unit.id, "name": unit.name, "type": unit.type.value, "parent_id": unit.parent_id}
+        for unit in store.list_organization_units()
+        if unit.type.value in {"school", "college"}
+    ]
+    return {
+        "role": user["role"],
+        "requested_role": user.get("requested_role"),
+        "requested_organization_context": user.get("requested_organization_context") or {},
+        "application_status": user.get("role_application_status", "unselected"),
+        "organizations": units,
+    }
+
+
+@router.post("/role-certification")
+def submit_role_certification(req: RoleCertificationRequest,
+                              user: dict = Depends(current_user),
+                              store: Store = Depends(get_store)) -> dict:
+    role = req.role.strip().lower()
+    if role not in {"user", "student", "teacher"}:
+        raise HTTPException(status_code=422, detail="角色只能是 user、student 或 teacher")
+    context = {str(key): str(value) for key, value in req.organization_context.items() if value}
+    if role == "user":
+        context = {}
+        status = "approved"
+        requested_role = None
+        user["role"] = "user"
+        user["status"] = "active"
+        user["organization_context"] = {}
+    else:
+        if "school_id" not in context:
+            raise HTTPException(status_code=422, detail="学生或教师认证必须选择学校")
+        school = store.get_organization_unit(context["school_id"])
+        if school is None or school.type.value != "school":
+            raise HTTPException(status_code=422, detail="选择的学校组织不存在")
+        if "college_id" in context:
+            college = store.get_organization_unit(context["college_id"])
+            if college is None or college.type.value != "college" or college.parent_id != school.id:
+                raise HTTPException(status_code=422, detail="选择的学院不属于该学校")
+        if any(key not in {"school_id", "college_id"} for key in context):
+            raise HTTPException(status_code=422, detail="选择的组织不存在")
+        status = "pending"
+        requested_role = role
+    user["requested_role"] = requested_role
+    user["requested_organization_context"] = context
+    user["role_application_status"] = status
+    store.save_user(user)
+    return public_user(store.get_user(user["id"]))
 
 
 class EmailCodeRequest(BaseModel):
@@ -206,6 +263,10 @@ class UserRoleStatusUpdate(BaseModel):
     status: str | None = None
 
 
+class RoleCertificationDecision(BaseModel):
+    decision: str
+
+
 @router.get("/admin/users")
 def list_admin_users(admin: dict = Depends(require_admin),
                      store: Store = Depends(get_store)) -> list[dict]:
@@ -236,3 +297,27 @@ def update_user_role_status(user_id: str,
         store.revoke_user_sessions(user_id, datetime.now(timezone.utc).isoformat(timespec="seconds"))
     updated = store.get_user(user_id)
     return public_user(updated)
+
+
+@router.post("/admin/users/{user_id}/role-certification")
+def decide_role_certification(user_id: str, req: RoleCertificationDecision,
+                              admin: dict = Depends(require_admin),
+                              store: Store = Depends(get_store)) -> dict:
+    target = store.get_user(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if req.decision not in {"approve", "reject"}:
+        raise HTTPException(status_code=422, detail="decision 只能是 approve 或 reject")
+    if req.decision == "approve":
+        if target.get("requested_role") not in {"student", "teacher"}:
+            raise HTTPException(status_code=409, detail="用户没有待审核的学校角色申请")
+        target["role"] = target["requested_role"]
+        target["status"] = "active"
+        target["organization_context"] = target.get("requested_organization_context") or {}
+        target["role_application_status"] = "approved"
+    else:
+        target["role_application_status"] = "rejected"
+    target["requested_role"] = None
+    target["requested_organization_context"] = {}
+    store.save_user(target)
+    return public_user(store.get_user(user_id))

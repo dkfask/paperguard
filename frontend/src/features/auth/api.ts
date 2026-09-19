@@ -12,6 +12,21 @@ export interface FirstLoginCompleteInput {
   new_password: string
 }
 
+export interface OrganizationOption {
+  id: string
+  name: string
+  type: string
+  parent_id?: string | null
+}
+
+export interface RoleCertificationResponse {
+  role: string
+  requested_role?: string | null
+  requested_organization_context: Record<string, string>
+  application_status: string
+  organizations: OrganizationOption[]
+}
+
 export const authApi = {
   login: (credentials: LoginInput) => apiClient.request<AuthResponse>({
     url: '/api/auth/login',
@@ -35,6 +50,20 @@ export const authApi = {
     url: '/api/auth/first-login/complete',
     method: 'POST',
     body: payload,
+  }),
+  getRoleCertification: () => apiClient.request<RoleCertificationResponse>({
+    url: '/api/auth/role-certification',
+    method: 'GET',
+  }),
+  submitRoleCertification: (role: string, organization_context: Record<string, string> = {}) => apiClient.request<User>({
+    url: '/api/auth/role-certification',
+    method: 'POST',
+    body: { role, organization_context },
+  }),
+  decideRoleCertification: (userId: string, decision: 'approve' | 'reject') => apiClient.request<User>({
+    url: `/api/auth/admin/users/${userId}/role-certification`,
+    method: 'POST',
+    body: { decision },
   }),
   changePassword: (currentPassword: string, newPassword: string) => apiClient.request<void>({
     url: '/api/auth/change-password',
