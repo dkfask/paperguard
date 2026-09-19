@@ -1,0 +1,19 @@
+[Unit]
+Description=PaperGuard FastAPI backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/paperguard/backend
+# Secrets are provisioned out of band and must never be committed to the repo.
+EnvironmentFile=/etc/paperguard/paperguard.env
+ExecStart=/home/ubuntu/paperguard/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
