@@ -308,3 +308,45 @@ def test_send_failure_maps_to_502(monkeypatch):
     code_resp = client.post("/api/auth/email/code", json={"email": email})
     assert code_resp.status_code == 502
     assert code_resp.json()["detail"]["code"] == "EMAIL_SEND_FAILED"
+
+
+def test_registration_validation_keeps_code_until_success(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setattr(emailer, 'email_configured', lambda: True)
+    captured = {}
+    monkeypatch.setattr(emailer, 'send_verification_code',
+                        lambda email, code, minutes: captured.update(code=code, minutes=minutes))
+    email = f'{uuid.uuid4().hex}@example.com'
+    sent = client.post('/api/auth/email/code', json={'email': email})
+    assert sent.json()['expires_in'] == 600
+    assert captured['minutes'] == 10
+    store = Store()
+    initial = store.get_email_code(email)
+    payload = _register_payload(email=email, email_code=captured['code'])
+    for invalid in ({'password': 'short'}, {'username': 'ab'}, {'username': 'admin'}):
+        response = client.post('/api/auth/register', json={**payload, **invalid})
+        assert response.status_code in (400, 409), response.text
+        assert store.get_email_code(email) == initial
+    # The original code still works nine minutes after sending.
+    now = datetime.now(timezone.utc)
+    store.save_email_code(email, initial['code_hash'], 'register',
+                          (now + timedelta(minutes=1)).isoformat(),
+                          (now - timedelta(minutes=9)).isoformat())
+    response = client.post('/api/auth/register', json=payload)
+    assert response.status_code == 201, response.text
+    assert store.get_email_code(email) is None
+
+
+def test_registration_rejects_expired_code(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setattr(emailer, 'email_configured', lambda: True)
+    email = f'{uuid.uuid4().hex}@example.com'
+    now = datetime.now(timezone.utc)
+    Store().save_email_code(email, _email_code_hash('123456'), 'register',
+                            (now - timedelta(seconds=1)).isoformat(),
+                            (now - timedelta(minutes=10, seconds=1)).isoformat())
+    response = client.post('/api/auth/register', json=_register_payload(email=email, email_code='123456'))
+    assert response.status_code == 400
+    assert response.json()['detail']['code'] == 'EMAIL_CODE_EXPIRED'

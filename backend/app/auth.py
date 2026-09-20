@@ -126,7 +126,7 @@ def register_user(store: Store, username: str, password: str,
             raise HTTPException(status_code=422, detail={
                 "code": "EMAIL_CODE_REQUIRED", "message": "请先获取并填写邮箱验证码",
             })
-        _verify_email_code(store, email, email_code.strip(), purpose="register")
+        _verify_email_code(store, email, email_code.strip(), purpose="register", consume=False)
         email_verified = 1
     if not username and email:
         username = _username_from_email(store, email)
@@ -168,6 +168,8 @@ def register_user(store: Store, username: str, password: str,
         "role_application_status": application_status,
         "created_at": _now(),
     })
+    if email:
+        store.delete_email_code(email)
     return public_user(user)
 
 
@@ -271,7 +273,7 @@ def send_email_code(store: Store, email: str, purpose: str = "register") -> dict
     return {"ok": True, "expires_in": _EMAIL_CODE_MINUTES * 60}
 
 
-def _verify_email_code(store: Store, email: str, code: str, *, purpose: str) -> None:
+def _verify_email_code(store: Store, email: str, code: str, *, purpose: str, consume: bool = True) -> None:
     record = store.get_email_code(email)
     if not record or record.get("purpose") != purpose:
         raise HTTPException(status_code=400, detail={"code": "EMAIL_CODE_INVALID", "message": "请先获取邮箱验证码"})
@@ -282,7 +284,8 @@ def _verify_email_code(store: Store, email: str, code: str, *, purpose: str) -> 
     if not hmac.compare_digest(record["code_hash"], _email_code_hash(code.strip())):
         store.bump_email_code_attempts(email)
         raise HTTPException(status_code=400, detail={"code": "EMAIL_CODE_MISMATCH", "message": "验证码不正确"})
-    store.delete_email_code(email)
+    if consume:
+        store.delete_email_code(email)
 
 
 def _issue_session(store: Store, user: dict, *, source: str = "web") -> dict:
