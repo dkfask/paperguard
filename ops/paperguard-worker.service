@@ -1,0 +1,19 @@
+[Unit]
+Description=PaperGuard background worker
+After=network-online.target paperguard.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/paperguard/backend
+# Use the same controlled configuration as the API service.
+EnvironmentFile=/etc/paperguard/paperguard.env
+ExecStart=/home/ubuntu/paperguard/venv/bin/python -m app.worker
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
