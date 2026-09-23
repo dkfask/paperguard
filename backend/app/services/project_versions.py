@@ -8,9 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from app.models.project import WritingProject
+from app.services.document_assets import document_upload_dir
 
-
-_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "uploads"
 _NON_CONTENT_FIELDS = {"revision", "updated_at", "check_run_ids"}
 
 
@@ -36,8 +35,9 @@ def _attachment_path(filename: str) -> Path | None:
     clean = Path(str(filename or "")).name
     if not clean or clean != str(filename) or clean in {".", ".."}:
         return None
-    root = _UPLOAD_DIR.resolve()
-    path = (_UPLOAD_DIR / clean).resolve()
+    upload_dir = document_upload_dir()
+    root = upload_dir.resolve()
+    path = (upload_dir / clean).resolve()
     if path.parent != root:
         return None
     return path

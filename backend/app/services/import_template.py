@@ -452,12 +452,6 @@ _META_LABEL_RE = re.compile(
 )
 _META_LABEL_TEXT = {key: label for _, key, label in _META_LABELS}
 
-
-def _meta_label_text(key: str) -> str:
-    """字段 key → 封面上的标签文本(带全角冒号)。"""
-    return f"{_META_LABEL_TEXT.get(key, key)}："
-
-
 def _label_token(token: str) -> tuple[str, str] | None:
     """标签文本 → (字段 key, 显示名)。"""
     for pattern, key, label in _META_LABELS:
@@ -661,28 +655,36 @@ def _span_index_at(spans: list[tuple[str, dict[str, str], int, int]], offset: in
     return -1
 
 
-def _locate_labels(p: etree._Element, base: dict[str, str]) -> list[tuple[str, TextStyle, int]]:
+def _locate_labels(
+    p: etree._Element, base: dict[str, str],
+) -> list[tuple[str, str, TextStyle, int]]:
     """在段落里定位所有"标签："。
 
     Returns:
-        [(字段 key, 标签样式, 标签结束位置)] —— 位置用于取后面"值"的样式。
+        [(字段 key, 原始标签, 标签样式, 标签结束位置)] —— 保留原标签供封面导出；
+        结束位置用于取后面"值"的样式。
     """
     raw, spans = _visible_spans(p)
     if not raw.strip():
         return []
     compact, mapping = _compact_map(raw)
-    out: list[tuple[str, TextStyle, int]] = []
+    out: list[tuple[str, str, TextStyle, int]] = []
     for match in _META_LABEL_RE.finditer(compact):
         info = _label_token(match.group(1))
         if info is None:
             continue
         index = _span_index_at(spans, mapping[match.start()])
         props = spans[index][1] if index >= 0 else (spans[0][1] if spans else {})
-        out.append((info[0], _style_from_attrs({**base, **props}), mapping[match.end() - 1] + 1))
+        raw_start = mapping[match.start()]
+        raw_end = mapping[match.end() - 1] + 1
+        out.append((info[0], raw[raw_start:raw_end],
+                    _style_from_attrs({**base, **props}), raw_end))
     return out
 
 
-def _locate_label(p: etree._Element, base: dict[str, str]) -> tuple[str, TextStyle, int] | None:
+def _locate_label(
+    p: etree._Element, base: dict[str, str],
+) -> tuple[str, str, TextStyle, int] | None:
     """取段落里最后一个标签(表格单元格里标签常跟在说明文字之后)。"""
     located = _locate_labels(p, base)
     return located[-1] if located else None
@@ -712,14 +714,14 @@ def _cover_block_from_paragraph(p: etree._Element, style_table: dict[str, dict[s
         return [CoverBlock(kind="text", text=text, style=style)]
 
     blocks: list[CoverBlock] = []
-    for key, label_style, label_end in located:
+    for key, source_label, label_style, label_end in located:
         value_props: dict[str, str] = {}
         for _, props, start, _end in spans:
             if start >= label_end:
                 value_props = props
                 break
         blocks.append(CoverBlock(kind="field", fields=[CoverField(
-            label=_meta_label_text(key),
+            label=source_label,
             key=key,
             label_style=label_style,
             value_style=_style_from_attrs({**base, **value_props}) if value_props else label_style,
@@ -739,7 +741,7 @@ def _cover_block_from_table(tbl: etree._Element, style_table: dict[str, dict[str
         located = _locate_label(cells[0], _cell_base_attrs(cells[0], style_table, default_style_id))
         if located is None:
             continue
-        key, label_style, _ = located
+        key, source_label, label_style, _ = located
 
         value_spans = [span for span in _visible_spans(cells[1])[1] if span[0].strip()]
         if value_spans:
@@ -753,7 +755,7 @@ def _cover_block_from_table(tbl: etree._Element, style_table: dict[str, dict[str
             value_style = last_value_style or label_style
 
         fields.append(CoverField(
-            label=_meta_label_text(key), key=key,
+            label=source_label, key=key,
             label_style=label_style, value_style=value_style,
         ))
 
@@ -826,7 +828,11 @@ def extract_meta_fields(docx_path: str | Path) -> list[MetaField]:
                 continue
             found[field.key] = MetaField(
                 key=field.key,
-                label=field.label.rstrip("：:").strip() or _META_LABEL_TEXT.get(field.key, field.key),
+                # The writing form uses a concise canonical name, while the
+                # cover block keeps the exact label and spacing from Word.
+                label=_META_LABEL_TEXT.get(
+                    field.key, field.label.rstrip("：:").strip() or field.key,
+                ),
                 required=(field.key == "title"),
             )
     return list(found.values())

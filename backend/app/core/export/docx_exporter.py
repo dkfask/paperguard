@@ -29,6 +29,7 @@ from lxml import etree
 
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import Align, PaperTemplate, SectionType, TextStyle
+from app.services.document_assets import document_upload_dir
 
 _IMAGE_WIDTH_CM = 14.0
 _IMAGE_MAX_HEIGHT_CM = 13.5
@@ -905,11 +906,5 @@ def _export_table(doc: Document, tbl, template: PaperTemplate | None,
 
 def _resolve_image_path(url: str) -> Path:
     """把 /media/uploads/xxx.png 解析为本地文件路径。"""
-    import os
-
-    base = Path(os.environ.get(
-        "PAPERGUARD_DATA_DIR",
-        str(Path(__file__).resolve().parent.parent.parent.parent / "data"),
-    )) / "uploads"
     name = url.rsplit("/", 1)[-1]
-    return base / name
+    return document_upload_dir() / name

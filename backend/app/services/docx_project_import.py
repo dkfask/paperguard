@@ -57,6 +57,25 @@ def _special_section_type(text: str) -> str | None:
     return None
 
 
+def _front_matter_section_type(text: str) -> str | None:
+    normalized = "".join(str(text).split()).rstrip("：:").casefold()
+    if normalized in {"摘要", "中文摘要"}:
+        return "abstract"
+    if normalized in {"abstract", "英文摘要"}:
+        return "english_abstract"
+    return None
+
+
+def _is_contents_heading(text: str) -> bool:
+    normalized = "".join(str(text).split()).casefold()
+    return normalized in {"目录", "contents", "tableofcontents"}
+
+
+def _is_cover_marker(text: str) -> bool:
+    normalized = "".join(str(text).split())
+    return "毕业设计报告" in normalized or normalized.startswith(("题目：", "题目:"))
+
+
 def _image_from_run(paragraph: Paragraph, run) -> tuple[bytes, str] | None:
     for blip in run._element.xpath(".//a:blip"):
         relationship_id = blip.get(qn("r:embed"))
@@ -125,6 +144,8 @@ def import_docx_project(data: bytes) -> dict[str, Any]:
     sections: list[dict[str, Any]] = []
     unsupported: list[str] = []
     current: dict[str, Any] | None = None
+    in_cover = False
+    in_contents = False
     paragraph_count = 0
     table_count = 0
     image_count = 0
@@ -142,6 +163,46 @@ def import_docx_project(data: bytes) -> dict[str, Any]:
             paragraph_count += 1
             text = (item.text or "").strip()
             level = _heading_level(item)
+            style = (item.style.name if item.style else "").strip().lower()
+
+            # A manuscript's cover is represented by the project's cover form.
+            # Drop its free-form page text when an explicit cover is detected,
+            # then route unstyled abstract labels into their own required sections.
+            if text and _is_cover_marker(text):
+                sections.clear()
+                current = None
+                in_cover = True
+                in_contents = False
+                continue
+
+            if _is_contents_heading(text):
+                in_contents = True
+                current = None
+                continue
+            if in_contents:
+                if level and not style.startswith("toc"):
+                    in_contents = False
+                    in_cover = False
+                else:
+                    continue
+            if style.startswith("toc"):
+                continue
+
+            front_matter_type = _front_matter_section_type(text) if text else None
+            if in_cover and not level and not front_matter_type:
+                continue
+            if level:
+                in_cover = False
+
+            if front_matter_type:
+                in_cover = False
+                current = {
+                    "key": front_matter_type if not any(section.get("key") == front_matter_type for section in sections) else f"import-heading-{len(sections) + 1}",
+                    "type": front_matter_type, "title": text, "required": False, "paragraphs": [],
+                }
+                sections.append(current)
+                continue
+
             if level and text:
                 special_type = _special_section_type(text)
                 key = special_type if special_type and not any(section.get("key") == special_type for section in sections) else f"import-heading-{len(sections) + 1}"
@@ -158,6 +219,8 @@ def import_docx_project(data: bytes) -> dict[str, Any]:
                 ensure_section()["paragraphs"].extend(blocks)
         else:
             table_count += 1
+            if in_cover or in_contents:
+                continue
             rows = [[cell.text for cell in row.cells] for row in item.rows]
             if rows:
                 ensure_section()["paragraphs"].append({

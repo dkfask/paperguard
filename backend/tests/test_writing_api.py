@@ -444,6 +444,70 @@ def test_import_detects_cover_layout_and_export_renders_it():
     assert len(d.sections) >= 2
 
 
+def test_import_preserves_cover_labels_in_export_and_keeps_form_labels_canonical(tmp_path):
+    """导入模板应保留封面标签原文，同时继续给填写表单提供简洁字段名。"""
+    import io
+
+    from docx import Document as DocxDocument
+
+    source = DocxDocument()
+    source.add_paragraph("示例学院")
+    source.add_paragraph("本科毕业设计报告")
+    source.add_paragraph("题目：示例论文")
+    cover_table = source.add_table(rows=0, cols=2)
+    labels = ["学    院：", "专    业：", "班    级：", "学生姓名：", "学生学号：", "指导教师："]
+    for label in labels:
+        cells = cover_table.add_row().cells
+        cells[0].text = label
+        cells[1].text = ""
+    source.add_paragraph("2026年5月")
+    source.add_paragraph("摘  要")
+    source_path = tmp_path / "cover-labels.docx"
+    source.save(source_path)
+
+    imported = client.post(
+        "/api/templates/import",
+        files={"file": (source_path.name, source_path.read_bytes(), "application/octet-stream")},
+    )
+    assert imported.status_code == 200, imported.text
+    config = imported.json()
+    cover_fields = next(block["fields"] for block in config["cover_blocks"] if block["kind"] == "table")
+    assert [field["label"] for field in cover_fields] == labels
+    form_labels = {field["key"]: field["label"] for field in config["meta_fields"]}
+    assert form_labels["author"] == "姓名"
+    assert form_labels["student_id"] == "学号"
+
+    created = client.post("/api/templates", json={
+        "id": "", "name": "封面原标签测试",
+        "sections": config["sections"], "styles": config["styles"],
+        "meta_fields": config["meta_fields"], "cover_blocks": config["cover_blocks"],
+        "source_docx": config["source_docx"],
+    })
+    assert created.status_code == 201, created.text
+    project = client.post("/api/projects", json={
+        "template_id": created.json()["id"], "title": "示例论文",
+    })
+    assert project.status_code == 201, project.text
+    project_id = project.json()["id"]
+    updated = client.put(f"/api/projects/{project_id}/meta", json={
+        "meta": {
+            "title": "示例论文", "college": "测试学院", "major": "计算机科学与技术",
+            "class_name": "测试班级", "author": "测试学生", "student_id": "TEST-ID-001",
+            "advisor": "指导教师甲 指导教师乙", "date": "2026年5月",
+        },
+    })
+    assert updated.status_code == 200, updated.text
+
+    exported = client.post(f"/api/projects/{project_id}/export?force=true")
+    assert exported.status_code == 200, exported.text
+    document = DocxDocument(io.BytesIO(exported.content))
+    exported_table = document.tables[0]
+    assert [row.cells[0].text for row in exported_table.rows] == labels
+    assert [row.cells[1].text for row in exported_table.rows] == [
+        "测试学院", "计算机科学与技术", "测试班级", "测试学生", "TEST-ID-001", "指导教师甲 指导教师乙",
+    ]
+
+
 def test_switch_project_template_keeps_content():
     """换成另一个模板: 排版/封面换成新模板, 已写内容按章节 key 保留并补全新章节。"""
     import io
@@ -689,6 +753,56 @@ def test_export_docx_with_image_and_table():
     assert d.tables[0].cell(1, 1).text == "95%"
     # 图片存在: 检查内嵌图片数量 (inline shapes)
     assert len(d.inline_shapes) == 1
+
+
+def test_docx_imported_image_exports_from_configured_data_dir(tmp_path, monkeypatch):
+    """DOCX import and export must resolve image assets from the same configured data directory."""
+    import io
+    from docx import Document as DocxDocument
+    from docx.shared import Cm
+
+    from app.services.document_assets import document_upload_dir
+
+    data_dir = tmp_path / "paperguard-data"
+    monkeypatch.setenv("PAPERGUARD_DATA_DIR", str(data_dir))
+    project_id = _create_project_instantiates_sections()
+
+    manuscript = DocxDocument()
+    manuscript.add_heading("第一章 绪论", level=1)
+    manuscript.add_paragraph("本章正文。")
+    image_paragraph = manuscript.add_paragraph()
+    image_paragraph.add_run().add_picture(io.BytesIO(_make_image_png()), width=Cm(2))
+    source = io.BytesIO()
+    manuscript.save(source)
+    payload = source.getvalue()
+
+    preview = client.post(
+        f"/api/projects/{project_id}/import-docx",
+        files={"file": ("manuscript.docx", payload, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["stats"]["images"] == 1
+
+    applied = client.post(
+        f"/api/projects/{project_id}/import-docx",
+        params={"apply": "true", "base_revision": preview.json()["project_revision"]},
+        files={"file": ("manuscript.docx", payload, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert applied.status_code == 200, applied.text
+    image_block = next(
+        block
+        for section in applied.json()["project"]["sections"]
+        for block in section["paragraphs"]
+        if block["type"] == "image"
+    )
+    image_path = document_upload_dir() / image_block["image"]["url"].rsplit("/", 1)[-1]
+    assert image_path.is_file()
+
+    exported = client.post(f"/api/projects/{project_id}/export?force=true")
+    assert exported.status_code == 200, exported.text
+    document = DocxDocument(io.BytesIO(exported.content))
+    assert len(document.inline_shapes) == 1
+    assert not any("[图片缺失:" in paragraph.text for paragraph in document.paragraphs)
 
 
 def test_removed_image_block_waits_for_orphan_cleanup():

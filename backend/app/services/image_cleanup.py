@@ -13,8 +13,8 @@ from pathlib import Path
 
 from app.db import Store
 from app.models.project import WritingProject
+from app.services.document_assets import document_upload_dir
 
-_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "uploads"
 _ORPHAN_GRACE_SECONDS = 24 * 60 * 60
 
 
@@ -26,7 +26,7 @@ def _url_to_path(url: str) -> Path | None:
     name = url.rsplit("/", 1)[-1]
     if not name or "/" in name or "\\" in name or ".." in name:
         return None
-    return _UPLOAD_DIR / name
+    return document_upload_dir() / name
 
 
 def remove_image_file(url: str) -> bool:
@@ -76,7 +76,8 @@ def remove_project_images(proj: WritingProject) -> int:
 
 def cleanup_orphan_images(store: Store, grace_seconds: int = 0) -> int:
     """删除未被项目引用的图片; 启动清理可传入宽限期。"""
-    if not _UPLOAD_DIR.exists():
+    upload_dir = document_upload_dir()
+    if not upload_dir.exists():
         return 0
 
     referenced: set[str] = set()
@@ -84,7 +85,7 @@ def cleanup_orphan_images(store: Store, grace_seconds: int = 0) -> int:
         referenced.update(project_image_urls(proj))
 
     removed = 0
-    for path in _UPLOAD_DIR.iterdir():
+    for path in upload_dir.iterdir():
         if not path.is_file():
             continue
         url = f"/media/uploads/{path.name}"

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import shutil
+import re
 import tempfile
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,12 +43,10 @@ from app.services.policy_resolver import (
 )
 from app.services.template_source import resolve_template_source
 from app.services.docx_project_import import import_docx_project, public_import_sections
+from app.services.document_assets import document_upload_dir
 from app.services.upload_security import IMPORT_MAX_BYTES, IMAGE_MAX_BYTES, read_limited, validate_docx_bytes, validate_image
 
 router = APIRouter(prefix="/api/projects")
-
-_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "uploads"
-
 
 class CreateProjectRequest(BaseModel):
     template_id: str
@@ -428,7 +428,7 @@ async def upload_image(proj_id: str, file: UploadFile = File(...),
     kind = validate_image(data, file.filename)
     ext = {"jpeg": ".jpg", "png": ".png", "gif": ".gif", "webp": ".webp"}[kind]
     fname = f"{proj_id}-{uuid.uuid4().hex[:8]}{ext}"
-    dest = _UPLOAD_DIR / fname
+    dest = document_upload_dir() / fname
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
         dest.write_bytes(data)
@@ -439,20 +439,80 @@ async def upload_image(proj_id: str, file: UploadFile = File(...),
 
 
 def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
-    """Merge imported blocks into matching project sections without dropping required sections."""
-    existing_by_title = {
-        (section.title or "").strip().casefold(): section
-        for section in proj.sections
-        if section.type not in {"cover", "toc"}
-    }
+    """Merge an imported manuscript in document order while retaining required gaps."""
+    heading_types = {SectionType.HEADING1.value, SectionType.HEADING2.value, SectionType.HEADING3.value}
+
+    def normalized_title(title: str) -> str:
+        value = unicodedata.normalize("NFKC", title or "")
+        value = re.sub(r"[（(].*?[）)]\s*$", "", value)
+        value = re.sub(r"^第(?:\d+|[一二三四五六七八九十]+)章\s*", "", value)
+        value = re.sub(r"^\d+(?:\.\d+)+\s*", "", value)
+        return re.sub(r"\s+", "", value).casefold()
+
+    def section_number(title: str) -> str:
+        value = re.sub(r"\s+", "", unicodedata.normalize("NFKC", title or ""))
+        chapter = re.match(r"^第(\d+|[一二三四五六七八九十]+)章", value)
+        if chapter:
+            token = chapter.group(1)
+            if token.isdigit():
+                return str(int(token))
+            digits = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+            if token == "十":
+                return "10"
+            if token.startswith("十"):
+                return str(10 + digits.get(token[1:], 0))
+            if token.endswith("十"):
+                return str(digits.get(token[0], 0) * 10)
+            return str(digits.get(token, 0))
+        numbered = re.match(r"^(\d+(?:\.\d+)+)", value)
+        return numbered.group(1) if numbered else ""
+
+    def section_has_content(section: ProjectSection) -> bool:
+        for block in section.paragraphs:
+            block_type = getattr(block.type, "value", block.type)
+            if block_type == "image" and block.image and block.image.url:
+                return True
+            if block_type == "table" and block.table and any(
+                str(cell).strip() for row in block.table.cells for cell in row
+            ):
+                return True
+            if block_type == "equation" and block.equation and (
+                block.equation.omml or block.equation.alt_text.strip()
+            ):
+                return True
+            if (block.text or "").strip():
+                return True
+        return False
+
+    existing_sections = list(proj.sections)
+    candidates = [section for section in existing_sections if section.type not in {"cover", "toc"}]
     used: set[str] = set()
-    imported_sections: list[ProjectSection] = []
-    first_body = next((section for section in proj.sections if section.type == "body"), None)
+    imported_in_order: list[ProjectSection] = []
+    added_section_count = 0
+    first_body = next((section for section in candidates if section.type == SectionType.BODY.value), None)
     for imported_section in imported.get("sections", []):
         title = str(imported_section.get("title", "")).strip()
-        target = existing_by_title.get(title.casefold()) if title else None
-        if target is None and imported_section.get("key") == "import-body" and first_body is not None:
-            target = first_body
+        imported_type = str(imported_section.get("type", SectionType.BODY.value))
+        target = None
+        if imported_type in {SectionType.ABSTRACT.value, SectionType.ENGLISH_ABSTRACT.value,
+                             SectionType.REFERENCES.value, SectionType.ACKNOWLEDGEMENT.value,
+                             SectionType.APPENDIX.value}:
+            target = next((section for section in candidates
+                           if section.key not in used and section.type == imported_type), None)
+        if target is None and title:
+            normalized = normalized_title(title)
+            target = next((section for section in candidates
+                           if section.key not in used and normalized_title(section.title) == normalized), None)
+        if target is None and imported_type in heading_types:
+            imported_number = section_number(title)
+            if imported_number:
+                target = next((section for section in candidates
+                               if section.key not in used and section.type in heading_types
+                               and section_number(section.title) == imported_number), None)
+        if target is None and imported_section.get("key") == "import-body":
+            if first_body is not None and first_body.key not in used:
+                target = first_body
+
         blocks = []
         for raw_block in imported_section.get("paragraphs", []):
             block = dict(raw_block)
@@ -463,22 +523,39 @@ def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
                     kind = validate_image(image_data)
                     extension = {"jpeg": ".jpg", "png": ".png", "gif": ".gif", "webp": ".webp"}[kind]
                     filename = f"{proj.id}-{uuid.uuid4().hex[:8]}{extension}"
-                    destination = _UPLOAD_DIR / filename
+                    destination = document_upload_dir() / filename
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     destination.write_bytes(image_data)
                     block.setdefault("image", {})["url"] = f"/media/uploads/{filename}"
             blocks.append(ParagraphBlock.model_validate(block))
-        if target is not None:
+        if target is not None and target.key not in used:
             target.paragraphs = blocks
+            if imported_section.get("key") != "import-body" and title:
+                if section_number(title) or not section_number(target.title):
+                    target.title = title
+                if imported_type in heading_types or imported_type in {
+                    SectionType.ABSTRACT.value, SectionType.ENGLISH_ABSTRACT.value,
+                    SectionType.REFERENCES.value, SectionType.ACKNOWLEDGEMENT.value,
+                    SectionType.APPENDIX.value,
+                }:
+                    target.type = imported_type
             used.add(target.key)
+            imported_in_order.append(target)
             continue
-        imported_sections.append(ProjectSection(
-            key=f"import-{uuid.uuid4().hex[:10]}", type=str(imported_section.get("type", "body")),
+        imported_in_order.append(ProjectSection(
+            key=f"import-{uuid.uuid4().hex[:10]}", type=imported_type,
             title=title or "导入章节", required=False, paragraphs=blocks,
         ))
-    for section in imported_sections:
-        proj.sections.append(section)
-    return {"matched_section_keys": sorted(used), "added_section_count": len(imported_sections)}
+        added_section_count += 1
+
+    structural = [section for section in existing_sections if section.type in {"cover", "toc"}]
+    retained_existing = [
+        section for section in existing_sections
+        if section.type not in {"cover", "toc"} and section.key not in used
+        and (section.required or section_has_content(section))
+    ]
+    proj.sections = structural + imported_in_order + retained_existing
+    return {"matched_section_keys": sorted(used), "added_section_count": added_section_count}
 
 
 @router.post("/{proj_id}/import-docx")
