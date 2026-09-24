@@ -18,12 +18,27 @@ def project_snapshot(project: WritingProject) -> dict[str, Any]:
     return project.model_dump(mode="json")
 
 
+def _omit_empty_project_defaults(value: Any) -> Any:
+    """Keep legacy project hashes stable when new model defaults are empty."""
+    if isinstance(value, dict):
+        return {
+            key: _omit_empty_project_defaults(item)
+            for key, item in value.items()
+            if not (key == "inline_runs" and isinstance(item, list) and not item)
+            and not (key in {"width_cm", "height_cm", "alignment"} and item is None)
+        }
+    if isinstance(value, list):
+        return [_omit_empty_project_defaults(item) for item in value]
+    return value
+
+
 def project_content_hash(project_or_snapshot: WritingProject | dict[str, Any]) -> str:
     """Hash editable content and its policy/template basis, excluding run metadata."""
     if isinstance(project_or_snapshot, WritingProject):
         payload = project_or_snapshot.model_dump(mode="json")
     else:
         payload = dict(project_or_snapshot)
+    payload = _omit_empty_project_defaults(payload)
     for key in _NON_CONTENT_FIELDS:
         payload.pop(key, None)
     return hashlib.sha256(

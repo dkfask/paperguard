@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,9 +21,12 @@ class BlockType(str, Enum):
 
 
 class ImageBlock(BaseModel):
-    """图片块: 文件路径 + 题注。"""
+    """图片块: 文件路径、题注及可选的源文档几何信息。"""
     url: str = ""            # 静态资源路径, 如 /media/uploads/xxx.png
     caption: str = ""        # 题注文本 (图 3.1 xxx)
+    width_cm: float | None = Field(default=None, gt=0, le=100)
+    height_cm: float | None = Field(default=None, gt=0, le=100)
+    alignment: Literal["left", "center", "right", "justify", "distribute"] | None = None
 
 
 class TableBlock(BaseModel):
@@ -40,6 +44,16 @@ class EquationBlock(BaseModel):
     alt_text: str = ""
 
 
+class InlineTextRun(BaseModel):
+    """Character-level formatting retained inside one Word paragraph."""
+    text: str = ""
+    bold: bool = False
+    italic: bool = False
+    underline: bool = False
+    highlight: str | None = None
+    vert_align: str | None = None
+
+
 class ParagraphBlock(BaseModel):
     """一个内容块。文本/图片/表格三选一, 样式来自模板。"""
     id: str = Field(min_length=1)
@@ -50,6 +64,7 @@ class ParagraphBlock(BaseModel):
     underline: bool = False
     highlight: str | None = None
     vert_align: str | None = None
+    inline_runs: list[InlineTextRun] = Field(default_factory=list)
     image: ImageBlock | None = None
     table: TableBlock | None = None
     equation: EquationBlock | None = None

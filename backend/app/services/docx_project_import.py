@@ -7,8 +7,10 @@ of being silently flattened into the paper.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -23,6 +25,29 @@ from docx.oxml.text.paragraph import CT_P
 from lxml import etree
 
 
+_COMMENT_MARKUP_TAGS = {
+    qn("w:commentRangeStart"),
+    qn("w:commentRangeEnd"),
+    qn("w:commentReference"),
+}
+
+
+def _table_source_xml(table: Table) -> str:
+    """Keep complex table layout without carrying comments into a new package.
+
+    Comment range markers are tied to the source document's comments.xml part.
+    Project export uses the selected template package, which may not contain
+    that part, so preserve the table structure while dropping those markers.
+    """
+    source = deepcopy(table._tbl)
+    for node in list(source.iter()):
+        if node.tag in _COMMENT_MARKUP_TAGS:
+            parent = node.getparent()
+            if parent is not None:
+                parent.remove(node)
+    return etree.tostring(source, encoding="unicode")
+
+
 def _iter_block_items(parent: DocumentType | _Cell):
     if isinstance(parent, DocumentType):
         element = parent.element.body
@@ -33,6 +58,70 @@ def _iter_block_items(parent: DocumentType | _Cell):
             yield Paragraph(child, parent)
         elif isinstance(child, CT_Tbl):
             yield Table(child, parent)
+
+
+_COVER_LABEL_KEYS = {
+    "学生学号": "student_id", "学号": "student_id",
+    "学生姓名": "author", "姓名": "author",
+    "指导教师": "advisor", "导师": "advisor",
+    "论文题目": "title", "题目": "title",
+    "学院": "college", "专业": "major", "班级": "class_name",
+    "学校名称": "school", "学校": "school", "日期": "date",
+}
+_COVER_DATE_PATTERN = re.compile(r"^\s*\d{4}\s*年\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?\s*$")
+
+
+def _cover_metadata(document: DocumentType) -> dict[str, str]:
+    """Read visible cover values so importing a manuscript can round-trip its cover."""
+    values: dict[str, str] = {}
+    in_cover = False
+
+    def add_text_fields(text: str) -> None:
+        compact_chars: list[str] = []
+        offsets: list[int] = []
+        for offset, char in enumerate(text):
+            if not char.isspace():
+                compact_chars.append(char)
+                offsets.append(offset)
+        compact = "".join(compact_chars)
+        matches = list(re.finditer(r"(学生学号|学生姓名|学号|姓名|指导教师|导师|论文题目|题目|学院|专业|班级|学校名称|学校|日期)[：:]", compact))
+        for index, match in enumerate(matches):
+            key = _COVER_LABEL_KEYS[match.group(1)]
+            value_start = offsets[match.end() - 1] + 1
+            value_end = offsets[matches[index + 1].start()] if index + 1 < len(matches) else len(text)
+            value = text[value_start:value_end].strip()
+            if value:
+                values[key] = value
+        if "date" not in values and _COVER_DATE_PATTERN.match(text):
+            values["date"] = re.sub(r"\s+", "", text)
+
+    def label_key(text: str) -> str:
+        compact = re.sub(r"\s+", "", text).rstrip("：:")
+        for label, key in _COVER_LABEL_KEYS.items():
+            if compact == label:
+                return key
+        return ""
+
+    for item in _iter_block_items(document):
+        if isinstance(item, Paragraph):
+            text = (item.text or "").strip()
+            if _is_cover_marker(text):
+                in_cover = True
+            if not in_cover:
+                continue
+            if _is_contents_heading(text) or _front_matter_section_type(text) or _heading_level(item):
+                break
+            add_text_fields(item.text or "")
+        elif in_cover:
+            for row in item.rows:
+                cells = row.cells
+                if len(cells) < 2:
+                    continue
+                key = label_key(cells[0].text)
+                value = (cells[1].text or "").strip()
+                if key and value:
+                    values[key] = value
+    return values
 
 
 def _heading_level(paragraph: Paragraph) -> int:
@@ -76,64 +165,141 @@ def _is_cover_marker(text: str) -> bool:
     return "毕业设计报告" in normalized or normalized.startswith(("题目：", "题目:"))
 
 
-def _image_from_run(paragraph: Paragraph, run) -> tuple[bytes, str] | None:
-    for blip in run._element.xpath(".//a:blip"):
-        relationship_id = blip.get(qn("r:embed"))
-        if not relationship_id:
-            continue
-        relation = paragraph.part.rels.get(relationship_id)
-        if relation is None or not hasattr(relation, "target_part"):
-            continue
-        part = relation.target_part
-        content_type = getattr(part, "content_type", "")
-        extension = {
-            "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp",
-        }.get(content_type)
-        if extension:
-            return part.blob, extension
+def _image_from_run(paragraph: Paragraph, run) -> tuple[bytes, str, float | None, float | None] | None:
+    for drawing in run._element.xpath(".//wp:inline | .//wp:anchor"):
+        extent = next(iter(drawing.xpath("./wp:extent")), None)
+        width_cm = height_cm = None
+        if extent is not None:
+            try:
+                width_cm = int(extent.get("cx")) / 360_000
+                height_cm = int(extent.get("cy")) / 360_000
+            except (TypeError, ValueError):
+                width_cm = height_cm = None
+        for blip in drawing.xpath(".//a:blip"):
+            relationship_id = blip.get(qn("r:embed"))
+            if not relationship_id:
+                continue
+            relation = paragraph.part.rels.get(relationship_id)
+            if relation is None or not hasattr(relation, "target_part"):
+                continue
+            part = relation.target_part
+            content_type = getattr(part, "content_type", "")
+            extension = {
+                "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp",
+            }.get(content_type)
+            if extension:
+                return part.blob, extension, width_cm, height_cm
     return None
+
+
+def _paragraph_alignment_name(paragraph: Paragraph) -> str | None:
+    alignment = paragraph.alignment
+    return alignment.name.lower() if alignment is not None else None
+
+
+def _inline_style(run: Run) -> dict[str, Any]:
+    vert_align = None
+    if run.font.superscript:
+        vert_align = "superscript"
+    elif run.font.subscript:
+        vert_align = "subscript"
+    highlight_value = run.font.highlight_color
+    return {
+        "bold": bool(run.bold),
+        "italic": bool(run.italic),
+        "underline": bool(run.underline),
+        "highlight": getattr(highlight_value, "name", "").lower() or None,
+        "vert_align": vert_align,
+    }
+
+
+def _append_inline_text(runs: list[dict[str, Any]], text: str,
+                        style: dict[str, Any]) -> None:
+    if not text:
+        return
+    if runs and all(runs[-1].get(key) == value for key, value in style.items()):
+        runs[-1]["text"] += text
+        return
+    runs.append({"text": text, **style})
 
 
 def _paragraph_blocks(paragraph: Paragraph, block_prefix: str, unsupported: list[str]) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
-    # ``paragraph.runs`` omits runs inside ``w:hyperlink``. Walk direct
-    # paragraph children to retain link text in its original position.
-    for child in paragraph._element.iterchildren():
-        if child.tag == qn("w:hyperlink"):
-            text = "".join(node.text or "" for node in child.iter(qn("w:t")))
-            if text:
-                blocks.append({"id": f"{block_prefix}-link-{uuid4().hex[:8]}", "text": text})
-            continue
-        if child.tag != qn("w:r"):
-            continue
-        run = Run(child, paragraph)
-        text = run.text or ""
+    inline_runs: list[dict[str, Any]] = []
+
+    def flush_text() -> None:
+        if not inline_runs:
+            return
+        text = "".join(run["text"] for run in inline_runs)
         if text:
-            blocks.append({
-                "id": f"{block_prefix}-{uuid4().hex[:8]}", "text": text,
-                "bold": bool(run.bold), "italic": bool(run.italic), "underline": bool(run.underline),
-            })
-        if run._element.xpath(".//a:blip"):
-            image = _image_from_run(paragraph, run)
-            if image is None:
-                unsupported.append("含有不支持的图片格式或外部链接")
-                continue
-            data, extension = image
-            blocks.append({
-                "id": f"{block_prefix}-image-{uuid4().hex[:8]}",
-                "type": "image", "image": {"url": "", "caption": ""},
-                "_image_data": data, "_image_extension": extension,
-            })
-    for equation_index, equation in enumerate(paragraph._element.xpath(".//m:oMath"), 1):
+            block = {"id": f"{block_prefix}-{uuid4().hex[:8]}", "text": text}
+            if any(run["bold"] or run["italic"] or run["underline"] or run["highlight"] or run["vert_align"]
+                   for run in inline_runs):
+                block["inline_runs"] = [dict(run) for run in inline_runs]
+            blocks.append(block)
+        inline_runs.clear()
+
+    def append_equation(equation) -> None:
+        flush_text()
         alt_text = "".join(equation.itertext()).strip()
         blocks.append({
-            "id": f"{block_prefix}-equation-{equation_index}-{uuid4().hex[:8]}",
+            "id": f"{block_prefix}-equation-{uuid4().hex[:8]}",
             "type": "equation",
             "equation": {
                 "omml": etree.tostring(equation, encoding="unicode"),
                 "alt_text": alt_text,
             },
         })
+
+    # ``paragraph.runs`` omits runs inside ``w:hyperlink``. Walk direct
+    # paragraph children to retain link text in its original position. Text
+    # runs are grouped into one project block so a Word paragraph stays one
+    # paragraph when the project is exported again.
+    for child in paragraph._element.iterchildren():
+        if child.tag == qn("w:hyperlink"):
+            linked_runs = child.xpath(".//w:r")
+            if linked_runs:
+                for linked_run in linked_runs:
+                    run = Run(linked_run, paragraph)
+                    _append_inline_text(inline_runs, run.text or "", _inline_style(run))
+            else:
+                text = "".join(node.text or "" for node in child.iter(qn("w:t")))
+                _append_inline_text(inline_runs, text, {
+                    "bold": False, "italic": False, "underline": False,
+                    "highlight": None, "vert_align": None,
+                })
+            continue
+        if child.tag in {qn("m:oMath"), qn("m:oMathPara")}:
+            equations = [child] if child.tag == qn("m:oMath") else child.xpath(".//m:oMath")
+            for equation in equations:
+                append_equation(equation)
+            continue
+        if child.tag != qn("w:r"):
+            continue
+        run = Run(child, paragraph)
+        text = run.text or ""
+        if text:
+            _append_inline_text(inline_runs, text, _inline_style(run))
+        if run._element.xpath(".//a:blip"):
+            image = _image_from_run(paragraph, run)
+            if image is None:
+                unsupported.append("含有不支持的图片格式或外部链接")
+                continue
+            data, extension, width_cm, height_cm = image
+            flush_text()
+            blocks.append({
+                "id": f"{block_prefix}-image-{uuid4().hex[:8]}",
+                "type": "image",
+                "image": {
+                    "url": "", "caption": "", "width_cm": width_cm,
+                    "height_cm": height_cm,
+                    "alignment": _paragraph_alignment_name(paragraph),
+                },
+                "_image_data": data, "_image_extension": extension,
+            })
+        for equation in run._element.xpath(".//m:oMath"):
+            append_equation(equation)
+    flush_text()
     if not blocks and (paragraph.text or "").strip():
         blocks.append({"id": f"{block_prefix}-{uuid4().hex[:8]}", "text": paragraph.text})
     return blocks
@@ -227,14 +393,16 @@ def import_docx_project(data: bytes) -> dict[str, Any]:
                     "id": f"import-table-{table_count}", "type": "table",
                     "table": {
                         "rows": len(rows), "cols": max(len(row) for row in rows), "cells": rows, "caption": "",
-                        "source_xml": etree.tostring(item._tbl, encoding="unicode"),
+                        "source_xml": _table_source_xml(item),
                     },
                 })
 
     properties = document.core_properties
+    metadata = {"title": properties.title or "", "author": properties.author or ""}
+    metadata.update(_cover_metadata(document))
     return {
         "sections": sections,
-        "metadata": {"title": properties.title or "", "author": properties.author or ""},
+        "metadata": metadata,
         "stats": {
             "paragraphs": paragraph_count, "tables": table_count, "images": image_count, "equations": equation_count,
             "section_count": len(sections), "unsupported_count": len(unsupported),

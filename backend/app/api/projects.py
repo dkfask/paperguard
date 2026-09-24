@@ -19,7 +19,7 @@ from app.api.templates import get_store
 from app.auth import can_manage, current_user
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
-from app.models.project import ParagraphBlock, ProjectSection, WritingProject
+from app.models.project import InlineTextRun, ParagraphBlock, ProjectSection, WritingProject
 from app.models.policy import (
     DisputeStatus,
     RequirementAcknowledgement,
@@ -256,7 +256,7 @@ def create_project(req: CreateProjectRequest, store: Store = Depends(get_store),
 
 class UpdateSectionRequest(BaseModel):
     title: str | None = None
-    paragraphs: list[dict] | None = None   # [{id, text, bold, italic, underline, highlight, vert_align}]
+    paragraphs: list[dict] | None = None   # Paragraph blocks, including validated inline_runs when present.
     base_revision: int | None = None
 
 
@@ -404,14 +404,36 @@ def _parse_par(data: dict, project_id: str = ""):
             id=str(data.get("id", "")), type="equation",
             equation={"omml": omml, "alt_text": str(equation.get("alt_text", ""))[:4000]},
         )
+    text = str(data.get("text", ""))
+    inline_runs: list[InlineTextRun] = []
+    raw_inline_runs = data.get("inline_runs")
+    if isinstance(raw_inline_runs, list) and 0 < len(raw_inline_runs) <= 500:
+        parsed_runs = []
+        for raw_run in raw_inline_runs:
+            if not isinstance(raw_run, dict) or not isinstance(raw_run.get("text"), str):
+                parsed_runs = []
+                break
+            vert_align = raw_run.get("vert_align")
+            highlight = raw_run.get("highlight")
+            parsed_runs.append(InlineTextRun(
+                text=raw_run["text"],
+                bold=bool(raw_run.get("bold", False)),
+                italic=bool(raw_run.get("italic", False)),
+                underline=bool(raw_run.get("underline", False)),
+                highlight=(highlight.strip() or None) if isinstance(highlight, str) else None,
+                vert_align=vert_align if vert_align in {"superscript", "subscript"} else None,
+            ))
+        if parsed_runs and "".join(run.text for run in parsed_runs) == text:
+            inline_runs = parsed_runs
     return ParagraphBlock(
         id=str(data.get("id", "")),
-        text=str(data.get("text", "")),
+        text=text,
         bold=bool(data.get("bold", False)),
         italic=bool(data.get("italic", False)),
         underline=bool(data.get("underline", False)),
         highlight=(str(data["highlight"]).strip() or None) if data.get("highlight") is not None else None,
         vert_align=(str(data["vert_align"]).strip() or None) if data.get("vert_align") is not None else None,
+        inline_runs=inline_runs,
     )
 
 
@@ -555,6 +577,10 @@ def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
         and (section.required or section_has_content(section))
     ]
     proj.sections = structural + imported_in_order + retained_existing
+    for key, value in (imported.get("metadata") or {}).items():
+        normalized = str(value or "").strip()
+        if normalized and not str(proj.meta.get(key, "") or "").strip():
+            proj.meta[key] = normalized
     return {"matched_section_keys": sorted(used), "added_section_count": added_section_count}
 
 

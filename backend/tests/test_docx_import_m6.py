@@ -5,11 +5,12 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-from app.api.projects import _apply_imported_docx
+from app.api.projects import _apply_imported_docx, _parse_par
 from app.core.export.docx_exporter import _export_paragraph
-from app.models.project import ParagraphBlock, ProjectSection, WritingProject
+from app.models.project import InlineTextRun, ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import PaperTemplate, TextStyle
 from app.services.docx_project_import import import_docx_project
+from app.services.project_versions import project_content_hash
 from app.services.project_validation import validate_project_completeness
 
 
@@ -44,7 +45,96 @@ def test_import_keeps_hyperlink_text_when_mixed_with_regular_text(tmp_path):
 
     imported = import_docx_project(path.read_bytes())
     blocks = imported["sections"][0]["paragraphs"]
-    assert [block["text"] for block in blocks] == ["前缀 ", "参考链接", " 后缀"]
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == "前缀 参考链接 后缀"
+
+
+def test_import_groups_inline_runs_and_export_keeps_one_paragraph(tmp_path):
+    source = Document()
+    paragraph = source.add_paragraph()
+    paragraph.add_run("普通文字")
+    paragraph.add_run("加粗").bold = True
+    paragraph.add_run("，随后")
+    paragraph.add_run("斜体").italic = True
+    source_path = tmp_path / "inline-runs.docx"
+    source.save(source_path)
+
+    imported = import_docx_project(source_path.read_bytes())
+    blocks = imported["sections"][0]["paragraphs"]
+    assert len(blocks) == 1
+    assert blocks[0]["text"] == "普通文字加粗，随后斜体"
+    assert [(run["text"], run["bold"], run["italic"]) for run in blocks[0]["inline_runs"]] == [
+        ("普通文字", False, False),
+        ("加粗", True, False),
+        ("，随后", False, False),
+        ("斜体", False, True),
+    ]
+
+    output = Document()
+    _export_paragraph(output, ParagraphBlock.model_validate(blocks[0]), TextStyle())
+    output_path = tmp_path / "inline-runs-roundtrip.docx"
+    output.save(output_path)
+    reloaded = Document(output_path)
+    assert len(reloaded.paragraphs) == 1
+    assert reloaded.paragraphs[0].text == blocks[0]["text"]
+    assert [run.text for run in reloaded.paragraphs[0].runs] == ["普通文字", "加粗", "，随后", "斜体"]
+    assert reloaded.paragraphs[0].runs[1].bold is True
+    assert reloaded.paragraphs[0].runs[3].italic is True
+
+    edited = ParagraphBlock(
+        id="edited-inline-text", text="用户修改后的段落",
+        inline_runs=[{"text": "旧的导入文字", "bold": True}],
+    )
+    edited_output = Document()
+    _export_paragraph(edited_output, edited, TextStyle())
+    assert len(edited_output.paragraphs) == 1
+    assert edited_output.paragraphs[0].text == "用户修改后的段落"
+    assert len(edited_output.paragraphs[0].runs) == 1
+    assert edited_output.paragraphs[0].runs[0].bold is False
+
+
+def test_section_save_keeps_inline_runs_only_when_text_still_matches():
+    imported = {
+        "id": "saved-inline-text",
+        "text": "普通加粗",
+        "inline_runs": [
+            {"text": "普通", "bold": False},
+            {"text": "加粗", "bold": True},
+        ],
+    }
+    saved = _parse_par(imported, "project-inline-text")
+    assert "".join(run.text for run in saved.inline_runs) == saved.text
+    assert saved.inline_runs[1].bold is True
+
+    edited = _parse_par(imported | {"text": "修改后的段落"}, "project-inline-text")
+    assert edited.text == "修改后的段落"
+    assert edited.inline_runs == []
+
+
+def test_empty_inline_runs_do_not_change_legacy_project_hash():
+    project = WritingProject(
+        id="project-inline-hash", template_id="template-inline-hash",
+        sections=[ProjectSection(
+            key="body", type="body", title="正文",
+            paragraphs=[ParagraphBlock(id="body-1", text="稳定内容")],
+        )],
+    )
+    legacy_snapshot = project.model_dump(mode="json")
+
+    def remove_inline_defaults(value):
+        if isinstance(value, dict):
+            value.pop("inline_runs", None)
+            for child in value.values():
+                remove_inline_defaults(child)
+        elif isinstance(value, list):
+            for child in value:
+                remove_inline_defaults(child)
+
+    remove_inline_defaults(legacy_snapshot)
+    assert project_content_hash(project) == project_content_hash(legacy_snapshot)
+
+    project.sections[0].paragraphs[0].inline_runs = [InlineTextRun(text="稳定", bold=True)]
+    assert project_content_hash(project) != project_content_hash(legacy_snapshot)
 
 
 def test_import_preserves_reference_section_and_office_math(tmp_path):
@@ -171,3 +261,79 @@ def test_complex_table_source_xml_is_kept_for_unedited_roundtrip(tmp_path):
     document.save(output)
     xml = Document(output).tables[0]._tbl.xml
     assert "合并表头" in xml and "gridSpan" in xml
+
+
+def test_imported_table_source_xml_drops_orphaned_comment_markers(tmp_path):
+    source = Document()
+    table = source.add_table(rows=1, cols=1)
+    paragraph = table.cell(0, 0).paragraphs[0]
+    paragraph.add_run("保留的表格文本")
+    start = OxmlElement("w:commentRangeStart")
+    start.set(qn("w:id"), "0")
+    end = OxmlElement("w:commentRangeEnd")
+    end.set(qn("w:id"), "0")
+    reference_run = OxmlElement("w:r")
+    reference = OxmlElement("w:commentReference")
+    reference.set(qn("w:id"), "0")
+    reference_run.append(reference)
+    paragraph._p.insert(0, start)
+    paragraph._p.append(end)
+    paragraph._p.append(reference_run)
+    path = tmp_path / "table-with-comment-markers.docx"
+    source.save(path)
+
+    imported = import_docx_project(path.read_bytes())
+    raw = next(
+        block for section in imported["sections"] for block in section["paragraphs"]
+        if block.get("type") == "table"
+    )["table"]["source_xml"]
+
+    assert "保留的表格文本" in raw
+    assert "commentRangeStart" not in raw
+    assert "commentRangeEnd" not in raw
+    assert "commentReference" not in raw
+    # Sanitizing imported XML must leave the user's source file untouched.
+    assert "commentRangeStart" in Document(path).tables[0]._tbl.xml
+
+
+def test_import_extracts_cover_values_for_round_trip(tmp_path):
+    source = Document()
+    source.add_paragraph("本科毕业设计报告")
+    source.add_paragraph("题目：测试论文")
+    cover_table = source.add_table(rows=2, cols=2)
+    cover_table.cell(0, 0).text = "学    院："
+    cover_table.cell(0, 1).text = "计算机学院"
+    cover_table.cell(1, 0).text = "学生姓名："
+    cover_table.cell(1, 1).text = "王同学"
+    source.add_paragraph("2026年5月")
+    source.add_paragraph("摘  要")
+    source.add_paragraph("摘要正文不属于封面")
+    path = tmp_path / "cover-values.docx"
+    source.save(path)
+
+    imported = import_docx_project(path.read_bytes())
+
+    assert imported["metadata"]["title"] == "测试论文"
+    assert imported["metadata"]["college"] == "计算机学院"
+    assert imported["metadata"]["author"] == "王同学"
+    assert imported["metadata"]["date"] == "2026年5月"
+    assert "摘要正文不属于封面" not in imported["metadata"].values()
+
+
+def test_optional_image_geometry_defaults_do_not_change_legacy_project_hash():
+    project = WritingProject(
+        id="project-image-hash", template_id="template-image-hash",
+        sections=[ProjectSection(
+            key="body", type="body", title="正文",
+            paragraphs=[ParagraphBlock(
+                id="figure", type="image",
+                image={"url": "/media/uploads/figure.png", "caption": "图1 系统图"},
+            )],
+        )],
+    )
+    legacy_snapshot = project.model_dump(mode="json")
+    image = legacy_snapshot["sections"][0]["paragraphs"][0]["image"]
+    for key in ("width_cm", "height_cm", "alignment"):
+        image.pop(key, None)
+
+    assert project_content_hash(project) == project_content_hash(legacy_snapshot)

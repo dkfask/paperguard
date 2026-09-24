@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -438,6 +439,246 @@ def _add_toc_field(doc: Document) -> None:
     r.append(fld_end)
 
 
+def _source_toc_paragraphs(template_path: str | Path | None) -> list:
+    """Return cached TOC entry paragraphs from a source manuscript/template."""
+    if not template_path:
+        return []
+    try:
+        source = Document(str(template_path))
+    except Exception as exc:
+        _LOGGER.debug("无法读取源文档目录，使用 TOC 域: %s", exc)
+        return []
+
+    in_toc = False
+    entries = []
+    for paragraph in source.paragraphs:
+        text = (paragraph.text or "").strip()
+        style_name = (paragraph.style.name if paragraph.style else "").lower().replace(" ", "")
+        compact = "".join(text.split()).casefold()
+        if not in_toc:
+            if compact in {"目录", "contents", "tableofcontents"} or style_name == "tocheading":
+                in_toc = True
+            continue
+        is_toc_entry = style_name.startswith("toc") or (
+            "\t" in (paragraph.text or "")
+            and re.search(r"\t\s*\d+\s*$", paragraph.text or "") is not None
+        )
+        if is_toc_entry:
+            entry = copy.deepcopy(paragraph._p)
+            # Keep the cached page-number text, not stale PAGEREF fields whose
+            # bookmarks are removed when the source body is rebuilt.
+            for node in list(entry.xpath(".//w:fldChar | .//w:instrText")):
+                parent = node.getparent()
+                if parent is not None:
+                    parent.remove(node)
+            for field in list(entry.xpath(".//w:fldSimple")):
+                parent = field.getparent()
+                if parent is None:
+                    continue
+                index = parent.index(field)
+                for child in list(field):
+                    parent.insert(index, child)
+                    index += 1
+                parent.remove(field)
+            entries.append(entry)
+            continue
+        if text:
+            break
+    return entries
+
+
+def _content_signature(sections) -> tuple:
+    """Build a stable signature of project content that can change pagination."""
+    signature = []
+    for section in sections:
+        section_type = getattr(section, "type", None)
+        section_type = getattr(section_type, "value", section_type)
+        if isinstance(section, dict):
+            section_type = section.get("type", section_type)
+            title = str(section.get("title") or "")
+            paragraphs = section.get("paragraphs", []) or []
+        else:
+            title = str(getattr(section, "title", "") or "")
+            paragraphs = getattr(section, "paragraphs", []) or []
+        if section_type in {SectionType.COVER.value, SectionType.TOC.value}:
+            continue
+        signature.append(("section", section_type, title))
+        for block in paragraphs:
+            if isinstance(block, dict):
+                block_type = block.get("type", "paragraph")
+                text = str(block.get("text") or "")
+                image = block.get("image") or {}
+                table = block.get("table") or {}
+                equation = block.get("equation") or {}
+                inline_runs = block.get("inline_runs") or []
+                raw_image = block.get("_image_data")
+            else:
+                block_type = getattr(block, "type", "paragraph")
+                block_type = getattr(block_type, "value", block_type)
+                text = str(getattr(block, "text", "") or "")
+                image = getattr(block, "image", None)
+                table = getattr(block, "table", None)
+                equation = getattr(block, "equation", None)
+                inline_runs = getattr(block, "inline_runs", []) or []
+                raw_image = None
+            if block_type == "image":
+                def image_value(name, default=None):
+                    return image.get(name, default) if isinstance(image, dict) else getattr(image, name, default)
+
+                if isinstance(raw_image, bytes):
+                    image_sha = hashlib.sha256(raw_image).hexdigest()
+                else:
+                    image_url = str(image_value("url", "") or "")
+                    image_path = _resolve_image_path(image_url) if image_url else None
+                    image_sha = (
+                        hashlib.sha256(image_path.read_bytes()).hexdigest()
+                        if image_path is not None and image_path.is_file() else "unavailable"
+                    )
+                signature.append((
+                    "image", image_sha, image_value("caption", ""),
+                    image_value("width_cm"), image_value("height_cm"), image_value("alignment"),
+                ))
+            elif block_type == "table":
+                def table_value(name, default=None):
+                    return table.get(name, default) if isinstance(table, dict) else getattr(table, name, default)
+
+                cells = table_value("cells", []) or []
+                signature.append((
+                    "table", tuple(tuple(str(cell) for cell in row) for row in cells),
+                    int(table_value("rows", 0) or 0), int(table_value("cols", 0) or 0),
+                    str(table_value("caption", "") or ""), str(table_value("source_xml", "") or ""),
+                ))
+            elif block_type == "equation":
+                omml = equation.get("omml", "") if isinstance(equation, dict) else getattr(equation, "omml", "")
+                signature.append(("equation", str(omml or "")))
+            else:
+                def block_value(name, default=None):
+                    return block.get(name, default) if isinstance(block, dict) else getattr(block, name, default)
+
+                runs = tuple(
+                    (
+                        str(run.get("text", "") if isinstance(run, dict) else getattr(run, "text", "")),
+                        bool(run.get("bold", False) if isinstance(run, dict) else getattr(run, "bold", False)),
+                        bool(run.get("italic", False) if isinstance(run, dict) else getattr(run, "italic", False)),
+                        bool(run.get("underline", False) if isinstance(run, dict) else getattr(run, "underline", False)),
+                        run.get("highlight") if isinstance(run, dict) else getattr(run, "highlight", None),
+                        run.get("vert_align") if isinstance(run, dict) else getattr(run, "vert_align", None),
+                    )
+                    for run in inline_runs
+                )
+                signature.append((
+                    "paragraph", text, bool(block_value("bold", False)),
+                    bool(block_value("italic", False)), bool(block_value("underline", False)),
+                    block_value("highlight"), block_value("vert_align"), runs,
+                ))
+    return tuple(signature)
+
+
+def _model_signature(values) -> tuple:
+    def normalized(value):
+        if hasattr(value, "model_dump"):
+            return normalized(value.model_dump(mode="json"))
+        if isinstance(value, dict):
+            return tuple(sorted((str(key), normalized(item)) for key, item in value.items()))
+        if isinstance(value, (list, tuple)):
+            return tuple(normalized(item) for item in value)
+        return value
+
+    return normalized(values)
+
+
+def _source_template_matches(template: PaperTemplate, template_path: Path) -> bool:
+    """Reject source reuse when any export-relevant template setting was edited."""
+    if template.page_layout:
+        return False
+    try:
+        from app.models.template import DEFAULT_STYLES, TemplateSection
+        from app.services.import_template import (
+            extract_cover_blocks, extract_meta_fields, extract_section_tree, import_template_styles,
+        )
+
+        source_sections = extract_section_tree(template_path)
+        if not source_sections:
+            return False
+        expected_styles = {key: value.model_copy(deep=True) for key, value in DEFAULT_STYLES.items()}
+        expected_styles.update(import_template_styles(template_path)["styles"])
+        normalized_sections = [TemplateSection.model_validate(item) for item in source_sections]
+        return (
+            _model_signature(template.styles) == _model_signature(expected_styles)
+            and _model_signature(template.sections) == _model_signature(normalized_sections)
+            and _model_signature(template.cover_blocks) == _model_signature(extract_cover_blocks(template_path))
+            and _model_signature(template.meta_fields) == _model_signature(extract_meta_fields(template_path))
+        )
+    except Exception as exc:
+        _LOGGER.debug("无法验证源文档模板是否未修改，继续按模板重新导出: %s", exc)
+        return False
+
+
+def _copy_unchanged_source(
+    project: WritingProject, template: PaperTemplate, out_path: str, template_path: str | Path | None,
+) -> bool:
+    """Keep an imported manuscript byte-identical when its editable content is untouched."""
+    if not template_path:
+        return False
+    source_path = Path(template_path)
+    if not source_path.is_file() or source_path.suffix.lower() != ".docx":
+        return False
+    try:
+        from app.services.docx_project_import import import_docx_project
+
+        source_bytes = source_path.read_bytes()
+        imported = import_docx_project(source_bytes)
+        if _content_signature(imported.get("sections", [])) != _content_signature(project.sections):
+            return False
+        if not _source_template_matches(template, source_path):
+            return False
+        source_meta = imported.get("metadata", {})
+        for field in template.meta_fields:
+            if str(project.meta.get(field.key, "") or "") != str(source_meta.get(field.key, "") or ""):
+                return False
+
+        def toc_nodes(nodes):
+            for node in nodes:
+                node_type = getattr(node.type, "value", node.type)
+                if node_type == SectionType.TOC.value:
+                    yield node
+                yield from toc_nodes(node.children)
+
+        source_toc = next(toc_nodes(template.sections), None)
+        project_toc = next(
+            (section for section in project.sections
+             if getattr(section.type, "value", section.type) == SectionType.TOC.value),
+            None,
+        )
+        if project_toc is not None and (
+            project_toc.paragraphs
+            or source_toc is None
+            or project_toc.title != source_toc.title
+        ):
+            return False
+        Path(out_path).write_bytes(source_bytes)
+        return True
+    except Exception as exc:
+        _LOGGER.debug("源文档与当前项目未能完成严格匹配，继续重新导出: %s", exc)
+        return False
+
+
+def _unchanged_source_toc(template_path: str | Path | None, project: WritingProject) -> list:
+    """Use source TOC rows only for an unchanged imported manuscript."""
+    entries = _source_toc_paragraphs(template_path)
+    if not entries or not template_path:
+        return []
+    try:
+        from app.services.docx_project_import import import_docx_project
+
+        imported = import_docx_project(Path(template_path).read_bytes())
+        if _content_signature(imported.get("sections", [])) == _content_signature(project.sections):
+            return entries
+    except Exception as exc:
+        _LOGGER.debug("无法验证源目录是否仍匹配当前项目，使用 TOC 域: %s", exc)
+    return []
+
+
 def _add_page_number_footer(doc: Document, section=None) -> None:
     """页脚: 居中页码域 '第 N 页'。"""
     footer = (section or doc.sections[0]).footer
@@ -607,10 +848,15 @@ def _find_phase_layouts(doc: Document, layouts: list) -> tuple[object | None, ob
 
 def export_project_to_docx(project: WritingProject, template: PaperTemplate, out_path: str,
                            template_path: str | Path | None = None) -> None:
-    """把项目按模板导出为 .docx (全新文件)。
+    """把项目按模板导出为 .docx，不修改源文件。
 
-    template_path 指向导入的模板 docx 时, 以它为基底排版。
+    内容、封面字段和导出相关模板设置都与源稿一致时直接保留源 DOCX，避免无意义的
+    XML 重建造成分页/布局损失；任一项变化时，以模板为基底重新渲染项目。
     """
+    if _copy_unchanged_source(project, template, out_path, template_path):
+        return
+
+    static_toc_paragraphs = _unchanged_source_toc(template_path, project)
     doc, from_template, source_layouts = _open_base_document(template_path)
 
     if not from_template:
@@ -648,7 +894,14 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
         if style.page_break_before and not section_started:
             doc.add_page_break()
         _add_text_paragraph(doc, title, style)
-        _add_toc_field(doc)
+        if static_toc_paragraphs:
+            body = doc._body._element
+            insert_at = max(0, len(body) - 1)
+            for paragraph in static_toc_paragraphs:
+                body.insert(insert_at, copy.deepcopy(paragraph))
+                insert_at += 1
+        else:
+            _add_toc_field(doc)
         toc_state["emitted"] = True
 
     def ensure_toc() -> None:
@@ -725,10 +978,13 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             # 摘要正文使用独立样式; 规范中的摘要约束优先于模板默认正文样式。
             body_style_key = "abstract_body" if section_type is SectionType.ABSTRACT else "english_abstract_body"
             body_style = _style_for(template, body_style_key, None)
-            for par in proj_sec.paragraphs:
+            for index, par in enumerate(proj_sec.paragraphs):
                 # 关键词段落写在摘要里时, 按模板的关键词样式排版
                 par_style = _keyword_style_for(par.text, template) or body_style
-                _export_paragraph(doc, par, par_style, template, numbering)
+                _export_paragraph(
+                    doc, par, par_style, template, numbering,
+                    suppress_generated_caption=_has_adjacent_caption(proj_sec.paragraphs, index),
+                )
             return
 
         if section_type in (SectionType.KEYWORDS, SectionType.ENGLISH_KEYWORDS):
@@ -743,7 +999,8 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
                     text = f"{prefix}{text}"
                 p_clone = ParagraphBlock(id=par.id, type=par.type, text=text,
                                          bold=par.bold, italic=par.italic, underline=par.underline,
-                                         highlight=par.highlight, vert_align=par.vert_align)
+                                         highlight=par.highlight, vert_align=par.vert_align,
+                                         inline_runs=par.inline_runs)
                 _export_paragraph(doc, p_clone, style, template, numbering)
             return
 
@@ -757,8 +1014,11 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
                                 suppress_inherited_page_break=(
                                     section_type is SectionType.HEADING1))
             body_style = _style_for(template, "body", None)
-            for par in proj_sec.paragraphs:
-                _export_paragraph(doc, par, body_style, template, numbering)
+            for index, par in enumerate(proj_sec.paragraphs):
+                _export_paragraph(
+                    doc, par, body_style, template, numbering,
+                    suppress_generated_caption=_has_adjacent_caption(proj_sec.paragraphs, index),
+                )
             return
 
         # BODY / REFERENCES / ACKNOWLEDGEMENT / APPENDIX
@@ -778,8 +1038,11 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             _add_text_paragraph(doc, proj_sec.title, title_style,
                                 word_style=word_style,
                                 suppress_inherited_page_break=bool(word_style))
-        for par in proj_sec.paragraphs:
-            _export_paragraph(doc, par, style, template, numbering)
+        for index, par in enumerate(proj_sec.paragraphs):
+            _export_paragraph(
+                doc, par, style, template, numbering,
+                suppress_generated_caption=_has_adjacent_caption(proj_sec.paragraphs, index),
+            )
 
     for proj_sec in project.sections:
         emit(proj_sec)
@@ -787,15 +1050,64 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
     doc.save(out_path)
 
 
+_CAPTION_NUMBER_RE = re.compile(r"^(?P<kind>[图表])\s*\d+(?:\.\d+)*(?:-\d+)?\s*(?P<title>\S.*)$")
+
+
+def _is_caption_paragraph(par: ParagraphBlock, expected_kind: str) -> bool:
+    """判断相邻文本块是否是已有图/表题, 而不是正文中的编号引用。"""
+    if par.type.value != "paragraph":
+        return False
+    text = par.text.strip()
+    if not text or len(text) > 100:
+        return False
+    match = _CAPTION_NUMBER_RE.match(text)
+    if not match or match.group("kind") != expected_kind:
+        return False
+    title = match.group("title").strip()
+    if not title or title.startswith(("所示", "如下", "可见", "可知", "可以看出")):
+        return False
+    return not title.endswith(("。", "！", "？", "；"))
+
+
+def _has_adjacent_caption(paragraphs: list[ParagraphBlock], index: int) -> bool:
+    """相邻内容已有图/表题时, 不重复生成自动题注。"""
+    current = paragraphs[index]
+    if current.type.value == "image":
+        kind = "图"
+    elif current.type.value == "table":
+        kind = "表"
+    else:
+        return False
+    has_renderable_content = (
+        (current.type.value == "image" and current.image is not None)
+        or (current.type.value == "table" and current.table is not None)
+    )
+    if not has_renderable_content:
+        return False
+
+    # A caption immediately after an image/table belongs to that preceding
+    # object. Do not also treat it as the caption for the next object.
+    if index + 1 < len(paragraphs) and _is_caption_paragraph(paragraphs[index + 1], kind):
+        return True
+    if index == 0 or not _is_caption_paragraph(paragraphs[index - 1], kind):
+        return False
+    previous_caption_owner = index - 2
+    return (
+        previous_caption_owner < 0
+        or paragraphs[previous_caption_owner].type.value not in {"image", "table"}
+    )
+
+
 def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
                       template: PaperTemplate | None = None,
-                      numbering: _Numbering | None = None) -> None:
+                      numbering: _Numbering | None = None,
+                      suppress_generated_caption: bool = False) -> None:
     """导出单个内容块: 文本段落 / 图片(带题注) / 表格(带题注)。"""
     if par.type.value == "image" and par.image and par.image.url:
-        _export_image(doc, par.image, template, numbering)
+        _export_image(doc, par.image, template, numbering, include_caption=not suppress_generated_caption)
         return
     if par.type.value == "table" and par.table:
-        _export_table(doc, par.table, template, numbering)
+        _export_table(doc, par.table, template, numbering, include_caption=not suppress_generated_caption)
         return
     if par.type.value == "equation" and par.equation and par.equation.omml:
         p = doc.add_paragraph()
@@ -813,44 +1125,67 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
         return
     p = doc.add_paragraph()
     _apply_paragraph_format(p, style)
-    run = p.add_run(par.text)
-    _apply_run_font(run, style)
-    # 行内格式只"加"不"减": 模板样式里的加粗/斜体/下划线要保留
-    if par.bold:
-        run.font.bold = True
-    if par.italic:
-        run.font.italic = True
-    if par.underline:
-        run.font.underline = True
-    if par.highlight is not None:
-        _apply_run_highlight(run, par.highlight)
-    if par.vert_align is not None:
-        _apply_run_vertical_alignment(run, par.vert_align)
+    inline_runs = par.inline_runs
+    if not inline_runs or "".join(run.text for run in inline_runs) != par.text:
+        inline_runs = [None]
+    for inline in inline_runs:
+        run = p.add_run(inline.text if inline is not None else par.text)
+        _apply_run_font(run, style)
+        # 行内格式只"加"不"减": 模板样式里的加粗/斜体/下划线要保留
+        if par.bold or (inline is not None and inline.bold):
+            run.font.bold = True
+        if par.italic or (inline is not None and inline.italic):
+            run.font.italic = True
+        if par.underline or (inline is not None and inline.underline):
+            run.font.underline = True
+        highlight = inline.highlight if inline is not None and inline.highlight is not None else par.highlight
+        vert_align = inline.vert_align if inline is not None and inline.vert_align is not None else par.vert_align
+        if highlight is not None:
+            _apply_run_highlight(run, highlight)
+        if vert_align is not None:
+            _apply_run_vertical_alignment(run, vert_align)
 
 
 def _export_image(doc: Document, img, template: PaperTemplate | None,
-                  numbering: _Numbering | None = None) -> None:
-    """渲染图片 + 自动编号图注。"""
+                  numbering: _Numbering | None = None, include_caption: bool = True) -> None:
+    """渲染图片 + 自动编号图注; 已有独立图注时只渲染图片。"""
     from app.models.template import PaperTemplate as _PT
 
     tpl = template if isinstance(template, _PT) else None
     cap_style = _style_for(tpl, "figure_caption", None) if tpl else TextStyle()
 
-    # 图片居中
+    # Imported images keep their original inline dimensions/alignment. Newly
+    # uploaded images without source geometry retain the legacy centered size.
     local_path = _resolve_image_path(img.url)
     par = doc.add_paragraph()
-    par.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    alignment = {
+        "left": WD_ALIGN_PARAGRAPH.LEFT,
+        "center": WD_ALIGN_PARAGRAPH.CENTER,
+        "right": WD_ALIGN_PARAGRAPH.RIGHT,
+        "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+        "distribute": WD_ALIGN_PARAGRAPH.DISTRIBUTE,
+    }.get(img.alignment, WD_ALIGN_PARAGRAPH.CENTER)
+    par.alignment = alignment
     if local_path.exists():
-        shape = par.add_run().add_picture(str(local_path), width=Cm(_IMAGE_WIDTH_CM))
-        if shape.height > Cm(_IMAGE_MAX_HEIGHT_CM):
+        has_source_extent = img.width_cm is not None or img.height_cm is not None
+        target_width = Cm(img.width_cm) if img.width_cm is not None else None
+        shape = par.add_run().add_picture(str(local_path), width=target_width or Cm(_IMAGE_WIDTH_CM))
+        if has_source_extent:
+            if img.width_cm is not None:
+                shape.width = Cm(img.width_cm)
+            if img.height_cm is not None:
+                shape.height = Cm(img.height_cm)
+        elif shape.height > Cm(_IMAGE_MAX_HEIGHT_CM):
             scale = Cm(_IMAGE_MAX_HEIGHT_CM) / shape.height
             shape.height = Cm(_IMAGE_MAX_HEIGHT_CM)
             shape.width = int(shape.width * scale)
     else:
         par.add_run(f"[图片缺失: {img.url}]")
 
-    # 自动编号图注
+    # 即使图注由后续正文段落承载, 也推进计数, 确保后续图片编号稳定。
     num = numbering.next_figure() if numbering else "?"
+    if not include_caption:
+        return
     caption = _strip_caption_number(img.caption or "")
     cap = doc.add_paragraph()
     _apply_paragraph_format(cap, cap_style)
@@ -859,7 +1194,7 @@ def _export_image(doc: Document, img, template: PaperTemplate | None,
 
 
 def _export_table(doc: Document, tbl, template: PaperTemplate | None,
-                  numbering: _Numbering | None = None) -> None:
+                  numbering: _Numbering | None = None, include_caption: bool = True) -> None:
     """渲染表格 + 自动编号表注(表注在上方)。"""
     from app.models.template import PaperTemplate as _PT
 
@@ -870,10 +1205,11 @@ def _export_table(doc: Document, tbl, template: PaperTemplate | None,
     # 自动编号表注在上方
     num = numbering.next_table() if numbering else "?"
     caption = _strip_caption_number(tbl.caption or "")
-    cap = doc.add_paragraph()
-    _apply_paragraph_format(cap, cap_style)
-    run = cap.add_run(f"表 {num} {caption}".rstrip())
-    _apply_run_font(run, cap_style)
+    if include_caption:
+        cap = doc.add_paragraph()
+        _apply_paragraph_format(cap, cap_style)
+        run = cap.add_run(f"表 {num} {caption}".rstrip())
+        _apply_run_font(run, cap_style)
 
     if tbl.source_xml:
         try:
