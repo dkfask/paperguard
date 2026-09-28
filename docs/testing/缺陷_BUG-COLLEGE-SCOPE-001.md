@@ -3,7 +3,7 @@
 - 状态：已修复（本地未提交，2026-09-16）
 - 发现日期：2026-09-16
 - 严重级别：P1（组织范围越权，但不破坏本院批次闭环）
-- 复现脚本：[college_admin_lifecycle_20260916.py](./college_admin_lifecycle_20260916.py)
+- 复现脚本：[college_admin_lifecycle_20260916.py](../../college_admin_lifecycle_20260916.py)
 - 关联：BUG-COLLEGE-SCOPE-002（同一根因的发布步骤）
 
 ## 复现
