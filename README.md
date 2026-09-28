@@ -32,7 +32,8 @@
 export PAPERGUARD_ADMIN_PASSWORD='请替换为强密码'
 cd backend
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt          # 仅运行服务
+pip install -r requirements-dev.txt      # 需要跑测试时用这个(含 pytest/Pillow)
 uvicorn app.main:app --reload          # http://localhost:8000
 
 # 前端 (Node 18+)
@@ -214,7 +215,8 @@ PAPERGUARD_WORKER_ONCE=1 python -m app.worker
 
 ```bash
 cd backend
-pytest -q        # 当前 608 passed: 引擎 / docx 读写 / 模板/项目 API / 规范生命周期 / 工作流与安全回归 / 小程序认证契约
+pip install -r requirements-dev.txt   # 含 pytest/Pillow；生产镜像只装 requirements.txt
+pytest -q        # 当前 657 passed, 2 skipped: 引擎 / docx 读写 / 模板/项目 API / 规范生命周期 / 工作流与安全回归 / 小程序认证契约
 ```
 
 ## 模板与规则
