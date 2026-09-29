@@ -308,9 +308,10 @@ const activeTabKey = computed(() => {
   // review / progress / materials 都没有独立 tab，内容都在 overview 区
   return 'overview'
 })
-// 侧边栏还有 progress / materials 两个入口，二者没有独立 section，其内容分别由
-// overview 里的学生任务列表和过程材料收件箱承载。这里单独识别，只为让标题与 URL 一致。
-const panelFocused = computed(() => ['progress', 'materials'].includes(panelTarget.value))
+// 侧边栏还有 review / progress / materials 三个入口，它们都不是独立 section：
+// 内容都渲染在 overview 区，但都不该让批次配置区挡在前面——标题写着「审核台」
+// 而正文第一屏是「新建批次」，同样属于 URL/标题与内容错位。
+const panelFocused = computed(() => ['review', 'progress', 'materials'].includes(panelTarget.value))
 const workflowTabs = computed(() => {
   const tabs = [{
     key: 'overview',

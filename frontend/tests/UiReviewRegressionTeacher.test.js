@@ -122,6 +122,15 @@ describe('F-13 panel 参数不得静默失效', () => {
     expect(workflow).toMatch(/panelTarget\.value === 'materials'/)
   })
 
+  it('review 入口也必须聚焦：标题写「审核台」时正文不能先是「新建批次」', () => {
+    const workflow = read('src/views/Workflow.vue')
+    const focused = (workflow.match(/const panelFocused = computed\(\(\) => \[[^\]]*\]\.includes\(panelTarget\.value\)\)/) || [''])[0]
+    expect(focused).toContain("'review'")
+    // 批次区共 8 处判断都带 !panelFocused，review 进来后即生效
+    const guarded = (workflow.match(/activeSection === 'overview' && !panelFocused/g) || []).length
+    expect(guarded).toBeGreaterThanOrEqual(8)
+  })
+
   it('聚焦到 progress/materials 时，批次配置区必须让位', () => {
     const workflow = read('src/views/Workflow.vue')
     expect(workflow).toContain("activeSection === 'overview' && !panelFocused")
