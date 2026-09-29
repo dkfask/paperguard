@@ -207,6 +207,7 @@ watchEffect(() => {
   font-size: 13px;
   font-weight: 600;
   min-width: 0;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -214,6 +215,13 @@ watchEffect(() => {
 .shell-pending-label { color: var(--tertiary); font-size: 11px; margin-left: 4px; }
 .public-shell { min-height: 100vh; max-width: none; padding: 0; }
 .app-breadcrumbs { display: flex; align-items: center; gap: 7px; min-height: 34px; padding-top: 10px; color: var(--outline); font-size: 11px; }
+
+/* 顶栏三段的伸缩职责要分清：右侧操作区（角色徽章 / 切换语言 / 头像 / 用户名 /
+   退出登录）不允许被压扁——它们的内部项几乎都是 nowrap 且 flex:0 0 auto，
+   唯一的软性项只有用户名，一旦 user-tray 被压窄，用户名会被挤到只剩一个字。
+   因此操作区整体锁定宽度，让可压缩的职责落到面包屑上。 */
+.user-tray { flex: 0 0 auto; }
+.app-breadcrumbs { min-width: 0; overflow: hidden; }
 .app-breadcrumbs a { color: var(--primary); text-decoration: none; }
 .app-breadcrumbs a:hover { text-decoration: underline; }
 

@@ -95,8 +95,12 @@ def list_my_students(
             latest_title = latest_p.title
             last_updated = latest_p.updated_at
             for p in s_projects:
-                for b in p.blocks:
-                    total_words += len(b.content.strip()) if b.content else 0
+                # 内容块是 p.sections[].paragraphs[]，字段名是 text。
+                # 这里曾写成 p.blocks（WritingProject 上不存在该属性），
+                # 在批次来源的学生首次进入循环前从未暴露，生产因此 500。
+                for section in p.sections:
+                    for para in section.paragraphs:
+                        total_words += len(para.text.strip()) if para.text else 0
 
         sources = ["cohort"] if student_id in cohort_student_ids else []
         if has_account_binding:

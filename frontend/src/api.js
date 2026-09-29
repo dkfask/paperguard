@@ -29,6 +29,11 @@ function detailMessage(payload, fallback) {
   if (value && typeof value === 'object') {
     if (typeof value.message === 'string') return value.message
     if (typeof value.detail === 'string') return value.detail
+    // 空对象/空数组表示「没解析出任何错误信息」（例如后端 500 或反代返回
+    // 非 JSON 文本，resp.json() 解析失败后回退成 {}），不是错误内容本身。
+    // 此前会走到 JSON.stringify，把字面量 "{}" 当成错误信息显示给用户。
+    const isEmpty = Array.isArray(value) ? value.length === 0 : Object.keys(value).length === 0
+    if (isEmpty) return fallback
     try { return JSON.stringify(value) } catch { return fallback }
   }
   return fallback
