@@ -77,8 +77,25 @@ class RoleCertificationRequest(BaseModel):
     organization_context: dict[str, str] = Field(default_factory=dict)
 
 
+def _require_unselected_user(user: dict) -> None:
+    """学校身份认证只服务「尚未选定学校角色」的 user。
+
+    缺这道前置条件时，认证自助流程对任何已登录角色都是敞开的：
+      - POST 走 role=user 分支会**立刻**把正式教师/学生的 role 覆写成 user、
+        status 置 active、application 置 approved，全程不经过任何审批；
+      - POST 走 role=student/teacher 分支会把调用者塞进管理员审批队列，
+        而审批端点会把 target["role"] 直接改成 requested_role，
+        于是「申请更高角色」这条路对已获批账号同样成立；
+      - GET 不做作用域过滤，会把全量学校/学院组织树吐给任何登录用户。
+    认证是一次性动作，角色一旦是 student/teacher/admin 就不该再进这条流程。
+    """
+    if user.get("role") != "user":
+        raise HTTPException(status_code=403, detail="当前角色无需学校身份认证")
+
+
 @router.get("/role-certification")
 def role_certification_options(user: dict = Depends(current_user), store: Store = Depends(get_store)) -> dict:
+    _require_unselected_user(user)
     units = [
         {"id": unit.id, "name": unit.name, "type": unit.type.value, "parent_id": unit.parent_id}
         for unit in store.list_organization_units()
@@ -97,6 +114,7 @@ def role_certification_options(user: dict = Depends(current_user), store: Store 
 def submit_role_certification(req: RoleCertificationRequest,
                               user: dict = Depends(current_user),
                               store: Store = Depends(get_store)) -> dict:
+    _require_unselected_user(user)
     role = req.role.strip().lower()
     if role not in {"user", "student", "teacher"}:
         raise HTTPException(status_code=422, detail="角色只能是 user、student 或 teacher")

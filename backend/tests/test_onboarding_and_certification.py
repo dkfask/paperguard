@@ -214,7 +214,10 @@ def test_role_certification_rejects_unknown_role_and_bad_school() -> None:
         json={"username": username, "password": password, "role": "user", "display_name": "待认证用户2"},
     )
     user_id = resp.json()["id"]
-    _set_user_state(user_id, role_application_status="unselected")
+    # 无邮箱注册时 register_user 会把 target_role 降级成 student
+    # （app/auth.py:141-149），所以这里要显式改回 user+unselected，
+    # 否则调用者不是未认证 user，会先被准入检查 403 拦下，测不到输入校验。
+    _set_user_state(user_id, role="user", role_application_status="unselected", status="active")
 
     token = _login(username, password)["token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -290,3 +293,139 @@ def test_email_registration_never_silently_downgrades(monkeypatch) -> None:
     assert code in {"EMAIL_NOT_CONFIGURED", "EMAIL_CODE_REQUIRED", "EMAIL_CODE_INVALID"}, resp.text
     # 确认库里没有因此多出一个降级账号
     assert Store().get_user_by_username(f"nomail_{resp.json().get('detail', {}).get('code', '')}") is None
+
+
+# --------------------------------------------------------------------------
+# /role-certification 的准入（第九轮发现的越权）
+# --------------------------------------------------------------------------
+
+def test_role_certification_rejects_non_user_roles() -> None:
+    """已获批角色不得进入身份认证自助流程 —— 这是本轮修掉的越权。
+
+    修复前 POST /api/auth/role-certification 只有 current_user 一道校验，
+    任何已登录角色都能调用，且：
+      - role=user 分支会**立刻**把 role 覆写成 user、status 置 active、
+        application 置 approved，不经任何审批（生产实测：正式教师被自己
+        一次 POST 降成 user）；
+      - role=student/teacher 分支会把调用者塞进管理员审批队列，
+        而审批端点会把 target["role"] 直接改成 requested_role。
+    """
+    username = f"cert_{uuid.uuid4().hex[:8]}"
+    password = _gen_password()
+    info = _register_student(username, password)
+    assert info["role"] == "student", f"前置条件：应注册为 student，实际 {info}"
+
+    token = _login(username, password)["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1) role=user 分支：修复前会把学生改成 user
+    downgrade = client.post("/api/auth/role-certification", headers=headers, json={"role": "user"})
+    assert downgrade.status_code == 403, f"已获批学生不得走 role=user 分支：{downgrade.text}"
+
+    # 2) role=teacher 分支：修复前会把调用者送进管理员审批队列
+    escalate = client.post(
+        "/api/auth/role-certification",
+        headers=headers,
+        json={"role": "teacher", "organization_context": {"school_id": _school_id()}},
+    )
+    assert escalate.status_code == 403, f"已获批学生不得申请教师角色：{escalate.text}"
+
+    # 3) 角色与认证状态必须原封不动
+    me = client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200, me.text
+    body = me.json()
+    assert body["role"] == "student", f"角色被改写了：{body}"
+    assert body["status"] == "active"
+    assert not body.get("requested_role"), f"不应留下待审申请：{body}"
+
+
+def test_role_certification_teacher_is_also_locked_out() -> None:
+    """教师同样不能进这条流程 —— 生产实测中被自己降级的那一类。"""
+    username = f"certt_{uuid.uuid4().hex[:8]}"
+    password = _gen_password()
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": username, "password": password, "role": "teacher",
+              "display_name": "认证越权测试教师"},
+    )
+    assert resp.status_code == 201, resp.text
+    _set_user_state(resp.json()["id"], status="active")
+
+    token = _login(username, password)["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    down = client.post("/api/auth/role-certification", headers=headers, json={"role": "user"})
+    assert down.status_code == 403, down.text
+    assert client.get("/api/auth/me", headers=headers).json()["role"] == "teacher"
+
+
+def test_role_certification_options_do_not_leak_org_tree() -> None:
+    """GET 选项列表对已获批角色返回 403。
+
+    修复前它对任何登录用户返回**全量**学校/学院组织树（无作用域过滤），
+    生产有真实数据时任何学生都能枚举全校组织结构。
+    """
+    username = f"certl_{uuid.uuid4().hex[:8]}"
+    password = _gen_password()
+    _register_student(username, password)
+    token = _login(username, password)["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    leak = client.get("/api/auth/role-certification", headers=headers)
+    assert leak.status_code == 403, f"已获批角色不得读取认证选项：{leak.text}"
+    assert "organizations" not in leak.json()
+
+
+def test_unselected_user_still_keeps_the_legit_flow() -> None:
+    """前置条件不能把正常流程一起挡掉：unselected 的 user 必须仍能认证。
+
+    这条是防「越权修过头」的对冲用例。
+    """
+    username = f"certok_{uuid.uuid4().hex[:8]}"
+    password = _gen_password()
+    info = _register_student(username, password)
+    _set_user_state(
+        info["id"], role="user", role_application_status="unselected",
+        status="active", organization_context={},
+    )
+
+    token = _login(username, password)["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    options = client.get("/api/auth/role-certification", headers=headers)
+    assert options.status_code == 200, options.text
+    assert options.json()["application_status"] == "unselected"
+
+    submit = client.post(
+        "/api/auth/role-certification",
+        headers=headers,
+        json={"role": "student", "organization_context": {"school_id": _school_id()}},
+    )
+    assert submit.status_code == 200, submit.text
+    body = submit.json()
+    assert body["role"] == "user", "认证期间角色不应被改写，只是登记待审申请"
+    assert body["role_application_status"] == "pending"
+    assert body["requested_role"] == "student"
+
+    # 选 user 表示放弃学校身份认证：应立即生效并置 approved
+    give_up = client.post("/api/auth/role-certification", headers=headers, json={"role": "user"})
+    assert give_up.status_code == 200, give_up.text
+    assert give_up.json()["role_application_status"] == "approved"
+
+
+def test_rejected_user_can_reapply() -> None:
+    """被驳回后 role 仍是 user，应当还能重新提交 —— 不能被前置条件误伤。"""
+    username = f"certr_{uuid.uuid4().hex[:8]}"
+    password = _gen_password()
+    info = _register_student(username, password)
+    _set_user_state(info["id"], role="user", role_application_status="rejected", status="active")
+
+    token = _login(username, password)["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    again = client.post(
+        "/api/auth/role-certification",
+        headers=headers,
+        json={"role": "student", "organization_context": {"school_id": _school_id()}},
+    )
+    assert again.status_code == 200, f"驳回后应能重新申请：{again.text}"
+    assert again.json()["role_application_status"] == "pending"

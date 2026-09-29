@@ -44,6 +44,11 @@ router.beforeEach(async (to) => {
   if (auth.token && auth.user?.role === 'user' && auth.user?.role_application_status === 'unselected' && to.path !== '/role-certification') {
     return { path: '/role-certification' }
   }
+  // 反向也要守：认证是一次性动作，角色已经是 student/teacher/admin 的账号
+  // 不该再进这个页面（后端已同步返回 403，这里只负责不给入口）。
+  if (auth.token && to.path === '/role-certification' && auth.user?.role !== 'user') {
+    return { path: homePath(auth.user) }
+  }
   const requiresFirstLogin = auth.token
     && auth.user?.role === 'student'
     && auth.user?.onboarding_required === true
