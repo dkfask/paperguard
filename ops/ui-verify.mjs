@@ -83,7 +83,9 @@ const screenshotDir = resolvePath(
 const sourceRevision = process.env.PAPERGUARD_UAT_SOURCE_REVISION || 'unknown'
 const navigationTimeout = Number(process.env.PAPERGUARD_UAT_NAV_TIMEOUT_MS || 20000)
 
-const roles = [
+// 待验证的角色。**不强制每种都提供**——实际排查时手上往往只有一个账号，
+// 硬性要求教师+学生齐备只会让人把脚本整个绕开。所有都没提供才报错。
+const allRoles = [
   {
     key: 'teacher',
     username: process.env.PAPERGUARD_UAT_TEACHER_USERNAME || '',
@@ -95,6 +97,7 @@ const roles = [
     password: process.env.PAPERGUARD_UAT_STUDENT_PASSWORD || '',
   },
 ]
+const roles = allRoles.filter((r) => r.username && r.password)
 
 // 可选：两个引导页各需**不同状态**的账号，用一个账号覆盖两页必然一头被重定向。
 //   /first-login         → role=student 且 onboarding_required（邮箱未验证等）
@@ -129,13 +132,23 @@ if (/[@?#]/.test(baseUrl)) {
   die('input.base_url', 'the base URL must not contain credentials, a query, or a fragment')
 }
 if (!/^https?:\/\//.test(baseUrl)) die('input.base_url', `unsupported scheme in ${baseUrl}`)
+if (roles.length === 0) {
+  die(
+    'input.roles',
+    'no role credentials provided; set at least one of ' +
+      'PAPERGUARD_UAT_TEACHER_USERNAME/PASSWORD or PAPERGUARD_UAT_STUDENT_USERNAME/PASSWORD',
+  )
+}
 for (const role of roles) {
-  if (!role.username || !role.password) {
-    die(`input.${role.key}`, `PAPERGUARD_UAT_${role.key.toUpperCase()}_USERNAME/PASSWORD are required`)
-  }
   if (role.password.length < 8) {
     die(`input.${role.key}`, `the ${role.key} password looks like a placeholder (shorter than 8 chars)`)
   }
+}
+for (const missing of allRoles.filter((r) => !r.username || !r.password)) {
+  process.stdout.write(
+    `note: skipping the ${missing.key} pass — set ` +
+      `PAPERGUARD_UAT_${missing.key.toUpperCase()}_USERNAME/PASSWORD to include it\n`,
+  )
 }
 if (baseUrl.startsWith('http://') && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/)/.test(baseUrl)) {
   if (!allowPlaintext) {
