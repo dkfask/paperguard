@@ -86,9 +86,33 @@ describe('F-14 不得向无权角色展示必然 403 的按钮', () => {
 })
 
 describe('F-13 panel 参数不得静默失效', () => {
-  it('activeSection 必须处理 review', () => {
+  it('review 不得再被映射到 submissions（那会让 URL 写 review 却高亮「提交与归档」）', () => {
     const workflow = read('src/views/Workflow.vue')
-    expect(workflow).toMatch(/panelTarget\.value === 'review'/)
+    // 只取 activeSection 自身的函数体，避免把相邻 computed 的注释一起圈进来
+    const activeSectionBody = (workflow.match(/const activeSection = computed\(\(\) => \{[\s\S]*?\n\}\)/) || [''])[0]
+    expect(activeSectionBody).not.toBe('')
+    // 注释里可以解释历史，但可执行语句不得再出现 review -> submissions 的映射
+    const executable = activeSectionBody.replace(/\/\/[^\n]*/g, '')
+    expect(executable).not.toMatch(/'review'/)
+    // review 的内容由 overview 区承载，必须落回 overview
+    expect(executable).toMatch(/return 'overview'/)
+  })
+
+  it('tab 高亮必须按 URL 语义单独计算，不能直接复用 activeSection', () => {
+    const workflow = read('src/views/Workflow.vue')
+    // 教师/学生的「待审核」与 overview 共用 section，tab key 才是 'overview'
+    expect(workflow).toContain('const activeTabKey = computed')
+    expect(workflow).toContain("if (panel === 'messages') return 'messages'")
+    expect(workflow).toContain("if (panel === 'submissions' || panel === 'archives') return canManage.value ? 'archives' : 'submissions'")
+    // 模板高亮条件已从 section 改为 tab key
+    expect(workflow).toContain(':class="{ active: activeTabKey === tab.key }"')
+    expect(workflow).not.toContain(':class="{ active: activeSection === tab.section }"')
+  })
+
+  it('review 入口的标题必须是审核语义', () => {
+    const workflow = read('src/views/Workflow.vue')
+    expect(workflow).toMatch(/panelTarget\.value === 'review' \? t\('review\.pending'\)/)
+    expect(workflow).toMatch(/panelTarget\.value === 'review' \? t\('workspace\.reviewDesk'\)/)
   })
 
   it('progress / materials 必须被显式识别并驱动标题', () => {

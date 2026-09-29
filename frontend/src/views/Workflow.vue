@@ -20,8 +20,8 @@
         :key="tab.key"
         type="button"
         class="workflow-tab"
-        :class="{ active: activeSection === tab.section }"
-        :aria-current="activeSection === tab.section ? 'page' : undefined"
+        :class="{ active: activeTabKey === tab.key }"
+        :aria-current="activeTabKey === tab.key ? 'page' : undefined"
         @click="selectSection(tab.key)"
       >
         <span class="material-symbols-outlined" aria-hidden="true">{{ tab.icon }}</span>
@@ -289,10 +289,23 @@ const panelTarget = computed(() => String(route.query.panel || ''))
 const activeSection = computed(() => {
   if (panelTarget.value === 'messages') return 'messages'
   if (panelTarget.value === 'reports' && canManage.value) return 'reports'
-  // 侧边栏「审核中心」指向的就是提交审核队列，它挂在 submissions 区（教师为审核队列，
-  // 管理员为提交与归档）。不映射会导致 URL 写 review、内容却是批次与阶段。
-  if (panelTarget.value === 'review') return 'submissions'
+  // 侧边栏「待审核」指向的就是审核队列，它就渲染在 overview 区（教师 tab 的
+  // 「待审核」、管理员的批次与阶段同处一页）。这里必须落回 overview：
+  // 曾把它映射到 submissions，结果 URL 写 review、高亮的却是「提交与归档」，
+  // 内容也是提交与归档，URL 与内容依旧错位。
   if (['submissions', 'archives'].includes(panelTarget.value)) return 'submissions'
+  return 'overview'
+})
+// tab 高亮不能直接复用 activeSection：section 与 tab 不是一一对应——
+// 教师/学生的「待审核」和「我的任务」共用 overview section，两者的 tab key 都是
+// 'overview'，而 'review' 这个 URL 值对应的正是 overview 那个 tab。
+// 这里按 URL 语义单独算出应当高亮的 tab key，避免再次出现 URL 与界面错位。
+const activeTabKey = computed(() => {
+  const panel = panelTarget.value
+  if (panel === 'messages') return 'messages'
+  if (panel === 'reports') return 'reports'
+  if (panel === 'submissions' || panel === 'archives') return canManage.value ? 'archives' : 'submissions'
+  // review / progress / materials 都没有独立 tab，内容都在 overview 区
   return 'overview'
 })
 // 侧边栏还有 progress / materials 两个入口，二者没有独立 section，其内容分别由
@@ -314,8 +327,8 @@ const workflowTabs = computed(() => {
   tabs.push({ key: 'messages', section: 'messages', label: t('workflow.messages'), icon: 'notifications' })
   return tabs
 })
-const sectionKicker = computed(() => activeSection.value === 'reports' ? t('workflow.reports') : activeSection.value === 'messages' ? t('workflow.messages') : activeSection.value === 'submissions' ? t('workflow.submissionsArchives') : panelTarget.value === 'progress' ? t('workspace.studentProgressKicker') : panelTarget.value === 'materials' ? t('workflow.processInboxTitle') : canConfigure.value ? t('workflow.cohortsStages') : isTeacher.value ? t('workflow.teacherTodo') : t('workflow.myTasks'))
-const sectionTitle = computed(() => activeSection.value === 'reports' ? t('workflow.reports') : activeSection.value === 'messages' ? t('workflow.messages') : activeSection.value === 'submissions' ? t('workflow.submissionsArchives') : panelTarget.value === 'progress' ? t('workspace.studentProgress') : panelTarget.value === 'materials' ? t('sidebar.materials') : canConfigure.value ? t('workflow.cohortsStages') : isTeacher.value ? t('workflow.teacherTodo') : t('workflow.myStageTasks'))
+const sectionKicker = computed(() => activeSection.value === 'reports' ? t('workflow.reports') : activeSection.value === 'messages' ? t('workflow.messages') : activeSection.value === 'submissions' ? t('workflow.submissionsArchives') : panelTarget.value === 'review' ? t('review.pending') : panelTarget.value === 'progress' ? t('workspace.studentProgressKicker') : panelTarget.value === 'materials' ? t('workflow.processInboxTitle') : canConfigure.value ? t('workflow.cohortsStages') : isTeacher.value ? t('workflow.teacherTodo') : t('workflow.myTasks'))
+const sectionTitle = computed(() => activeSection.value === 'reports' ? t('workflow.reports') : activeSection.value === 'messages' ? t('workflow.messages') : activeSection.value === 'submissions' ? t('workflow.submissionsArchives') : panelTarget.value === 'review' ? t('workspace.reviewDesk') : panelTarget.value === 'progress' ? t('workspace.studentProgress') : panelTarget.value === 'materials' ? t('sidebar.materials') : canConfigure.value ? t('workflow.cohortsStages') : isTeacher.value ? t('workflow.teacherTodo') : t('workflow.myStageTasks'))
 const openTaskCount = computed(() => tasks.value.filter((item) => !['approved', 'archived'].includes(item.state)).length)
 const reviewQueue = computed(() => tasks.value.filter((item) => item.state === 'submitted'))
 // 归档接口为管理员专属（_ensure_manager），教师角色点下去必然 403，因此按钮只对管理者渲染。
