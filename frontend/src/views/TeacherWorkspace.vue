@@ -55,4 +55,6 @@ async function readNotification(item) {
   try { await markWorkflowNotificationRead(item.id); notifications.value = await fetchWorkflowNotifications() } catch (exception) { error.value = exception.message }
 }
 
+onMounted(load)
+
 </script>
