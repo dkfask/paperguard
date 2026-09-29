@@ -336,12 +336,12 @@
         <p class="requirements-foot">{{ t('writer.autoChecked', { count: autoRequirementCount }) }}<span v-if="checkResult">{{ t('writer.notCheckedInline', { count: checkResult.summary.not_checked || 0 }) }}</span></p>
       </div>
 
-      <div v-if="isManager() && (pendingWaivers.length || approvedWaivers.length)" class="waiver-review-panel context-panel">
+      <div v-if="canReviewRequirements && (pendingWaivers.length || approvedWaivers.length)" class="waiver-review-panel context-panel">
         <div class="requirements-head"><div><span class="eyebrow">REVIEW QUEUE</span><h3>{{ t('writer.reviewQueue') }}</h3></div><span class="snapshot-tag">{{ t('writer.countItems', { count: pendingWaivers.length + approvedWaivers.length }) }}</span></div>
         <div v-for="waiver in pendingWaivers" :key="waiver.id" class="waiver-review-row"><span>{{ t('writer.waiver', { id: waiver.requirement_item_id, reason: waiver.reason }) }}</span><span><button class="tiny" @click="decideWaiver(waiver, 'approved')">{{ t('writer.agree') }}</button><button class="tiny danger" @click="decideWaiver(waiver, 'rejected')">{{ t('writer.reject') }}</button></span></div>
         <div v-for="waiver in approvedWaivers" :key="`approved-${waiver.id}`" class="waiver-review-row approved-waiver-row"><span>{{ t('writer.approvedWaiver', { id: waiver.requirement_item_id, reason: waiver.reason }) }}</span><button class="tiny danger" @click="revokeWaiver(waiver)">{{ t('writer.revoke') }}</button></div>
       </div>
-      <div v-if="isManager() && pendingDisputes.length" class="waiver-review-panel dispute-review-panel context-panel">
+      <div v-if="canReviewRequirements && pendingDisputes.length" class="waiver-review-panel dispute-review-panel context-panel">
         <div class="requirements-head"><div><span class="eyebrow">DISPUTE QUEUE</span><h3>{{ t('writer.disputeQueue') }}</h3></div><span class="snapshot-tag">{{ t('writer.countItems', { count: pendingDisputes.length }) }}</span></div>
         <div v-for="dispute in pendingDisputes" :key="dispute.id" class="waiver-review-row"><span>{{ t('writer.dispute', { id: dispute.requirement_item_id, reason: dispute.reason }) }}</span><span><button class="tiny" @click="decideDispute(dispute, 'accepted')">{{ t('writer.accept') }}</button><button class="tiny danger" @click="decideDispute(dispute, 'rejected')">{{ t('writer.reject') }}</button></span></div>
       </div>
@@ -702,6 +702,9 @@ const disputes = ref([])
 const pendingWaivers = computed(() => waivers.value.filter((item) => item.status === 'pending'))
 const approvedWaivers = computed(() => waivers.value.filter((item) => item.status === 'approved'))
 const pendingDisputes = computed(() => disputes.value.filter((item) => item.status === 'pending'))
+// 指导教师能打开学生论文，因此也能看到该论文的豁免与申诉队列；最终审核权限仍由
+// 后端 _can_review_waiver 判定，越权时决定/撤销接口返回 403。
+const canReviewRequirements = computed(() => isManager() || auth.user?.role === 'teacher')
 
 const saveTimers = new Map()
 const saveVersions = new Map()

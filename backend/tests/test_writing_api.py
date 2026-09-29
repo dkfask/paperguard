@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 import pytest
@@ -306,6 +307,60 @@ def test_durable_project_export_failure_can_be_retried(monkeypatch):
     assert failed["status"] == "failed"
 
     retried = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry")
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["status"] == "queued"
+    output = EXPORT_DIR / f"{task['id']}.docx"
+    if output.exists():
+        output.unlink()
+
+
+def test_project_owner_can_retry_own_failed_export(monkeypatch):
+    """作者本人可以重试自己的失败导出任务，其他学生仍然被拒绝。"""
+    from app.services import export_jobs
+    from app.services.export_jobs import EXPORT_DIR
+    from app.worker import run_once
+
+    suffix = uuid.uuid4().hex[:8]
+    owner_name = f"export_owner_{suffix}"
+    other_name = f"export_other_{suffix}"
+    password = f"ExportOwner-{suffix}-8a"
+
+    for name in (owner_name, other_name):
+        registered = client.post("/api/auth/register", json={
+            "username": name, "password": password, "display_name": "导出作者",
+        })
+        assert registered.status_code == 201, registered.text
+
+    def _headers(username: str) -> dict[str, str]:
+        login = client.post("/api/auth/login", json={"username": username, "password": password})
+        assert login.status_code == 200, login.text
+        return {"Authorization": f"Bearer {login.json()['token']}"}
+
+    owner = _headers(owner_name)
+    other = _headers(other_name)
+
+    created = client.post("/api/projects", json={
+        "template_id": "default-gb7713", "title": "作者自己的论文",
+    }, headers=owner)
+    assert created.status_code == 201, created.text
+    project_id = created.json()["id"]
+
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true", headers=owner)
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+
+    def fail_export(*_args, **_kwargs):
+        raise RuntimeError("synthetic owner retry failure")
+
+    monkeypatch.setattr(export_jobs, "export_project_to_docx", fail_export)
+    failed_run = run_once()
+    assert task["job_id"] in {item["job_id"] for item in failed_run["exports"]["failed"]}
+
+    # 旁路学生看不到该项目，重试必须 404。
+    assert client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry", headers=other).status_code == 404
+
+    # 作者本人重试自己的失败任务应放行。
+    retried = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry", headers=owner)
     assert retried.status_code == 200, retried.text
     assert retried.json()["status"] == "queued"
     output = EXPORT_DIR / f"{task['id']}.docx"

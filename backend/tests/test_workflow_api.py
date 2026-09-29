@@ -668,6 +668,71 @@ def test_active_teacher_can_configure_only_their_scoped_workflow():
     assert client.get("/api/reports/cohorts/unknown", headers=teacher_headers).status_code == 403
 
 
+def test_supervising_teacher_can_extend_only_own_student_deadline():
+    """指导教师可以给自己学生的阶段任务延期，但延不了别人指导的学生。"""
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+
+    outsider_name = f"extension_outsider_{suffix}"
+    outsider_password = _password("ExtensionOutsider")
+    outsider_account = client.post("/api/auth/register", json={
+        "username": outsider_name, "password": outsider_password, "role": "teacher", "display_name": "无关教师",
+    })
+    assert outsider_account.status_code == 201, outsider_account.text
+    outsider_id = outsider_account.json()["id"]
+    assert client.put(f"/api/auth/admin/users/{outsider_id}/role-status", headers=admin,
+                      json={"role": "teacher", "status": "active"}).status_code == 200
+    outsider = _login(outsider_name, outsider_password)
+
+    organization = client.post("/api/organizations", headers=admin, json={
+        "id": f"extension-school-{suffix}", "name": "教师延期测试学校", "type": "school",
+    })
+    assert organization.status_code == 201, organization.text
+    cohort = client.post("/api/cohorts", headers=admin, json={
+        "name": "教师延期批次", "organization_id": organization.json()["id"],
+    })
+    assert cohort.status_code == 201, cohort.text
+    assert client.post(f"/api/cohorts/{cohort.json()['id']}/members", headers=admin, json={
+        "student_id": student_id, "teacher_id": teacher_id,
+    }).status_code == 201
+
+    now = datetime.now(timezone.utc)
+    stage = client.post(f"/api/cohorts/{cohort.json()['id']}/stages", headers=admin, json={
+        "key": "extendable", "name": "可延期阶段", "open_at": (now - timedelta(minutes=1)).isoformat(),
+        "deadline_at": (now + timedelta(days=2)).isoformat(),
+    })
+    assert stage.status_code == 201, stage.text
+    assert client.post(f"/api/stages/{stage.json()['id']}/publish", headers=admin).status_code == 200
+    participant = client.get("/api/my-tasks", headers=student).json()[0]
+
+    # 非指导教师的教师看不到该批次，_participant_access 会 fail-closed 返回 404 而不是 403，
+    # 以免通过状态码差异泄露批次是否存在。
+    denied = client.put(f"/api/stage-participants/{participant['id']}/extension", headers=outsider, json={
+        "effective_deadline_at": (now + timedelta(days=5)).isoformat(), "reason": "越权延期",
+    })
+    assert denied.status_code == 404, denied.text
+
+    # 学生本人也不得给自己延期
+    assert client.put(f"/api/stage-participants/{participant['id']}/extension", headers=student, json={
+        "effective_deadline_at": (now + timedelta(days=5)).isoformat(), "reason": "自行延期",
+    }).status_code == 403
+
+    # 指导教师延期自己的学生应放行
+    extended = client.put(f"/api/stage-participants/{participant['id']}/extension", headers=teacher, json={
+        "effective_deadline_at": (now + timedelta(days=5)).isoformat(), "reason": "实习安排冲突",
+    })
+    assert extended.status_code == 200, extended.text
+    assert extended.json()["effective_deadline_at"].startswith(
+        (now + timedelta(days=5)).isoformat(timespec="seconds")[:16])
+    assert extended.json()["extension"]["approved_by"]
+
+    # 早于现有截止时间仍应被拒
+    assert client.put(f"/api/stage-participants/{participant['id']}/extension", headers=teacher, json={
+        "effective_deadline_at": (now + timedelta(days=1)).isoformat(), "reason": "试图提前",
+    }).status_code == 422
+
+
 def test_process_material_gate_requires_real_record_and_similarity_classification():
     admin = _login("admin", "TestAdminPassword123")
     teacher, student, teacher_id, student_id = _create_people(admin)

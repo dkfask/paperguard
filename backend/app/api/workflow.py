@@ -1261,7 +1261,8 @@ def acknowledge_task(participant_id: str, payload: dict, store: Store = Depends(
 
 @router.put("/stage-participants/{participant_id}/extension")
 def extend_deadline(participant_id: str, req: ExtensionRequest, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
-    _ensure_manager(user)
+    # 教师可为自己指导的学生延期；_participant_access 继续把教师限制在有效指导关系内。
+    _ensure_manager(user, workflow=True)
     participant, stage, cohort, _ = _participant_access(store, user, participant_id)
     effective = _parse_time(req.effective_deadline_at, "延期截止时间", required=True)
     current = _parse_time(participant.get("effective_deadline_at", ""), "现有截止时间")

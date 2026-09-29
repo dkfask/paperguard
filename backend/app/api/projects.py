@@ -1582,12 +1582,13 @@ def get_project_export_job(proj_id: str, export_id: str, store: Store = Depends(
 @router.post("/{proj_id}/export-jobs/{export_id}/retry")
 def retry_project_export_job(proj_id: str, export_id: str, store: Store = Depends(get_store),
                              user: dict = Depends(current_user)) -> dict:
-    if not can_manage(user):
-        raise HTTPException(status_code=403, detail="仅教师或管理员可以重试导出任务")
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     assert_resource_read(store, user, "project", proj)
+    # 导出失败时作者需要自救；教师与管理员保留原有的跨项目重试权限。
+    if not can_manage(user) and proj.owner_id != user["id"]:
+        raise HTTPException(status_code=403, detail="仅项目所有者或教师、管理员可以重试导出任务")
     record = store.get_workflow_record("project_export", export_id)
     if not record or record.get("project_id") != proj_id:
         raise HTTPException(status_code=404, detail="导出任务不存在")

@@ -118,7 +118,7 @@
           <div class="reference-list"><div v-for="item in processCatalog.reference" :key="item.artifact_type" class="reference-row"><div><strong>{{ item.name }}</strong><span>{{ item.phase }}</span></div><small>{{ item.source }}</small></div></div>
         </section>
       <MemberImportWizard
-        v-if="canManage && selectedCohort && activeSection === 'overview'"
+        v-if="canConfigure && selectedCohort && activeSection === 'overview'"
         v-model="memberImportText"
         :rows="memberImportRows"
         :result="memberImportResult"
