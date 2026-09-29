@@ -174,4 +174,26 @@ describe('F-18 / F-20 路由标题与角色门禁', () => {
     expect(policies).toContain('v-if="canUseTemplates"')
     expect(policies).toContain('v-if="canViewAudit"')
   })
+
+  it('模板页「相关入口」同样不得对无权角色显示审计链接', () => {
+    // F-20 的漏网：先修了 Policies.vue，Templates.vue 的同名链接被漏掉
+    const templates = read('src/views/Templates.vue')
+    expect(templates).toContain('v-if="canViewAudit" to="/audit"')
+    expect(templates).toContain("const canViewAudit = computed(() => ['admin', 'college_admin']")
+  })
+
+  it('教师能到达的页面不得出现无条件的审计链接', () => {
+    // 只检查教师真实可到达的页面。Cohorts/Operations/AdminWorkspace 也有无条件的
+    // /audit 链接，但它们分别被路由 roles（/cohorts、/operations）与
+    // Workspace.vue 的角色分发挡住，教师根本进不去那些页面，不属于本缺陷。
+    const teacherReachable = ['src/views/Policies.vue', 'src/views/Templates.vue']
+    const offenders = []
+    for (const file of teacherReachable) {
+      for (const line of read(file).split('\n')) {
+        if (!line.includes('to="/audit"')) continue
+        if (!line.includes('v-if')) offenders.push(`${file}: ${line.trim().slice(0, 60)}`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
 })
