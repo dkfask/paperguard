@@ -259,6 +259,28 @@ def _current_supervision(store: Store, cohort_id: str, student_id: str, now: dat
     return None
 
 
+def supervised_student_ids(store: Store, teacher_id: str) -> dict[str, str]:
+    """当前生效的「批次指导」关系：student_id -> cohort_id。
+
+    批次级指导关系存在 supervision 记录里，与账号级的 users.teacher_id 是两套独立机制。
+    教师工作台按前者取学生，「指导学生」页按后者取学生，两者长期不一致：
+    批次里指派给某教师的学生不会出现在其指导学生列表里，页面静默显示「暂无关联学生」。
+    这里对外暴露只读查询，供指导学生列表补全批次来源的学生。
+    """
+    now = datetime.now(timezone.utc)
+    result: dict[str, str] = {}
+    for item in store.list_workflow_records("supervision"):
+        if item.get("teacher_id") != teacher_id:
+            continue
+        cohort_id = item.get("cohort_id", "")
+        student_id = item.get("student_id", "")
+        if not cohort_id or not student_id or student_id in result:
+            continue
+        if _current_supervision(store, cohort_id, student_id, now) is not None:
+            result[student_id] = cohort_id
+    return result
+
+
 def _stage_config(store: Store, stage: dict) -> dict:
     return _must(store, "stage_config", stage["config_version_id"], "阶段配置")
 

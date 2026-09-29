@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.workflow import supervised_student_ids
 from app.auth import current_user, hash_password, require_manager
 from app.db import Store
 
@@ -56,13 +57,33 @@ def list_my_students(
     user: dict = Depends(require_manager),
     store: Store = Depends(lambda: Store()),
 ):
-    """获取当前教师指导的学生列表，同时附带学生论文项目的简要进度统计。"""
-    students = store.list_students_by_teacher(user["id"])
+    """获取当前教师指导的学生列表，同时附带学生论文项目的简要进度统计。
+
+    学生集合来自两个互相独立的绑定机制，这里合并返回并标注来源：
+      - account：users.teacher_id，教师在「指导学生」页批量导入时写入，
+        这是账号级绑定，也是重置密码/解绑所校验的依据；
+      - cohort：批次级 supervision 记录，建批配置成员时写入，
+        教师工作台的「学生进度」按它取数。
+
+    两者不一致时教师会在同一系统里看到两套学生集合，页面还会静默显示
+    「暂无关联学生」。因此这里把批次来源的学生一并列出，但 can_manage_account
+    只在账号级绑定成立时为 True —— 重置密码与解绑的权限语义保持不变。
+    """
+    account_students = {s["id"]: s for s in store.list_students_by_teacher(user["id"])}
+    cohort_student_ids = supervised_student_ids(store, user["id"])
     all_projects = store.list_projects()
 
+    ordered_ids = list(account_students)
+    ordered_ids += [sid for sid in cohort_student_ids if sid not in account_students]
+
     result = []
-    for s in students:
-        s_projects = [p for p in all_projects if p.owner_id == s["id"]]
+    for student_id in ordered_ids:
+        s = account_students.get(student_id) or store.get_user(student_id)
+        if not s:
+            # 指导关系指向了已删除的账号，跳过而不是渲染空行
+            continue
+        has_account_binding = student_id in account_students
+        s_projects = [p for p in all_projects if p.owner_id == student_id]
         # 统计字数和最新更新时间
         total_words = 0
         latest_title = ""
@@ -77,6 +98,9 @@ def list_my_students(
                 for b in p.blocks:
                     total_words += len(b.content.strip()) if b.content else 0
 
+        sources = ["cohort"] if student_id in cohort_student_ids else []
+        if has_account_binding:
+            sources.insert(0, "account")
         result.append({
             "id": s["id"],
             "username": s["username"],
@@ -87,6 +111,10 @@ def list_my_students(
             "latest_project_title": latest_title,
             "total_words": total_words,
             "last_updated": last_updated,
+            "relation_sources": sources,
+            "cohort_id": cohort_student_ids.get(student_id, ""),
+            # 重置密码与解绑校验的是 users.teacher_id，批次来源不满足，保持原权限语义
+            "can_manage_account": has_account_binding,
         })
 
     return {"students": result, "total": len(result)}
