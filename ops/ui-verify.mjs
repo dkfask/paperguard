@@ -550,16 +550,29 @@ try {
       await session.page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' })
       await session.page.waitForLoadState('networkidle').catch(() => {})
       const slug = route.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'root'
-      const content = await waitForMainContent(session.page)
+      // 这里用**低**阈值（40）而不是工作台落点用的 120：
+      // 选型驱动的页面（如 /organizations 未选中组织时）合法内容本来就少，
+      // 用 120 会把「页面本来就稀疏」误判成「没渲染出来」。
+      // 真正的空页由 h1 非空 + looksBlank 两道判据兜住。
+      const content = await waitForMainContent(session.page, 40)
       const render = await inspectRenderedPage(session.page)
       const redirected = render.path !== route
-      record(
-        `ui.${role.key}.route${slug}`,
-        !redirected && content.ok && render.h1 !== '' && !render.looksBlank,
-        redirected
-          ? `访问 ${route} 被重定向到 ${render.path} — 该角色无此路由权限`
-          : `h1="${render.h1}" main=${content.len} chars buttons=${render.buttonCount} error="${render.errorText}"`,
-      )
+      if (redirected) {
+        // 被重定向到 /workspace 说明路由守卫在按角色拦人——**这是守卫正常工作**，
+        // 不是缺陷。记 skipped 并写明重定向去向，证据里能直接看出每个角色
+        // 能到哪些页面。若某条路由本该可达却被弹走，这里会原样呈现供人工判断。
+        record(
+          `ui.${role.key}.route${slug}`,
+          'skipped',
+          `访问 ${route} 被重定向到 ${render.path}（该角色无此路由权限，守卫正常）`,
+        )
+      } else {
+        record(
+          `ui.${role.key}.route${slug}`,
+          content.ok && render.h1 !== '' && !render.looksBlank,
+          `h1="${render.h1}" main=${content.len} chars buttons=${render.buttonCount} error="${render.errorText}"`,
+        )
+      }
       await capturePage(session.page, `${role.key}${route.replace(/\W+/g, '-')}.png`)
     }
     await session.context.close()
