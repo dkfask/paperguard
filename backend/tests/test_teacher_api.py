@@ -272,5 +272,120 @@ def test_teacher_students_word_count_covers_both_binding_sources(admin_token, mo
     assert cohort_row["project_count"] == 1
     assert cohort_row["relation_sources"] == ["cohort"]
     assert cohort_row["cohort_id"] == cohort_id
-    # 批次来源不满足 users.teacher_id，不能重置密码/解绑
+    # 批次来源没有账号绑定，因此不能解绑；但重置密码认两种指导来源
     assert cohort_row["can_manage_account"] is False
+    assert cohort_row["can_reset_password"] is True
+    assert account_row["can_reset_password"] is True
+
+
+def _activate_teacher(client_, username: str, password: str, admin_tok: str) -> tuple[str, str]:
+    """注册并激活一个教师，返回 (user_id, token)。"""
+    reg = client_.post(
+        "/api/auth/register",
+        json={"username": username, "password": password, "role": "teacher", "display_name": "回归教师"},
+    )
+    assert reg.status_code == 201, reg.text
+    teacher_id = reg.json()["id"]
+    approve = client_.put(
+        f"/api/auth/admin/users/{teacher_id}/role-status",
+        headers={"Authorization": f"Bearer {admin_tok}"},
+        json={"role": "teacher", "status": "active"},
+    )
+    assert approve.status_code == 200, approve.text
+    login = client_.post("/api/auth/login", json={"username": username, "password": password})
+    assert login.status_code == 200, login.text
+    return teacher_id, login.json()["token"]
+
+
+def test_teacher_can_reset_password_for_cohort_supervised_student(admin_token, monkeypatch):
+    """批次指导的学生，教师应能重置其密码；非本人指导的仍然 403。
+
+    F-15 之前只认 users.teacher_id，于是出现「教师看得到学生的论文与进度，
+    却管不了这个账号」的不一致。经产品决策，两种正式指导关系都授权重置密码，
+    但解绑仍只认账号绑定。
+    """
+    from app.api import teacher as teacher_module
+
+    teacher_username = f"prof_{uuid.uuid4().hex[:6]}"
+    teacher_pw = _gen_password()
+    teacher_id, teacher_token = _activate_teacher(client, teacher_username, teacher_pw, admin_token)
+
+    # 批次指导学生：没有 users.teacher_id，只在 supervision 里
+    stu_reg = client.post(
+        "/api/auth/register",
+        json={
+            "username": f"stu_{uuid.uuid4().hex[:6]}",
+            "password": _gen_password(),
+            "role": "student",
+            "display_name": "批次指导学生",
+        },
+    )
+    assert stu_reg.status_code == 201, stu_reg.text
+    cohort_student_id = stu_reg.json()["id"]
+    assert Store().get_user(cohort_student_id).get("teacher_id") is None
+
+    monkeypatch.setattr(
+        teacher_module,
+        "supervised_student_ids",
+        lambda _store, _tid: {cohort_student_id: "cohort-x"},
+    )
+    h = {"Authorization": f"Bearer {teacher_token}"}
+
+    # 列表里该生可重置、不可解绑
+    rows = {r["id"]: r for r in client.get("/api/teacher/students", headers=h).json()["students"]}
+    assert rows[cohort_student_id]["can_reset_password"] is True
+    assert rows[cohort_student_id]["can_manage_account"] is False
+
+    new_pw = _gen_password()
+    reset = client.post(
+        f"/api/teacher/students/{cohort_student_id}/reset-password",
+        headers=h,
+        json={"new_password": new_pw, "force_change_password": True},
+    )
+    assert reset.status_code == 200, reset.text
+    assert client.post(
+        "/api/auth/login",
+        json={"username": Store().get_user(cohort_student_id)["username"], "password": new_pw},
+    ).status_code == 200
+
+    # 解绑仍拒绝：批次关系不是这个端点能解除的
+    unbind = client.delete(f"/api/teacher/students/{cohort_student_id}", headers=h)
+    assert unbind.status_code == 403, unbind.text
+
+    # 与该教师无任何指导关系的学生：重置必须 403
+    other_reg = client.post(
+        "/api/auth/register",
+        json={
+            "username": f"stu_{uuid.uuid4().hex[:6]}",
+            "password": _gen_password(),
+            "role": "student",
+            "display_name": "无关学生",
+        },
+    )
+    other_id = other_reg.json()["id"]
+    monkeypatch.setattr(teacher_module, "supervised_student_ids", lambda _store, _tid: {})
+    denied = client.post(
+        f"/api/teacher/students/{other_id}/reset-password",
+        headers=h,
+        json={"new_password": _gen_password(), "force_change_password": True},
+    )
+    assert denied.status_code == 403, denied.text
+
+    # 其他教师的账号绑定学生也不可碰
+    other_teacher_id, _ = _activate_teacher(
+        client, f"prof_{uuid.uuid4().hex[:6]}", _gen_password(), admin_token
+    )
+    imported = client.post(
+        "/api/teacher/students/import",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"students": [{"username": f"stu_{uuid.uuid4().hex[:6]}", "display_name": "他人学生"}]},
+    )
+    assert imported.status_code == 200, imported.text
+    owned_id = Store().get_user_by_username(imported.json()["created"][0]["username"])["id"]
+    assert Store().get_user(owned_id)["teacher_id"] != teacher_id
+    cross = client.post(
+        f"/api/teacher/students/{owned_id}/reset-password",
+        headers=h,
+        json={"new_password": _gen_password(), "force_change_password": True},
+    )
+    assert cross.status_code == 403, cross.text

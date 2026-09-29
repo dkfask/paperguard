@@ -34,17 +34,30 @@ describe('F-15 师生绑定双源合并', () => {
     expect(teacher).toContain('"can_manage_account"')
   })
 
-  it('can_manage_account 只由账号级绑定决定，不得被批次来源置真', () => {
+  it('can_manage_account（解绑）只由账号级绑定决定，不得被批次来源置真', () => {
     const teacher = readBackend('backend/app/api/teacher.py')
-    // 重置密码/解绑校验的是 users.teacher_id，批次来源不满足
+    // 解绑解除的是 users.teacher_id 这条账号绑定，批次指导挂在 supervision 上，
+    // 不是这个端点能解除的东西，因此批次来源不能拿到解绑权限。
     expect(teacher).toMatch(/"can_manage_account":\s*has_account_binding/)
   })
 
-  it('重置密码与解绑的权限校验保持原样', () => {
+  it('can_reset_password 认两种指导来源（账号绑定或批次指导）', () => {
     const teacher = readBackend('backend/app/api/teacher.py')
-    // 这两处是安全边界，F-15 不得改动其判定条件
-    expect(teacher).toMatch(/student\.get\("teacher_id"\) != user\["id"\]/)
-    expect((teacher.match(/student\.get\("teacher_id"\) != user\["id"\]/g) || []).length).toBe(2)
+    // 经产品决策：教师本就拿得到这些学生的论文全文与进度，
+    // 却管不了初始密码会形成「看得到、管不了」的不一致，故一并授权。
+    expect(teacher).toMatch(/"can_reset_password":\s*has_account_binding or student_id in cohort_student_ids/)
+  })
+
+  it('重置密码的权限判定统一走 _is_supervised_student，不再直接比对 teacher_id', () => {
+    const teacher = readBackend('backend/app/api/teacher.py')
+    expect(teacher).toContain('def _is_supervised_student(')
+    // 两种来源任一成立即视为本人指导
+    expect(teacher).toMatch(/if student\.get\("teacher_id"\) == teacher_id:\s*\n\s*return True/)
+    expect(teacher).toContain('return student["id"] in supervised_student_ids(store, teacher_id)')
+    // 重置密码端点必须调用它
+    expect(teacher).toMatch(/not _is_supervised_student\(store, user\["id"\], student\)/)
+    // 解绑仍只认账号绑定，不能被同一个判定放宽
+    expect(teacher).toMatch(/if user\["role"\] != "admin" and student\.get\("teacher_id"\) != user\["id"\]:\s*\n\s*raise HTTPException/)
   })
 
   it('指导关系指向已删除账号时跳过，不渲染空行', () => {
@@ -52,14 +65,20 @@ describe('F-15 师生绑定双源合并', () => {
     expect(teacher).toMatch(/if not s:\s*\n\s*#[\s\S]*?continue/)
   })
 
-  it('前端标注关系来源，且只对可管理的行渲染操作按钮', () => {
+  it('前端按两个独立权限渲染重置密码与解绑', () => {
     const view = readFrontend('src/views/TeacherStudents.vue')
-    expect(view).toContain('v-if="student.can_manage_account"')
     expect(view).toContain('teacherStudents.relationAccount')
     expect(view).toContain('teacherStudents.relationCohort')
-    // 批次来源的学生不能出现重置密码/解绑入口
-    const actions = view.slice(view.indexOf('class="student-actions"'))
-    expect(actions.indexOf('can_manage_account')).toBeLessThan(actions.indexOf('resetPassword(student)'))
+    const actions = view.slice(view.indexOf('class="student-actions"'), view.indexOf('</td>', view.indexOf('class="student-actions"')))
+    // 重置密码认 can_reset_password，解绑认 can_manage_account，二者不得混用
+    expect(actions).toContain('v-if="student.can_reset_password"')
+    expect(actions).toContain('v-if="student.can_manage_account"')
+    const resetAt = actions.indexOf('resetPassword(student)')
+    const unbindAt = actions.indexOf('unbind(student)')
+    expect(actions.lastIndexOf('can_reset_password', resetAt)).toBeGreaterThan(-1)
+    expect(actions.lastIndexOf('can_manage_account', unbindAt)).toBeGreaterThan(-1)
+    // 批次来源的兜底提示只应在两个权限都没有时出现
+    expect(actions).toContain('v-if="!student.can_reset_password"')
   })
 
   it('页面解释两种关系来源的差别', () => {

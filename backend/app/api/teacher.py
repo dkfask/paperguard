@@ -16,6 +16,18 @@ from app.db import Store
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 
 
+def _is_supervised_student(store: Store, teacher_id: str, student: dict) -> bool:
+    """当前教师是否指导该学生：账号绑定或批次指导任一成立即可。
+
+    账号绑定是教师在「指导学生」页批量导入时写入 users.teacher_id；
+    批次指导是建批配置成员时写入的 supervision 记录。
+    两者都是正式指派的指导关系，权限判定统一认这两种来源。
+    """
+    if student.get("teacher_id") == teacher_id:
+        return True
+    return student["id"] in supervised_student_ids(store, teacher_id)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -66,8 +78,11 @@ def list_my_students(
         教师工作台的「学生进度」按它取数。
 
     两者不一致时教师会在同一系统里看到两套学生集合，页面还会静默显示
-    「暂无关联学生」。因此这里把批次来源的学生一并列出，但 can_manage_account
-    只在账号级绑定成立时为 True —— 重置密码与解绑的权限语义保持不变。
+    「暂无关联学生」。因此这里把批次来源的学生一并列出。
+
+    权限随来源区分：重置密码认两种指导关系（can_reset_password），
+    解绑只解账号绑定（can_manage_account）——批次指导挂在 supervision 上，
+    不是账号绑定端点能解除的东西。
     """
     account_students = {s["id"]: s for s in store.list_students_by_teacher(user["id"])}
     cohort_student_ids = supervised_student_ids(store, user["id"])
@@ -117,7 +132,11 @@ def list_my_students(
             "last_updated": last_updated,
             "relation_sources": sources,
             "cohort_id": cohort_student_ids.get(student_id, ""),
-            # 重置密码与解绑校验的是 users.teacher_id，批次来源不满足，保持原权限语义
+            # 重置密码认两种指导来源：教师本就拿得到该生的论文全文与进度，
+            # 却没有初始密码管理权会形成「看得到、管不了」的不一致。
+            "can_reset_password": has_account_binding or student_id in cohort_student_ids,
+            # 解绑只解账号绑定(users.teacher_id)。批次指导关系挂在 supervision 上，
+            # 不是这个端点能解除的东西，因此对纯批次来源不提供解绑。
             "can_manage_account": has_account_binding,
         })
 
@@ -215,8 +234,12 @@ def reset_student_password(
     if not student:
         raise HTTPException(status_code=404, detail="学生账号不存在")
 
-    # 权限校验：管理员可以重置任何学生；教师只能重置自己绑定的学生
-    if user["role"] != "admin" and student.get("teacher_id") != user["id"]:
+    # 权限校验：管理员可以重置任何学生；教师可以重置自己指导的学生。
+    # 「指导」有两套来源——账号绑定(users.teacher_id)与批次指导(supervision)。
+    # 二者都是正式指派的指导关系，教师本就拿得到这些学生的论文全文与进度
+    # （敏感度高于初始密码），因此密码重置一并认这两种来源，
+    # 避免出现「看得到学生、管不了账号」的不一致。
+    if user["role"] != "admin" and not _is_supervised_student(store, user["id"], student):
         raise HTTPException(status_code=403, detail="无权操作非本人指导的学生账号")
 
     pw_hash, salt = hash_password(req.new_password)
