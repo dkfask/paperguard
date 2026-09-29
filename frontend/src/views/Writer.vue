@@ -106,7 +106,7 @@
 
     <!-- 右侧编辑区 -->
     <section class="editor-pane">
-      <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}</div>
+      <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}<button v-if="exportJob && !exporting" class="small" @click="retryExportJob">{{ t('writer.exportRetry') }}</button></div>
       <div v-if="templateNotice" class="notice-banner">✅ {{ templateNotice }}</div>
       <div v-if="fixNotice" class="notice-banner" role="status">{{ fixNotice }}</div>
       <div v-if="recoveryUnavailable" class="hint recovery-status" role="status">{{ t('writer.recoveryUnavailable') }}</div>
@@ -636,7 +636,7 @@ import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth, isManager } from '../auth'
 import {
-  fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, restoreProjectSnapshot, createProjectExportJob, fetchProjectExportJob, downloadProjectExportJob, previewProjectExport,
+  fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, restoreProjectSnapshot, createProjectExportJob, fetchProjectExportJob, downloadProjectExportJob, retryProjectExportJob, previewProjectExport,
   checkProject, fixProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
   importProjectDocx,
   acknowledgeRequirements, assistRequirement, listRequirementWaivers, listRequirementDisputes, previewRequirementUpgrade,
@@ -665,6 +665,7 @@ const loading = ref(true)
 const saving = ref(false)
 const savedAt = ref('')
 const exporting = ref(false)
+const exportJob = ref(null)
 const exportPreview = ref(null)
 const importing = ref(false)
 const importPreview = ref(null)
@@ -1861,6 +1862,21 @@ async function applyDocxImport() {
   }
 }
 
+async function pollExportJob(jobId, initial) {
+  let current = initial
+  for (let attempt = 0; attempt < 120 && current.status !== 'succeeded'; attempt += 1) {
+    if (current.status === 'failed') {
+      throw new Error(t('writer.exportBackendFailed', { code: current.error_code || 'PROJECT_EXPORT_FAILED', id: current.id }))
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    current = await fetchProjectExportJob(projectId, jobId)
+  }
+  if (current.status !== 'succeeded') {
+    throw new Error(t('writer.exportStillProcessing', { id: jobId }))
+  }
+  await downloadProjectExportJob(projectId, jobId, current.filename || 'paper.docx')
+}
+
 async function exportDocx(force = false) {
   if (exporting.value) return
   exporting.value = true
@@ -1869,21 +1885,28 @@ async function exportDocx(force = false) {
   try {
     await flushPendingSaves()
     const task = await createProjectExportJob(projectId, force)
-    let current = task
-    for (let attempt = 0; attempt < 120 && current.status !== 'succeeded'; attempt += 1) {
-      if (current.status === 'failed') {
-        throw new Error(t('writer.exportBackendFailed', { code: current.error_code || 'PROJECT_EXPORT_FAILED', id: current.id }))
-      }
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      current = await fetchProjectExportJob(projectId, task.id)
-    }
-    if (current.status !== 'succeeded') {
-      throw new Error(t('writer.exportStillProcessing', { id: task.id }))
-    }
-    await downloadProjectExportJob(projectId, task.id, current.filename || 'paper.docx')
+    exportJob.value = task.id
+    await pollExportJob(task.id, task)
+    exportJob.value = null
   } catch (e) {
     if (e.missing && e.missing.length) missing.value = e.missing
     else error.value = e.message || t('writer.exportFailed')
+  } finally {
+    exporting.value = false
+  }
+}
+
+// 导出失败或超时后原地重试同一任务，而不是引导用户重新排队。
+async function retryExportJob() {
+  if (exporting.value || !exportJob.value) return
+  exporting.value = true
+  error.value = ''
+  try {
+    const task = await retryProjectExportJob(projectId, exportJob.value)
+    await pollExportJob(task.id, task)
+    exportJob.value = null
+  } catch (e) {
+    error.value = e.message || t('writer.exportFailed')
   } finally {
     exporting.value = false
   }

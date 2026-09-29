@@ -430,6 +430,12 @@ export async function downloadProjectExportJob(projectId, exportId, fallbackName
   await downloadBlob(resp, fallbackName)
 }
 
+export async function retryProjectExportJob(projectId, exportId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/export-jobs/${exportId}/retry`, { method: 'POST' })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '重试导出任务失败'))
+  return resp.json()
+}
+
 export async function downloadAuditEvents(filters = {}) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([key, value]) => {
@@ -786,6 +792,12 @@ export async function acknowledgeTaskRequirements(participantId, snapshotHash = 
   return workflowJson(`${API_BASE}/stage-participants/${participantId}/acknowledge`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot_hash: snapshotHash }),
   }, '确认阶段要求失败')
+}
+
+export async function extendTaskDeadline(participantId, payload) {
+  return workflowJson(`${API_BASE}/stage-participants/${participantId}/extension`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  }, '延期失败')
 }
 
 export async function createSubmissionCandidate(payload) {
