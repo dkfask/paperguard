@@ -23,6 +23,7 @@
 //
 // 可选：
 //   PAPERGUARD_UAT_ALLOW_PLAINTEXT=1   允许明文 HTTP（默认仅允许回环）
+//   PAPERGUARD_UAT_ROUTES=/audit,/operations   追加巡检指定路由并逐个取证
 //   PAPERGUARD_UAT_EVIDENCE_PATH=./ui-verification-evidence.json
 //   PAPERGUARD_UAT_SCREENSHOT_DIR=./ui-verification-screenshots
 //   PAPERGUARD_UAT_SOURCE_REVISION=<git sha>
@@ -96,6 +97,14 @@ const allRoles = [
     username: process.env.PAPERGUARD_UAT_STUDENT_USERNAME || '',
     password: process.env.PAPERGUARD_UAT_STUDENT_PASSWORD || '',
   },
+  // 管理端默认不提供凭据：生产只有一个内置 admin，那是真实凭据，
+  // 既不该取也不该凭空造。要审管理端界面请指向本地实例
+  // （ops/local-stack 的用法见文件头注释）。
+  {
+    key: 'admin',
+    username: process.env.PAPERGUARD_UAT_ADMIN_USERNAME || '',
+    password: process.env.PAPERGUARD_UAT_ADMIN_PASSWORD || '',
+  },
 ]
 const roles = allRoles.filter((r) => r.username && r.password)
 
@@ -120,6 +129,14 @@ for (const r of [firstLoginRole, certifyRole]) {
   }
 }
 const hasFirstLogin = !!(firstLoginRole.username && firstLoginRole.password)
+
+// 追加巡检的路由。用来覆盖那些「按角色才进得去、却长期没被看过」的界面
+// （/audit、/operations、/admin/* 等）—— 它们不在默认落点里，
+// 但同样是逐屏审查范围内的一部分。
+const extraRoutes = (process.env.PAPERGUARD_UAT_ROUTES || '')
+  .split(',')
+  .map((r) => r.trim())
+  .filter(Boolean)
 const hasCertify = !!(certifyRole.username && certifyRole.password)
 
 function die(code, message) {
@@ -136,7 +153,8 @@ if (roles.length === 0) {
   die(
     'input.roles',
     'no role credentials provided; set at least one of ' +
-      'PAPERGUARD_UAT_TEACHER_USERNAME/PASSWORD or PAPERGUARD_UAT_STUDENT_USERNAME/PASSWORD',
+      'PAPERGUARD_UAT_TEACHER_USERNAME/PASSWORD, PAPERGUARD_UAT_STUDENT_USERNAME/PASSWORD, ' +
+      'or PAPERGUARD_UAT_ADMIN_USERNAME/PASSWORD',
   )
 }
 for (const role of roles) {
@@ -343,6 +361,38 @@ async function assertNarrowTopbar(page, roleKey) {
   return bar
 }
 
+// 图标字体是否真的可用。
+// 这条断言是第十二轮补的：Material Symbols 图标**从未对任何用户渲染过**，
+// 而原因是应用自己的兜底逻辑（iconFont.js）用 check() 在字体被请求之前
+// 就判定「不可用」，随即打上 .pg-icons-unavailable 把所有图标 display:none，
+// 于是字体永远不会被请求——一个自我实现的死循环。
+// 视觉上它表现为纯图标按钮变成一个空方块（例如 /audit 右上角的刷新按钮），
+// 纯文本按钮则少了图标。只看接口全 200 或只读代码都发现不了。
+async function inspectIcons(page) {
+  return page.evaluate(() => {
+    const icons = [...document.querySelectorAll('.material-symbols-outlined')]
+    const visible = icons.filter((el) => getComputedStyle(el).display !== 'none')
+    const faces = [...document.fonts]
+      .filter((f) => /Material Symbols/i.test(f.family))
+      .map((f) => f.status)
+    // 只数图标会漏掉「数量为 0」的页面，所以额外量一个探针字形的实际渲染宽度：
+    // 0px 说明字体没真正生效。
+    const probe = document.createElement('span')
+    probe.className = 'material-symbols-outlined'
+    probe.textContent = 'refresh'
+    document.body.appendChild(probe)
+    const probeWidth = Math.round(probe.getBoundingClientRect().width)
+    probe.remove()
+    return {
+      total: icons.length,
+      visible: visible.length,
+      degraded: document.documentElement.classList.contains('pg-icons-unavailable'),
+      faceStatus: faces[0] || 'none',
+      probeWidth,
+    }
+  })
+}
+
 // 等主区域真正有内容再继续。
 // 教训：只用 waitUntil:'domcontentloaded' 就截图，会拍到「侧栏已渲染、主区还空白」
 // 的半成品。第一版脚本就是这么拍出了一张主区全空的工作台截图，差点被当成
@@ -464,12 +514,54 @@ try {
     const session = await runViewportPass(role, { width: 1440, height: 900 }, 1, 'wide')
     if (!session) continue
     const bar = await assertWideTopbar(session.page, `${role.key}.wide`)
+    // 图标字体从 CDN 下来实测约 5–6s，早于此时量到的是降级态而不是缺陷
+    await session.page
+      .waitForFunction(
+        () => !document.documentElement.classList.contains('pg-icons-unavailable'),
+        null,
+        { timeout: 15000 },
+      )
+      .catch(() => {})
+    const icons = await inspectIcons(session.page)
+    // 判定规则：页面**真的用了图标元素**（total > 0）才要求字体已就绪。
+    // 页面一个图标都没有时（测试 mock、某些空态页），字体是否加载与它无关，
+    // 不该因此判红——否则断言会对不相关的页面产生噪声。
+    const usesIcons = icons.total > 0
+    record(
+      `ui.${role.key}.icons.rendered`,
+      !usesIcons
+        || (!icons.degraded
+          && icons.faceStatus === 'loaded'
+          && icons.probeWidth > 0
+          && icons.visible > 0),
+      (usesIcons ? '' : '本页无图标元素，字体检查不适用；')
+        + `降级=${icons.degraded} 字体=${icons.faceStatus} 可见图标=${icons.visible}/${icons.total} ` +
+        `探针字形宽=${icons.probeWidth}px（0 表示字体没生效）`,
+    )
     await capturePage(session.page, `${role.key}-wide-1440.png`)
     record(
       `ui.${role.key}.wide.username_measured`,
       'passed',
       `width=${bar.username.width}px height=${bar.username.height}px lineBoxes=${bar.username.lineCount} text="${bar.username.text}"`,
     )
+
+    // 追加路由：逐个打开、确认真的渲染出了内容、并留截图
+    for (const route of extraRoutes) {
+      await session.page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' })
+      await session.page.waitForLoadState('networkidle').catch(() => {})
+      const slug = route.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'root'
+      const content = await waitForMainContent(session.page)
+      const render = await inspectRenderedPage(session.page)
+      const redirected = render.path !== route
+      record(
+        `ui.${role.key}.route${slug}`,
+        !redirected && content.ok && render.h1 !== '' && !render.looksBlank,
+        redirected
+          ? `访问 ${route} 被重定向到 ${render.path} — 该角色无此路由权限`
+          : `h1="${render.h1}" main=${content.len} chars buttons=${render.buttonCount} error="${render.errorText}"`,
+      )
+      await capturePage(session.page, `${role.key}${route.replace(/\W+/g, '-')}.png`)
+    }
     await session.context.close()
   }
 
