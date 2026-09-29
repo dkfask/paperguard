@@ -2,7 +2,7 @@
   <div class="workspace-page operations-page">
     <section class="workspace-hero">
       <div>
-        <p class="workspace-kicker">RUNTIME &amp; GOVERNANCE</p>
+        <p class="workspace-kicker">{{ t('operations.runtimeKicker') }}</p>
         <h1>{{ t('operations.title') }}</h1>
         <p>{{ t('operations.description') }}</p>
       </div>
@@ -25,7 +25,7 @@
       <div class="workspace-layout">
         <main class="workspace-main">
           <section class="panel">
-            <div class="panel-heading"><div><p class="workspace-kicker">{{ t('operations.probesKicker') }}</p><h2>{{ t('operations.probes') }}</h2><p>{{ t('operations.probesDetail') }}</p></div><div class="operations-heading-actions"><button class="small" type="button" :title="t('operations.backupTitle')" :disabled="backingUp" @click="backup"><span class="material-symbols-outlined">download</span>{{ backingUp ? t('operations.generating') : t('operations.generateBackup') }}</button><button class="icon-button" type="button" :title="t('operations.refresh')" :aria-label="t('operations.refresh')" :disabled="refreshing" @click="load"><span class="material-symbols-outlined">refresh</span></button></div></div>
+            <div class="panel-heading"><div><p class="workspace-kicker">{{ t('operations.probesKicker') }}</p><h2>{{ t('operations.probes') }}</h2><p>{{ t('operations.probesDetail') }}</p></div><div class="operations-heading-actions"><button class="small" type="button" :title="t('operations.backupTitle')" :disabled="backingUp" @click="backup"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ backingUp ? t('operations.generating') : t('operations.generateBackup') }}</button><button class="icon-button" type="button" :title="t('operations.refresh')" :aria-label="t('operations.refresh')" :disabled="refreshing" @click="load"><span class="material-symbols-outlined" aria-hidden="true">refresh</span></button></div></div>
             <div class="operations-status-list">
               <div class="operations-status-row"><span class="status-dot" :class="live ? 'ok' : 'error'"></span><div><strong>Web API</strong><span>/api/health/live · {{ statusText(live) }}</span></div></div>
               <div class="operations-status-row"><span class="status-dot" :class="ready ? 'ok' : 'error'"></span><div><strong>{{ t('operations.businessStorage') }}</strong><span>/api/health/ready · {{ statusText(ready) }}</span></div></div>

@@ -2,13 +2,13 @@
   <div class="workspace-page audit-page">
     <section class="workspace-hero">
       <div>
-        <p class="workspace-kicker">AUDIT CENTER</p>
+        <p class="workspace-kicker">{{ t('audit.centerKicker') }}</p>
         <h1>{{ t('audit.title') }}</h1>
         <p>{{ t('audit.description') }}</p>
       </div>
       <div class="workspace-identity">
         <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
-        <div><strong>{{ auth.user?.display_name || auth.user?.username }}</strong><span>{{ auth.user?.role === 'admin' ? t('role.admin') : t('role.college_admin') }}</span></div>
+        <div><strong>{{ auth.user?.display_name || auth.user?.username }}</strong><span>{{ roleLabel(auth.user?.role) }}</span></div>
       </div>
     </section>
 
@@ -31,7 +31,7 @@
     </section>
 
     <section class="panel">
-      <div class="panel-heading"><div><p class="workspace-kicker">EVIDENCE LEDGER</p><h2>{{ t('audit.records') }}</h2></div><div class="audit-heading-actions"><span class="audit-count">{{ t('audit.count', { count: rows.length }) }}</span><button class="small" type="button" :title="t('audit.exportCurrent')" :aria-label="t('audit.exportCurrent')" :disabled="exporting || loading" @click="exportRows"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ exporting ? t('audit.exporting') : t('audit.exportCsv') }}</button></div></div>
+      <div class="panel-heading"><div><p class="workspace-kicker">{{ t('audit.evidenceKicker') }}</p><h2>{{ t('audit.records') }}</h2></div><div class="audit-heading-actions"><span class="audit-count">{{ t('audit.count', { count: rows.length }) }}</span><button class="small" type="button" :title="t('audit.exportCurrent')" :aria-label="t('audit.exportCurrent')" :disabled="exporting || loading" @click="exportRows"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ exporting ? t('audit.exporting') : t('audit.exportCsv') }}</button></div></div>
       <AsyncState v-if="loading" state="loading" :title="t('audit.loading')" :detail="t('audit.loadingDetail')" />
       <AsyncState v-else-if="!rows.length" state="empty" :title="t('audit.empty')" :detail="t('audit.emptyDetail')" />
       <DataTable v-else :columns="columns" :rows="rows">
@@ -53,7 +53,7 @@ import { downloadAuditEvents, fetchAuditEvents } from '../api'
 import AsyncState from '../components/AsyncState.vue'
 import DataTable from '../components/DataTable.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { useI18n } from '../i18n'
+import { roleLabel, useI18n } from '../i18n'
 
 const { t, formatDate: formatLocaleDate } = useI18n()
 

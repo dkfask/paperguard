@@ -2,7 +2,7 @@
   <header class="writer-command-bar">
     <div class="writer-command-leading">
       <button class="icon-action" :title="t('writer.backToTheses')" :aria-label="t('writer.backToTheses')" @click="$emit('go-back')">
-        <span class="material-symbols-outlined">arrow_back</span>
+        <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
       </button>
       <div class="writer-command-title">
         <span>{{ t('route.writer') }}</span>
@@ -23,7 +23,7 @@
 
     <div class="writer-command-actions">
       <button class="small" @click="$emit('open-ai')" :title="t('writer.aiSettings')">
-        <span class="material-symbols-outlined">auto_awesome</span>
+        <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
         <span>{{ t('writer.aiAssistant') }}</span>
       </button>
 
@@ -34,12 +34,12 @@
         :disabled="saving"
         :title="t('writer.switchTemplateTitle')"
       >
-        <span class="material-symbols-outlined">swap_horiz</span>
+        <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
         <span>{{ t('writer.switchTemplate') }}</span>
       </button>
 
       <button class="writer-review-action" @click="$emit('toggle-check')">
-        <span class="material-symbols-outlined">rule</span>
+        <span class="material-symbols-outlined" aria-hidden="true">rule</span>
         <span>{{ t('writer.check') }}</span>
       </button>
 
@@ -49,7 +49,7 @@
         @click="$emit('fix')"
         :title="t('writer.fixTitle')"
       >
-        <span class="material-symbols-outlined">build</span>
+        <span class="material-symbols-outlined" aria-hidden="true">build</span>
         <span>{{ fixing ? t('writer.fixing') : t('writer.fix') }}</span>
       </button>
 
@@ -59,7 +59,7 @@
         :disabled="importing || saving"
         :title="t('writer.importTitle')"
       >
-        <span class="material-symbols-outlined">upload_file</span>
+        <span class="material-symbols-outlined" aria-hidden="true">upload_file</span>
         <span>{{ importing ? t('writer.importing') : t('writer.importBody') }}</span>
       </button>
 
@@ -69,7 +69,7 @@
         :disabled="exporting || saving || dirtyCount > 0"
         :title="t('writer.previewTitle')"
       >
-        <span class="material-symbols-outlined">visibility</span>
+        <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
         <span>{{ t('writer.preview') }}</span>
       </button>
 
@@ -78,7 +78,7 @@
         @click="$emit('export')"
         :disabled="exporting || saving || dirtyCount > 0"
       >
-        <span class="material-symbols-outlined">download</span>
+        <span class="material-symbols-outlined" aria-hidden="true">download</span>
         <span>{{ exporting ? t('writer.exporting') : t('writer.export') }}</span>
       </button>
     </div>

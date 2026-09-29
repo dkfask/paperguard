@@ -5,6 +5,9 @@ import App from './App.vue'
 import router from './router'
 import { pinia } from './app/pinia'
 import { queryClient } from './app/query'
+import { applyIconFontFallback } from './shared/iconFont'
+
+applyIconFontFallback()
 
 const app = createApp(App)
 

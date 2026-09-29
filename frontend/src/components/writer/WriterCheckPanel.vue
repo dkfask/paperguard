@@ -9,7 +9,7 @@
         </div>
       </div>
       <button class="check-refresh-btn" :disabled="checking" @click="$emit('refresh')">
-        <span class="material-symbols-outlined">refresh</span>
+        <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
         <span>{{ t('common.refresh') }}</span>
       </button>
     </div>
@@ -47,7 +47,7 @@
         >
           <div class="finding-header">
             <span class="finding-severity-badge">
-              <span class="material-symbols-outlined">
+              <span class="material-symbols-outlined" aria-hidden="true">
                 {{ finding.severity === 'error' ? 'error' : finding.severity === 'info' ? 'info' : 'warning' }}
               </span>
               <span>{{ severityLabel(finding.severity) }}</span>

@@ -103,16 +103,20 @@ body {
   vertical-align: middle;
 }
 
-/* 当 Material Symbols 字体未加载时隐藏图标名称 */
-@supports (font-display: swap) {
-  .material-symbols-outlined {
-    font-display: swap;
-  }
-}
+/* Material Symbols 来自 CDN（见 index.html）。CDN 不可用时字体加载失败，
+   ligature 名会被当普通文本直接显示成 "school"、"refresh" 这类英文单词。
 
-/* 字体加载失败时的备用样式：隐藏文本避免显示图标名称 */
-.material-symbols-outlined::before {
-  content: '';
+   早期这里写过两段看似防护、实则完全无效的代码：
+   1) @supports (font-display: swap) —— font-display 是 @font-face 描述符，
+      在普通规则里不生效；
+   2) .material-symbols-outlined::before { content: '' } —— 加伪元素无法隐藏
+      元素自身的文本。
+   已删除，改为真实降级：src/shared/iconFont.js 在字体就绪后检测可用性，
+   不可用时给 <html> 加 .pg-icons-unavailable，图标整体隐藏而不是露出英文。
+   图标全部带 aria-hidden 或伴随可见文字，隐藏后不损失信息。
+*/
+.pg-icons-unavailable .material-symbols-outlined {
+  display: none;
 }
 
 /* 确保图标有最小宽度，避免布局闪烁 */
@@ -520,6 +524,29 @@ main {
   align-items: center;
   gap: 4px;
 }
+
+/* 状态徽章配色。原先放在 Workflow.vue 的 scoped 样式里，scoped 只对该组件
+   渲染的元素生效，导致 StudentWorkspace / Workspace 等处渲染的 .state-tag
+   只有裸文字、没有底色，看起来像「没有状态」。 */
+.state-tag {
+  display: inline-block;
+  padding: 3px 7px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-container);
+  color: var(--on-surface-variant);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.state-tag.submitted,
+.state-tag.ready { background: #dbeafe; color: #1d4ed8; }
+.state-tag.needs_revision,
+.state-tag.blocked,
+.state-tag.returned { background: #ffedd5; color: #9a3412; }
+.state-tag.approved,
+.state-tag.archived,
+.state-tag.resolved,
+.state-tag.published { background: #dcfce7; color: #166534; }
+.state-tag.missing { background: #f1f5f9; color: var(--on-surface-variant); }
 
 .shared-status-badge .material-symbols-outlined {
   font-size: 13px;
@@ -963,6 +990,17 @@ input:focus, select:focus, textarea:focus {
     display: inline-flex;
   }
 
+  /* 561–900px 区间用户名会把顶栏挤到折行（「学/生」「退出登/录」），
+     这里先收掉用户名——头像已带 title 与 aria-label，信息不丢。 */
+  header.app-shell-header .shell-user-name {
+    display: none;
+  }
+
+  header.app-shell-header .user-tray {
+    min-width: 0;
+    gap: 8px;
+  }
+
   .app-shell {
     display: block;
     min-height: calc(100vh - 60px);
@@ -1006,3 +1044,33 @@ input:focus, select:focus, textarea:focus {
     display: none;
   }
 }
+
+/* ============================================================
+   工作台通用布局样式
+   原先放在 src/views/Workspace.vue 的非 scoped <style> 里。
+   Workspace 是懒加载路由组件，把这批被 13 个页面共用的类挂在它身上，
+   会导致「没访问过 /workspace 的用户拿不到样式」——刷新或分享链接直达任何
+   工作台页面都会布局塌陷（见审查报告 F-22）。
+   放在 style.css 末尾是为了保持相对层叠顺序：它仍晚于 style.css 前面的规则，
+   而各页面 scoped 规则编译后带属性选择器、特异性更高，依然能正常覆盖。
+   ============================================================ */
+.workspace-page { max-width: 1360px; margin: 0 auto; padding: 24px 0 56px; }
+.workspace-hero { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 26px 28px; background: var(--inverse-surface); color: var(--inverse-on-surface); border-radius: var(--radius-lg); }
+.workspace-hero h1 { font-family: "Source Serif 4", Georgia, serif; font-size: 30px; line-height: 1.2; margin: 0 0 7px; }
+.workspace-hero p:not(.workspace-kicker) { color: #c9d4e7; margin: 0; max-width: 650px; }
+.workspace-kicker { color: var(--primary); font-size: 10px; letter-spacing: .09em; font-weight: 700; margin: 0 0 6px; }
+.workspace-hero .workspace-kicker { color: var(--primary-fixed-dim); }
+.workspace-identity { display: flex; align-items: center; gap: 10px; min-width: 180px; padding: 10px 12px; border-left: 1px solid rgba(255,255,255,.18); }
+.workspace-identity .material-symbols-outlined { color: var(--primary-fixed-dim); font-size: 26px; }
+.workspace-identity div { display: grid; gap: 2px; }.workspace-identity span { color: #b9c6db; font-size: 12px; }
+.workspace-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 18px 0 24px; border-bottom: 1px solid var(--border); }
+.workspace-stats > div { padding: 0 18px 16px; border-right: 1px solid var(--border); display: grid; gap: 2px; }.workspace-stats > div:first-child { padding-left: 0; }.workspace-stats > div:last-child { border-right: 0; }
+.workspace-stats span, .workspace-stats small { color: var(--on-surface-variant); font-size: 12px; }.workspace-stats strong { font-size: 26px; color: var(--on-surface); }.workspace-stats small { font-size: 11px; }
+.workspace-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; }.workspace-main, .workspace-side { min-width: 0; }.workspace-main > .panel { margin-bottom: 14px; }
+.workspace-page .panel { background: var(--surface-container-lowest); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow-card); }.workspace-page .panel-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }.workspace-page .panel-heading h2, .workspace-page .panel-heading h3 { margin: 0; }.workspace-page .panel-heading p:not(.workspace-kicker) { color: var(--on-surface-variant); font-size: 12px; margin: 4px 0 0; }.workspace-page .panel-icon { color: var(--primary); font-size: 26px; }
+.workspace-main h2 { margin: 0; font-size: 20px; }.workspace-main h3 { margin: 0; font-size: 17px; }.workspace-focus-panel { border-left: 3px solid var(--primary); }.workspace-focus-content { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding-top: 12px; }.workspace-focus-copy { min-width: 0; }.workspace-focus-copy h3 { font-size: 22px; margin: 5px 0; overflow-wrap: anywhere; }.workspace-focus-copy p { color: var(--on-surface-variant); font-size: 13px; margin: 0 0 10px; }.workspace-overline { color: var(--on-surface-variant); font-size: 11px; }.workspace-action { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; text-decoration: none; }
+.workspace-task-list, .workspace-review-list, .workspace-material-list, .workspace-cohort-list, .workspace-history-list { border-top: 1px solid var(--border); margin-top: 14px; }.workspace-task-row, .workspace-review-row, .workspace-material-row, .workspace-cohort-row, .workspace-history-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }.workspace-task-row:last-child, .workspace-review-row:last-child, .workspace-material-row:last-child, .workspace-cohort-row:last-child, .workspace-history-row:last-child { border-bottom: 0; }.workspace-task-icon { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; color: var(--primary); background: var(--surface-container); border-radius: var(--radius-sm); }.workspace-task-copy, .workspace-review-row > div:first-child, .workspace-material-row > div, .workspace-cohort-row > div:first-child, .workspace-history-row > div { min-width: 0; flex: 1; }.workspace-task-copy strong, .workspace-task-copy span, .workspace-review-row strong, .workspace-review-row span, .workspace-material-row strong, .workspace-material-row span, .workspace-cohort-row strong, .workspace-cohort-row span, .workspace-history-row strong, .workspace-history-row span { display: block; }.workspace-task-copy strong, .workspace-review-row strong, .workspace-material-row strong, .workspace-cohort-row strong, .workspace-history-row strong { overflow-wrap: anywhere; }.workspace-task-copy span, .workspace-review-row span, .workspace-material-row span, .workspace-cohort-row span, .workspace-history-row span { color: var(--on-surface-variant); font-size: 11px; margin-top: 2px; }.workspace-task-copy .deadline-label { margin-top: 5px; }.workspace-row-link { flex: 0 0 auto; text-decoration: none; }.workspace-review-row, .workspace-operation-card { text-decoration: none; color: inherit; }.workspace-review-row { justify-content: space-between; }.workspace-review-row > div:last-child, .workspace-cohort-row > div:last-child { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; }.workspace-review-row:hover, .workspace-operation-card:hover { background: var(--surface-container-low); }.workspace-review-row { padding: 12px 8px; margin: 0 -8px; border-radius: var(--radius-sm); }
+.workspace-archive-list { border-top: 1px solid var(--border); margin-top: 14px; }.workspace-archive-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }.workspace-archive-row:last-child { border-bottom: 0; }.workspace-archive-row strong, .workspace-archive-row span { display: block; }.workspace-archive-row span { color: var(--on-surface-variant); font-size: 11px; margin-top: 2px; }
+.workspace-history-row { justify-content: space-between; }.workspace-panel-actions { justify-content: flex-start; margin-top: 14px; }.workspace-text-link { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); text-decoration: none; font-size: 12px; white-space: nowrap; }.workspace-text-link .material-symbols-outlined { font-size: 16px; }.workspace-notification-panel, .workspace-report-panel { position: sticky; top: 78px; }.workspace-notification-panel .panel-heading, .workspace-shortcuts .panel-heading { margin-bottom: 2px; }.workspace-shortcuts a { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); color: var(--on-surface); text-decoration: none; font-size: 12px; }.workspace-shortcuts a:last-child { border-bottom: 0; }.workspace-shortcuts a:hover { color: var(--primary); }.workspace-shortcuts .material-symbols-outlined { color: var(--primary); font-size: 18px; }.workspace-operations-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }.workspace-operation-card { position: relative; display: grid; gap: 4px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-container-low); }.workspace-operation-card > .material-symbols-outlined:first-child { color: var(--primary); font-size: 23px; margin-bottom: 5px; }.workspace-operation-card strong { font-size: 13px; }.workspace-operation-card small { color: var(--on-surface-variant); font-size: 11px; }.workspace-operation-card .arrow { position: absolute; top: 14px; right: 12px; color: var(--outline); font-size: 18px; }.workspace-report-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }.workspace-report-grid div { padding: 10px; background: var(--surface-container-low); }.workspace-report-grid strong, .workspace-report-grid span { display: block; }.workspace-report-grid strong { font-size: 20px; }.workspace-report-grid span { color: var(--on-surface-variant); font-size: 11px; }.workspace-report-note { color: var(--on-surface-variant); font-size: 12px; margin: 12px 0 0; }
+@media (max-width: 900px) { .workspace-page { padding: 16px 0 40px; }.workspace-hero { padding: 20px; align-items: flex-start; flex-direction: column; }.workspace-hero h1 { font-size: 26px; }.workspace-identity { border-left: 0; border-top: 1px solid rgba(255,255,255,.18); width: 100%; padding: 12px 0 0; }.workspace-stats { grid-template-columns: repeat(2, 1fr); gap: 14px 0; }.workspace-stats > div:nth-child(2) { border-right: 0; }.workspace-stats > div:nth-child(3), .workspace-stats > div:nth-child(4) { padding-top: 4px; }.workspace-layout { grid-template-columns: 1fr; }.workspace-notification-panel, .workspace-report-panel { position: static; }.workspace-operations-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .workspace-stats > div { padding-left: 9px; padding-right: 9px; }.workspace-stats > div:first-child { padding-left: 0; }.workspace-focus-content { align-items: flex-start; flex-direction: column; }.workspace-action { width: 100%; justify-content: center; }.workspace-task-row, .workspace-review-row, .workspace-material-row, .workspace-cohort-row { align-items: flex-start; }.workspace-task-row { flex-wrap: wrap; }.workspace-task-row .workspace-task-copy { min-width: calc(100% - 45px); }.workspace-task-row .state-tag { margin-left: 44px; }.workspace-row-link { margin-left: auto; }.workspace-report-grid { grid-template-columns: repeat(2, 1fr); }.workspace-page { overflow: hidden; } }

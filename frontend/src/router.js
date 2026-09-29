@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { auth } from './auth'
 import { canAccessRoute, homePath } from './shared/auth/permissions'
+import { reportNavigationFailure } from './shared/navigationFailure'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -18,13 +19,13 @@ const router = createRouter({
     { path: '/policies', component: () => import('./views/Policies.vue'), meta: { title: '写作规范', titleKey: 'route.policies' } },
     { path: '/organizations', component: () => import('./views/Organizations.vue'), meta: { title: '组织与作用域', titleKey: 'route.organizations' } },
     { path: '/workflow', component: () => import('./views/Workflow.vue'), meta: { title: '论文业务闭环', titleKey: 'route.workflow' }, beforeEnter: (to) => to.query.panel === 'audit' ? { path: '/audit' } : true },
-    { path: '/audit', component: () => import('./views/Audit.vue'), meta: { title: '审计记录', titleKey: 'route.audit' } },
+    { path: '/audit', component: () => import('./views/Audit.vue'), meta: { title: '审计记录', titleKey: 'route.audit', roles: ['admin', 'college_admin'] } },
     { path: '/cohorts', component: () => import('./views/Cohorts.vue'), meta: { title: '批次与阶段配置', titleKey: 'route.cohorts', roles: ['admin', 'college_admin'] } },
     { path: '/admin/users', component: () => import('./views/AdminUsers.vue'), meta: { title: '用户与认证', titleKey: 'route.adminUsers', roles: ['admin'] } },
     { path: '/admin/ai', component: () => import('./views/AiSettings.vue'), meta: { title: 'AI 与系统设置', titleKey: 'route.adminAi', roles: ['admin'] } },
     { path: '/teacher/students', component: () => import('./views/TeacherStudents.vue'), meta: { title: '指导学生', titleKey: 'route.teacherStudents', roles: ['teacher'] } },
     { path: '/workspace', component: () => import('./views/Workspace.vue'), meta: { title: '角色工作台', titleKey: 'route.workspace' } },
-    { path: '/operations', component: () => import('./views/Operations.vue'), meta: { title: '运行状态与数据治理', titleKey: 'route.operations' } },
+    { path: '/operations', component: () => import('./views/Operations.vue'), meta: { title: '运行状态与数据治理', titleKey: 'route.operations', roles: ['admin', 'college_admin'] } },
     { path: '/write/:id', component: () => import('./views/Writer.vue'), meta: { title: '论文写作', titleKey: 'route.writer' } },
     { path: '/:pathMatch(.*)*', component: () => import('./views/NotFound.vue'), meta: { title: '页面不存在', titleKey: 'route.notFound', public: true } },
   ],
@@ -33,7 +34,6 @@ const router = createRouter({
 // 路由守卫: 未登录一律跳登录页
 router.beforeEach(async (to) => {
   await auth.restore()
-  document.title = to.meta.title ? `${to.meta.title} · PaperGuard` : 'PaperGuard'
 
   if (!auth.token && !to.meta.public) {
     return { path: '/login', query: { redirect: to.fullPath } }
@@ -62,6 +62,19 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { forceChange: '1', redirect: to.fullPath } }
   }
   if (auth.token && !canAccessRoute(to, auth.user)) return { path: '/workspace' }
+})
+
+// 标题只在导航真正提交后写。放在 beforeEach 里会在导航失败时留下
+// 「标签标题已切到目标页、实际仍停在原页」的错位状态。
+router.afterEach((to) => {
+  document.title = to.meta.title ? `${to.meta.title} · PaperGuard` : 'PaperGuard'
+})
+
+// 导航失败（多为懒加载 chunk 拉取失败）时路由不会提交，页面停在原处且毫无反馈。
+// 接住它并交给 UI 渲染可见提示，否则用户只会看到「点了没反应」。
+router.onError((error, to) => {
+  console.error('[PaperGuard] navigation failed', error)
+  reportNavigationFailure(error, to)
 })
 
 export default router

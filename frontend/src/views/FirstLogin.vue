@@ -2,12 +2,12 @@
   <div class="stitch-auth-page">
     <header class="stitch-auth-header">
       <div class="auth-header-inner">
-        <div class="brand-box"><img alt="PaperGuard Logo" class="brand-icon-img" src="/logo.png" /><span class="brand-name">PaperGuard</span></div>
+        <div class="brand-box"><img alt="" class="brand-icon-img" src="/icon-shield.png" /><span class="brand-name">PaperGuard</span></div>
       </div>
     </header>
     <main class="first-login-main">
       <section class="first-login-card">
-        <div class="brand-row"><img alt="PaperGuard Logo" class="card-logo" src="/logo.png" /><span>论文卫士Pro</span></div>
+        <div class="brand-row"><span>论文卫士Pro</span></div>
         <h1>{{ t('auth.firstLoginTitle') }}</h1>
         <p class="sub">{{ t('auth.firstLoginSub') }}</p>
         <div v-if="message" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'" role="alert">{{ message }}</div>

@@ -2,11 +2,11 @@
   <div class="workspace-page role-certification-page">
     <section class="workspace-hero">
       <div>
-        <p class="workspace-kicker">身份认证</p>
+        <p class="workspace-kicker">{{ t('roleCertification.kicker') }}</p>
         <h1>选择你的使用身份</h1>
         <p>注册已经完成。你可以先以社会用户使用系统，也可以提交学校身份申请，审核通过后获得对应组织权限。</p>
       </div>
-      <div class="workspace-identity"><span class="material-symbols-outlined">verified_user</span><div><strong>{{ auth.user?.display_name || auth.user?.username }}</strong><span>{{ statusLabel }}</span></div></div>
+      <div class="workspace-identity"><span class="material-symbols-outlined" aria-hidden="true">verified_user</span><div><strong>{{ auth.user?.display_name || auth.user?.username }}</strong><span>{{ statusLabel }}</span></div></div>
     </section>
 
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
@@ -15,7 +15,7 @@
     <section class="panel certification-panel">
       <div class="role-options" role="radiogroup" aria-label="选择认证身份">
         <button v-for="option in roleOptions" :key="option.value" type="button" class="role-option" :class="{ selected: selectedRole === option.value }" @click="selectedRole = option.value">
-          <span class="material-symbols-outlined">{{ option.icon }}</span><span><strong>{{ option.title }}</strong><small>{{ option.detail }}</small></span>
+          <span class="material-symbols-outlined" aria-hidden="true">{{ option.icon }}</span><span><strong>{{ option.title }}</strong><small>{{ option.detail }}</small></span>
         </button>
       </div>
 
@@ -35,8 +35,10 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth } from '../auth'
 import { authApi, type OrganizationOption } from '../features/auth/api'
+import { useI18n } from '../i18n'
 
 const router = useRouter()
+const { t } = useI18n()
 
 const loading = ref(true)
 const submitting = ref(false)

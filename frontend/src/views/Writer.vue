@@ -9,7 +9,7 @@
     <header class="writer-command-bar">
       <div class="writer-command-leading">
         <button class="icon-action" :title="t('writer.backToTheses')" :aria-label="t('writer.backToTheses')" @click="router.push('/')">
-          <span class="material-symbols-outlined">arrow_back</span>
+          <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
         </button>
         <div class="writer-command-title">
           <span>{{ t('route.writer') }}</span>
@@ -27,34 +27,37 @@
         <span><b>{{ doneCount }}/{{ requiredCount }}</b> {{ t('writer.sectionsDone') }}</span>
       </div>
       <div class="writer-command-actions">
-        <button class="small" @click="openAiSettings" :title="t('writer.aiSettings')">
-          <span class="material-symbols-outlined">auto_awesome</span>
+        <button class="small" @click="openAiSettings" :title="t('writer.aiSettings')" :aria-label="t('writer.aiAssistant')">
+          <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
           <span>{{ t('writer.aiAssistant') }}</span>
         </button>
         <button v-if="isManager()" class="small" @click="openTemplateModal"
                 :disabled="saving" :title="t('writer.switchTemplateTitle')">
-          <span class="material-symbols-outlined">swap_horiz</span>
+          <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
           <span>{{ t('writer.switchTemplate') }}</span>
         </button>
-        <button class="writer-review-action" @click="checkOpen = !checkOpen">
-          <span class="material-symbols-outlined">rule</span>
+        <button class="writer-review-action" :title="t('writer.check')" :aria-label="t('writer.check')" @click="checkOpen = !checkOpen">
+          <span class="material-symbols-outlined" aria-hidden="true">rule</span>
           <span>{{ t('writer.check') }}</span>
         </button>
-        <button class="writer-fix-action" :disabled="fixing || checking || exporting || loading" @click="runOneClickFix"
-                :title="t('writer.fixTitle')">
-          <span class="material-symbols-outlined">build</span>
+        <button class="writer-fix-action" :disabled="fixing || checking || exporting || loading"
+                :title="t('writer.fixTitle')" :aria-label="t('writer.fix')" @click="runOneClickFix">
+          <span class="material-symbols-outlined" aria-hidden="true">build</span>
           <span>{{ fixing ? t('writer.fixing') : t('writer.fix') }}</span>
         </button>
-        <button class="writer-import-action" @click="chooseDocx" :disabled="importing || saving" :title="t('writer.importTitle')">
-          <span class="material-symbols-outlined">upload_file</span>
+        <button class="writer-import-action" @click="chooseDocx" :disabled="importing || saving"
+                :title="t('writer.importTitle')" :aria-label="t('writer.importBody')">
+          <span class="material-symbols-outlined" aria-hidden="true">upload_file</span>
           <span>{{ importing ? t('writer.importing') : t('writer.importBody') }}</span>
         </button>
-        <button class="writer-preview-action" @click="previewDocx" :disabled="exporting || saving || dirtyCount > 0" :title="t('writer.previewTitle')">
-          <span class="material-symbols-outlined">visibility</span>
+        <button class="writer-preview-action" @click="previewDocx" :disabled="exporting || saving || dirtyCount > 0"
+                :title="t('writer.previewTitle')" :aria-label="t('writer.preview')">
+          <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
           <span>{{ t('writer.preview') }}</span>
         </button>
-        <button class="primary writer-export-action" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0">
-          <span class="material-symbols-outlined">download</span>
+        <button class="primary writer-export-action" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0"
+                :title="t('writer.export')" :aria-label="t('writer.export')">
+          <span class="material-symbols-outlined" aria-hidden="true">download</span>
           <span>{{ exporting ? t('writer.exporting') : t('writer.export') }}</span>
         </button>
       </div>
@@ -297,7 +300,7 @@
     <aside class="writer-context">
       <div class="context-header">
         <div>
-          <p class="writing-eyebrow">WRITING CONTEXT</p>
+          <p class="writing-eyebrow">{{ t('writer.writingContextKicker') }}</p>
           <h2>{{ t('writer.writingAssistant') }}</h2>
         </div>
         <span class="context-header-icon material-symbols-outlined">tune</span>
@@ -306,7 +309,7 @@
       <div v-if="requirementSnapshot" class="requirements-panel context-panel">
         <div class="requirements-head">
           <div>
-            <span class="eyebrow">PROJECT BASIS</span>
+            <span class="eyebrow">{{ t('writer.projectBasisKicker') }}</span>
             <h3>{{ t('writer.projectBasis') }}</h3>
           </div>
           <div class="basis-actions">
@@ -317,32 +320,32 @@
         </div>
         <div class="requirements-sources">
           <div class="source-chip template-chip">
-            <span class="material-symbols-outlined">description</span>
+            <span class="material-symbols-outlined" aria-hidden="true">description</span>
             <span>{{ t('writer.templateSource', { name: template.name }) }}</span>
           </div>
           <div v-for="source in requirementSets" :key="source.id" class="source-chip">
-            <span class="material-symbols-outlined">rule</span>
+            <span class="material-symbols-outlined" aria-hidden="true">rule</span>
             <span>{{ source.name }} · v{{ source.version }}</span>
           </div>
           <div v-for="packId in (requirementSnapshot.rule_packs || [])" :key="packId" class="source-chip">
-            <span class="material-symbols-outlined">format_align_left</span>
+            <span class="material-symbols-outlined" aria-hidden="true">format_align_left</span>
             <span>{{ t('writer.formatRules', { id: packId }) }}</span>
           </div>
         </div>
         <p v-if="requirementSnapshot.format_override_count" class="format-resolution">
-          <span class="material-symbols-outlined">verified</span>
+          <span class="material-symbols-outlined" aria-hidden="true">verified</span>
           {{ t('writer.rulesApplied', { count: requirementSnapshot.format_override_count }) }}
         </p>
         <p class="requirements-foot">{{ t('writer.autoChecked', { count: autoRequirementCount }) }}<span v-if="checkResult">{{ t('writer.notCheckedInline', { count: checkResult.summary.not_checked || 0 }) }}</span></p>
       </div>
 
       <div v-if="canReviewRequirements && (pendingWaivers.length || approvedWaivers.length)" class="waiver-review-panel context-panel">
-        <div class="requirements-head"><div><span class="eyebrow">REVIEW QUEUE</span><h3>{{ t('writer.reviewQueue') }}</h3></div><span class="snapshot-tag">{{ t('writer.countItems', { count: pendingWaivers.length + approvedWaivers.length }) }}</span></div>
+        <div class="requirements-head"><div><span class="eyebrow">{{ t('writer.reviewQueueKicker') }}</span><h3>{{ t('writer.reviewQueue') }}</h3></div><span class="snapshot-tag">{{ t('writer.countItems', { count: pendingWaivers.length + approvedWaivers.length }) }}</span></div>
         <div v-for="waiver in pendingWaivers" :key="waiver.id" class="waiver-review-row"><span>{{ t('writer.waiver', { id: waiver.requirement_item_id, reason: waiver.reason }) }}</span><span><button class="tiny" @click="decideWaiver(waiver, 'approved')">{{ t('writer.agree') }}</button><button class="tiny danger" @click="decideWaiver(waiver, 'rejected')">{{ t('writer.reject') }}</button></span></div>
         <div v-for="waiver in approvedWaivers" :key="`approved-${waiver.id}`" class="waiver-review-row approved-waiver-row"><span>{{ t('writer.approvedWaiver', { id: waiver.requirement_item_id, reason: waiver.reason }) }}</span><button class="tiny danger" @click="revokeWaiver(waiver)">{{ t('writer.revoke') }}</button></div>
       </div>
       <div v-if="canReviewRequirements && pendingDisputes.length" class="waiver-review-panel dispute-review-panel context-panel">
-        <div class="requirements-head"><div><span class="eyebrow">DISPUTE QUEUE</span><h3>{{ t('writer.disputeQueue') }}</h3></div><span class="snapshot-tag">{{ t('writer.countItems', { count: pendingDisputes.length }) }}</span></div>
+        <div class="requirements-head"><div><span class="eyebrow">{{ t('writer.disputeQueueKicker') }}</span><h3>{{ t('writer.disputeQueue') }}</h3></div><span class="snapshot-tag">{{ t('writer.countItems', { count: pendingDisputes.length }) }}</span></div>
         <div v-for="dispute in pendingDisputes" :key="dispute.id" class="waiver-review-row"><span>{{ t('writer.dispute', { id: dispute.requirement_item_id, reason: dispute.reason }) }}</span><span><button class="tiny" @click="decideDispute(dispute, 'accepted')">{{ t('writer.accept') }}</button><button class="tiny danger" @click="decideDispute(dispute, 'rejected')">{{ t('writer.reject') }}</button></span></div>
       </div>
 
@@ -351,12 +354,12 @@
           <div class="check-panel-title">
             <span class="check-panel-icon material-symbols-outlined">fact_check</span>
             <div>
-              <span class="check-panel-kicker">FORMATTING REVIEW</span>
+              <span class="check-panel-kicker">{{ t('writer.formattingReviewKicker') }}</span>
               <strong>{{ t('writer.formattingReview') }}</strong>
             </div>
           </div>
           <button class="check-refresh-btn" :disabled="checking" @click="runCheckNow">
-            <span class="material-symbols-outlined">refresh</span>
+            <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
             <span>{{ t('writer.rerunCheck') }}</span>
           </button>
         </div>
@@ -370,7 +373,7 @@
             <span v-else-if="checkResult.context && checkResult.summary.total === 0 && checkResult.summary.not_checked === 0 && checkResult.summary.waived === 0 && !(requirementSnapshot?.conflicts?.length)" class="check-summary-text">{{ t('writer.checkPassed') }}</span>
             <span v-else class="check-summary-text">{{ t('writer.issueSummary', { issues: checkResult.summary.total, notChecked: checkResult.summary.not_checked || 0 }) }}</span>
           </span>
-          <span class="material-symbols-outlined context-chevron">{{ checkOpen ? 'expand_less' : 'expand_more' }}</span>
+          <span class="material-symbols-outlined context-chevron" aria-hidden="true">{{ checkOpen ? 'expand_less' : 'expand_more' }}</span>
         </button>
 
         <div v-if="checkOpen && checkResult && checkResult.findings.length" class="check-list">
@@ -379,7 +382,7 @@
             <div class="check-item-body">
               <div class="check-item-message">
                 <span class="severity-marker" :class="f.severity">
-                  <span class="material-symbols-outlined">{{ f.severity === 'error' ? 'error' : f.severity === 'info' ? 'info' : 'warning' }}</span>
+                  <span class="material-symbols-outlined" aria-hidden="true">{{ f.severity === 'error' ? 'error' : f.severity === 'info' ? 'info' : 'warning' }}</span>
                   <span>{{ { error: t('writer.errorShort'), warning: t('writer.warningShort'), info: t('writer.infoShort') }[f.severity] }}</span>
                 </span>
                 <span class="check-msg">{{ f.message }}</span>
@@ -388,10 +391,10 @@
                 <span class="check-sec" v-if="f.section_key || f.location?.section_key">{{ sectionTitle(f.section_key || f.location.section_key) }} →</span>
                 <template v-if="f.source_type === 'requirement'">
                   <button class="check-action-btn" @click.stop="openWaiver(f)">
-                    <span class="material-symbols-outlined">gavel</span>{{ t('writer.requestWaiver') }}
+                    <span class="material-symbols-outlined" aria-hidden="true">gavel</span>{{ t('writer.requestWaiver') }}
                   </button>
                   <button class="check-action-btn" @click.stop="openDispute(f)">
-                    <span class="material-symbols-outlined">feedback</span>{{ t('writer.submitDispute') }}
+                    <span class="material-symbols-outlined" aria-hidden="true">feedback</span>{{ t('writer.submitDispute') }}
                   </button>
                 </template>
               </div>
@@ -406,7 +409,7 @@
 
         <div v-if="checkOpen && checkResult && checkResult.not_checked?.length" class="not-checked-list">
           <div class="not-checked-heading">
-            <span><span class="material-symbols-outlined">fact_check</span>{{ t('writer.notChecked') }}</span>
+            <span><span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('writer.notChecked') }}</span>
             <span class="not-checked-count">{{ t('writer.countItems', { count: checkResult.not_checked.length }) }}</span>
           </div>
           <div v-for="item in checkResult.not_checked" :key="item.id" class="not-checked-item">
@@ -416,12 +419,12 @@
             </div>
             <template v-if="item.type === 'manual'">
               <div class="not-checked-actions">
-                <span v-if="assistResultFor(item.id)" class="assist-saved-tag"><span class="material-symbols-outlined">check_circle</span>{{ t('writer.saved') }}</span>
+                <span v-if="assistResultFor(item.id)" class="assist-saved-tag"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span>{{ t('writer.saved') }}</span>
                 <button v-if="assistResultFor(item.id)" class="check-action-btn secondary" @click.stop="showAssistResult(assistResultFor(item.id))">
-                  <span class="material-symbols-outlined">visibility</span>{{ t('writer.view') }}
+                  <span class="material-symbols-outlined" aria-hidden="true">visibility</span>{{ t('writer.view') }}
                 </button>
                 <button class="check-action-btn assist-action" :disabled="!!assistBusy" @click.stop="openAssist(item)">
-                  <span class="material-symbols-outlined">auto_awesome</span>
+                  <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
                   {{ assistBusy === item.id ? t('writer.aiProcessing') : (assistResultFor(item.id) ? t('writer.aiAssistAgain') : t('writer.aiAssist')) }}
                 </button>
               </div>

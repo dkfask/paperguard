@@ -6,7 +6,7 @@
         <h3>{{ t('memberImport.title') }}</h3>
         <p>{{ t('memberImport.description') }}</p>
       </div>
-      <span class="material-symbols-outlined panel-icon">group_add</span>
+      <span class="material-symbols-outlined panel-icon" aria-hidden="true">group_add</span>
     </div>
     <textarea
       :value="modelValue"
@@ -16,10 +16,10 @@
     />
     <div class="form-actions">
       <button class="small" :disabled="busy || !rows.length" @click="$emit('preview')">
-        <span class="material-symbols-outlined">fact_check</span>{{ t('memberImport.preview') }}
+        <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('memberImport.preview') }}
       </button>
       <button class="small primary" :disabled="busy || !rows.length" @click="$emit('commit')">
-        <span class="material-symbols-outlined">publish</span>{{ t('memberImport.commit') }}
+        <span class="material-symbols-outlined" aria-hidden="true">publish</span>{{ t('memberImport.commit') }}
       </button>
     </div>
     <div v-if="result" class="member-import-result">

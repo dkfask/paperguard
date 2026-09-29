@@ -25,7 +25,7 @@
         </div>
         <div class="actions"><button v-if="canManage" class="primary" :disabled="saving" @click="save">{{ saving ? t('common.saving') : t('common.save') }}</button><button v-if="canManage && form.id" class="danger" @click="remove">{{ t('common.remove') }}</button></div>
       </section>
-      <section v-else class="editor card empty"><span class="material-symbols-outlined">account_tree</span><h2>{{ t('organizations.select') }}</h2><p>{{ t('organizations.selectDetail') }}</p></section>
+      <section v-else class="editor card empty"><span class="material-symbols-outlined" aria-hidden="true">account_tree</span><h2>{{ t('organizations.select') }}</h2><p>{{ t('organizations.selectDetail') }}</p></section>
     </div>
 
     <section v-if="auth.user?.role === 'admin'" class="members card">

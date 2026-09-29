@@ -7,7 +7,7 @@
         <p class="writing-home-subtitle">{{ t('myThesesSub') }}</p>
       </div>
       <div class="writing-home-summary">
-        <span class="material-symbols-outlined">edit_note</span>
+        <span class="material-symbols-outlined" aria-hidden="true">edit_note</span>
         <div>
           <strong>{{ projects.length }}</strong>
           <span>{{ t('home.activeTheses') }}</span>
@@ -17,18 +17,18 @@
 
     <div class="workspace-switcher" role="tablist" :aria-label="t('home.viewSwitcher')">
       <button class="workspace-tab" :class="{ active: tab === 'projects' }" role="tab" :aria-selected="tab === 'projects'" @click="selectTab('projects')">
-        <span class="material-symbols-outlined">edit_note</span>
+        <span class="material-symbols-outlined" aria-hidden="true">edit_note</span>
         <span>{{ t('tabProjects') }}</span>
         <span class="workspace-tab-count">{{ projects.length }}</span>
       </button>
       <button class="workspace-tab" :class="{ active: tab === 'check' }" role="tab" :aria-selected="tab === 'check'" @click="selectTab('check')">
-        <span class="material-symbols-outlined">rule</span>
+        <span class="material-symbols-outlined" aria-hidden="true">rule</span>
         <span>{{ t('tabUpload') }}</span>
       </button>
     </div>
 
     <div v-if="error" class="error-banner" role="alert" aria-live="polite">
-      <span class="material-symbols-outlined" style="font-size: 18px">warning</span>
+      <span class="material-symbols-outlined" style="font-size: 18px" aria-hidden="true">warning</span>
       <span>{{ error }}</span>
     </div>
 
@@ -51,7 +51,7 @@
           </div>
         </div>
         <button class="primary continue-writing-action" @click="$router.push('/write/' + primaryProject.id)">
-          <span class="material-symbols-outlined">play_arrow</span>
+          <span class="material-symbols-outlined" aria-hidden="true">play_arrow</span>
           <span>{{ t('continueWriting') }}</span>
         </button>
       </div>
@@ -65,7 +65,7 @@
       </div>
 
       <div class="create-thesis-bar">
-        <span class="material-symbols-outlined create-thesis-icon">add_circle</span>
+        <span class="material-symbols-outlined create-thesis-icon" aria-hidden="true">add_circle</span>
         <div class="create-thesis-label">
           <strong>{{ t('home.startNewThesis') }}</strong>
           <span>{{ t('home.startNewThesisDetail') }}</span>
@@ -75,7 +75,7 @@
         </select>
         <input v-model="newProjectTitle" :placeholder="t('thesisTitlePlaceholder')" :aria-label="t('home.thesisTitle')" />
         <button class="primary" :disabled="creating || initializing || !newProjectTemplate" @click="createProject">
-          <span class="material-symbols-outlined">add</span>
+          <span class="material-symbols-outlined" aria-hidden="true">add</span>
           <span>{{ creating ? t('creating') : t('newThesisBtn') }}</span>
         </button>
       </div>
@@ -83,14 +83,14 @@
       <div v-if="initializing" class="hint-center">{{ t('loadingEnv') }}</div>
 
       <div v-else-if="projects.length === 0" class="writing-empty-state">
-        <span class="material-symbols-outlined">note_add</span>
+        <span class="material-symbols-outlined" aria-hidden="true">note_add</span>
         <h3>{{ t('noThesesTitle') }}</h3>
         <p>{{ t('noThesesSub') }}</p>
       </div>
 
       <div v-else class="theses-list" :aria-label="t('home.thesisList')">
         <div v-for="p in projects" :key="p.id" class="thesis-row">
-          <div class="thesis-row-icon"><span class="material-symbols-outlined">description</span></div>
+          <div class="thesis-row-icon"><span class="material-symbols-outlined" aria-hidden="true">description</span></div>
           <div class="thesis-row-main">
             <h3 :title="p.title || p.template_name">{{ p.title || t('home.untitledThesis') }}</h3>
             <p>{{ p.template_name || t('home.defaultTemplate') }} <span aria-hidden="true">·</span> {{ p.last_written_section || t('home.notStarted') }}</p>
@@ -102,14 +102,14 @@
           <div class="thesis-row-date">{{ shortDate(p.updated_at) }}</div>
           <div class="thesis-row-actions">
             <button class="primary small" @click="$router.push('/write/' + p.id)">
-              <span class="material-symbols-outlined">edit_note</span>
+              <span class="material-symbols-outlined" aria-hidden="true">edit_note</span>
               <span>{{ t('continueWriting') }}</span>
             </button>
             <button class="icon-action" :title="exporting.has(p.id) ? t('exporting') : t('exportDocx')" :aria-label="t('exportDocx')" @click="exportProject(p)" :disabled="exporting.has(p.id)">
-              <span class="material-symbols-outlined">download</span>
+              <span class="material-symbols-outlined" aria-hidden="true">download</span>
             </button>
             <button class="icon-action danger" :title="t('delete')" :aria-label="t('delete')" @click="deleteProject(p)" :disabled="deleting.has(p.id)">
-              <span class="material-symbols-outlined">delete</span>
+              <span class="material-symbols-outlined" aria-hidden="true">delete</span>
             </button>
           </div>
         </div>
@@ -117,19 +117,19 @@
 
       <section v-if="trashProjects.length" class="writing-trash">
         <div class="section-heading-row"><div><p class="writing-eyebrow">{{ t('home.recycleBin') }}</p><h2>{{ t('home.recycleBin') }}</h2></div><span class="section-heading-note">{{ t('home.recycleBinDetail') }}</span></div>
-        <div v-for="p in trashProjects" :key="p.id" class="trash-row"><div><strong>{{ p.title || t('home.untitledThesis') }}</strong><span>{{ p.template_name || t('home.defaultTemplate') }} · {{ t('home.deletedAt', { date: shortDate(p.deleted_at) }) }}</span></div><button class="small" @click="restoreProject(p)"><span class="material-symbols-outlined">restore_from_trash</span>{{ t('home.restoreThesis') }}</button></div>
+        <div v-for="p in trashProjects" :key="p.id" class="trash-row"><div><strong>{{ p.title || t('home.untitledThesis') }}</strong><span>{{ p.template_name || t('home.defaultTemplate') }} · {{ t('home.deletedAt', { date: shortDate(p.deleted_at) }) }}</span></div><button class="small" @click="restoreProject(p)"><span class="material-symbols-outlined" aria-hidden="true">restore_from_trash</span>{{ t('home.restoreThesis') }}</button></div>
       </section>
 
       <div class="writing-utilities">
         <RouterLink to="/policies" class="writing-utility-link">
-          <span class="material-symbols-outlined">menu_book</span>
+          <span class="material-symbols-outlined" aria-hidden="true">menu_book</span>
           <span><strong>{{ t('templates.writingPolicies') }}</strong><small>{{ t('home.policyDetail') }}</small></span>
-          <span class="material-symbols-outlined">arrow_forward</span>
+          <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
         </RouterLink>
         <RouterLink to="/templates" class="writing-utility-link">
-          <span class="material-symbols-outlined">description</span>
+          <span class="material-symbols-outlined" aria-hidden="true">description</span>
           <span><strong>{{ t('templates.title') }}</strong><small>{{ t('home.templateDetail') }}</small></span>
-          <span class="material-symbols-outlined">arrow_forward</span>
+          <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
         </RouterLink>
       </div>
     </section>
@@ -162,7 +162,7 @@
             <strong>{{ templateFile?.name || t('noTemplateSelected') }}</strong>
           </div>
           <label for="template-file" class="template-pick-btn" :class="{ disabled: checking || fixing }">
-            <span class="material-symbols-outlined">description</span>
+            <span class="material-symbols-outlined" aria-hidden="true">description</span>
             <span>{{ templateFile ? t('changeTemplate') : t('chooseTemplate') }}</span>
           </label>
           <input id="template-file" ref="templateInput" class="file-input-hidden" type="file" accept=".docx" :disabled="checking || fixing" @change="onTemplatePick" />
@@ -172,7 +172,7 @@
         <label for="paper-file" class="stitch-dropzone" :class="{ dragging, disabled: checking || fixing }"
                @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="onDrop">
           <div class="dropzone-icon-circle">
-            <span class="material-symbols-outlined dropzone-icon">upload_file</span>
+            <span class="material-symbols-outlined dropzone-icon" aria-hidden="true">upload_file</span>
           </div>
           <h3 class="dropzone-title">
             {{ file ? (t('dropzoneTitleSelected') + file.name) : t('dropzoneTitle') }}
@@ -189,7 +189,7 @@
         <!-- 触发执行体检按钮 -->
         <div class="run-inspection-bar">
           <button class="primary run-btn" :disabled="!file || (checkMode === 'template' && !templateFile) || checking || fixing || initializing" @click="runCheck">
-            <span class="material-symbols-outlined">{{ checking ? 'sync' : 'search_check' }}</span>
+            <span class="material-symbols-outlined" aria-hidden="true">{{ checking ? 'sync' : 'search_check' }}</span>
             <span>{{ checking ? t('inspecting') : t('startInspection') }}</span>
           </button>
         </div>
@@ -203,7 +203,7 @@
             <div class="stitch-metric-card">
               <div class="metric-top">
                 <span class="metric-label">{{ t('totalIssues') }}</span>
-                <span class="material-symbols-outlined text-secondary">analytics</span>
+                <span class="material-symbols-outlined text-secondary" aria-hidden="true">analytics</span>
               </div>
               <span class="metric-num text-on-surface">{{ report.summary.total }}</span>
             </div>
@@ -211,7 +211,7 @@
             <div class="stitch-metric-card">
               <div class="metric-top">
                 <span class="metric-label text-error">{{ t('criticalErrors') }}</span>
-                <span class="material-symbols-outlined text-error">error</span>
+                <span class="material-symbols-outlined text-error" aria-hidden="true">error</span>
               </div>
               <span class="metric-num text-error">{{ report.summary.error }}</span>
             </div>
@@ -219,7 +219,7 @@
             <div class="stitch-metric-card">
               <div class="metric-top">
                 <span class="metric-label text-tertiary">{{ t('formatWarnings') }}</span>
-                <span class="material-symbols-outlined text-tertiary">warning</span>
+                <span class="material-symbols-outlined text-tertiary" aria-hidden="true">warning</span>
               </div>
               <span class="metric-num text-tertiary">{{ report.summary.warning }}</span>
             </div>
@@ -227,7 +227,7 @@
             <div class="stitch-metric-card">
               <div class="metric-top">
                 <span class="metric-label text-primary">{{ t('formattingTips') }}</span>
-                <span class="material-symbols-outlined text-primary">lightbulb</span>
+                <span class="material-symbols-outlined text-primary" aria-hidden="true">lightbulb</span>
               </div>
               <span class="metric-num text-primary">{{ report.summary.info }}</span>
             </div>
@@ -239,7 +239,7 @@
               <h2 class="findings-title">{{ t('detailedFindings') }}</h2>
               <div v-if="hasFixableFindings && checkMode === 'pack'">
                 <button class="stitch-repair-btn" :disabled="checking || fixing || initializing" @click="runFix">
-                  <span class="material-symbols-outlined text-[15px]">build</span>
+                  <span class="material-symbols-outlined text-[15px]" aria-hidden="true">build</span>
                   <span>{{ fixing ? t('repairing') : t('oneClickRepair') }}</span>
                 </button>
               </div>
@@ -247,7 +247,7 @@
 
             <!-- 空状态：完美合规 -->
             <div v-if="report.findings.length === 0" class="stitch-empty-findings">
-              <span class="material-symbols-outlined check-circle-icon">check_circle</span>
+              <span class="material-symbols-outlined check-circle-icon" aria-hidden="true">check_circle</span>
               <h3 style="font-weight: 700; margin-top: 8px">{{ t('perfectTitle') }}</h3>
               <p style="color: var(--on-surface-variant); font-size: 13px">{{ t('perfectSub') }}</p>
             </div>
