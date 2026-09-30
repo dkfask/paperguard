@@ -466,6 +466,43 @@ def ai_status(user: dict = Depends(current_user), store: Store = Depends(get_sto
     return {"enabled": True, "source": source, "model": cfg["model"]}
 
 
+@router.get("/disclosure")
+def ai_disclosure(user: dict = Depends(current_user), store: Store = Depends(get_store)) -> dict:
+    """当前用户使用 AI 功能时的数据出境与委托处理披露（S6）。
+
+    披露内容由服务端给出而不是写死在界面文案里，理由有二：
+    1. **接收方随配置而变**——用户可能自带 key 指向别家供应商，
+       前端写死「发送给默认服务商」就成了假披露。真正生效的接收方只有
+       服务端能算出来（见 `_resolve_cfg`）。
+    2. 学校要导出这份披露给师生/合规审计时，读接口比抓界面可靠。
+
+    只返回主机名，不含路径、密钥与任何论文内容。
+    """
+    resolved = _resolve_cfg(store, user)
+    recipient = ""
+    source = None
+    model = None
+    if resolved:
+        cfg, source = resolved
+        model = cfg.get("model")
+        try:
+            recipient = urlsplit(cfg["base_url"]).hostname or ""
+        except ValueError:
+            recipient = ""
+    return {
+        "enabled": bool(resolved),
+        "source": source,
+        "model": model,
+        "data_recipient_host": recipient,
+        "content_sent": "所选论文段落文本" if resolved else "",
+        "notice": (
+            "使用 AI 功能时，所选论文段落文本会发送给你所填的服务商处理，"
+            "内容将离开本系统并可能存储在其境内。请确认该服务商已获授权，"
+            "并满足学校对数据出境与委托处理的要求。"
+        ),
+    }
+
+
 @router.get("/config")
 def get_ai_config(user: dict = Depends(current_user), store: Store = Depends(get_store)) -> dict:
     cfg = store.get_user_ai_config(user["id"])

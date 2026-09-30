@@ -1071,6 +1071,13 @@ export async function testAiConfig(config) {
   return resp.json()
 }
 
+// 数据出境与委托处理披露（S6）：接收方由服务端算出，前端不自行推断
+export async function getAiDisclosure() {
+  const resp = await api(`${API_BASE}/ai/disclosure`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '获取数据出境披露失败'))
+  return resp.json()
+}
+
 // ---------- 管理员设置系统默认模型 ----------
 
 export async function getAdminAiConfig() {
