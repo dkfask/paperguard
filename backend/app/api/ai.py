@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import current_user, require_admin
 from app.db import Store
+from app.services.outbound_guard import assert_safe_outbound_url
 
 router = APIRouter(prefix="/api/ai")
 
@@ -167,7 +168,10 @@ def _anthropic_completion(
     max_tokens: int = 4000,
 ) -> str:
     """调用 Anthropic Messages API, 兼容 MiniMax /anthropic 地址。"""
-    url = _anthropic_messages_url(cfg["base_url"])
+    # 请求前校验（不是保存时校验一次）：DNS 记录会变，
+    # 「保存时安全、请求时不安全」在 TOCTOU 下真实可利用。
+    base = assert_safe_outbound_url(cfg["base_url"], label="Base URL")
+    url = _anthropic_messages_url(base)
     headers = {
         "Content-Type": "application/json",
         "X-Api-Key": cfg["api_key"],
@@ -193,7 +197,13 @@ def _anthropic_completion(
 
 def _request_cfg(req: AiConfigRequest, fallback_cfg: dict | None = None) -> dict:
     """构造请求配置, 空密钥仅允许沿用服务端已有配置。"""
-    base_url = _normalize_base_url(req.base_url)
+    # 保存时只做语法级检查（resolve_dns=False），让用户在保存阶段就收到
+    # 明确反馈，并拦住「主机就是内网 IP」这种一眼可判的情况。
+    # 主机名的 DNS 解析不在这里做：否则保存成败取决于 DNS 可用性。
+    # **安全边界在请求前**（见 _chat_completion / _anthropic_completion）。
+    base_url = _normalize_base_url(
+        assert_safe_outbound_url(req.base_url, label="Base URL", resolve_dns=False)
+    )
     model = req.model.strip()
     api_key = (req.api_key or "").strip()
     if not api_key and fallback_cfg:
@@ -249,7 +259,10 @@ def _chat_completion(
         return _anthropic_completion(cfg, messages, temperature, max_tokens)
 
     timeout = float(os.environ.get("PAPERGUARD_AI_TIMEOUT", "60"))
-    base_url = _normalize_base_url(cfg["base_url"])
+    # 同上：每次请求前校验，不依赖保存配置时的历史判断
+    base_url = _normalize_base_url(
+        assert_safe_outbound_url(cfg["base_url"], label="Base URL")
+    )
     candidate_urls = [f"{base_url}/chat/completions"]
     if not base_url.endswith("/v1"):
         candidate_urls.append(f"{base_url}/v1/chat/completions")

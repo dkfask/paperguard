@@ -235,6 +235,16 @@ def test_base_url_fallback_and_error_parsing(monkeypatch):
     client_mock.__enter__.return_value.post = mock_post
     monkeypatch.setattr(httpx, "Client", lambda **kw: client_mock)
 
+    # 出站守卫会在**请求前**解析 DNS 并逐个检查地址（SSRF 防护的安全边界）。
+    # api.test.com 是刻意不可解析的假域名，这里给它一个公网解析结果，
+    # 让测试聚焦在它本来要验证的 /v1 fallback 逻辑上。
+    import socket
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc:
         ai_module._chat_completion(
@@ -444,3 +454,56 @@ def test_admin_ai_config_survives_relogin(monkeypatch):
     assert captured["model"] == "persisted-model"
 
     admin_client.delete("/api/ai/admin/config")
+
+
+def test_request_time_guard_blocks_legacy_saved_private_config(monkeypatch):
+    """安全边界在**请求前**，不在保存时。
+
+    场景：修复上线前，用户已经保存过指向内网的 base_url，那条记录还在库里。
+    保存路径现在会拦，但对**存量配置**不起作用——必须由请求前的完整校验兜住。
+    如果只修保存路径，这些老配置会继续被使用，SSRF 依然成立。
+    """
+    import socket
+    import uuid
+
+    import httpx as _httpx
+
+    username = f"legacy_{uuid.uuid4().hex[:8]}"
+    password = "Legacy-aaaaaaaaaa1"
+    reg = client.post(
+        "/api/auth/register",
+        json={"username": username, "password": password, "role": "student"},
+    )
+    assert reg.status_code == 201, reg.text
+    token = client.post(
+        "/api/auth/login", json={"username": username, "password": password}
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 绕过保存路径的检查，直接往库里写一条「修复前就已存在」的私网配置，
+    # 精确模拟存量数据，而不是假设保存接口一定会拦住。
+    from app.db import Store
+
+    store = Store()
+    user = store.get_user_by_username(username)
+    store.set_user_ai_config(
+        user["id"],
+        # 端口取允许列表内的 8080：否则端口检查会先触发，
+        # 测到的就不是「私网地址被请求前校验拦下」这一条。
+        {"base_url": "http://127.0.0.1:8080/v1", "api_key": "sk-legacy", "model": "m"},
+    )
+
+    # 确保请求确实会尝试外发（若没被拦住，这里就会走到 httpx）
+    def _boom(*a, **kw):
+        raise AssertionError("请求前的出站校验没有拦住私网地址，请求被放行了")
+
+    monkeypatch.setattr(_httpx, "Client", _boom)
+
+    resp = client.post(
+        "/api/ai/assist",
+        headers=headers,
+        json={"action": "polish", "text": "论文正文"},
+    )
+    assert resp.status_code == 400, f"应被出站校验 400 拦下，实际 {resp.status_code}: {resp.text}"
+    detail = resp.text
+    assert "回环" in detail or "内网" in detail, detail
