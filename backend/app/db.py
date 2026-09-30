@@ -20,6 +20,7 @@ from app.models.project import WritingProject
 from app.models.organization import OrganizationUnit
 from app.models.policy import CheckRun, PolicyAuditEvent, RequirementSet
 from app.models.template import PaperTemplate
+from app.services import secret_store
 
 # Keep the default database beside the other persisted runtime assets.  The
 # Docker Compose volume is mounted at /app/data, which corresponds to this
@@ -792,12 +793,14 @@ class Store:
         if not user or not user.get("ai_config"):
             return None
         try:
-            return json.loads(user["ai_config"])
+            data = json.loads(user["ai_config"])
         except (TypeError, ValueError):
             return None
+        # 存量数据是明文，reveal_config 会原样返回；新写入的是密文，这里解密
+        return secret_store.reveal_config(data) if isinstance(data, dict) else None
 
     def set_user_ai_config(self, user_id: str, cfg: dict | None) -> None:
-        payload = json.dumps(cfg, ensure_ascii=False) if cfg else None
+        payload = json.dumps(secret_store.protect_config(cfg), ensure_ascii=False) if cfg else None
         with self._connect() as conn:
             conn.execute(
                 "UPDATE users SET ai_config = ? WHERE id = ?",
@@ -907,14 +910,15 @@ class Store:
             return None
         try:
             data = json.loads(raw)
-            if isinstance(data, dict):
-                return data
         except (TypeError, ValueError):
-            pass
-        return None
+            return None
+        # 存量明文原样返回；密文在此解密
+        return secret_store.reveal_config(data) if isinstance(data, dict) else None
 
     def set_system_ai_config(self, cfg: dict | None) -> None:
-        payload = json.dumps(cfg, ensure_ascii=False) if cfg else None
+        payload = (
+            json.dumps(secret_store.protect_config(cfg), ensure_ascii=False) if cfg else None
+        )
         self.set_system_setting("ai_default_config", payload)
 
     # ---------------------------- templates ----------------------------
