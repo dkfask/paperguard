@@ -607,8 +607,18 @@ def _onboarding_path_exempt(path: str) -> bool:
     return path in _ONBOARDING_EXEMPT_PATHS or path == "/api/auth/logout" or path == "/api/auth/email/code"
 
 
+def get_store() -> Store:
+    """Store 依赖。
+
+    全项目统一用 `Depends(get_store)` 注入，路由里不再写
+    `Depends(lambda: Store())`——两种写法并存时，测试要 monkeypatch
+    的入口就有两个，漏掉一个就会出现「测试全绿但线上走了另一条路径」。
+    """
+    return Store()
+
+
 def current_user(request: Request, authorization: str | None = Header(default=None),
-                 store: Store = Depends(lambda: Store())) -> dict:
+                 store: Store = Depends(get_store)) -> dict:
     """从 Authorization 头解析未过期、未撤销的当前用户, 并阻断未完成学生引导的业务请求。"""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="未登录")

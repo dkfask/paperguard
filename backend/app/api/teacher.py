@@ -16,6 +16,11 @@ from app.db import Store
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
 
 
+def get_store() -> Store:
+    """Store 依赖（与项目其余路由一致的注入方式）。"""
+    return Store()
+
+
 def _is_supervised_student(store: Store, teacher_id: str, student: dict) -> bool:
     """当前教师是否指导该学生：账号绑定或批次指导任一成立即可。
 
@@ -67,7 +72,7 @@ class ResetStudentPasswordRequest(BaseModel):
 @router.get("/students")
 def list_my_students(
     user: dict = Depends(require_manager),
-    store: Store = Depends(lambda: Store()),
+    store: Store = Depends(get_store),
 ):
     """获取当前教师指导的学生列表，同时附带学生论文项目的简要进度统计。
 
@@ -147,7 +152,7 @@ def list_my_students(
 def bulk_import_students(
     req: BulkImportStudentsRequest,
     user: dict = Depends(require_manager),
-    store: Store = Depends(lambda: Store()),
+    store: Store = Depends(get_store),
 ):
     """批量导入并生成学生账号。"""
     created_list = []
@@ -227,7 +232,7 @@ def reset_student_password(
     student_id: str,
     req: ResetStudentPasswordRequest,
     user: dict = Depends(require_manager),
-    store: Store = Depends(lambda: Store()),
+    store: Store = Depends(get_store),
 ):
     """指导教师为学生重置密码。"""
     student = store.get_user(student_id)
@@ -261,7 +266,7 @@ def reset_student_password(
 def unbind_student(
     student_id: str,
     user: dict = Depends(require_manager),
-    store: Store = Depends(lambda: Store()),
+    store: Store = Depends(get_store),
 ):
     """解除教师与学生的指导关系。"""
     student = store.get_user(student_id)

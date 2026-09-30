@@ -24,6 +24,12 @@ from app.services.outbound_guard import assert_safe_outbound_url
 
 router = APIRouter(prefix="/api/ai")
 
+
+def get_store() -> Store:
+    """Store 依赖（与项目其余路由一致的注入方式）。"""
+    return Store()
+
+
 _ACTIONS = ("polish", "continue", "expand", "abstract", "english_abstract", "keywords")
 _MAX_INPUT_CHARS = 12000
 _MASKED_KEY_PREVIEW = 4
@@ -452,7 +458,7 @@ def _build_messages(action: str, text: str, req: AssistRequest) -> list[dict]:
 
 
 @router.get("/status")
-def ai_status(user: dict = Depends(current_user), store: Store = Depends(lambda: Store())) -> dict:
+def ai_status(user: dict = Depends(current_user), store: Store = Depends(get_store)) -> dict:
     resolved = _resolve_cfg(store, user)
     if not resolved:
         return {"enabled": False, "source": None, "model": None}
@@ -461,7 +467,7 @@ def ai_status(user: dict = Depends(current_user), store: Store = Depends(lambda:
 
 
 @router.get("/config")
-def get_ai_config(user: dict = Depends(current_user), store: Store = Depends(lambda: Store())) -> dict:
+def get_ai_config(user: dict = Depends(current_user), store: Store = Depends(get_store)) -> dict:
     cfg = store.get_user_ai_config(user["id"])
     if not cfg or not all(cfg.get(k) for k in ("base_url", "api_key", "model")):
         return {"configured": False, "base_url": None, "model": None, "api_key_masked": None}
@@ -475,7 +481,7 @@ def get_ai_config(user: dict = Depends(current_user), store: Store = Depends(lam
 
 @router.put("/config")
 def save_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
-                   store: Store = Depends(lambda: Store())) -> dict:
+                   store: Store = Depends(get_store)) -> dict:
     cfg = _request_cfg(req, store.get_user_ai_config(user["id"]))
     store.set_user_ai_config(user["id"], cfg)
     _audit_ai_config(
@@ -488,14 +494,14 @@ def save_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
 
 
 @router.delete("/config", status_code=204)
-def clear_ai_config(user: dict = Depends(current_user), store: Store = Depends(lambda: Store())) -> None:
+def clear_ai_config(user: dict = Depends(current_user), store: Store = Depends(get_store)) -> None:
     store.set_user_ai_config(user["id"], None)
     _audit_ai_config(store, user, action="ai.config.cleared", scope="user")
 
 
 @router.post("/config/test")
 def test_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
-                   store: Store = Depends(lambda: Store())) -> dict:
+                   store: Store = Depends(get_store)) -> dict:
     cfg = _request_cfg(req, store.get_user_ai_config(user["id"]))
     try:
         # 测试连通性会真的发请求，出口必须完整校验
@@ -510,7 +516,7 @@ def test_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
 
 @router.get("/admin/config")
 def get_admin_ai_config(admin: dict = Depends(require_admin),
-                        store: Store = Depends(lambda: Store()),
+                        store: Store = Depends(get_store),
                         organization_id: str = "") -> dict:
     """获取默认配置, 标明来自数据库还是环境变量。
 
@@ -557,7 +563,7 @@ def get_admin_ai_config(admin: dict = Depends(require_admin),
 
 @router.put("/admin/config")
 def save_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_admin),
-                         store: Store = Depends(lambda: Store()),
+                         store: Store = Depends(get_store),
                          organization_id: str = "") -> dict:
     """管理员保存系统默认模型到数据库。
 
@@ -581,7 +587,7 @@ def save_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_adm
 
 @router.delete("/admin/config", status_code=204)
 def clear_admin_ai_config(admin: dict = Depends(require_admin),
-                          store: Store = Depends(lambda: Store()),
+                          store: Store = Depends(get_store),
                           organization_id: str = "") -> None:
     """管理员清除默认配置, 自动回退至上一级或未配置。"""
     store.set_system_ai_config(None, organization_id)
@@ -594,7 +600,7 @@ def clear_admin_ai_config(admin: dict = Depends(require_admin),
 
 @router.post("/admin/config/test")
 def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_admin),
-                         store: Store = Depends(lambda: Store()),
+                         store: Store = Depends(get_store),
                          organization_id: str = "") -> dict:
     """管理员测试准备配置的系统默认模型。"""
     fallback = _system_cfg(store, organization_id)
@@ -609,7 +615,7 @@ def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_adm
 
 @router.post("/assist")
 def ai_assist(req: AssistRequest, user: dict = Depends(current_user),
-              store: Store = Depends(lambda: Store())) -> dict:
+              store: Store = Depends(get_store)) -> dict:
     if req.action not in _ACTIONS:
         raise HTTPException(status_code=400, detail=f"不支持的 AI 操作: {req.action}")
     if not req.text.strip():
