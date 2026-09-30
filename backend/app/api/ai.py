@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.auth import current_user, require_admin
-from app.db import Store
+from app.db import Store, new_id
 from app.services import ai_governance
 from app.services.outbound_guard import assert_safe_outbound_url
 
@@ -90,6 +90,50 @@ def _mask_key(api_key: str) -> str:
     if len(api_key) <= _MASKED_KEY_PREVIEW:
         return "***"
     return f"***{api_key[-_MASKED_KEY_PREVIEW:]}"
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _audit_ai_config(
+    store: Store,
+    actor: dict,
+    *,
+    action: str,
+    scope: str,
+    result: str = "success",
+    reason: str = "",
+) -> None:
+    """记录 AI 配置变更。
+
+    为什么必须记：AI 配置决定了**用户数据流向哪个外部供应商**。改一个
+    base_url 就等于把整份论文正文改道到另一个处理者，而这类变更在任何
+    SaaS 合规视角下都属于必须可追溯的事件——修复前 ai.py 里对 `_audit`
+    零调用，同一代码库的 `document_projects.py` 却对每一次项目变更都在记。
+
+    审计里**只放元数据**：base_url 的 host 与 model 名，不放 API Key，
+    也不放任何论文内容。审计流本身是管理端可见的，凭据不该进这里。
+    """
+    context = actor.get("organization_context") or {}
+    try:
+        store.save_audit_event({
+            "id": new_id("audit"),
+            "actor_id": str(actor.get("id") or ""),
+            "action": action,
+            "resource_type": f"ai_config:{scope}",
+            "resource_id": str(actor.get("id") or scope),
+            "organization_id": str(context.get("school_id") or ""),
+            "result": result,
+            "reason": reason,
+            "created_at": _now(),
+        })
+    except Exception:  # 审计失败不得让配置本身写不进去
+        import logging
+
+        logging.getLogger("paperguard.ai").exception("AI 配置审计写入失败: %s", action)
 
 
 def _normalize_base_url(raw: str) -> str:
@@ -381,12 +425,19 @@ def save_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
                    store: Store = Depends(lambda: Store())) -> dict:
     cfg = _request_cfg(req, store.get_user_ai_config(user["id"]))
     store.set_user_ai_config(user["id"], cfg)
+    _audit_ai_config(
+        store, user,
+        action="ai.config.saved",
+        scope="user",
+        reason=f"host:{urlsplit(cfg['base_url']).hostname} model:{cfg['model']}",
+    )
     return {"configured": True}
 
 
 @router.delete("/config", status_code=204)
 def clear_ai_config(user: dict = Depends(current_user), store: Store = Depends(lambda: Store())) -> None:
     store.set_user_ai_config(user["id"], None)
+    _audit_ai_config(store, user, action="ai.config.cleared", scope="user")
 
 
 @router.post("/config/test")
@@ -446,6 +497,12 @@ def save_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_adm
     fallback = _system_cfg(store)
     cfg = _request_cfg(req, fallback[0] if fallback else None)
     store.set_system_ai_config(cfg)
+    _audit_ai_config(
+        store, admin,
+        action="ai.config.system_saved",
+        scope="system",
+        reason=f"host:{urlsplit(cfg['base_url']).hostname} model:{cfg['model']}",
+    )
     return {"configured": True, "source": "database"}
 
 
@@ -454,6 +511,7 @@ def clear_admin_ai_config(admin: dict = Depends(require_admin),
                           store: Store = Depends(lambda: Store())) -> None:
     """管理员清除数据库中的默认配置, 自动回退至环境变量或未配置。"""
     store.set_system_ai_config(None)
+    _audit_ai_config(store, admin, action="ai.config.system_cleared", scope="system")
 
 
 @router.post("/admin/config/test")
