@@ -34,6 +34,7 @@ SCHEMA_MIGRATIONS = (
     "0006_validation_runs",
     "0007_document_scope_indexes",
     "0008_miniprogram_auth",
+    "0009_ai_usage_quota",
 )
 
 
@@ -167,6 +168,36 @@ class Store:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+                -- AI 用量记账。LLM 是按量计费资源，没有这张表就无法回答
+                -- 「谁花了多少」，也无法按租户分摊成本。
+                -- organization_id 在**调用时**从用户的 organization_context
+                -- 落库（而不是查询时再关联）：用户的学校归属之后可能变，
+                -- 变了会让历史用量的归属跟着漂移，计费口径就不成立了。
+                CREATE TABLE IF NOT EXISTS ai_usage (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    organization_id TEXT,
+                    action TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    base_url_host TEXT,
+                    input_chars INTEGER NOT NULL DEFAULT 0,
+                    output_chars INTEGER NOT NULL DEFAULT 0,
+                    result TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created
+                    ON ai_usage (user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_ai_usage_org_created
+                    ON ai_usage (organization_id, created_at DESC);
+                -- 每用户每日配额计数。period 用 UTC 日期，避免跨时区当天额度错乱。
+                CREATE TABLE IF NOT EXISTS ai_quota (
+                    user_id TEXT NOT NULL,
+                    period TEXT NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, period)
                 );
                 CREATE TABLE IF NOT EXISTS requirement_sets (
                     id TEXT PRIMARY KEY,
@@ -772,6 +803,84 @@ class Store:
                 "UPDATE users SET ai_config = ? WHERE id = ?",
                 (payload, user_id),
             )
+
+    # ----------------------- AI 用量与配额 -----------------------
+
+    def record_ai_usage(self, entry: dict) -> None:
+        """记录一次 AI 调用。失败也记——失败同样消耗上游额度与成本。"""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO ai_usage (id, user_id, organization_id, action, source, model,"
+                " base_url_host, input_chars, output_chars, result, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry["id"],
+                    entry["user_id"],
+                    entry.get("organization_id"),
+                    entry["action"],
+                    entry["source"],
+                    entry["model"],
+                    entry.get("base_url_host"),
+                    int(entry.get("input_chars") or 0),
+                    int(entry.get("output_chars") or 0),
+                    entry["result"],
+                    entry["created_at"],
+                ),
+            )
+
+    def get_ai_quota_used(self, user_id: str, period: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT used FROM ai_quota WHERE user_id = ? AND period = ?",
+                (user_id, period),
+            ).fetchone()
+        return int(row["used"]) if row else 0
+
+    def consume_ai_quota(self, user_id: str, period: str, now: str, limit: int) -> bool:
+        """原子地占用一次配额；超限返回 False 且不占用。
+
+        必须用一条 INSERT ... ON CONFLICT 带条件更新完成，不能「先查后写」——
+        那是经典的并发竞态：两个请求同时读到 used=limit-1，双双通过检查。
+    """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO ai_quota (user_id, period, used, updated_at) VALUES (?, ?, 1, ?)"
+                " ON CONFLICT(user_id, period) DO UPDATE SET"
+                "   used = used + 1, updated_at = excluded.updated_at"
+                " WHERE used < ?",
+                (user_id, period, now, limit),
+            )
+            return cur.rowcount > 0
+
+    def release_ai_quota(self, user_id: str, period: str, now: str) -> None:
+        """回退一次占用。请求在上游报错**之前**就被拒绝时不该占额度。"""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE ai_quota SET used = MAX(0, used - 1), updated_at = ?"
+                " WHERE user_id = ? AND period = ?",
+                (now, user_id, period),
+            )
+
+    def ai_usage_summary(self, *, since: str | None = None, limit: int = 100) -> list[dict]:
+        """用量汇总（按用户 + 学校），供管理端查看与成本分摊。"""
+        with self._connect() as conn:
+            if since:
+                rows = conn.execute(
+                    "SELECT user_id, organization_id, COUNT(*) AS calls,"
+                    " SUM(input_chars) AS input_chars, SUM(output_chars) AS output_chars"
+                    " FROM ai_usage WHERE created_at >= ?"
+                    " GROUP BY user_id, organization_id ORDER BY calls DESC LIMIT ?",
+                    (since, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT user_id, organization_id, COUNT(*) AS calls,"
+                    " SUM(input_chars) AS input_chars, SUM(output_chars) AS output_chars"
+                    " FROM ai_usage"
+                    " GROUP BY user_id, organization_id ORDER BY calls DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        return [dict(row) for row in rows]
 
     # ----------------------- system settings -----------------------
 

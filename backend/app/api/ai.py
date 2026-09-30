@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import current_user, require_admin
 from app.db import Store
+from app.services import ai_governance
 from app.services.outbound_guard import assert_safe_outbound_url
 
 router = APIRouter(prefix="/api/ai")
@@ -168,10 +169,7 @@ def _anthropic_completion(
     max_tokens: int = 4000,
 ) -> str:
     """调用 Anthropic Messages API, 兼容 MiniMax /anthropic 地址。"""
-    # 请求前校验（不是保存时校验一次）：DNS 记录会变，
-    # 「保存时安全、请求时不安全」在 TOCTOU 下真实可利用。
-    base = assert_safe_outbound_url(cfg["base_url"], label="Base URL")
-    url = _anthropic_messages_url(base)
+    url = _anthropic_messages_url(cfg["base_url"])
     headers = {
         "Content-Type": "application/json",
         "X-Api-Key": cfg["api_key"],
@@ -259,10 +257,7 @@ def _chat_completion(
         return _anthropic_completion(cfg, messages, temperature, max_tokens)
 
     timeout = float(os.environ.get("PAPERGUARD_AI_TIMEOUT", "60"))
-    # 同上：每次请求前校验，不依赖保存配置时的历史判断
-    base_url = _normalize_base_url(
-        assert_safe_outbound_url(cfg["base_url"], label="Base URL")
-    )
+    base_url = _normalize_base_url(cfg["base_url"])
     candidate_urls = [f"{base_url}/chat/completions"]
     if not base_url.endswith("/v1"):
         candidate_urls.append(f"{base_url}/v1/chat/completions")
@@ -399,6 +394,8 @@ def test_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
                    store: Store = Depends(lambda: Store())) -> dict:
     cfg = _request_cfg(req, store.get_user_ai_config(user["id"]))
     try:
+        # 测试连通性会真的发请求，出口必须完整校验
+        assert_safe_outbound_url(cfg["base_url"], label="Base URL")
         _chat_completion(cfg, [{"role": "user", "content": "回复「ok」两个字"}], 0.0)
     except HTTPException as exc:
         return {"ok": False, "error": exc.detail}
@@ -466,6 +463,7 @@ def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_adm
     fallback = _system_cfg(store)
     cfg = _request_cfg(req, fallback[0] if fallback else None)
     try:
+        assert_safe_outbound_url(cfg["base_url"], label="Base URL")
         _chat_completion(cfg, [{"role": "user", "content": "回复「ok」两个字"}], 0.0)
     except HTTPException as exc:
         return {"ok": False, "error": exc.detail}
@@ -487,7 +485,30 @@ def ai_assist(req: AssistRequest, user: dict = Depends(current_user),
             status_code=503,
             detail="AI 功能未启用: 请在「AI 设置」中填写自己的模型配置, 或联系管理员配置系统默认模型",
         )
-    cfg, _source = resolved
+    cfg, source = resolved
+
+    # 出站守卫先跑：它在**消耗配额之前**，被拒时不会占用用户额度，
+    # 也不需要任何退款逻辑。DNS 解析只做这一次。
+    assert_safe_outbound_url(cfg["base_url"], label="Base URL")
+
+    day_period = ai_governance.begin_call(store, user)
     messages, temperature = _build_messages(req.action, req.text, req)
-    result = _chat_completion(cfg, messages, temperature)
+    try:
+        result = _chat_completion(cfg, messages, temperature)
+    except HTTPException:
+        # 已经发往上游了，失败也可能产生成本，因此**不**归还额度，只记失败用量
+        ai_governance.record_usage(
+            store, user,
+            action=req.action, source=source, model=cfg["model"],
+            base_url=cfg["base_url"], input_chars=len(req.text),
+            output_chars=0, result="upstream_error",
+        )
+        raise
+
+    ai_governance.record_usage(
+        store, user,
+        action=req.action, source=source, model=cfg["model"],
+        base_url=cfg["base_url"], input_chars=len(req.text),
+        output_chars=len(result), result="success",
+    )
     return {"text": result}

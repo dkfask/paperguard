@@ -18,6 +18,26 @@ from fastapi.testclient import TestClient
 
 from app.api import ai as ai_module
 from app.db import Store
+
+# --------------------------------------------------------------------------
+# 出站守卫需要真实 DNS 解析（SSRF 防护的安全边界）。本文件的用例都用
+# .local / .example 这类**刻意不可解析**的假供应商域名，不打桩的话守卫会在
+# 解析阶段就 400，测不到本来要验证的逻辑。
+#
+# 注意：这个 autouse fixture 只服务于「本文件里的假域名需要被解析成公网地址」
+# 这一件事。守卫自身的测试（test_outbound_guard.py）**不能**带它——那里要验证
+# 的正是解析结果如何影响判定。
+# --------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _fake_public_dns(monkeypatch):
+    import socket
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
 from app.main import app
 
 client = TestClient(app)

@@ -108,7 +108,7 @@ def test_migrate_cli_is_repeatable_and_reports_schema_ledger(tmp_path, monkeypat
     assert first_payload["status"] == second_payload["status"] == "ok"
     assert [item["version"] for item in first_payload["migrations"]] == [
         "0001_runtime_schema", "0002_durable_jobs", "0003_audit_ledger", "0004_document_packages", "0005_document_projects", "0006_validation_runs",
-        "0007_document_scope_indexes", "0008_miniprogram_auth",
+        "0007_document_scope_indexes", "0008_miniprogram_auth", "0009_ai_usage_quota",
     ]
     assert [item["version"] for item in first_payload["migrations"]] == [
         item["version"] for item in second_payload["migrations"]
@@ -129,7 +129,7 @@ def test_migrate_package_entrypoint_executes_the_cli(tmp_path):
     assert result.returncode == 0, result.stderr or result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
-    assert payload["migrations"][-1]["version"] == "0008_miniprogram_auth"
+    assert payload["migrations"][-1]["version"] == "0009_ai_usage_quota"
 
 
 def test_operations_api_configures_retention_and_downloads_backup(tmp_path, monkeypatch):

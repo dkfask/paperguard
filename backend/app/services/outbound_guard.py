@@ -34,6 +34,18 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
+
+class OutboundBlocked(HTTPException):
+    """出站被守卫拒绝。
+
+    单独一个类型，是为了让调用方能**精确**区分「请求根本没发出去」与
+    「发出去了但上游报错」——前者应归还调用配额，后者不应（上游可能已计费）。
+    只按状态码 400 判断是不行的：参数校验失败也是 400。
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(status_code=400, detail=detail)
+
 # 允许的协议。刻意不含 file: / gopher: / ftp: 等
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
@@ -107,7 +119,7 @@ def _resolve(host: str) -> list[ipaddress._BaseAddress]:
     try:
         infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
-        raise HTTPException(status_code=400, detail=f"无法解析主机名: {host}") from exc
+        raise OutboundBlocked(f"无法解析主机名: {host}") from exc
     addresses: list[ipaddress._BaseAddress] = []
     for info in infos:
         sockaddr = info[4]
@@ -118,7 +130,7 @@ def _resolve(host: str) -> list[ipaddress._BaseAddress]:
         except ValueError:
             continue
     if not addresses:
-        raise HTTPException(status_code=400, detail=f"主机名未解析到任何地址: {host}")
+        raise OutboundBlocked(f"主机名未解析到任何地址: {host}")
     return addresses
 
 
@@ -143,25 +155,22 @@ def assert_safe_outbound_url(
 
     raw = (url or "").strip()
     if not raw:
-        raise HTTPException(status_code=400, detail=f"{label} 不能为空")
+        raise OutboundBlocked(f"{label} 不能为空")
 
     parts = urlsplit(raw)
     scheme = (parts.scheme or "").lower()
     if scheme not in _ALLOWED_SCHEMES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{label} 协议只允许 http 或 https，当前为 {scheme or '(空)'}",
-        )
+        raise OutboundBlocked(f"{label} 协议只允许 http 或 https，当前为 {scheme or '(空)'}")
 
     try:
         host = parts.hostname
         port = parts.port
     except ValueError as exc:
         # 端口非法（例如 :99999）
-        raise HTTPException(status_code=400, detail=f"{label} 端口不合法") from exc
+        raise OutboundBlocked(f"{label} 端口不合法") from exc
 
     if not host:
-        raise HTTPException(status_code=400, detail=f"{label} 缺少主机名")
+        raise OutboundBlocked(f"{label} 缺少主机名")
 
     host = host.lower().rstrip(".")
 
@@ -169,17 +178,15 @@ def assert_safe_outbound_url(
     allow_any_port = os.environ.get("PAPERGUARD_AI_ALLOW_ANY_PORT", "").strip() in {"1", "true", "yes"}
     if not allow_any_port and port is not None and port not in _ALLOWED_PORTS:
         allowed = ", ".join(str(p) for p in sorted(_ALLOWED_PORTS))
-        raise HTTPException(
-            status_code=400,
-            detail=f"{label} 端口 {port} 不被允许（允许 {allowed}；"
-            "如确需自定义端口请设置 PAPERGUARD_AI_ALLOW_ANY_PORT=1）",
+        raise OutboundBlocked(
+            f"{label} 端口 {port} 不被允许（允许 {allowed}；"
+            "如确需自定义端口请设置 PAPERGUARD_AI_ALLOW_ANY_PORT=1）"
         )
 
     whitelist = _allowed_hosts()
     if whitelist and host not in whitelist:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{label} 主机 {host} 不在允许清单内（已配置 PAPERGUARD_AI_ALLOWED_HOSTS）",
+        raise OutboundBlocked(
+            f"{label} 主机 {host} 不在允许清单内（已配置 PAPERGUARD_AI_ALLOWED_HOSTS）"
         )
 
     if _allow_private_network():
@@ -200,10 +207,9 @@ def assert_safe_outbound_url(
     for addr in addresses:
         reason = _blocked_ip_reason(addr)
         if reason:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{label} 指向内网地址已被拒绝（{reason}: {addr}）。"
-                "如为学校自建模型服务，请设置 PAPERGUARD_AI_ALLOW_PRIVATE_NETWORK=1",
+            raise OutboundBlocked(
+                f"{label} 指向内网地址已被拒绝（{reason}: {addr}）。"
+                "如为学校自建模型服务，请设置 PAPERGUARD_AI_ALLOW_PRIVATE_NETWORK=1"
             )
 
     return raw
