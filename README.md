@@ -120,6 +120,8 @@ python3 ops/sync-release-markers.py sync \
 时不声称 JSON 标记已同步。元数据校正的时间记录为 `marker_updated_at`，不捏造部署时间。
 最新收口记录见 [CI、审计与异常恢复报告](docs/reports/CI审计与异常恢复收口_20260930.md)，
 尚未放行项见 [未决项](docs/evidence/未决项_20260913.md)。
+2026-09-30 已复核追加验收提交 `0740f8f` 的四组 workflow、七项检查全部通过；
+后续提交仍须重新读取 PR 最新 head 的 CI。生产管理员审计仍待人工登录，商业化仅完成范围设计。
 
 ## Docker 部署(服务器)
 
