@@ -212,3 +212,51 @@ def test_circuit_open_is_still_recorded_as_usage(monkeypatch):
         r["calls"] for r in Store().ai_usage_summary(limit=1000) if r["user_id"] == user_id
     )
     assert after == before + 1, "熔断拒绝的调用也要记用量（占用了用户额度）"
+
+
+def test_http_failure_open_half_open_failure_then_success(monkeypatch):
+    """完整走 HTTP 入口的故障/冷却/探针/恢复链路；外部供应商不被访问。"""
+    from types import SimpleNamespace
+
+    now = [1000.0]
+    monkeypatch.setattr(ai_breaker, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    dispatched = []
+    healthy = [False]
+
+    def controlled_dispatch(*args, **kwargs):
+        dispatched.append(healthy[0])
+        if not healthy[0]:
+            raise HTTPException(status_code=502, detail="isolated upstream failure")
+        return "isolated upstream recovered"
+
+    monkeypatch.setattr(ai_module, "_dispatch_completion", controlled_dispatch)
+    username, headers = _student()
+    _configure(username)
+    user_id = Store().get_user_by_username(username)["id"]
+    payload = {"action": "polish", "text": "synthetic recovery text"}
+
+    def call():
+        return client.post("/api/ai/assist", headers=headers, json=payload)
+
+    for _ in range(3):
+        assert call().status_code == 502
+    blocked = call()
+    assert blocked.status_code == 503
+    assert blocked.json()["detail"]["code"] == "AI_UPSTREAM_CIRCUIT_OPEN"
+    assert len(dispatched) == 3
+    now[0] += 31
+    assert call().status_code == 502  # 半开探针失败，立即重新打开
+    assert call().status_code == 503
+    assert len(dispatched) == 4
+    now[0] += 31
+    healthy[0] = True
+    recovered = call()
+    assert recovered.status_code == 200, recovered.text
+    assert recovered.json()["text"] == "isolated upstream recovered"
+    assert call().status_code == 200
+    assert len(dispatched) == 6
+    state = ai_breaker.state("https://vendor.example/v1")
+    assert state["open"] is False and state["failures"] == 0 and state["probing"] is False
+    # 当前是操作次数配额，不是金额扣款；包括两次未发往上游的熔断拒绝。
+    entries = [row for row in Store().ai_usage_summary(limit=1000) if row["user_id"] == user_id]
+    assert sum(row["calls"] for row in entries) == 8

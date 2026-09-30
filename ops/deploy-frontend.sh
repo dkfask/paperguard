@@ -111,4 +111,14 @@ FCODE=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080/favicon.ic
 echo "    GET /favicon.ico -> ${FCODE} (期望 404)"
 [[ "$FCODE" == "404" ]] || echo "    警告: /favicon.ico 仍返回 ${FCODE}，nginx 站点配置可能未同步"
 
+# JSON 标记只能在产物与后端源码均核验后更新，不能从 VERSION 猜测完整源码身份。
+if [[ -n "${PAPERGUARD_RELEASE_SOURCE_MANIFEST:-}" ]]; then
+  python3 "$(dirname "${BASH_SOURCE[0]}")/sync-release-markers.py" sync \
+    --root "$(dirname "$MARKER")" --webroot "$WEBROOT" \
+    --expected-release "$VERSION" \
+    --source-manifest "$PAPERGUARD_RELEASE_SOURCE_MANIFEST" --write
+else
+  echo "    JSON 发布标记未同步：请提供 PAPERGUARD_RELEASE_SOURCE_MANIFEST 并完成摘要核验"
+fi
+
 echo "==> 发布完成。回滚：mv ${BACKUP} ${WEBROOT} 并把 ${MARKER} 改回旧版本号"

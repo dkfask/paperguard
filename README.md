@@ -52,45 +52,74 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
 
 ## AI 写作助手
 
-两级模型配置,用户配置优先于系统默认,均走 OpenAI 兼容 `/chat/completions` 协议:
+配置优先级为：**用户自带配置 → 所属学校配置 → 平台全局默认 → 环境变量默认**。
+管理员接口可用 `organization_id` 指定学校；不传时操作平台全局默认。当前管理页面
+仍配置全局默认，学校覆盖通过受控管理接口配置。OpenAI 兼容端点使用
+`/chat/completions`，以 `/anthropic` 结尾的端点使用 Anthropic Messages 协议。
 
-- **系统默认**(管理员配置,全体用户可用):
-
-  ```bash
-  export PAPERGUARD_AI_BASE_URL='https://api.openai.com/v1'  # OpenAI/智谱/DeepSeek/中转站均可
-  export PAPERGUARD_AI_API_KEY='sk-xxx'
-  export PAPERGUARD_AI_MODEL='gpt-4o-mini'
-  # 可选: PAPERGUARD_AI_TIMEOUT(秒, 默认 60)
-  ```
-
-  本地开发也可以把这三行写进仓库根目录的 `.env`(参考 `.env.example`, 已被 gitignore), 后端与 docker-compose 会自动加载; 已显式设置的环境变量优先于 `.env`。
-
-- **邮箱注册验证码**(Resend 推荐, 或任意 SMTP):
+- **环境变量默认模型**：
 
   ```bash
-  export PAPERGUARD_RESEND_API_KEY='re_xxx'
-  export PAPERGUARD_RESEND_FROM='noreply@your-domain.com'   # 需在 Resend 验证域名
-  # 备选 SMTP: PAPERGUARD_SMTP_HOST/PORT/USER/PASSWORD/FROM(+PAPERGUARD_SMTP_SSL=1 走 465)
+  export PAPERGUARD_AI_BASE_URL='https://api.openai.com/v1'
+  export PAPERGUARD_AI_API_KEY='<由受控环境注入，不写入仓库>'
+  export PAPERGUARD_AI_MODEL='<供应商实际支持的模型>'
+  # PAPERGUARD_AI_TIMEOUT 默认 60 秒
   ```
 
-  两者都未配置时, 邮箱注册降级为免验证(账号标记「未验证」), 微信注册的绑定邮箱流程不强制验证码。
+  本地 `.env` 已被 gitignore；显式环境变量优先。生产凭据由受控环境注入，
+  不在报告、日志或页面中回传明文。
 
-- **用户自带**:写作页左上角「✨AI」→ 填自己的 Base URL / API Key / 模型,可先「测试连接」再保存。仅对本账号生效,优先于系统默认。
+- **用户自带模型（BYOK）**：仅本账号生效。保存、清除、管理员修改均记录审计元数据；
+  密钥和论文正文不进入审计。系统已有密钥时，管理员保存配置可留空 API Key 以保留原值。
+- **邮件验证**：配置 Resend 的 `PAPERGUARD_RESEND_API_KEY` / `PAPERGUARD_RESEND_FROM`，
+  或 SMTP 的 `PAPERGUARD_SMTP_HOST` / `PORT` / `USER` / `PASSWORD` / `FROM`。
+  **未配置邮件服务时，邮箱注册、验证码发送和邮箱绑定明确返回 `EMAIL_NOT_CONFIGURED`，
+  不降级为免验证成功**。无邮箱的兼容账号注册与学校统一注册是独立路径。
+- **静态密钥保护**：配置 `PAPERGUARD_SECRET_KEY` 后，新写入供应商密钥以 `pgsec1$...`
+  格式加密并校验完整性，页面仅显示脱敏摘要。建议主密钥使用至少 32 字节的随机值，
+  通过受控环境保存，和数据库备份分开保管，恢复时使用原主密钥，**不得直接换新值**。
+  当前兼容实现未配置主密钥时会保留明文并告警，因此“代码有加密能力”不等于
+  “任意部署都已加密”；生产和商业化放行前必须核验主密钥与明文残留。
+- **运行治理**：SSRF 防护、数据接收方披露、每日调用次数配额、突发限流、用量记录和
+  上游熔断已实现。默认每用户每 UTC 日 200 次、每分钟 10 次，可用
+  `PAPERGUARD_AI_DAILY_QUOTA` / `PAPERGUARD_AI_BURST_PER_MINUTE` 调整；
+  熔断默认连续 5 次失败后打开，30 秒后允许恢复探针，可用
+  `PAPERGUARD_AI_BREAKER_THRESHOLD` / `PAPERGUARD_AI_BREAKER_RESET_SEC` 调整。
 
-说明:用户 API Key 以明文存储在本机 SQLite(与服务器环境变量同信任域,请勿把数据库文件外传);两者都未配置时 AI 按钮自动隐藏。
+### 商业化边界：已有运行用量，尚无收费账务
 
-### AI 计费（后续实现，当前未启用）
+`ai_usage` 与次数配额用于运行控制，**不是余额、token 成本或财务账本**。
+当前熔断拒绝也计入请求次数；这不代表供应商已收费，不能直接据此对用户扣款。
+当前没有充值、订阅、套餐、支付、发票、余额扣减和资金对账能力。
 
-AI 计费需求已记录在本地设计文档 `docs/product/需求模型.md`（未纳入仓库），当前版本**不包含计费、余额扣减、充值、订阅或支付功能**，现有 AI 调用行为保持不变。
+商业化按 [商业化范围与放行条件](docs/product/商业化范围与放行条件_20260930.md)
+推进：先完成非付费试点运营与权益设计，再在计费主体、BYOK、免费额度、失败结算、
+价格和数据退出规则明确后实现账务与支付。该范围文档是设计与验收边界，不是上线声明。
 
-后续实现顺序建议为：
+### 发布身份与验收证据
 
-1. 平台积分账户、不可变账务流水和 AI 用量记录。
-2. 系统默认模型的请求预留、成功结算、失败退款和幂等重试。
-3. 用户余额/用量查询与管理员价格、赠送额度、冲正接口。
-4. 在完成商业规则裁决后，再接入充值、套餐、支付回调和教师/机构账户。
+代码提交、PR/CI、部署版本、运行探针与真实业务验收分别记录，不能互相替代。
+生产文本标记 `current-release` 与 JSON 标记 `current-release.json` 通过
+`ops/sync-release-markers.py` 核验后同步；脚本默认只读，后端源码及前端产物
+任一摘要不匹配即失败关闭，只有显式 `--write` 才备份旧 JSON 并原子更新元数据。
+它**不部署代码、不重启服务，也不会把较新的测试提交伪装成生产版本**。
 
-实现前必须先处理需求模型中的未裁决项，尤其是计费主体、免费额度、BYOK 是否收费、token 计费策略和超时对账规则。
+```bash
+python3 ops/sync-release-markers.py source-manifest \
+  --repo /absolute/path/to/paperguard --revision <实际部署的完整提交> \
+  > /secure/operator/path/source-checksums.json
+
+# 在目标服务器上，先只读核验；确认后才加 --write
+python3 ops/sync-release-markers.py sync \
+  --root /home/ubuntu/paperguard --webroot /var/www/paperguard \
+  --expected-release <current-release 中的实际版本> \
+  --source-manifest /secure/operator/path/source-checksums.json
+```
+
+前端发布时可传入 `PAPERGUARD_RELEASE_SOURCE_MANIFEST` 接入同一核验；未提供源码清单
+时不声称 JSON 标记已同步。元数据校正的时间记录为 `marker_updated_at`，不捏造部署时间。
+最新收口记录见 [CI、审计与异常恢复报告](docs/reports/CI审计与异常恢复收口_20260930.md)，
+尚未放行项见 [未决项](docs/evidence/未决项_20260913.md)。
 
 ## Docker 部署(服务器)
 
