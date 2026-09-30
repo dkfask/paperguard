@@ -5,7 +5,7 @@
 触及表单由用户人工接管，元素引用在确认往返期间即过期。
 
 这两页的逻辑全在后端（准入判定、状态流转、接口契约），
-前端只是一层表单。因此这里用接口层测试覆盖，把「未验证」变成「已验证」。
+这里仅验证后端准入与状态流转，不能替代浏览器表单和真实邮件通道验收。
 
 另更正一条此前的错误结论：报告曾写「/role-certification 任何凭据都
 无法进入」。实际是——**带邮箱注册会得到 role=user + unselected**，
@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 
 from app.db import Store
 from app.main import app
+from app.services import emailer
 
 client = TestClient(app)
 
@@ -112,32 +113,69 @@ def test_onboarding_student_is_blocked_from_business_endpoints() -> None:
     assert blocked.json()["detail"]["code"] == "ONBOARDING_REQUIRED"
 
 
-def test_onboarding_paths_stay_reachable_while_blocked() -> None:
-    """引导未完成时，验证/完成引导所需的接口本身必须放行，否则用户无法自救。"""
+@pytest.mark.parametrize(
+    ("delivery", "expected_status", "expected_code"),
+    [
+        ("sent", 200, None),
+        ("unconfigured", 503, "EMAIL_NOT_CONFIGURED"),
+        ("failed", 502, "EMAIL_SEND_FAILED"),
+    ],
+)
+def test_onboarding_paths_stay_reachable_while_blocked(
+    monkeypatch, delivery: str, expected_status: int, expected_code: str | None
+) -> None:
+    """引导接口应可达；邮件成功与故障均由隔离 fixture 确定，不访问真实邮箱。"""
+    delivered: dict[str, str] = {}
+
+    def fake_send(to: str, code: str, minutes: int = 10) -> None:
+        if delivery == "unconfigured":
+            raise emailer.EmailNotConfigured("isolated provider is not configured")
+        if delivery == "failed":
+            raise RuntimeError("isolated provider delivery failed")
+        delivered.update(email=to, code=code)
+
+    monkeypatch.setattr(emailer, "send_verification_code", fake_send)
     username = f"onb_{uuid.uuid4().hex[:8]}"
+    email = f"{username}@uat.example"
     password = _gen_password()
     info = _register_student(username, password)
-    _set_user_state(info["id"], email=f"{username}@uat.example", email_verified=0)
+    _set_user_state(info["id"], email=email, email_verified=0)
 
     token = _login(username, password)["token"]
     headers = {"Authorization": f"Bearer {token}"}
-
-    # 申请验证码在豁免名单里（app/auth.py:606-607）
     code_resp = client.post(
         "/api/auth/email/code",
         headers=headers,
-        json={"email": f"{username}@uat.example", "purpose": "first_login"},
+        json={"email": email, "purpose": "first_login"},
     )
-    assert code_resp.status_code in (200, 202), code_resp.text
+    assert code_resp.status_code == expected_status, code_resp.text
+    if expected_code:
+        assert code_resp.json()["detail"]["code"] == expected_code
+        assert not delivered
+    else:
+        assert delivered["email"] == email
 
-    # 完成引导同样可达
+    # 使用真实请求模型字段，避免错误字段触发 422 后被误判为「引导可达」。
     complete = client.post(
         "/api/auth/first-login/complete",
         headers=headers,
-        json={"code": "000000", "new_password": _gen_password()},
+        json={
+            "email": email,
+            "email_code": delivered.get("code", "000000"),
+            "new_password": _gen_password(),
+        },
     )
-    # 验证码错误属于预期内，只要不是「被 onboarding 拦住」即可
-    assert complete.status_code != 403 or complete.json().get("detail", {}).get("code") != "ONBOARDING_REQUIRED", complete.text
+    if delivery == "sent":
+        assert complete.status_code == 200, complete.text
+        completed_headers = {"Authorization": f"Bearer {complete.json()['token']}"}
+        me = client.get("/api/auth/me", headers=completed_headers)
+        assert me.status_code == 200, me.text
+        assert me.json()["onboarding_required"] is False
+        assert client.get("/api/projects", headers=completed_headers).status_code == 200
+    else:
+        assert complete.status_code == 400, complete.text
+        assert complete.json()["detail"]["code"] == "EMAIL_CODE_INVALID"
+        assert client.get("/api/projects", headers=headers).status_code == 403
 
 
 def test_verified_student_is_not_blocked() -> None:
