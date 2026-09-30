@@ -36,6 +36,7 @@ SCHEMA_MIGRATIONS = (
     "0007_document_scope_indexes",
     "0008_miniprogram_auth",
     "0009_ai_usage_quota",
+    "0010_tenant_system_settings",
 )
 
 
@@ -411,6 +412,31 @@ class Store:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
                 "ON users(email) WHERE email IS NOT NULL AND email != ''"
             )
+            # 0010: system_settings 增加 organization_id 维度。
+            # 修复前该表是全局键值表（key 为主键），意味着**一套部署服务多个
+            # 学校**时，任一学校用的 AI 模型配置是同一个——所有租户的论文正文
+            # 流向同一个外部处理者，而平台无从按租户区分。
+            #
+            # SQLite 无法直接给已有表改主键，只能重建。存量行一律归到
+            # organization_id=''（平台全局默认），因此升级后行为不回退：
+            # 原来生效的配置仍然生效，只是从此可以被单校覆盖。
+            settings_columns = {row[1] for row in conn.execute("PRAGMA table_info(system_settings)")}
+            if "organization_id" not in settings_columns:
+                conn.execute("ALTER TABLE system_settings RENAME TO system_settings_legacy")
+                conn.execute(
+                    "CREATE TABLE system_settings ("
+                    "  key TEXT NOT NULL,"
+                    "  organization_id TEXT NOT NULL DEFAULT '',"
+                    "  value TEXT NOT NULL,"
+                    "  updated_at TEXT NOT NULL,"
+                    "  PRIMARY KEY (key, organization_id)"
+                    ")"
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO system_settings (key, organization_id, value, updated_at) "
+                    "SELECT key, '', value, updated_at FROM system_settings_legacy"
+                )
+                conn.execute("DROP TABLE system_settings_legacy")
             for version in SCHEMA_MIGRATIONS:
                 conn.execute(
                     "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
@@ -887,25 +913,58 @@ class Store:
 
     # ----------------------- system settings -----------------------
 
-    def get_system_setting(self, key: str) -> str | None:
+    def get_system_setting(self, key: str, organization_id: str = "") -> str | None:
+        """读取系统设置。
+
+        `organization_id` 非空时只读**该学校自己的**配置，读不到不回退——
+        调用方需要显式决定是否回退到全局（见 `get_tenant_system_setting`）。
+        两者混在一处会让人误以为「A 校读不到就自动用平台配置」，
+        而那正是 S2 要修的跨租户数据外流。
+        """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT value FROM system_settings WHERE key = ?", (key,)
+                "SELECT value FROM system_settings WHERE key = ? AND organization_id = ?",
+                (key, organization_id or ""),
             ).fetchone()
         return row["value"] if row else None
 
-    def set_system_setting(self, key: str, value: str | None) -> None:
+    def get_tenant_system_setting(self, key: str, organization_id: str = "") -> str | None:
+        """先读本租户配置，回退到平台全局默认。"""
+        value = self.get_system_setting(key, organization_id)
+        if value is not None:
+            return value
+        if organization_id:
+            return self.get_system_setting(key, "")
+        return None
+
+    def set_system_setting(self, key: str, value: str | None, organization_id: str = "") -> None:
+        org = organization_id or ""
         with self._connect() as conn:
             if value is None:
-                conn.execute("DELETE FROM system_settings WHERE key = ?", (key,))
+                conn.execute(
+                    "DELETE FROM system_settings WHERE key = ? AND organization_id = ?",
+                    (key, org),
+                )
             else:
                 conn.execute(
-                    "INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)",
-                    (key, value, _now()),
+                    "INSERT OR REPLACE INTO system_settings (key, organization_id, value, updated_at)"
+                    " VALUES (?, ?, ?, ?)",
+                    (key, org, value, _now()),
                 )
 
-    def get_system_ai_config(self) -> dict | None:
-        raw = self.get_system_setting("ai_default_config")
+    def list_system_settings_organizations(self, key: str) -> list[str]:
+        """已单独配置过该设置的组织列表（管理端可见）。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT organization_id FROM system_settings WHERE key = ?"
+                " AND organization_id != '' ORDER BY organization_id",
+                (key,),
+            ).fetchall()
+        return [r["organization_id"] for r in rows]
+
+    def get_system_ai_config(self, organization_id: str = "") -> dict | None:
+        """按学校读取默认模型配置，未单独配置时回退到平台全局默认。"""
+        raw = self.get_tenant_system_setting("ai_default_config", organization_id)
         if not raw:
             return None
         try:
@@ -915,11 +974,11 @@ class Store:
         # 存量明文原样返回；密文在此解密
         return secret_store.reveal_config(data) if isinstance(data, dict) else None
 
-    def set_system_ai_config(self, cfg: dict | None) -> None:
+    def set_system_ai_config(self, cfg: dict | None, organization_id: str = "") -> None:
         payload = (
             json.dumps(secret_store.protect_config(cfg), ensure_ascii=False) if cfg else None
         )
-        self.set_system_setting("ai_default_config", payload)
+        self.set_system_setting("ai_default_config", payload, organization_id)
 
     # ---------------------------- templates ----------------------------
 

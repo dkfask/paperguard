@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import current_user, require_admin
 from app.db import Store, new_id
-from app.services import ai_governance
+from app.services import ai_breaker, ai_governance
 from app.services.outbound_guard import assert_safe_outbound_url
 
 router = APIRouter(prefix="/api/ai")
@@ -53,10 +53,12 @@ def _system_env_cfg() -> dict | None:
     return {"base_url": base_url, "api_key": api_key, "model": model}
 
 
-def _system_cfg(store: Store | None = None) -> tuple[dict, str] | None:
-    """获取系统级默认模型配置: 优先数据库中的管理员设置, 其次环境变量。"""
+def _system_cfg(
+    store: Store | None = None, organization_id: str = ""
+) -> tuple[dict, str] | None:
+    """获取系统级默认模型配置: 优先该校的数据库设置, 其次平台全局默认, 最后环境变量。"""
     if store is not None:
-        db_cfg = store.get_system_ai_config()
+        db_cfg = store.get_system_ai_config(organization_id)
         if db_cfg and all(db_cfg.get(k) for k in ("base_url", "api_key", "model")):
             return {
                 "base_url": str(db_cfg["base_url"]).strip().rstrip("/"),
@@ -69,8 +71,23 @@ def _system_cfg(store: Store | None = None) -> tuple[dict, str] | None:
     return None
 
 
+def _school_of(user: dict | None) -> str:
+    """取用户所属学校 ID，作为默认模型配置的隔离维度。
+
+    取不到学校（未分配组织）时返回空串，即回退到平台全局默认——保持
+    与修复前一致的行为，不让「组织信息不全」的用户直接失去 AI 功能。
+    """
+    context = (user or {}).get("organization_context") or {}
+    return str(context.get("school_id") or "")
+
+
 def _resolve_cfg(store: Store, user: dict) -> tuple[dict, str] | None:
-    """返回 (cfg, source); 用户配置优先, 其次系统配置 (数据库 > 环境变量), 都无则 None。"""
+    """返回 (cfg, source); 用户配置优先, 其次系统配置 (数据库 > 环境变量), 都无则 None。
+
+    系统配置按**用户所属学校**解析（S2）：一套部署服务多个学校时，各校
+    应当能用自己的模型供应商，论文正文才不会全部流向同一家外部处理者。
+    本校没配则回退到平台全局默认。
+    """
     user_cfg = store.get_user_ai_config(user["id"])
     if user_cfg and all(user_cfg.get(k) for k in ("base_url", "api_key", "model")):
         return {
@@ -78,7 +95,7 @@ def _resolve_cfg(store: Store, user: dict) -> tuple[dict, str] | None:
             "api_key": str(user_cfg["api_key"]).strip(),
             "model": str(user_cfg["model"]).strip(),
         }, "user"
-    sys = _system_cfg(store)
+    sys = _system_cfg(store, _school_of(user))
     if sys:
         cfg, sub_source = sys
         # 统一对外归属为 "system" (或在状态中返回更具体的来源)
@@ -282,6 +299,16 @@ def _parse_error_detail(resp: httpx.Response) -> str:
     return f"AI 服务调用失败 (HTTP {resp.status_code})"
 
 
+def _breaker_key(cfg: dict) -> str:
+    """熔断按**上游端点**分组：同一供应商共享一份熔断状态。
+
+    用 base_url 而不是 api_key：同一供应商的多个密钥故障时通常也是
+    同一个原因（供应商挂了 / 额度耗尽），按端点聚合才能在第一次
+    「撞墙」时就保护住，而不是等每个密钥各失败 5 次。
+    """
+    return _normalize_base_url(cfg.get("base_url", "")).lower()
+
+
 def _chat_completion(
     cfg: dict,
     messages: list[dict],
@@ -296,7 +323,33 @@ def _chat_completion(
     OpenAI 兼容地址支持自动容错:
     若直接用 base_url 访问时返回非 JSON 网页(如返回 200 HTML 或 404),
     且 base_url 不以 /v1 结尾, 自动尝试 fallback 到 base_url + '/v1'。
+
+    熔断放在这里（而不是两个协议函数各自实现）是因为它要覆盖**全部**
+    上游调用路径，且只有在这一层才能同时看到成功与失败。
     """
+    key = _breaker_key(cfg)
+    allowed, reason = ai_breaker.allow(key)
+    if not allowed:
+        # 熔断打开时立刻返回，不再等 60 秒超时——这正是修复的目的。
+        raise HTTPException(status_code=503, detail={"code": "AI_UPSTREAM_CIRCUIT_OPEN", "message": reason})
+    try:
+        text = _dispatch_completion(cfg, messages, temperature, max_tokens)
+    except HTTPException:
+        ai_breaker.record_failure(key)
+        raise
+    except Exception:
+        ai_breaker.record_failure(key)
+        raise
+    ai_breaker.record_success(key)
+    return text
+
+
+def _dispatch_completion(
+    cfg: dict,
+    messages: list[dict],
+    temperature: float,
+    max_tokens: int = 4000,
+) -> str:
     if _is_anthropic_base_url(cfg["base_url"]):
         return _anthropic_completion(cfg, messages, temperature, max_tokens)
 
@@ -457,10 +510,20 @@ def test_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
 
 @router.get("/admin/config")
 def get_admin_ai_config(admin: dict = Depends(require_admin),
-                        store: Store = Depends(lambda: Store())) -> dict:
-    """获取系统当前默认配置, 标明来自数据库还是环境变量。"""
-    db_cfg = store.get_system_ai_config()
+                        store: Store = Depends(lambda: Store()),
+                        organization_id: str = "") -> dict:
+    """获取默认配置, 标明来自数据库还是环境变量。
+
+    `organization_id` 指定学校：不传则读平台全局默认（S2）。
+    """
+    db_cfg = store.get_system_ai_config(organization_id)
     env_cfg = _system_env_cfg()
+    # 三个分支都要带这两个字段：否则「已有哪些学校单独配过」会随配置来源
+    # 忽隐忽现，管理员在环境变量模式下就看不到已有的租户覆盖。
+    common = {
+        "organization_id": organization_id,
+        "tenant_overrides": store.list_system_settings_organizations("ai_default_config"),
+    }
     if db_cfg and all(db_cfg.get(k) for k in ("base_url", "api_key", "model")):
         return {
             "configured": True,
@@ -469,6 +532,7 @@ def get_admin_ai_config(admin: dict = Depends(require_admin),
             "model": db_cfg.get("model"),
             "api_key_masked": _mask_key(str(db_cfg.get("api_key", ""))),
             "has_env_fallback": env_cfg is not None,
+            **common,
         }
     if env_cfg:
         return {
@@ -478,6 +542,7 @@ def get_admin_ai_config(admin: dict = Depends(require_admin),
             "model": env_cfg.get("model"),
             "api_key_masked": _mask_key(str(env_cfg.get("api_key", ""))),
             "has_env_fallback": True,
+            **common,
         }
     return {
         "configured": False,
@@ -486,39 +551,53 @@ def get_admin_ai_config(admin: dict = Depends(require_admin),
         "model": None,
         "api_key_masked": None,
         "has_env_fallback": False,
+        **common,
     }
 
 
 @router.put("/admin/config")
 def save_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_admin),
-                         store: Store = Depends(lambda: Store())) -> dict:
-    """管理员保存系统默认模型到数据库。"""
+                         store: Store = Depends(lambda: Store()),
+                         organization_id: str = "") -> dict:
+    """管理员保存系统默认模型到数据库。
+
+    `organization_id` 指定学校时写入该校自己的配置（S2 租户隔离），
+    不传则写入平台全局默认。
+    """
     # 已存在数据库配置或环境变量配置时, 管理员可以只修改 URL/模型, 留空表示保留密钥。
-    fallback = _system_cfg(store)
+    fallback = _system_cfg(store, organization_id)
     cfg = _request_cfg(req, fallback[0] if fallback else None)
-    store.set_system_ai_config(cfg)
+    store.set_system_ai_config(cfg, organization_id)
     _audit_ai_config(
         store, admin,
         action="ai.config.system_saved",
-        scope="system",
-        reason=f"host:{urlsplit(cfg['base_url']).hostname} model:{cfg['model']}",
+        scope=f"system:{organization_id}" if organization_id else "system",
+        reason=(
+            f"org:{organization_id} " if organization_id else ""
+        ) + f"host:{urlsplit(cfg['base_url']).hostname} model:{cfg['model']}",
     )
-    return {"configured": True, "source": "database"}
+    return {"configured": True, "source": "database", "organization_id": organization_id}
 
 
 @router.delete("/admin/config", status_code=204)
 def clear_admin_ai_config(admin: dict = Depends(require_admin),
-                          store: Store = Depends(lambda: Store())) -> None:
-    """管理员清除数据库中的默认配置, 自动回退至环境变量或未配置。"""
-    store.set_system_ai_config(None)
-    _audit_ai_config(store, admin, action="ai.config.system_cleared", scope="system")
+                          store: Store = Depends(lambda: Store()),
+                          organization_id: str = "") -> None:
+    """管理员清除默认配置, 自动回退至上一级或未配置。"""
+    store.set_system_ai_config(None, organization_id)
+    _audit_ai_config(
+        store, admin,
+        action="ai.config.system_cleared",
+        scope=f"system:{organization_id}" if organization_id else "system",
+    )
 
 
 @router.post("/admin/config/test")
 def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_admin),
-                         store: Store = Depends(lambda: Store())) -> dict:
+                         store: Store = Depends(lambda: Store()),
+                         organization_id: str = "") -> dict:
     """管理员测试准备配置的系统默认模型。"""
-    fallback = _system_cfg(store)
+    fallback = _system_cfg(store, organization_id)
     cfg = _request_cfg(req, fallback[0] if fallback else None)
     try:
         assert_safe_outbound_url(cfg["base_url"], label="Base URL")

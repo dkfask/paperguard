@@ -372,7 +372,9 @@ def test_admin_ai_config_crud_and_permissions(monkeypatch):
         json={"base_url": "https://sys-ai.test.com/v1", "api_key": system_key, "model": "sys-model-pro"},
     )
     assert save_res.status_code == 200
-    assert save_res.json() == {"configured": True, "source": "database"}
+    assert save_res.json() == {
+        "configured": True, "source": "database", "organization_id": "",
+    }
 
     # 4. 管理员再次获取，检查脱敏与来源
     cur = admin_client.get("/api/ai/admin/config").json()
