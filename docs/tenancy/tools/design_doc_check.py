@@ -20,7 +20,7 @@
 注释对渲染不可见，不破坏阅读体验；本工具只认这个格式，不解析散文表格
 ——散文里「自检 6 项」这种数字会被误读成退出码，**只有结构化标记才可靠**。
 
-七项检查
+九项检查
 --------
     DC-1 退出码一致   文档声称的 exit 必须等于实际运行的 exit
     DC-2 工具存在     标记引用的工具文件必须存在
@@ -29,6 +29,8 @@
     DC-5 §27.3 表格   人读的工具表必须也列出全部工具
     DC-6 简报事实标记 收口简报的关键数字按现实重算比对
     DC-7 §27.5 事实标记 本文 §27.5 表格里的关键数字按现实重算比对
+    DC-8 自检能力覆盖  每道门禁都必须有自检，且自检项数按现实重算
+    DC-9 §27.3 状态列  人读表格「当前」列的退出码必须等于该工具的机器标记
 
 DC-7 与 DC-6 的区别
 ------------------
@@ -471,6 +473,67 @@ def _main_body() -> int:
             print(f"  {RED}✗{RESET} {a:30} §27.3 表格未列")
         if not absent:
             print(f"  {GREEN}✓{RESET} §27.3 表格已列全部 {len(on_disk - EXEMPT)} 个工具")
+
+    # DC-9 §27.3 表格「当前」列的退出码必须与机器标记一致
+    # -----------------------------------------------------------
+    # 为什么需要（2026-10-03 真实踩到）
+    # ---------------------------------
+    # DC-3 校验「标记块里有没有登记」，DC-5 校验「人读表格里有没有这一行」——
+    # **两处都只校验「在不在」，没有一个校验「表格里写的那个数字对不对」**。
+    # 实测抓到 1 处直接矛盾：INC-105 把 `lease_guard_check` 改到 `exit=0`、
+    # 标记块同步更新了，§27.3 表格却仍写「`1` … 差异真实且已登记」，
+    # 而同文档的机器标记就是 `=0`——**同一事实在本文档内的两处副本直接打架**，
+    # 且读表格的人看不到那行 HTML 注释。
+    #
+    # 另有 4 个工具（backfill_validate / backfill_migrate /
+    # tenant_map_candidates / run_all_gates）**只有 `--self-test` 调用、没有 plain**，
+    # 状态列的数字说的是**自检**退出码，而列名只有「当前」——
+    # 读者会把自检的绿当成真实核验的绿（与 INC-91 同族：自检 ≠ 抓得住错）。
+    # DC-9 要求这类行**显式写明「仅自检」**，让语义差异可见而不是静默。
+    print(f"\n  {DIM}DC-9 §27.3 状态列退出码与机器标记一致{RESET}")
+    _plain = {m.group(1): int(m.group(3)) for m in MARKER.finditer(text)
+              if not m.group(2).strip()}
+    dc9_bad = 0
+    if not sec:
+        findings.append("DC-9 找不到 §27.3 章节（无法核对状态列）")
+        print(f"  {RED}✗{RESET} 找不到 §27.3 章节")
+    else:
+        for tool, rest in re.findall(
+                r"^\|\s*\[`([\w.]+\.py)`\]\([^)]*\)\s*\|(.+)$", sec.group(0), re.M):
+            # 「作用」单元格里可能含**转义**管道（`\|`），先占位再切，免得切错列
+            cells = rest.replace("\\|", "\x00").split("|")
+            cell = cells[-2].strip().replace("\x00", "|") if len(cells) >= 2 else ""
+            mnum = re.match(r"`?(\d+)", cell)
+            if not mnum:
+                dc9_bad += 1
+                findings.append(
+                    f"DC-9 §27.3 表格 {tool} 的「当前」列不以退出码数字开头：{cell[:40]}")
+                print(f"  {RED}✗{RESET} {tool:30} 状态列无可核对数字")
+                continue
+            n = int(mnum.group(1))
+            if tool not in _plain:
+                # 没有 plain 调用：这个数字只能来自自检，必须让读者看出来
+                if "仅自检" not in cell:
+                    dc9_bad += 1
+                    findings.append(
+                        f"DC-9 §27.3 表格 {tool} 无 plain 调用（只有 --self-test 标记），"
+                        "状态列必须显式写明「仅自检」，否则读者会把自检退出码"
+                        "当成真实核验结果")
+                    print(f"  {RED}✗{RESET} {tool:30} 无 plain 标记且未写明「仅自检」")
+                continue
+            if n != _plain[tool]:
+                dc9_bad += 1
+                findings.append(
+                    f"DC-9 §27.3 表格 {tool} 状态列写 {n}，但机器标记是 {_plain[tool]}"
+                    "——同一事实两处副本，改一处必须同时改另一处")
+                print(f"  {RED}✗{RESET} {tool:30} 表格 {n} ≠ 标记 {_plain[tool]}")
+        if not dc9_bad:
+            n_only = sum(
+                1 for t, rest in re.findall(
+                    r"^\|\s*\[`([\w.]+\.py)`\]\([^)]*\)\s*\|(.+)$", sec.group(0), re.M)
+                if t not in _plain)
+            print(f"  {GREEN}✓{RESET} {len(_plain)} 个 plain 调用的状态列数字与标记一致"
+                  f"；{n_only} 个仅自检行已显式标注「仅自检」")
 
     # DC-6 收口简报的机器可校验事实
     # -----------------------------------------------------------
@@ -966,7 +1029,12 @@ def self_test() -> int:
 
     (tools / "g0.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
     (tools / "g1.py").write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
-    (tools / "g2.py").write_text("import sys\nsys.exit(2)\n", encoding="utf-8")
+    # g2 **带 --self-test 时 exit 0，否则 exit 2**：无参调用行为与原桩相同，
+    # 既有用例不受影响；额外让「只有 --self-test 标记、没有 plain 标记」
+    # 这个状态在夹具里可构造（DC-9 的第 3 组用例需要它）。
+    (tools / "g2.py").write_text(
+        "import sys\nsys.exit(0 if '--self-test' in sys.argv else 2)\n",
+        encoding="utf-8")
 
     doc = tmp / "d.md"
     (tmp / "sub").mkdir()
@@ -1253,6 +1321,53 @@ def self_test() -> int:
     results.append(("★ DC-7 单个套件条目漏登记 → 报红（覆盖判据能发现缺失）",
                     dc7_uncovered))
     results.append(("★ DC-7 §27.5 恢复后回到通过（非恒红）", dc7_back))
+
+    # ---- DC-9：证明「状态列数字」这一项真的被核对，且只由它报红 ----
+    # -----------------------------------------------------------------
+    # DC-3 只看「标记块里有没有登记」，DC-5 只看「人读表格里有没有这一行」——
+    # **两者都不看表格里那个数字**。真实踩到：INC-105 把 lease_guard_check
+    # 改到 exit=0、标记同步更新了，§27.3 表格仍写「`1` … 差异真实且已登记」。
+    #
+    # 用例要证明两件事，缺一不可：
+    # ① **只改表格里的数字**（标记不动、工具不动）必须报红
+    #    —— 这同时证明「报红原因被隔离」：若改表格会连带影响 DC-1/DC-5，
+    #    那这条用例就证明不了是 DC-9 在报。
+    # ② 数字改回一致后必须回到通过 —— 证明不是恒红。
+    # ③ 无 plain 标记的行必须显式写「仅自检」，否则报红
+    #    —— 这条锁住的是 INC-91 同族的「自检绿被误读成真实核验绿」。
+    # 夹具里的工具链接必须**真的可达**，否则 DC-4 会先报红、污染归因。
+    (tmp / "tenancy" / "tools").mkdir(parents=True, exist_ok=True)
+    for _g in ("g0.py", "g1.py", "g2.py"):
+        (tmp / "tenancy" / "tools" / _g).write_text(
+            (tools / _g).read_text(encoding="utf-8"), encoding="utf-8")
+
+    def _dc9_doc(cells: dict[str, str]) -> str:
+        head = "".join(f"<!-- gate:{g} ={c} -->\n" for g, c in
+                       (("g0.py", "0"), ("g1.py", "1"), ("g2.py", "2")))
+        rows = "\n".join(
+            f"| [`{g}`](tenancy/tools/{g}) | 作用 | {cells[g]} |"
+            for g in ("g0.py", "g1.py", "g2.py"))
+        return (head + "[链接](sub/ok.md)\n#### 27.3 文档包对应关系\n\n"
+                "| 工具 | 作用 | 当前 |\n|---|---|---|\n" + rows + "\n")
+
+    _ok_cells = {"g0.py": "`0` 一致", "g1.py": "`1` 一致", "g2.py": "`2` 一致"}
+    dc9_ok = run(_dc9_doc(_ok_cells)) == EXIT_OK
+    # **只动 g1 那一格**：标记仍是 =1、工具仍 exit 1，DC-1/DC-5 都不受影响
+    dc9_stale = run(_dc9_doc({**_ok_cells, "g1.py": "`0` 过期副本"})) == EXIT_FINDINGS
+    dc9_back = run(_dc9_doc(_ok_cells)) == EXIT_OK
+    # 拿掉 g2 的 plain 标记 + 不写「仅自检」→ 必须报红
+    _no_plain = (_dc9_doc({**_ok_cells, "g2.py": "`2` 自检通过"}).replace(
+        "<!-- gate:g2.py =2 -->\n", "<!-- gate:g2.py --self-test=0 -->\n", 1))
+    dc9_selftest_unmarked = run(_no_plain) == EXIT_FINDINGS
+    # 同一行写明「仅自检」→ 必须放行
+    _no_plain_ok = (_dc9_doc({**_ok_cells, "g2.py": "`2` 仅自检（无 plain 调用）"}).replace(
+        "<!-- gate:g2.py =2 -->\n", "<!-- gate:g2.py --self-test=0 -->\n", 1))
+    dc9_selftest_marked = run(_no_plain_ok) != EXIT_FINDINGS
+    results.append(("★ DC-9 状态列数字与标记一致 → 通过（夹具自洽）", dc9_ok))
+    results.append(("★ DC-9 状态列数字过期 → 报红（且只由它报红）", dc9_stale))
+    results.append(("★ DC-9 数字恢复一致 → 回到通过（非恒红）", dc9_back))
+    results.append(("★ DC-9 无 plain 标记且未写「仅自检」→ 报红", dc9_selftest_unmarked))
+    results.append(("★ DC-9 无 plain 标记但写明「仅自检」→ 放行", dc9_selftest_marked))
 
     # ---- INC-78：证明 `count_rule_ids` 真的在**引用**，不是在复述 ----
     # --------------------------------------------------------------
