@@ -172,8 +172,14 @@ def count_rule_ids(root: pathlib.Path) -> int:
     逐行计数（**同规格内重复也计数**，与该工具的 `total += 1` 对齐）。
     """
     import importlib.util as _ilu
-    sp = _ilu.spec_from_file_location(
-        "_sric", root / "docs/tenancy/tools/spec_rule_id_check.py")
+    src = root / "docs/tenancy/tools/spec_rule_id_check.py"
+    if not src.is_file():
+        # 显式抛出**带说明的**错误：裸 FileNotFoundError 会一路冒到顶层，
+        # 读的人只看到路径，看不出「这条判据因此没跑」。
+        raise FileNotFoundError(
+            f"count_rule_ids 的口径来源缺失：{src}；"
+            f"本判据依赖它统计规则 ID，缺它则 rule_ids 无从核对")
+    sp = _ilu.spec_from_file_location("_sric", src)
     mod = _ilu.module_from_spec(sp)
     sp.loader.exec_module(mod)
     total = 0
@@ -240,7 +246,64 @@ def selftest_count(output: str) -> tuple[int, int] | None:
     return int(n), int(m)
 
 
+def _finalize(findings: list[str], broken: list[str]) -> int:
+    """三态判定。**抽成纯函数是为了让自检能直接断言它**（INC-93）。
+
+    规则只有一条，但它是被实测教出来的：
+    **「我没能核对」（`broken` 非空）优先于「我核对后发现不符」（`findings` 非空）。**
+
+    为什么不能反过来：`broken` 非空时，本次结论**整体作废**
+    ——哪些没查成是未知的。此时若只报 1，读的人会以为
+    「除这几处不符外，其余都核对过了」，而实际上**有 5 条判据根本没执行**。
+    实测（假根缺 `spec_rule_id_check.py`）：`broken` 5 条、`findings` 66 条，
+    旧逻辑报 1 ⇒ 读成「核对完了，有 66 处不符」；正确答案是 2。
+
+    另一条不能省的边界：`broken` 为空时**必须能回到 0/1**。
+    只测「会报 2」的话，把 `return EXIT_TOOL_BROKEN` 写成无条件即可让自检全绿。
+    """
+    if broken:
+        return EXIT_TOOL_BROKEN
+    if findings:
+        return EXIT_FINDINGS
+    return EXIT_OK
+
+
 def main() -> int:
+    """门禁入口。
+
+    ★ **为什么多这一层（INC-93，2026-10-03 实测）**
+    ------------------------------------------
+    未捕获异常在 Python 里返回 **exit=1**，而门禁三态里
+    `1 = 差距已登记`、`2 = 工具不可运行`。
+    ⇒ **崩溃会被归类成「有差距」**：读的人以为「工具跑过了、发现了一处不符」，
+    实际是「工具根本没跑完、什么都没判定」。
+    这是 INC-81「崩溃伪装成有差距」的**复发**——
+    本轮在假根（只放 1 个工具）上实测到：
+    `FileNotFoundError: …/tools/spec_rule_id_check.py`，进程返回 1。
+
+    **修法不是「让异常别发生」**（那要每条判据都自己判，判不完），
+    而是**让崩溃必须落在 2 这一侧**：
+    traceback 原样打到 stderr（**不丢诊断信息**），退出码统一为 `EXIT_TOOL_BROKEN`。
+
+    `SystemExit` 特意**原样抛出**：`--self-test` 与子进程里那些
+    主动 `SystemExit(2)` 的路径是**有意的工具不可运行**，
+    把它包成异常反而会把 exit=2 降级成异常分支。
+    """
+    try:
+        return _main_body()
+    except SystemExit:
+        raise
+    except BaseException:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        print(f"\n{RED}✗{RESET} 工具自身异常退出 ⇒ 报 {EXIT_TOOL_BROKEN}"
+              f"（工具不可运行）。**不得**报 {EXIT_FINDINGS}——"
+              f"那会被读成「已核对、发现一处不符」，"
+              f"而此刻的事实是「什么都没核对」。", file=sys.stderr)
+        return EXIT_TOOL_BROKEN
+
+
+def _main_body() -> int:
     ap = argparse.ArgumentParser(description="设计文档自洽门禁")
     ap.add_argument("--doc", help="设计文档路径（自检传**副本**，不碰真实文件）")
     ap.add_argument("--brief", help="收口简报路径（同上，默认真实文件）")
@@ -265,6 +328,19 @@ def main() -> int:
                   else root / "docs/tenancy/设计阶段收口简报_20261001.md")
     text = doc_path.read_text(encoding="utf-8")
     findings: list[str] = []
+    # ★ INC-93：`findings` 与 `broken` 是**两种不同的失败**。
+    #
+    #   findings = 「我核对过了，发现文档与现实不符」  ⇒ 1（差距已登记）
+    #   broken   = 「我**没能**核对」                  ⇒ 2（工具不可运行）
+    #
+    # 首版把两者混在一个列表里，于是「无法静态读取 run_all_gates.GATES」
+    # 「自检输出里取不到可解析的 N/M」这类**判据自己没跑起来**的情况
+    # 也被报成 1——与未捕获异常返回的 1 混在一起，
+    # **读的人无法区分「发现了问题」与「没查成」**。
+    #
+    # 2 优先于 1：一条「没查成」足以让本次结论整体作废，
+    # 此时再报「通过 3 项」是误导。
+    broken: list[str] = []
     # DC-1 跑过的 (工具, flags) → (退出码, 输出)。DC-8 直接复用，
     # 不为「取自检项数」再开一轮进程。
     ran: dict[tuple[str, tuple[str, ...]], tuple[int | None, str]] = {}
@@ -422,7 +498,11 @@ def main() -> int:
             inc_rows = len(re.findall(r"^\| \*\*INC-\d+\*\* \|", text, re.M))
             # 规则 ID：**引用** `spec_rule_id_check`（见 `count_rule_ids` 的理由），
             # 不在本文件另写一份提取逻辑。
-            rule_ids = count_rule_ids(root)
+            try:
+                rule_ids: int | None = count_rule_ids(root)
+            except Exception as exc:  # noqa: BLE001
+                rule_ids = None
+                broken.append(f"无法统计规则 ID（口径来源不可用）：{exc}")
             # 门禁口径（2026-10-01 修正）
             # ------------------------------
             # `gates_total` = `run_all_gates.GATES` 的**条目数**（plain + self-test）
@@ -441,7 +521,7 @@ def main() -> int:
                 _spec.loader.exec_module(_mod)
                 n_gates = len(_mod.GATES)
             except Exception as exc:  # noqa: BLE001
-                findings.append(f"DC-6 无法静态读取 run_all_gates.GATES：{exc}")
+                broken.append(f"DC-6 无法静态读取 run_all_gates.GATES：{exc}")
                 n_gates = -1
             # 三态：从设计文档的 gate 标记推导，准确性由 **DC-2 保证**
             #（DC-2 逐个实跑工具并比对声明值），因此是**传递可信**。
@@ -458,7 +538,7 @@ def main() -> int:
                 "tools": len(tools),
                 "inc_max": inc_max,
                 "inc_rows": inc_rows,
-                "rule_ids": rule_ids,
+                "rule_ids": rule_ids if rule_ids is not None else -1,
                 "gates_total": n_gates,
                 "gates_pass": tri[0],
                 "gates_gap": tri[1],
@@ -517,7 +597,11 @@ def main() -> int:
             prod = root / "docs/product"
             specs = sorted(prod.glob("W-*.md"))
             # 与 DC-6 同一来源（`count_rule_ids`），**两处各写一份就是 INC-78 的成因**
-            rule_ids = count_rule_ids(root)
+            try:
+                rule_ids: int | None = count_rule_ids(root)
+            except Exception as exc:  # noqa: BLE001
+                rule_ids = None
+                broken.append(f"无法统计规则 ID（口径来源不可用）：{exc}")
             errs = count_err_code_rows(root / "docs/tenancy/error-codes.md")
             registry = root / "docs/tenancy/resource-registry.yaml"
             all_marks = parse_markers(text)
@@ -541,7 +625,7 @@ def main() -> int:
                 need = {_norm_entry(e[0], e[1]) for e in _mo.GATES}
                 n_gates = len(_mo.GATES)
             except Exception as exc:  # noqa: BLE001
-                findings.append(f"DC-7 无法静态读取 run_all_gates.GATES：{exc}")
+                broken.append(f"DC-7 无法静态读取 run_all_gates.GATES：{exc}")
                 need, n_gates = None, -1
             have = {_norm_entry(n, f) for n, f, _e in all_marks}
             if need is not None:
@@ -570,7 +654,7 @@ def main() -> int:
             actual275 = {
                 "err_codes_implemented": errs["implemented"],
                 "err_codes_placeholder": errs["placeholder"],
-                "rule_ids": rule_ids,
+                "rule_ids": rule_ids if rule_ids is not None else -1,
                 "registry_lines": (len(registry.read_text(encoding="utf-8").splitlines())
                                    if registry.is_file() else -1),
                 "gate_all_total": len(all_marks),
@@ -629,7 +713,7 @@ def main() -> int:
         _sp8.loader.exec_module(_mo8)
         in_suite = {(e[0], e[1]) for e in _mo8.GATES}
     except Exception as exc:  # noqa: BLE001
-        findings.append(f"DC-8 无法静态读取 run_all_gates.GATES：{exc}")
+        broken.append(f"DC-8 无法静态读取 run_all_gates.GATES：{exc}")
         print(f"  {RED}✗{RESET} 无法读取 GATES：{exc}")
         in_suite = None
 
@@ -714,7 +798,7 @@ def main() -> int:
         if unparsed:
             print(f"  {YELLOW}△{RESET} 自检输出里取不到 N/M，**未计入覆盖**："
                   + "、".join(unparsed))
-            findings.append(
+            broken.append(
                 "DC-8 有工具的自检输出里取不到可解析的 N/M，其自检项数"
                 "无法被机器核对：" + "、".join(unparsed))
 
@@ -803,13 +887,24 @@ def main() -> int:
         print(f"  {GREEN}✓{RESET} 无乱码字符")
 
     print("=" * 76)
-    if findings:
+    # ★ INC-93：判定顺序见 `_finalize` 的 docstring（`broken` 优先于 `findings`）
+    rc = _finalize(findings, broken)
+    if broken:
+        for b in broken:
+            print(f"  {RED}✗{RED} 【判据未能运行】{b}")
+        if findings:
+            for f in findings:
+                print(f"  {RED}✗{RESET} {f}")
+            print(f"{RED}另有 {len(findings)} 项文档与现实不一致，"
+                  f"但因存在未运行的判据，本次结论**整体不成立**{RESET}")
+        print(f"{RED}工具不可运行：{len(broken)} 条判据未能执行{RESET}")
+    elif findings:
         for f in findings:
             print(f"  {RED}✗{RESET} {f}")
         print(f"{RED}文档与现实不一致：{len(findings)} 项{RESET}")
-        return EXIT_FINDINGS
-    print(f"{GREEN}文档与现实一致{RESET}")
-    return EXIT_OK
+    else:
+        print(f"{GREEN}文档与现实一致{RESET}")
+    return rc
 
 
 # ---------------------------------------------------------------------------
@@ -1165,6 +1260,38 @@ def self_test() -> int:
                     f"{len(_m3.rule_defs(probe_text))} / "
                     f"{len(_m3.collect_defs(probe_text))}"))
     sys.argv = saved_argv
+
+    # ---- INC-93：`broken` 优先于 `findings`（崩溃不许伪装成「差距已登记」）----
+    #
+    # 四条**缺一不可**，且**顺序有讲究**：
+    #   前两条证明「判据没跑起来 ⇒ 报 2」，后两条证明**它不是恒红**。
+    # 只写前两条的话，把 `return EXIT_TOOL_BROKEN` 挪到函数最前、
+    # 后面全部变成死代码，自检照样全绿——**那是一道恒红的门禁**。
+    _fz = [
+        ("INC-93 判据未能运行且有 findings ⇒ 报 2（不得报 1）",
+         _finalize(["有 66 处不符"], ["有 5 条判据未能执行"]), EXIT_TOOL_BROKEN),
+        ("INC-93 仅 findings 非空 ⇒ 仍报 1（正常核对结果不受影响）",
+         _finalize(["有 1 处不符"], []), EXIT_FINDINGS),
+        ("INC-93 两者皆空 ⇒ 报 0（★ 证明不是恒红）",
+         _finalize([], []), EXIT_OK),
+        ("INC-93 broken 清空后不得残留（同一输入两种结果不可能，"
+         "此处锁住「只判 broken 非空个数」而非「只判第一条」）",
+         _finalize([], ["", "", ""]) == EXIT_TOOL_BROKEN, True),
+    ]
+    for _label, _got, _want in _fz:
+        results.append((_label, _got == _want,
+                        f"实际 {_got!r}，期望 {_want!r}"))
+
+    # 口径来源缺失时必须抛出**带说明的**错误，而不是裸 FileNotFoundError
+    _probe = tmp / "no_such_root"
+    try:
+        count_rule_ids(_probe)
+        _raised = ""
+    except Exception as _exc:  # noqa: BLE001
+        _raised = str(_exc)
+    results.append(("INC-93 口径来源缺失时抛出带说明的错误"
+                    "（裸 FileNotFoundError 读不出「这条判据因此没跑」）",
+                    "口径来源缺失" in _raised, _raised[:90]))
 
     shutil.rmtree(tmp, ignore_errors=True)
     print()
