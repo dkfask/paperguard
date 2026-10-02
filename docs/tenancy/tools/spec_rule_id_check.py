@@ -288,6 +288,25 @@ def verdict(total_specs: int, total_ids: int, dup: dict, dangling: dict,
     if not total_specs:
         print("✗ 未找到任何工作包规格 → 报 2（提取层空输入不得判绿）")
         return 2
+    if not total_ids:
+        # ★ INC-92（2026-10-03 实测发现）：0 个规则 ID 时本门禁**验证了 0 件事**
+        # 却打印「✓ 通过：1 份规格、0 个规则 ID，无跨规格重复定义、无悬空引用」。
+        #
+        # 为什么上面那条 `not total_specs` 闸**接不住**这个状态：
+        # 规格文件是存在的（total_specs=1），只有**规则定义**被提取层漏掉了。
+        # 两种空输入长得几乎一样，判据却只覆盖了一种——而漏掉的那一种
+        # 恰好是最危险的：它不是「没东西可查」，而是「本该查的东西没查到」，
+        # 且**报的是通过**。
+        #
+        # 修法与既有闸同构，但**措辞必须区分**：
+        #   · `not total_specs` ⇒ 仓库里没有规格 ⇒ 2
+        #   · `not total_ids`   ⇒ 规格在、规则一条没提取到 ⇒ 2（更可能是正则失配）
+        # 两者都返回 2（工具不可运行）而不是 1：本工具此时**没有结论**，
+        # 不是「核对后没发现问题」。报 1 会让 run_all_gates 把它记成
+        # 「差距已登记」——那正是 INC-81「崩溃伪装成有差距」的同族。
+        print("✗ 规格存在但提取到 0 个规则 ID → 报 2"
+              "（本门禁此刻未核对任何东西，不得据此得出「无重复、无悬空」）")
+        return 2
     failed = False
     if dup:
         failed = True
@@ -676,6 +695,45 @@ def self_test() -> int:
     results.append(("ST-31 整个族从未定义 → 族锚点照样报（不是无脑放过）",
                     dangling_refs("见 `AC-13`。\n", pre, fams) == {"AC-13"},
                     "不存在的族被放过"))
+
+    # ---- INC-92：0 个规则 ID 的防空转闸 ----
+    #
+    # 这两条是**闸门自身**的夹具，必须直接调 `verdict`——
+    # 端到端夹具只能证明「真实仓库有 444 条规则所以绿」，
+    # 证明不了「没有规则时会不会报红」。
+    #
+    # ⚠ 两条缺一不可，且**顺序有讲究**：
+    #   ST-32 证明闸会响，ST-33 证明它不是恒红。
+    # 只写 ST-32 的话，这道闸可以改成「永远 return 2」而自检照样全绿。
+    import contextlib
+    import io as _io
+
+    def _call_verdict(n_specs, n_ids, dup, dang):
+        """直接调 `verdict` 并吞掉它的打印——闸门夹具必须看到退出码本身。"""
+        return verdict(n_specs, n_ids, dup, dang, "")
+
+    _v_cases = [
+        # 闸门会响：规格在、规则 0 条 ⇒ 必须报 2，且不能打印「通过」
+        ("ST-32 0 个规则 ID → 报 2 且不得出现「通过」（INC-92 防空转）",
+         lambda: _call_verdict(1, 0, {}, {}), 2),
+        # 恢复后回到通过：证明不是恒红
+        ("ST-33 恢复为有规则（3 条）后回到 0（证明 ST-32 那道闸不是恒红）",
+         lambda: _call_verdict(1, 3, {}, {}), 0),
+        # 既有闸不得被新闸吞掉：0 份规格仍是 2
+        ("ST-34 0 份规格仍报 2（新闸不得覆盖既有的 `not total_specs` 闸）",
+         lambda: _call_verdict(0, 0, {}, {}), 2),
+        # 有重复定义时仍报 1（防空转闸不得吞掉真实发现）
+        ("ST-35 有重复定义仍报 1（防空转闸不得吞掉真实发现）",
+         lambda: _call_verdict(1, 3, {"CB-1": ["W-01", "W-02"]}, {}), 1),
+    ]
+    for _label, _fn, _want in _v_cases:
+        _buf = _io.StringIO()
+        with contextlib.redirect_stdout(_buf):
+            _got = _fn()
+        _out = _buf.getvalue()
+        _ok = _got == _want and ("通过" not in _out or _want == 0)
+        results.append((_label, _ok,
+                        f"退出码 {_got}≠{_want} 或输出含「通过」：{_out.strip()[:80]}"))
 
     passed = 0
     for name, ok, why in results:
