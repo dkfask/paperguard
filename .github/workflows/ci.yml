@@ -62,3 +62,41 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run loopback contract test
         run: bash ops/test-online-verify.sh
+
+  # 门禁套件（38 道）。片段与说明见 docs/tenancy/ci-gates-job.yml。
+  # --mode ci 只拦退出码 2（门禁自己坏了）；上表那 6 道按设计常红的
+  # exit=1 是「差距真实且已登记」，拿它们拦 CI 只会让流水线天天红，
+  # 很快就没人再看红绿——那才是真正把门禁废掉的方式。
+  design-gates:
+    name: Design gates (tenancy toolchain)
+    runs-on: ubuntu-latest
+    # 本机实跑 195s；CI 还要装依赖，给足余量但防挂死
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          # `cache: pip` 默认只匹配 **/requirements.txt；本仓只有
+          # requirements-dev.txt，不显式指定会发「no file matched」警告。
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt      # 含 pglast，ddl_static_check 需要
+      - name: Run gate suite (ci mode)
+        run: python ../docs/tenancy/tools/run_all_gates.py --mode ci
+      - name: Publish gate report
+        if: always()
+        run: python ../docs/tenancy/tools/run_all_gates.py --mode report --json > gate-report.json
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-gate-report
+          path: backend/gate-report.json

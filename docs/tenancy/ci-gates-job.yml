@@ -1,15 +1,31 @@
-# 门禁套件 CI 接入片段（**待与门禁工具同一次提交落地**）
+# 门禁套件 CI 接入片段（**已接入 `.github/workflows/ci.yml` 并本地模拟验证**）
 
+> **当前状态（2026-10-02 实测）**
+>
+> ① `docs/tenancy/`、`docs/product/W-0x-*.md` 与 21 个门禁工具
+> **已于 `43bdccf` 纳入版本控制**（此前「全部未被 git 跟踪」的说法已过期）。
+> ② `design-gates` job **已追加到 `.github/workflows/ci.yml`**，
+> 与 `backend` / `frontend` / `online-verifier` 平级。
+> ③ **已按 CI 的方式实跑验证过**：从 `backend/` 目录用
+> `python ../docs/tenancy/tools/run_all_gates.py` 调用，
+> 结果 `total=38 · drift=null · 通过 31 / 差距 6 / 不可运行 1`，
+> 与从仓库根运行**逐项一致** ⇒ 工具靠 `__file__` 上溯三级定位仓库根，
+> **与工作目录无关**。这一步是为了排除「路径写错导致整个 workflow 失效」。
+>
+> **但门禁仍不会自动生效，原因有两个，都不是本文件能解决的**：
+>
+> - **触发条件**：`ci.yml` 的 `on:` 只有 `push: branches: [main]` 与
+>   `pull_request: branches: [main]`。**在 feature 分支上推送不会触发它**，
+>   必须合入 main 或开 PR 到 main。
+> - **`ddl_static_check` 第 2 层在 CI 上才是首次真实运行**：本机缺 `pglast`，
+>   该层从未执行过；CI 会装上 `pglast>=6.0`（`requirements-dev.txt:18`）。
+>   **所以本机这组数字不能等同于 CI 会看到什么。**
+>
 > **为什么单独放这里而不是直接改 `.github/workflows/ci.yml`**
 >
-> `docs/tenancy/tools/` 与 `docs/product/W-02-*.md` 目前**全部未被 git 跟踪**。
-> `actions/checkout` 拿不到未跟踪文件，所以现在就把 job 接进 CI，
-> 第一次运行必然整片红（工具文件不存在 → 全部记为「工具不可运行」）。
->
-> **接入顺序要求**：
-> 1. 先提交 `docs/tenancy/`（工具 + 门禁产出物）与 `docs/product/W-02-*.md`
-> 2. **在同一次提交或紧随其后的提交**中把下面的 job 加进 `.github/workflows/ci.yml`
-> 3. 绝不要把「工具提交」和「CI 接入」拆成两次提交——中间那段时间 CI 一定是红的
+> 原先是怕 `actions/checkout` 拿不到未跟踪文件，导致第一次运行整片红
+> （工具文件不存在 → 全部记为「工具不可运行」）。
+> **该前提已不成立**：工具现已提交，接入不再有这个风险。
 
 ---
 
@@ -22,6 +38,8 @@
   design-gates:
     name: Design gates (tenancy toolchain)
     runs-on: ubuntu-latest
+    # 本机实跑 195s；CI 还要装依赖，给足余量但防挂死
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -32,6 +50,10 @@
         with:
           python-version: "3.12"
           cache: pip
+          # `cache: pip` 默认只匹配 **/requirements.txt；本仓只有
+          # requirements-dev.txt，不显式指定会发「no file matched」警告。
+          # 这不是失败，但会让人误以为缓存坏了。
+          cache-dependency-path: backend/requirements-dev.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
