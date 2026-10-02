@@ -1670,10 +1670,13 @@ class Store:
     def complete_job(self, job_id: str, *, lease_token: str = "") -> dict | None:
         now = _now()
         with self._connect() as conn:
+            # W-09 LE-5/LE-6：**精确匹配** lease_token，不留 `IS NULL OR = ''` 通配。
+            # 旧代码的通配分支不是为「未领取」设计的，是图省事——代价是
+            # 任何人都能提交别人的任务。便利性不应由安全性买单。
             cur = conn.execute(
                 "UPDATE jobs SET state = 'succeeded', lease_until = NULL, lease_token = NULL, leased_by = NULL, "
                 "completed_at = ?, updated_at = ? WHERE id = ? AND state = 'running' "
-                "AND (lease_token IS NULL OR lease_token = '' OR lease_token = ?)",
+                "AND lease_token = ?",
                 (now, now, job_id, lease_token),
             )
             if cur.rowcount != 1:
@@ -1782,13 +1785,18 @@ class Store:
         return self.mark_workflow_event_delivered_with_lease(event_id)
 
     def mark_workflow_event_delivered_with_lease(self, event_id: str, lease_token: str = "") -> bool:
-        """Acknowledge an event, requiring the active lease token when it is leased."""
+        """Acknowledge an event, requiring the active lease token.
+
+        W-09 LE-6：**精确匹配** lease_token，不留 `IS NULL OR = ''` 通配。
+        本处比 `complete_job` 更要紧——它的条件不含「已被领取」，
+        所以修前**任何 `pending` 的事件都能被无令牌 ack 成 delivered**（INC-105 实测）。
+        """
         with self._connect() as conn:
             cur = conn.execute(
                 "UPDATE workflow_events SET delivery_status = 'delivered', delivered_at = COALESCE(delivered_at, ?), "
                 "lease_until = NULL, lease_token = NULL, leased_by = NULL "
                 "WHERE id = ? AND delivery_status != 'delivered' "
-                "AND (lease_token IS NULL OR lease_token = '' OR lease_token = ?)",
+                "AND lease_token = ?",
                 (_now(), event_id, lease_token),
             )
             return cur.rowcount == 1
