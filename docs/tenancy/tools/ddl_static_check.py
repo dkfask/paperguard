@@ -1052,11 +1052,20 @@ def _main() -> int:
                    sql_text, re.M | re.I))
     n_state = len(re.findall(r"^\s{2,}(?:status|state)\s+text\b",
                              sql_text, re.M | re.I))
+    # ★ INC-112：原输出把「N 张新建表」与「db.py 的 M 张表」并置，
+    # 读起来像两者已被比对过。实测两者的交集是 **0**——规格的目标表
+    # 一张都没建（db.py 里全是租户化之前的旧表）。这个比值必须打出来，
+    # 否则「✓ 七项判据全过」会被读成「目标 schema 已核对」。
+    spec_tables = {m.group(1) for m in re.finditer(
+        r"CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(\w+)\s*\(", sql_text, re.I)}
+    implemented = spec_tables & set(known)
     print("=" * 66)
     print(f"第 1 层 · 结构预检（不依赖 pglast）"
           f"：{n_alters} 条 ADD COLUMN、{n_idx} 条索引、"
           f"{n_tables} 张新建表的 {n_state} 个状态列、{n_fk} 条外键，"
           f"对照 backend/app/db.py 的 {len(known)} 张表")
+    print(f"  · 其中**已在 db.py 建出**的目标表：{len(implemented)} / {len(spec_tables)}"
+          + (f"（{', '.join(sorted(implemented))}）" if implemented else "——**规格的目标 schema 尚未实施**"))
     if struct_problems:
         for p in struct_problems:
             print(f"  ✗ {p}")
@@ -1069,7 +1078,10 @@ def _main() -> int:
               "  ⑤ 每条 CHECK 都有规则出处注释或显式 ⚠（SC-8）"
               "  ⑥ C0 表不引用 C1/C2 包的规则（SC-9）")
         print("  · 本层**查不到**的（不要把「本层通过」读成「DDL 正确」）："
-              "语法合法性、CHECK 取值集合与散文规格是否一致（INC-59/60 那一类）")
+              "语法合法性、CHECK 取值集合与散文规格是否一致（INC-59/60 那一类）"
+              "、**以及目标 schema 是否已实施**——SC-6 只验「按规格建库时外键指向"
+              "能否解析」，目标表可由规格自身的 CREATE TABLE 满足（INC-112："
+              "30 条外键里 28 条的判定与 db.py 零耦合）")
 
     if struct_problems:
         # 结构问题是真发现，不能被「缺 pglast」吞成退出码 2
