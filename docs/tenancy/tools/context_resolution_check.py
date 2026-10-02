@@ -54,6 +54,14 @@ GREEN, RED, YELLOW, DIM, CYAN, RESET = (
 REQUIRED_EXITS = ["E1", "E2", "E3", "E4", "E5", "E6", "E7"]
 REQUIRED_STEPS = ["S0", "S1", "S2", "S3", "S4"]
 REQUIRED_INVARIANTS = ["CI-1", "CI-2", "CI-3", "CI-4"]
+# ★ INC-109：S0→S4 的**阶段顺序**不可调换。
+# 依据 W-03 §2.2：「**顺序不可调换**。特别是 S2 在 S3 之前：必须先确认
+# **这个人在这个租户有身份**，再去判断**这个租户是否可用**。反序会让
+# 「已停用租户」被当成「无权限」，**掩盖真实的停用原因**。」
+# 与之对应的出口相对顺序：E1(S0) < E2(S1) < E3/E4/E5(S2) < E6/E7(S3)。
+# **E6 与 E7 同属 S3，二者相对次序不作要求**（一个是「已停用」、
+# 一个是「尚未就绪」，规格未规定谁先判）。
+_EXIT_RANK = {"E1": 0, "E2": 1, "E3": 2, "E4": 2, "E5": 2, "E6": 3, "E7": 3}
 
 
 def scan_files(app_dir: pathlib.Path) -> list[pathlib.Path]:
@@ -129,6 +137,70 @@ def context_class_status(files: list[pathlib.Path]) -> dict:
             "post_init": has_post_init, "invariants": invariants}
 
 
+def exit_order(node, text: str) -> list[str]:
+    """按**源码出现顺序**抽出函数体里的失败出口（INC-109 新增）。
+
+    为什么必须单独提取（2026-10-03 实测）
+    --------------------------------------
+    W-03 §2.2 把「**顺序不可调换**」写成硬要求，并给了后果：
+    「特别是 S2 在 S3 之前……**反序会让『已停用租户』被当成『无权限』，
+    掩盖真实的停用原因**」。
+    而 `resolver_status` 原先只做**集合存在性**（`e in seg`）——
+    实测把 E3/E4 挪到 E6 之后（七个出口仍齐全），
+    **CR-2 的结论与顺序正确时逐字相同**，即这条硬要求**无人检查**。
+
+    为什么按源码顺序而不是 AST 顺序：出口可能写在 `raise` 里，
+    也可能只出现在注释/文档字符串里（与上面的 `present` 同理），
+    **两种形态都要能定序** ⇒ 统一在源码文本上按出现位置排序。
+
+    返回值是**首次出现**顺序去重后的列表；无法提取时为空，
+    由调用方按「判据跑不了」处理，**不得据此判绿**。
+    """
+    try:
+        raw = ast.get_source_segment(text, node) or ""
+    except Exception:
+        return []
+    if not raw:
+        return []
+    # 只看函数体（去掉 def 行与文档字符串），否则 docstring 里的
+    # 「E1～E7」会被当成一个整体出现在最前面，顺序全错。
+    body = raw
+    m = re.search(r'"""(?:.|\n)*?"""', raw)
+    if m and raw.index(m.group(0)) == raw.index(":") + 1:
+        body = raw[m.end():]
+    found: list[tuple[int, str]] = []
+    for e in REQUIRED_EXITS:
+        # \b 保证 E1 不会在 E10 里被误配（当前无 E10，但规则本身要对）
+        hit = re.search(r"\b" + e + r"\b", body)
+        if hit:
+            found.append((hit.start(), e))
+    return [e for _, e in sorted(found)]
+
+
+def exit_order_ok(order: list[str]) -> tuple[bool, str]:
+    """纯判定：出口的**阶段顺序**是否符合 S0→S4（INC-109）。
+
+    为什么抽成纯函数：端到端夹具走的是 `main()`，
+    **自检需要直接断言「顺序反了必为 False」**——
+    而端到端夹具每次都重写 `app/` 目录，无法覆盖多种顺序组合。
+
+    规则：`rank` 必须**非递减**。同 rank 内（E3/E4/E5、E6/E7）**不比较**。
+    顺序为空 ⇒ **判 False**（判据跑不了 ≠ 通过，INC-92 的老教训）。
+    """
+    if not order:
+        return False, "无法提取出口顺序（判据未能运行，不得据此判绿）"
+    ranks = [_EXIT_RANK.get(e) for e in order]
+    unknown = [e for e, r in zip(order, ranks) if r is None]
+    if unknown:
+        return False, f"出口 {unknown} 不在 S0→S4 映射里，无法定序"
+    for a, b, ea, eb in zip(ranks, ranks[1:], order, order[1:]):
+        if b < a:
+            return False, (f"出口顺序违反 S0→S4：**{ea} 在 {eb} 之后**——"
+                           f"W-03 §2.2 明写「顺序不可调换」，"
+                           f"反序会让已停用租户被当成无权限，掩盖真实停用原因")
+    return True, "出口阶段顺序符合 S0→S4"
+
+
 def resolver_status(files: list[pathlib.Path]) -> dict:
     """CR-2：找上下文解析函数，核对七个失败出口（E7 于 2026-10-01 因 INC-59 新增）。"""
     for p in files:
@@ -152,8 +224,9 @@ def resolver_status(files: list[pathlib.Path]) -> dict:
                 raw = ""
             present = {e for e in REQUIRED_EXITS if e in seg or e in raw}
             if present:
-                return {"file": str(p), "func": node.name, "exits": present}
-    return {"file": None, "func": None, "exits": set()}
+                return {"file": str(p), "func": node.name, "exits": present,
+                        "order": exit_order(node, text)}
+    return {"file": None, "func": None, "exits": set(), "order": []}
 
 
 def default_ctx_params(files: list[pathlib.Path]) -> list[str]:
@@ -291,6 +364,9 @@ def service(ctx, x):
                 missing = set(REQUIRED_EXITS) - r["exits"]
                 if missing:
                     probs.append(f"CR-2 缺失败出口 {sorted(missing)}")
+                ok, why = exit_order_ok(r["order"])
+                if not ok:
+                    probs.append(f"CR-2 出口顺序不合规：{why}")
             probs += default_ctx_params(files)
             return verdict(len(files), probs, "")[0]
 
@@ -340,6 +416,32 @@ def service(ctx, x):
             print(f"  {GREEN}✓{RESET} {label}")
         else:
             print(f"  {RED}✗{RESET} {label}")
+    # ★ INC-109：出口顺序判据的自我覆盖。
+    #   **必须双向**：顺序错 ⇒ False；顺序对 ⇒ True。
+    #   只测「错的是 False」的话，把 `return True, ...` 写死也能全绿。
+    _cases = [
+        (["E1", "E2", "E3", "E4", "E5", "E6", "E7"], True,
+         "S0→S4 正序通过"),
+        (["E1", "E2", "E3", "E4", "E5", "E7", "E6"], True,
+         "E6/E7 同属 S3，互换不算错"),
+        (["E1", "E2", "E6", "E3", "E4", "E5", "E7"], False,
+         "★ S3 的 E6 提前到 S2 之前 ⇒ 报红（这正是 INC-109 的实测变异）"),
+        (["E1", "E2", "E4", "E3", "E5", "E6", "E7"], True,
+         "S2 内部 E3/E4 互换不算错"),
+        (["E2", "E1", "E3", "E4", "E5", "E6", "E7"], False,
+         "★ S1 的 E2 提到 S0 之前 ⇒ 报红"),
+        ([], False,
+         "★ 顺序提不出（判据跑不了）⇒ **不得判绿**（INC-92 的老教训）"),
+        (["E1", "E2", "E3", "E4", "E5", "E6", "E8"], False,
+         "★ 含未知出口 ⇒ 不得判绿"),
+    ]
+    for _order, _want, _label in _cases:
+        _got, _why = exit_order_ok(_order)
+        if _got == _want:
+            ok += 1
+            print(f"  {GREEN}✓{RESET} {_label}")
+        else:
+            print(f"  {RED}✗{RESET} {_label}（期望 {_want}，实得 {_got}：{_why}）")
     # 覆盖面闸
     empty = verdict(0, [], "")[0]
     if empty == EXIT_TOOL_BROKEN:
@@ -347,7 +449,11 @@ def service(ctx, x):
         print(f"  {GREEN}✓{RESET} 扫描 0 个文件 → 2，不得为 0")
     else:
         print(f"  {RED}✗{RESET} 扫描 0 个文件 → 实际 {empty}")
-    total = len(cases) + len(_cr5_cases()) + 1
+    # 分母由**各组用例的实际条数**相加得出，**不得写死**。
+    # ★ INC-109 踩过一次：加 7 条顺序用例时忘了改这里，
+    #   输出变成「自检 22/15」——**一个比 1 大的分母会让人以为是别的失败**。
+    #   把 `+1` 改成 `+8` 只是把同一个病换个数字，等它再次漂移。
+    total = len(cases) + len(_cr5_cases()) + len(_cases) + 1
     print(f"\n自检 {ok}/{total}")
     return EXIT_OK if ok == total else EXIT_TOOL_BROKEN
 
@@ -462,6 +568,15 @@ def main() -> int:
             print(f"    {RED}✗{RESET} 缺 {sorted(missing)}")
         else:
             print(f"    {GREEN}✓{RESET} E1～E7 齐全")
+        # ★ INC-109：齐全 ≠ 顺序对。W-03 §2.2 把顺序列为硬要求。
+        ok, why = exit_order_ok(r["order"])
+        if ok:
+            print(f"    {GREEN}✓{RESET} 出口阶段顺序符合 S0→S4"
+                  f"{DIM}（{r['order']}）{RESET}")
+        else:
+            problems.append(f"CR-2 出口顺序不合规：{why}")
+            print(f"    {RED}✗{RESET} 出口顺序：{why}")
+            print(f"      {DIM}实测顺序 {r['order']}{RESET}")
 
     print(f"\n  {DIM}CR-3 服务层 ctx 不得有默认值{RESET}")
     bad = default_ctx_params(files)
