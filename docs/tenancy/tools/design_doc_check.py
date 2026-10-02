@@ -718,6 +718,64 @@ def main() -> int:
                 "DC-8 有工具的自检输出里取不到可解析的 N/M，其自检项数"
                 "无法被机器核对：" + "、".join(unparsed))
 
+    # DC-9 待授权清单的状态与证据（INC-90）
+    # -----------------------------------------------------------
+    # 为什么需要（2026-10-02 实测踩到）
+    # ---------------------------------
+    # §6.5「待授权动作」原本有 6 项，**没有一项带机器可读状态**。
+    # 于是「49 条工作区变更是否提交」在**已经做完 5 个 commit 之后**
+    # 仍原样列在待授权里——**没有任何机制报警**，
+    # 因为 DC-6 只核对简报里的 `fact:` 数字，**完全不碰待办本身**。
+    # 一份会腐烂的决策入口，比没有决策入口更危险。
+    #
+    # 修法与 DC-6 同构：把状态变成可被机器核对的东西。
+    # 格式：`<!-- todo:AUTH-1=已完成:3c475ae -->` / `<!-- todo:AUTH-2=待授权 -->`
+    print(f"\n  {DIM}DC-9 待授权清单状态与证据{RESET}")
+    if doc_path.name != real_design.name:
+        print(f"  {DIM}· 跳过：被检文档不是本仓设计文档，DC-9 的跨文件断言不适用{RESET}")
+    elif not brief.is_file():
+        print(f"  {YELLOW}△{RESET} 收口简报不存在，本条跳过")
+    else:
+        btext9 = brief.read_text(encoding="utf-8")
+        todos = re.findall(r"<!--\s*todo:([A-Z]+-\d+)=([^:\s>]+)(?::([0-9a-f]{7,40}))?\s*-->",
+                           btext9)
+        if not todos:
+            findings.append(
+                "DC-9 收口简报 §6.5 的待授权项**没有任何 `<!-- todo:ID=状态 -->` 标记**"
+                "——待办清单会静默腐烂（2026-10-02 实测：已完成的提交任务仍列在待授权里）")
+            print(f"  {RED}✗{RED} 无 todo 标记")
+        else:
+            # ① 双向覆盖：表格行数与标记数必须一致
+            m_sec = re.search(r"###\s*6\.5[^\n]*\n(.*?)(?=\n##\s)", btext9, re.S)
+            rows = len(re.findall(r"^\|\s*\d+\s*\|", m_sec.group(1), re.M)) if m_sec else 0
+            if rows != len(todos):
+                findings.append(
+                    f"DC-9 §6.5 有 {rows} 个待授权项，但只有 {len(todos)} 个 todo 标记"
+                    f"（差集 = 未登记状态的项）——新增待办时忘记加标记")
+                print(f"  {RED}✗{RED} 表格 {rows} 行 vs 标记 {len(todos)} 个")
+            else:
+                print(f"  {GREEN}✓{GREEN} 双向覆盖 {rows}/{len(todos)}")
+            # ② 「已完成」必须带**格式合法**的证据
+            no_ev = [tid for tid, st, ev in todos if st == "已完成" and not ev]
+            if no_ev:
+                findings.append(
+                    f"DC-9 这些待办标了「已完成」却**没有证据**：{'、'.join(no_ev)}"
+                    "——自我声明的完成无法被核实，裁决人无从判断")
+                print(f"  {RED}✗{RED} 缺证据：{'、'.join(no_ev)}")
+            else:
+                n_done = sum(1 for _, st, _ in todos if st == "已完成")
+                print(f"  {GREEN}✓{GREEN} 已完成 {n_done} 项，全部带 commit 证据")
+            # ③ 状态取值受限——**防止把状态写成散文后静默失效**
+            legal = {"待授权", "待裁决", "已完成", "已拒绝", "不适用"}
+            bad = sorted({st for _, st, _ in todos} - legal)
+            if bad:
+                findings.append(
+                    f"DC-9 出现无法识别的状态值 {bad}；合法值只有 {sorted(legal)}"
+                    "——状态必须是枚举值，否则「清单是否有状态」无从判定")
+                print(f"  {RED}✗{RED} 非法状态 {bad}")
+            else:
+                print(f"  {GREEN}✓{GREEN} 状态值均在枚举内")
+
     # DC-4 文档卫生
     print(f"\n  {DIM}DC-4 文档卫生{RESET}")
     # **链接基准**：自检传入的可能是**同名副本**（见 run_real 的说明），
@@ -974,6 +1032,51 @@ def self_test() -> int:
             dc6_rows_back = run_real() == EXIT_OK
     results.append(("★ DC-6 `inc_rows`（登记条数，与 `inc_max` 不同口径）→ 报红",
                     dc6_rows_ok))
+
+    # ── DC-9 专项（INC-90）：待授权清单腐烂时必须报红 ──
+    # 每条变异都配一条**恢复后回到通过**的反向用例。
+    # 只测「会红」不够——那可能是一条恒红的门禁，
+    # 对健康仓库同样红，等于什么都没验。
+    def _dc9(mutate, label: str) -> tuple[bool, bool]:
+        """在**同名副本**上变异，跑完整核对，返回 (应红, 应恢复绿)。"""
+        if not (brief.is_file() and real_text):
+            return False, False
+        saved_b = brief.read_text(encoding="utf-8")
+        mutated = mutate(saved_b)
+        if mutated == saved_b:          # 变异没生效 ⇒ 这条夹具对该判据零证明力
+            return False, False
+        hermetic_brief.write_text(mutated, encoding="utf-8")
+        try:
+            red = run_real() == EXIT_FINDINGS
+        finally:
+            hermetic_brief.write_text(saved_b, encoding="utf-8")
+        back = run_real() == EXIT_OK
+        results.append((label, red))
+        results.append((f"★ {label} —— 恢复后回到通过（非恒红）", back))
+        return red, back
+
+    # ① 删掉一个 todo 标记 ⇒ 表格 6 行 vs 标记 5 个
+    def _drop_mark(b: str) -> str:
+        return re.sub(r"\n?<!--\s*todo:AUTH-6=待授权\s*-->", "", b, count=1)
+
+    # ② 「已完成」去掉证据 ⇒ 自我声明的完成无从核实
+    def _drop_evidence(b: str) -> str:
+        return re.sub(r"(<!--\s*todo:AUTH-1=已完成):[0-9a-f]{7,40}(\s*-->)",
+                      r"\1\2", b, count=1)
+
+    # ③ 状态写成散文 ⇒ 「清单有没有状态」无从判定
+    def _bad_status(b: str) -> str:
+        return b.replace("<!-- todo:AUTH-2=待授权 -->",
+                         "<!-- todo:AUTH-2=快好了 -->", 1)
+
+    # ④ 全部标记消失 ⇒ 防空转（否则上面三条都可能因「压根没在扫」而假绿）
+    def _drop_all(b: str) -> str:
+        return re.sub(r"<!--\s*todo:[^>]*-->", "", b)
+
+    _dc9(_drop_mark,    "★ DC-9 少一个 todo 标记 → 报红（表格与标记双向覆盖）")
+    _dc9(_drop_evidence, "★ DC-9 「已完成」无证据 → 报红（自我声明不可核实）")
+    _dc9(_bad_status,   "★ DC-9 状态值写成散文 → 报红（状态必须是枚举）")
+    _dc9(_drop_all,     "★ DC-9 一个 todo 标记都没有 → 报红（防空转）")
     results.append(("★ DC-6 `inc_rows` 恢复后回到通过（非恒红）", dc6_rows_back))
     # DC-6 的**适用边界**由本文件既有的「全部登记且一致 → 通过」夹具用例承担：
     # 该夹具的退出码全对，若 DC-6 在夹具上误报，那条用例会变红。
