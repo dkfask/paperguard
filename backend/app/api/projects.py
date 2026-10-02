@@ -1362,7 +1362,7 @@ def assist_requirement_check(proj_id: str, item_id: str, req: RequirementAssistR
     content = "\n\n".join(text_parts)
     if not content:
         raise HTTPException(status_code=422, detail="项目正文为空，无法辅助检查")
-    from app.api.ai import _chat_completion, _resolve_cfg
+    from app.api.ai import _metered_chat, _resolve_cfg
     resolved = _resolve_cfg(store, user)
     if not resolved:
         raise HTTPException(status_code=503, detail="AI 功能未启用")
@@ -1372,7 +1372,10 @@ def assist_requirement_check(proj_id: str, item_id: str, req: RequirementAssistR
         {"role": "system", "content": "你是论文人工检查辅助工具。只给出基于提供文本的核对建议，不作最终合规判定，不编造事实。输出三部分：已观察到的证据、疑点或缺口、建议人工确认的问题。"},
         {"role": "user", "content": f"检查要求：{question}\n\n论文内容：\n{content[:11000]}"},
     ]
-    suggestion = _chat_completion(cfg, messages, 0.2)
+    suggestion = _metered_chat(
+        store, user, cfg, messages, 0.2,
+        action="requirement_assist", source=_source,
+    )
     # AI 请求可能耗时较长, 重新读取项目后再按 revision 保存, 避免把期间的正文编辑覆盖掉。
     saved = None
     for _ in range(2):

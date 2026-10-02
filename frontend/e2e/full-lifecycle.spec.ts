@@ -124,7 +124,11 @@ async function completeRequiredWriterGates(page: Page, thesisTitle: string) {
 
     let paragraph = page.locator('textarea.para-text').first()
     if (!await paragraph.count()) {
-      await page.getByRole('button', { name: /新增段落/ }).click()
+      // 段落新增入口是 BlockList.vue 的插入行首个按钮（class="primary"，文案 t('blockList.addParagraph')）。
+      // 旧定位器按「新增段落」查找，但该文案在产品中从不存在（WriterEditor 的按钮是
+      // t('writer.addParagraph')＝「添加段落」，且本页面不渲染 WriterEditor 的章节工具条），
+      // 属于被 BUG-20261001-01 长期掩盖的 TEST-DEFECT，故按真实结构定位。
+      await page.locator('.insert-row button.primary').first().click()
       paragraph = page.locator('textarea.para-text').first()
     }
     await expect(paragraph).toBeVisible()
@@ -385,7 +389,7 @@ test.describe('PaperGuard browser lifecycle', () => {
       await expect(admin.locator('.workflow-sync-state')).toHaveCount(0)
       await admin.waitForLoadState('networkidle')
       await expect(admin.locator('body')).toContainText(/生成归档|暂无提交或归档记录/)
-      await expect(admin).toHaveScreenshot('full-lifecycle-admin-shell.png', {
+      await expect.soft(admin).toHaveScreenshot('full-lifecycle-admin-shell.png', {
         animations: 'disabled',
         maxDiffPixels: 1000,
         mask: [
@@ -402,7 +406,14 @@ test.describe('PaperGuard browser lifecycle', () => {
           admin.locator('.archive-row > div > span'),
         ],
       })
-      await expect(student).toHaveScreenshot('full-lifecycle-student-shell.png', {
+      // 视觉快照改为软断言（expect.soft）：这些基线生成于 2025-09-12 的 04785e2，
+      // 此后登录页与 Workspace.vue 已被多个提交重写，基线已过期。
+      // 硬断言会让快照失败**中断**后续步骤，从而掩盖真正的功能与
+      // console/HTTP 错误门禁（本行之后还有 /templates 检查与
+      // expect([...consoleErrors, ...httpErrors]).toEqual([])）。
+      // 软断言让功能断言始终执行，视觉差异仍然在报告里失败，不会被隐藏。
+      // 注意：不要用 --update-snapshots 悄悄重生成基线来消掉失败。
+      await expect.soft(student).toHaveScreenshot('full-lifecycle-student-shell.png', {
         animations: 'disabled',
         maxDiffPixels: 1000,
         mask: [
@@ -445,7 +456,7 @@ test.describe('PaperGuard browser lifecycle', () => {
     await expect(page.locator('body')).toContainText(/登录|欢迎登录|Available Templates|论文模板/)
     const viewportWidth = await page.evaluate(() => document.documentElement.clientWidth)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewportWidth)
-    await expect(page).toHaveScreenshot('responsive-login-mobile.png', {
+    await expect.soft(page).toHaveScreenshot('responsive-login-mobile.png', {
       animations: 'disabled',
       maxDiffPixels: 800,
       timeout: 15_000,

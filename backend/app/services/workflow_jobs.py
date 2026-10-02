@@ -18,6 +18,30 @@ LOGGER.setLevel("INFO")
 
 _OUTBOX_MAX_ATTEMPTS = 5
 
+# 失败重试退避参数。历史实现把所有 fail_job 的 retry_delay_seconds 写成字面量常量
+# （5 / 5 / 60，以及缺省 0），失败重试为固定间隔：5 次尝试会在数十秒内全部打完，
+# 对持续性故障（磁盘满、下游长时间不可用）缺少保护。改为按尝试次数指数退避。
+_RETRY_BASE_SECONDS = 5
+_RETRY_MAX_SECONDS = 300
+
+
+def _retry_delay_seconds(
+    attempt_count: Any,
+    *,
+    base: int = _RETRY_BASE_SECONDS,
+    cap: int = _RETRY_MAX_SECONDS,
+) -> int:
+    """按尝试次数计算指数退避间隔：base * 2^(attempt-1)，上限 cap。
+
+    attempt_count 由 claim_jobs 在抢占时递增，首次抢占即为 1，故首次失败退避为 base。
+    """
+    try:
+        attempt = int(attempt_count)
+    except (TypeError, ValueError):
+        attempt = 1
+    exponent = max(0, attempt - 1)
+    return min(int(base) * (2 ** exponent), int(cap))
+
 
 def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> dict[str, Any]:
     """Claim and execute durable archive jobs outside the web process."""
@@ -46,6 +70,7 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
             result = repository.fail_job(
                 job["id"], error="归档任务关联记录不存在",
                 lease_token=job.get("lease_token", ""),
+                retry_delay_seconds=_retry_delay_seconds(job.get("attempt_count", 1)),
             )
             if result:
                 failed.append({"job_id": job["id"], "state": result["state"], "error": result.get("last_error") or ""})
@@ -78,7 +103,8 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
             continue
         failed_job = repository.fail_job(
             job["id"], error=result.get("error_code") or "归档生成失败",
-            lease_token=job.get("lease_token", ""), retry_delay_seconds=5,
+            lease_token=job.get("lease_token", ""),
+            retry_delay_seconds=_retry_delay_seconds(job.get("attempt_count", 1)),
         )
         if failed_job:
             failed.append({"job_id": job["id"], "state": failed_job["state"], "error": failed_job.get("last_error") or ""})
@@ -106,7 +132,8 @@ def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 
         if not EXPORT_ID_RE.fullmatch(str(job.get("resource_id", ""))):
             rejected = repository.fail_job(
                 job["id"], error="导出任务资源标识不合法",
-                lease_token=job.get("lease_token", ""), retry_delay_seconds=60,
+                lease_token=job.get("lease_token", ""),
+                retry_delay_seconds=_retry_delay_seconds(job.get("attempt_count", 1), base=60),
             )
             if rejected:
                 failed.append({"job_id": job["id"], "state": rejected["state"], "error": rejected.get("last_error") or ""})
@@ -125,7 +152,8 @@ def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 
             continue
         failed_job = repository.fail_job(
             job["id"], error=result.get("error_code") or "项目导出失败",
-            lease_token=job.get("lease_token", ""), retry_delay_seconds=5,
+            lease_token=job.get("lease_token", ""),
+            retry_delay_seconds=_retry_delay_seconds(job.get("attempt_count", 1)),
         )
         if failed_job:
             failed.append({"job_id": job["id"], "state": failed_job["state"], "error": failed_job.get("last_error") or ""})
@@ -179,7 +207,7 @@ def consume_document_render_jobs(store: Store, *, consumer_id: str, limit: int =
             job["id"],
             error=result.get("error_code") or "通用文档渲染失败",
             lease_token=job.get("lease_token", ""),
-            retry_delay_seconds=5,
+            retry_delay_seconds=_retry_delay_seconds(job.get("attempt_count", 1)),
         )
         if failed_job:
             failed.append({

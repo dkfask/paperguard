@@ -8,3 +8,11 @@ pytest>=8.0
 
 # DOCX 导出保真度测试用它生成夹具图片（tests/test_docx_export_fidelity.py）
 Pillow>=10.0
+
+# 租户 DDL 静态检查工具（docs/tenancy/tools/ddl_static_check.py）用它做
+# PostgreSQL 官方语法解析与外键目标校验。
+#
+# 为什么列在这里：该工具此前只在临时 venv 里验证过，从未在项目自身环境
+# 跑通，导致「DDL 有缺陷」与「工具缺依赖」两种情况都返回退出码 1，
+# 在 CI 里无法区分。列为开发依赖后，缺依赖会以退出码 2 明确报出。
+pglast>=6.0

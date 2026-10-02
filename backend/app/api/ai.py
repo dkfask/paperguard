@@ -33,6 +33,10 @@ def get_store() -> Store:
 _ACTIONS = ("polish", "continue", "expand", "abstract", "english_abstract", "keywords")
 _MAX_INPUT_CHARS = 12000
 _MASKED_KEY_PREVIEW = 4
+# 全部协议函数与 _metered_chat 的默认 max_tokens。集中定义以便
+# `_metered_chat` 判断「调用方是否用了默认值」，从而在默认路径上
+# 保持 3 参调用形状（兼容既有 3 参测试替身与外部包装）。
+_DEFAULT_MAX_TOKENS = 4000
 
 
 class AssistRequest(BaseModel):
@@ -185,7 +189,7 @@ def _anthropic_payload(
     cfg: dict,
     messages: list[dict],
     temperature: float,
-    max_tokens: int = 4000,
+    max_tokens: int = _DEFAULT_MAX_TOKENS,
 ) -> dict:
     """把内部的 system/user 消息转换为 Anthropic Messages 请求格式。"""
     system_parts = [
@@ -233,7 +237,7 @@ def _anthropic_completion(
     cfg: dict,
     messages: list[dict],
     temperature: float,
-    max_tokens: int = 4000,
+    max_tokens: int = _DEFAULT_MAX_TOKENS,
 ) -> str:
     """调用 Anthropic Messages API, 兼容 MiniMax /anthropic 地址。"""
     url = _anthropic_messages_url(cfg["base_url"])
@@ -319,7 +323,7 @@ def _chat_completion(
     cfg: dict,
     messages: list[dict],
     temperature: float,
-    max_tokens: int = 4000,
+    max_tokens: int = _DEFAULT_MAX_TOKENS,
 ) -> str:
     """调用配置对应的 AI 协议, 返回回复文本。测试中会被替换。
 
@@ -350,11 +354,73 @@ def _chat_completion(
     return text
 
 
+def _metered_chat(
+    store: Store,
+    user: dict,
+    cfg: dict,
+    messages: list[dict],
+    temperature: float,
+    *,
+    action: str,
+    source: str,
+    max_tokens: int = _DEFAULT_MAX_TOKENS,
+) -> str:
+    """真实上游调用的**唯一计量出口**。任何会发往供应商的调用都必须经过这里。
+
+    为什么需要这个函数：修复前配额与用量记账内联在 `ai_assist` 一处，
+    而全仓共有 7 个 `_chat_completion` 调用点（两个配置测试、assist、
+    规范导入含重试、需求辅助、规范解析含重试）——其中 5 条路径**完全
+    不计量**，等于给了「绕过额度又无记录」的入口，违反总设计 13.1 节
+    「配置测试也会产生真实上游消耗……不得作为绕过额度的隐藏入口」。
+
+    顺序与理由（与原 `ai_assist` 修复后一致）：
+
+    1. **出口校验先于配额**——被 SSRF 守卫拦下时请求根本没发出去，
+       不应占用用户额度，也就不需要任何退款逻辑；
+    2. `begin_call` 扣每分钟突发与每日配额；
+    3. 上游失败**不退还**额度（可能已产生真实成本），但**必须记**一条
+       `upstream_error` 用量——否则「谁花了多少」会漏掉最贵的那部分。
+
+    重试路径应当**每次派发各调一次**本函数：重试是第二次真实上游请求，
+    应当计两次而非一次。
+    """
+    assert_safe_outbound_url(cfg["base_url"], label="Base URL")
+    ai_governance.begin_call(store, user)
+    input_chars = sum(len(str(m.get("content", ""))) for m in messages)
+    model = str(cfg.get("model", ""))
+    base_url = str(cfg.get("base_url", ""))
+    try:
+        # 调用形状兼容性：`_chat_completion` 在测试与可能的外部包装里被大量
+        # 替换成替身，两类形状都存在——
+        #   1. 恰好 3 个位置参数、不带 **kwargs：`lambda cfg, messages, temperature`
+        #   2. 3 个位置参数 + **kwargs：`def f(cfg, messages, temperature, **kw)`
+        # 所以：默认值时**完全不传** max_tokens（兼容第 1 类）；非默认值时
+        # 以**关键字**传入（关键字能被第 2 类的 **kwargs 吸收，作为第 4 个
+        # 位置参数则会让第 2 类直接 TypeError）。
+        if max_tokens == _DEFAULT_MAX_TOKENS:
+            result = _chat_completion(cfg, messages, temperature)
+        else:
+            result = _chat_completion(cfg, messages, temperature, max_tokens=max_tokens)
+    except HTTPException:
+        ai_governance.record_usage(
+            store, user, action=action, source=source, model=model,
+            base_url=base_url, input_chars=input_chars, output_chars=0,
+            result="upstream_error",
+        )
+        raise
+    ai_governance.record_usage(
+        store, user, action=action, source=source, model=model,
+        base_url=base_url, input_chars=input_chars, output_chars=len(result),
+        result="success",
+    )
+    return result
+
+
 def _dispatch_completion(
     cfg: dict,
     messages: list[dict],
     temperature: float,
-    max_tokens: int = 4000,
+    max_tokens: int = _DEFAULT_MAX_TOKENS,
 ) -> str:
     if _is_anthropic_base_url(cfg["base_url"]):
         return _anthropic_completion(cfg, messages, temperature, max_tokens)
@@ -541,9 +607,13 @@ def test_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
                    store: Store = Depends(get_store)) -> dict:
     cfg = _request_cfg(req, store.get_user_ai_config(user["id"]))
     try:
-        # 测试连通性会真的发请求，出口必须完整校验
-        assert_safe_outbound_url(cfg["base_url"], label="Base URL")
-        _chat_completion(cfg, [{"role": "user", "content": "回复「ok」两个字"}], 0.0)
+        # 测试连通性会真的发请求，出口必须完整校验，且必须计量——
+        # 否则这里就是一个不占配额、不留记录的免费上游入口。
+        _metered_chat(
+            store, user, cfg,
+            [{"role": "user", "content": "回复「ok」两个字"}], 0.0,
+            action="config_test", source="user",
+        )
     except HTTPException as exc:
         return {"ok": False, "error": exc.detail}
     return {"ok": True, "model": cfg["model"]}
@@ -642,9 +712,15 @@ def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_adm
     """管理员测试准备配置的系统默认模型。"""
     fallback = _system_cfg(store, organization_id)
     cfg = _request_cfg(req, fallback[0] if fallback else None)
+    source = fallback[1] if fallback else "system"
     try:
-        assert_safe_outbound_url(cfg["base_url"], label="Base URL")
-        _chat_completion(cfg, [{"role": "user", "content": "回复「ok」两个字"}], 0.0)
+        # 同 test_ai_config：真实消耗上游，必须走计量出口。
+        # source 记为系统级，平台据此分辨「这笔是管理员测平台配置产生的」。
+        _metered_chat(
+            store, admin, cfg,
+            [{"role": "user", "content": "回复「ok」两个字"}], 0.0,
+            action="admin_config_test", source=source,
+        )
     except HTTPException as exc:
         return {"ok": False, "error": exc.detail}
     return {"ok": True, "model": cfg["model"]}
@@ -667,28 +743,12 @@ def ai_assist(req: AssistRequest, user: dict = Depends(current_user),
         )
     cfg, source = resolved
 
-    # 出站守卫先跑：它在**消耗配额之前**，被拒时不会占用用户额度，
-    # 也不需要任何退款逻辑。DNS 解析只做这一次。
-    assert_safe_outbound_url(cfg["base_url"], label="Base URL")
-
-    day_period = ai_governance.begin_call(store, user)
+    # 计量与出口校验统一收敛在 _metered_chat，不再在本处理器内联——
+    # 修复前计量逻辑只写在这里，导致其余 5 个真实上游调用点全部绕过配额。
+    # 顺序与语义保持不变：出站守卫 → 扣配额 → 派发 → 记账（失败记 upstream_error 且不退还）。
     messages, temperature = _build_messages(req.action, req.text, req)
-    try:
-        result = _chat_completion(cfg, messages, temperature)
-    except HTTPException:
-        # 已经发往上游了，失败也可能产生成本，因此**不**归还额度，只记失败用量
-        ai_governance.record_usage(
-            store, user,
-            action=req.action, source=source, model=cfg["model"],
-            base_url=cfg["base_url"], input_chars=len(req.text),
-            output_chars=0, result="upstream_error",
-        )
-        raise
-
-    ai_governance.record_usage(
-        store, user,
-        action=req.action, source=source, model=cfg["model"],
-        base_url=cfg["base_url"], input_chars=len(req.text),
-        output_chars=len(result), result="success",
+    result = _metered_chat(
+        store, user, cfg, messages, temperature,
+        action=req.action, source=source,
     )
     return {"text": result}

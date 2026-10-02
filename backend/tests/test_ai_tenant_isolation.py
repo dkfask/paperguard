@@ -46,6 +46,12 @@ def _fake_public_dns(monkeypatch):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
 
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    # 解除速率限制。本文件用共享的 `admin` 账号跑 AI，全量套件里多个文件
+    # 都用同一个账号；真实上游派发点现在全部扣突发配额（修复前只有 ai_assist
+    # 扣），累积后会撞上默认的每分钟 10 次上限报 429——那是跨文件污染。
+    # 配额语义由 test_ai_governance.py 覆盖。
+    monkeypatch.setenv("PAPERGUARD_AI_BURST_PER_MINUTE", "100000")
+    monkeypatch.setenv("PAPERGUARD_AI_DAILY_QUOTA", "100000")
 
 
 def _pwd() -> str:

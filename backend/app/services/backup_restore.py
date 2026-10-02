@@ -25,7 +25,20 @@ class BackupError(ValueError):
 
 
 def configured_data_dir() -> Path:
-    return Path(os.environ.get("PAPERGUARD_DATA_DIR", str(_DEFAULT_DATA_DIR)))
+    """数据根解析。**必须与 `app.db.data_dir()` 完全同规则。**
+
+    修复前本函数只读 `PAPERGUARD_DATA_DIR`，而 `db.data_dir()` 的优先级是
+    `PAPERGUARD_DB_PATH` > `PAPERGUARD_DATA_DIR` > 推导值。当只设了
+    `PAPERGUARD_DB_PATH` 而未设 `PAPERGUARD_DATA_DIR` 时，在线数据库位于
+    `<DB_PATH 的父目录>`，而备份根仍解析到代码目录下的 `data/`
+    ——**备份根不含在线数据库**（见 docs/tenancy/data-root-fragmentation.md DR-02）。
+
+    直接复用 `db.data_dir()`，让两者不可能再分叉。惰性导入以保持本模块
+    作为独立工具的零顶层依赖（`db` 不依赖本模块，无循环风险）。
+    """
+    from app.db import data_dir
+
+    return data_dir()
 
 
 def configured_db_path() -> Path:

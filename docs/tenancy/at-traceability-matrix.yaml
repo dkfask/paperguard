@@ -1,0 +1,751 @@
+# AT-ID 验收追溯矩阵
+#
+# 配套：at-traceability-framework.md（框架与放行判据）
+#       tools/at_traceability_check.py（一致性校验器）
+# 来源：docs/product/saas-platform-design-20261001.md §24.2
+#
+# 本文件**不得手工编辑** `id` / `stage` / `work_package` / `scenario` / `criterion`
+# 五个字段——校验器会逐字段比对设计文档，任何漂移都会失败。
+# 可编辑的只有 `related_findings` / `current_evidence` / `blockers` / `gate_state`。
+#
+# 语义：
+#   related_findings  本轮设计取证中，与该 AT-ID 直接相关的发现编号
+#   current_evidence  当前**已有**的证据及其六态；不含任何"应该会有"的证据
+#   blockers         阻塞该 AT-ID 落地的前置项
+#   gate_state       not_started | partially_evidenced | ready_to_design | blocked_on_scope
+#
+# 六态（与全项目引用规范一致）：
+#   local_fixed / local_gate_passed / committed_pushed /
+#   merged / deployed / runtime_verified / strict_uat_passed
+
+meta:
+  source: docs/product/saas-platform-design-20261001.md
+  source_section: "24.2 核心验收用例提案"
+  baseline_head: e166f97
+  authored: "2026-10-01"
+  total_at_ids: 45
+  important: >
+    设计文档 §24.2 原文写明「以下是下一阶段需要实现的测试，**不是本次已执行结果**」。
+    本矩阵中**没有任何一条** gate_state 达到 strict_uat_passed，这是正确状态而非缺陷。
+
+# ---------------------------------------------------------------------------
+# 阶段与工作包（用于按阶段放行）
+# ---------------------------------------------------------------------------
+stages:
+  C0:
+    work_packages: [W-03, W-04, W-05, W-06, W-07, W-08, W-09, W-10]
+    at_range: [AT-01, AT-34]
+    description: 租户安全底座 + 教学试点
+    gate: C0 放行需 AT-01～AT-34 全部 strict_uat_passed
+  C1:
+    work_packages: [W-11]
+    at_range: [AT-35, AT-39]
+    description: 账务与计费
+    gate: 依赖 C0 放行 + MR-FIX-1～4 完成（见 ai-metering-runbook.md §5.2）
+  C2:
+    work_packages: [W-12]
+    at_range: [AT-40, AT-42]
+    description: 支付与退款
+    gate: 依赖 C1 放行
+  cross:
+    work_packages: [W-13]
+    at_range: [AT-43, AT-45]
+    description: 跨阶段（SSO、UAT、迁移）
+    gate: 按其出现的阶段分别放行
+
+# ---------------------------------------------------------------------------
+# 逐条追溯
+# ---------------------------------------------------------------------------
+cases:
+
+  # ===== C0 / 租户隔离核心 =====
+  - id: AT-01
+    stage: C0
+    work_package: W-03
+    scenario: 同一用户 A 校教师、B 校学生，双标签切换
+    criterion: 角色、菜单、API、缓存、正文和 BYOK 均不串租户
+    related_findings: [G-1]
+    current_evidence: []
+    blockers: [ADR-02, T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+    note: 当前无任何租户字段，spec 中 tenant 出现 0 次（G-1）。无法构造此用例的前置数据。
+
+  - id: AT-02
+    stage: C0
+    work_package: W-03/04
+    scenario: 伪造 tenant Header/URL/组织过滤
+    criterion: 不能授予权限，所有查询求授权范围交集
+    related_findings: [G-1, AC-06]
+    current_evidence:
+      - ref: api-contract-delta.md §3.1
+        state: design_ready
+        note: >
+          目标契约已把「tenant_id 永不出现在请求体」定为硬不变量，
+          由 AC-06 机器门禁守护。X-Expected-Tenant 头仅限 require_platform_admin，
+          普通路径出现即 400 TENANT_OVERRIDE_FORBIDDEN——不与本 AT 冲突。
+    blockers: [ADR-02, AC-FIX-1, AC-FIX-6]
+    gate_state: ready_to_design
+    note: 本 AT 的目标答案已在契约层确定，缺的是实现与门禁接线。
+
+  - id: AT-03
+    stage: C0
+    work_package: W-04
+    scenario: 列表、详情、批量、报表、导出、搜索跨租户
+    criterion: 无正文、名称、邮箱、计数或存在性泄漏
+    related_findings: [G-1]
+    current_evidence: []
+    blockers: [ADR-02, T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+
+  - id: AT-04
+    stage: C0
+    work_package: W-04
+    scenario: A 项目关联 B 模板/组织/成员/附件
+    criterion: API 与数据库关系约束拒绝，第一笔写入前停止
+    related_findings: [F-4]
+    current_evidence:
+      - ref: tools/ddl_static_check.py
+        state: local_gate_passed
+        note: >
+          DDL 外键关系约束已修复（tenant_memberships 补 UNIQUE(tenant_id, id)），
+          静态检查通过。但未在真实 PostgreSQL 实例上验证。
+    blockers: [ADR-02, PG-REAL-INSTANCE]
+    gate_state: partially_evidenced
+
+  - id: AT-05
+    stage: C0
+    work_package: W-03/04
+    scenario: 缺上下文、异常事务、连接池复用
+    criterion: 无上下文拒绝，连接不保留上个租户设置
+    related_findings: [F-4]
+    current_evidence: []
+    blockers: [ADR-02, T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+    note: >
+      附带发现：Store._connect() 的上下文管理器不关闭连接
+      （见 data-root-fragmentation.md F-09）。该问题会放大本 AT 的连接复用风险。
+
+  - id: AT-06
+    stage: C0
+    work_package: W-04
+    scenario: API/worker 使用真实部署数据库角色
+    criterion: 所有者/BYPASSRLS 不出现在普通路径，读写策略有效
+    related_findings: []
+    current_evidence: []
+    blockers: [ADR-02, PG-REAL-INSTANCE]
+    gate_state: blocked_on_scope
+
+  - id: AT-07
+    stage: C0
+    work_package: W-03/05
+    scenario: 旧 admin 迁移、平台与客户管理
+    criterion: 显式映射且审核；平台默认不读取客户正文
+    related_findings: [Q-09]
+    current_evidence:
+      - ref: account-migration-inventory.md
+        state: design_ready
+        note: 账号迁移清单已产出；旧 admin 角色映射待业务裁决（Q-09）
+    blockers: [Q-09]
+    gate_state: blocked_on_scope
+
+  # ===== C0 / 成员与席位 =====
+  - id: AT-08
+    stage: C0
+    work_package: W-05
+    scenario: 邀请重复/过期/撤回/身份不符
+    criterion: 一次生效或明确拒绝，无重复成员和越权角色
+    related_findings: []
+    current_evidence: []
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+
+  - id: AT-09
+    stage: C0
+    work_package: W-05/06
+    scenario: 并发接受邀请/导入，席位即将满
+    criterion: 原子准入不超额，错误不部分形成越界授权
+    related_findings: [BQ-3]
+    current_evidence:
+      - ref: quota-and-billing-review.md §3.3
+        state: design_ready
+        note: >
+          consume_ai_quota 的单条 upsert 原子性实现可作为席位准入的模板。
+          但席位维度尚无实现，且缺预留态（BQ-FIX-3）。
+    blockers: [BQ-FIX-1, BQ-FIX-3]
+    gate_state: partially_evidenced
+
+  - id: AT-10
+    stage: C0
+    work_package: W-05
+    scenario: 学号冲突、同名账号、未验证邮箱导入
+    criterion: 预检报告，不静默合并身份，不改变旧登录凭据
+    related_findings: []
+    current_evidence:
+      - ref: account-migration-inventory.md
+        state: design_ready
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: ready_to_design
+
+  - id: AT-11
+    stage: C0
+    work_package: W-05
+    scenario: 邮件缺配置/发送失败、首次引导未完成
+    criterion: 真实失败且后端业务门禁仍阻断，无假验证成功
+    related_findings: []
+    current_evidence: []
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+
+  - id: AT-12
+    stage: C0
+    work_package: W-03/05
+    scenario: 成员撤权、教师移交、最后所有者退出
+    criterion: 旧权限失效，历史保留，最后所有者保护生效
+    related_findings: [Q-08]
+    current_evidence: []
+    blockers: [Q-08, T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+    note: 指导关系双来源冲突策略未裁决（Q-08），直接影响本 AT 的教师移交判定。
+
+  - id: AT-13
+    stage: C0
+    work_package: W-04
+    scenario: 下载、预览、归档、静态路径与旧 URL
+    criterion: 鉴权前无文件内容；无旧静态旁路；撤权策略可解释
+    related_findings: []
+    current_evidence: []
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+
+  # ===== C0 / 权益与周期 =====
+  - id: AT-14
+    stage: C0
+    work_package: W-06
+    scenario: 买权益但无角色、角色有权但 AI 到期
+    criterion: 角色和权益不互相授予；合法数据读取和退出保留
+    related_findings: [BQ-1, BQ-4]
+    current_evidence:
+      - ref: quota-and-billing-review.md §4.1
+        state: design_ready
+        note: 已确定「单一有效权益版本快照」模型，角色与权益解耦的设计已明确
+    blockers: [BQ-FIX-4]
+    gate_state: ready_to_design
+
+  - id: AT-15
+    stage: C0
+    work_package: W-06
+    scenario: 周期边界/时区变更/计划版本变更
+    criterion: 当前周期与历史冻结规则不漂移，配额不重复重置
+    related_findings: [BQ-5]
+    current_evidence:
+      - ref: quota-and-billing-review.md §2.4
+        state: design_ready
+        note: >
+          发现 _utc_periods() 名字承诺 UTC 但自身不强制，UTC 性质来自调用方。
+          将来传本地时间会使周期边界静默平移且不报错。
+          已登记为 BQ-FIX-5 的组成部分，要求在扩到租户维度之前修复。
+        gap: 周期切换目前**无任何测试**，而设计文档 §12.3 明确要求
+    blockers: [BQ-FIX-1, BQ-FIX-5]
+    gate_state: partially_evidenced
+
+  # ===== C0 / AI 与出站治理 =====
+  - id: AT-16
+    stage: C0
+    work_package: W-07
+    scenario: 机构禁外发、禁 BYOK、禁平台回退
+    criterion: 无任何未批准供应商调用，不悄悄改来源
+    related_findings: [F-1]
+    current_evidence:
+      - ref: backend/tests/test_ai_metering_coverage.py
+        state: local_gate_passed
+        note: >
+          F-1 修复后 source 字段会记录每次调用的来源（user/system/system_env），
+          7 个派发点全部有记账断言，可作为本 AT 的基础证据。
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: partially_evidenced
+
+  - id: AT-17
+    stage: C0
+    work_package: W-07
+    scenario: 私网/环回/重定向/DNS 重绑定出站
+    criterion: 应用与网络控制拒绝，无内部资源读取
+    related_findings: [F-5]
+    current_evidence:
+      - ref: backend/tests/test_ai_metering_coverage.py::test_outbound_blocked_does_not_consume_quota
+        state: local_gate_passed
+        note: >
+          F-5 修复后出站守卫覆盖全部 7 个派发点（此前只有 3 个），
+          变异测试确认删除守卫会被捕获。
+      - ref: backend/tests/test_outbound_guard.py
+        state: local_gate_passed
+        note: 私网/环回/十进制 IP 等已有测试覆盖
+    blockers: [T-ENABLE-MULTI-TENANT, NETWORK-LEVEL-CONTROL]
+    gate_state: partially_evidenced
+    note: >
+      DNS 重绑定（TOCTOU）与**网络层控制**（防火墙/出站代理）当前**无实现**。
+      应用层守卫无法覆盖「校验后 DNS 改变」这一窗口。设计文档要求
+      「应用与网络控制」双重拒绝，目前只有前者。
+
+  - id: AT-18
+    stage: C0
+    work_package: W-07
+    scenario: 主密钥缺失/错误、密文篡改、轮换
+    criterion: 秘密使用受控失败，正文阅读独立；新写不落明文
+    related_findings: []
+    current_evidence:
+      - ref: backend/app/services/secret_store.py
+        state: design_ready
+        note: >
+          代码中存在「PAPERGUARD_SECRET_KEY 未配置，密钥将以明文落库」告警，
+          说明该场景已被识别但**未强制**。生产 env 中该键存在（已只读核对）。
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: partially_evidenced
+    note: 明文落库的**降级路径**仍然存在，本 AT 的「新写不落明文」当前不成立。
+
+  - id: AT-19
+    stage: C0
+    work_package: W-07/08
+    scenario: 成员 BYOK 密钥错误与平台端点故障
+    criterion: 凭据故障不熔断其他租户；公共故障保护生效
+    related_findings: [M-1]
+    current_evidence:
+      - ref: backend/tests/test_ai_breaker.py
+        state: local_gate_passed
+        note: 熔断为**进程内单例**（ai_breaker 模块级），多副本下各副本独立
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: partially_evidenced
+    note: >
+      熔断 key 为 _breaker_key(cfg)，按 base_url 聚合——
+      单租户的 BYOK 凭据错误确实不会熔断其他租户。但**公共故障保护**
+      的「公共」边界需在多租户下重新定义（哪些 base_url 算公共）。
+
+  - id: AT-20
+    stage: C0
+    work_package: W-08
+    scenario: AI 重复/并发同幂等键、同键不同内容
+    criterion: 前者不重复调用，后者 409；结果可查询
+    related_findings: [F-3, AC-08]
+    current_evidence:
+      - ref: command-contracts.md §2
+        state: design_ready
+        note: >
+          全仓 129 条写操作中**仅 1 条**（POST /api/submissions）实现了幂等，
+          workflow_idempotency 表主键为 (user_id, action, idem_key)。
+          本 AT 的判据「同键不同内容 → 409」当前**无实现**（表无 request_hash 校验逻辑）。
+    blockers: [AC-FIX-1]
+    gate_state: partially_evidenced
+
+  - id: AT-21
+    stage: C0
+    work_package: W-08
+    scenario: 熔断/配额/出站拒绝
+    criterion: 没有上游派发，风控尝试与消耗分开记录
+    related_findings: [F-1, F-5, M-6]
+    current_evidence:
+      - ref: backend/tests/test_ai_metering_coverage.py
+        state: local_gate_passed
+        note: >
+          13 条用例逐派发点断言记账与配额；6 条参数化用例验证
+          「被限流/出站拦截时不触达上游」。4 项变异测试零假绿。
+      - ref: backend/tests/test_ai_governance.py::test_assist_endpoint_enforces_quota_over_http
+        state: local_gate_passed
+    blockers: [MR-FIX-8, MR-FIX-9]
+    gate_state: partially_evidenced
+    note: >
+      判据前半（「没有上游派发」）已达成：六个派发点均有参数化用例守护，
+      变异测试确认删除守卫会被捕获。
+      判据后半（「风控尝试与消耗分开记录」）**完全未实现**——M-6：
+      全仓无 ai_attempt / quota_denied 概念（grep 0 命中），
+      被限流/熔断/出站拦下的尝试不留任何痕。
+      后果：熔断打开时 ai_usage 一行不增，看起来像「用户不活跃」，
+      实际是系统完全不可用。设计见 ai-metering-runbook.md §8。
+
+  - id: AT-22
+    stage: C0
+    work_package: W-08
+    scenario: HTTP 超时、收到响应后落库失败/进程死亡
+    criterion: unknown 与未决预留可见，不盲目重发或自动释放
+    related_findings: [M-3, BQ-3]
+    current_evidence:
+      - ref: ai-metering-runbook.md §5
+        state: design_ready
+        note: >
+          现状：超时直接 504，记 upstream_error + output_chars=0，
+          **无 unknown 状态**。设计已给出四级结果分类与 reserved 预留态。
+    blockers: [MR-FIX-3, BQ-FIX-3]
+    gate_state: partially_evidenced
+
+  - id: AT-23
+    stage: C0
+    work_package: W-08
+    scenario: 上游成功但无 token，历史只有字符
+    criterion: 显示 unavailable/legacy，不造 token 或收费事实
+    related_findings: [M-1]
+    current_evidence:
+      - ref: ai-metering-runbook.md §3
+        state: design_ready
+        note: >
+          两条协议路径都丢弃上游 usage 字段，只按字符记账。
+          设计已给出 input_tokens/output_tokens/usage_source 三列
+          与 provider/estimated/unknown 三级标注。
+    blockers: [MR-FIX-1]
+    gate_state: partially_evidenced
+
+  - id: AT-24
+    stage: C0
+    work_package: W-08
+    scenario: 用量聚合、明细和组织过滤
+    criterion: 请求结果分区可核对，独立维度不重复计总量
+    related_findings: [M-4]
+    current_evidence:
+      - ref: ai-metering-runbook.md §6
+        state: design_ready
+        note: >
+          ai_usage_summary() 已实现按 user_id + organization_id 汇总，
+          但**无任何 API 端点暴露**（9 个调用点全在 tests/）。
+          organization_id 采用调用时快照，是本 AT「不重复计总量」的正确基础。
+    blockers: [MR-FIX-4]
+    gate_state: partially_evidenced
+
+  # ===== C0 / worker 与任务 =====
+  - id: AT-25
+    stage: C0
+    work_package: W-09
+    scenario: worker 重启、租约过期、长任务心跳
+    criterion: 旧 worker 无法发布或更新；新进程可收敛
+    related_findings: []
+    current_evidence:
+      - ref: backend/app/db.py claim_jobs
+        state: local_gate_passed
+        note: >
+          租约令牌 + BEGIN IMMEDIATE 原子抢占 + lease_until 过期回收已实现；
+          租约时长 300s（归档/导出/渲染）、120s（outbox）。
+          backend/tests/test_ai_breaker.py 等有租约相关覆盖。
+    blockers: []
+    gate_state: partially_evidenced
+    note: >
+      **长任务心跳**当前无实现：claim 时一次性设置 lease_until，
+      任务执行超过 lease_seconds 后租约即过期，可能被第二个 worker 抢占。
+      三个消费者均用 300s 租约，文档渲染任务有可能超过。
+
+  - id: AT-26
+    stage: C0
+    work_package: W-09
+    scenario: 同任务/事件重复消费，附件孤儿与取消竞争
+    criterion: 不重复生成已发布效果，孤儿安全隔离，终态一致
+    related_findings: []
+    current_evidence:
+      - ref: backend/tests/test_ai_breaker.py
+        state: local_gate_passed
+        note: 终态 park 与人工重试入口已验证
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: partially_evidenced
+
+  - id: AT-27
+    stage: C0
+    work_package: W-09
+    scenario: 一个租户积压、大任务与普通任务竞争
+    criterion: 租户资源限额和公平策略有效，无无限热重试
+    related_findings: [BQ-2]
+    current_evidence:
+      - ref: quota-and-billing-review.md §3
+        state: design_ready
+        note: >
+          指数退避 5s→300s 与终态 park 已实现，「无无限热重试」已达成。
+          但**租户级公平策略**无实现——claim_jobs 按 created_at ASC 全局排序，
+          单租户积压会阻塞其他租户。
+    blockers: [BQ-FIX-1]
+    gate_state: partially_evidenced
+
+  - id: AT-28
+    stage: C0
+    work_package: W-09/10
+    scenario: 人工归档恢复，现有产物与任务状态不同
+    criterion: 先核对 manifest；正式修复有审计，真实下载一致
+    related_findings: [W-5]
+    current_evidence:
+      - ref: backend/app/services/backup_restore.py
+        state: design_ready
+        note: >
+          manifest 机制已实现（_safe_member 校验路径安全）。但
+          **无定时归档**——备份是一次性下载，产物发完即删，
+          因此「现有产物与任务状态不同」这一前置场景难以自然复现。
+    blockers: [OPS-FIX-5a]
+    gate_state: partially_evidenced
+
+  # ===== C0 / 审计、支持、退出、恢复 =====
+  - id: AT-29
+    stage: C0
+    work_package: W-10
+    scenario: 审计和日志敏感字段扫描
+    criterion: 无密钥、token、正文或支付签名；关键动作强关联
+    related_findings: [G-3, AC-04]
+    current_evidence:
+      - ref: backend/app/core/structured_logging.py
+        state: local_gate_passed
+        note: 结构化日志已带 request_id，可做强关联
+    blockers: [AC-FIX-3]
+    gate_state: partially_evidenced
+    note: >
+      敏感字段扫描**无自动化门禁**。当前 367 处错误用裸字符串，
+      其中部分可能内联上游返回内容（_parse_error_detail 的结果直接进 detail），
+      存在把上游错误正文写进日志/响应的风险。
+
+  - id: AT-30
+    stage: C0
+    work_package: W-10
+    scenario: 支持授权过期/撤销/超范围
+    criterion: 立即拒绝；访问与结束有审计；不得读取其他租户
+    related_findings: [G-1]
+    current_evidence: []
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+
+  - id: AT-31
+    stage: C0
+    work_package: W-10
+    scenario: 租户退出/降级/停用 AI/安全暂停
+    criterion: 商业限制保留合法退出；安全封禁不被导出绕过
+    related_findings: [W-4, BQ-4]
+    current_evidence:
+      - ref: operations-runbook.md §4
+        state: design_ready
+        note: 五阶段退出流程与各状态硬约束已写入手册
+    blockers: [OPS-FIX-6a, OPS-FIX-6c, BQ-FIX-6]
+    gate_state: ready_to_design
+
+  - id: AT-32
+    stage: C0
+    work_package: W-10
+    scenario: 租户导出/删除申请和恢复后的 tombstone
+    criterion: 仅批准范围，历史必要证明保留，已删除内容不复活
+    related_findings: [W-4]
+    current_evidence:
+      - ref: backend/app/api/operations.py
+        state: design_ready
+        note: >
+          存在 GET/PUT /api/operations/retention（全局单条设置），
+          说明「保留策略」已进入数据模型，但**不是按租户**。
+    blockers: [OPS-FIX-6a, OPS-FIX-5e]
+    gate_state: partially_evidenced
+    note: tombstone 机制（删除后复活防护）当前**无任何实现**。
+
+  - id: AT-33
+    stage: C0
+    work_package: W-10
+    scenario: 数据库+对象+密钥恢复到独立目标
+    criterion: 同代、摘要、撤权和任务状态正确，实测指标有证据
+    related_findings: [W-5, OPS-FIX-5b]
+    current_evidence:
+      - ref: data-root-fragmentation.md §6.1
+        state: design_ready
+        note: >
+          已只读核对生产数据根：两 env 键均未设置，当前配置下**未发生分裂**；
+          DR-FIX-1 已修。但备份产物全部在同一台机器的同一磁盘，
+          「恢复到独立目标」缺乏异地副本。
+    blockers: [OPS-FIX-5a, OPS-FIX-5b]
+    gate_state: partially_evidenced
+
+  - id: AT-34
+    stage: C0
+    work_package: W-10
+    scenario: 单租户恢复
+    criterion: 不覆盖其他租户，不回滚外部效果和财务事实
+    related_findings: [W-5]
+    current_evidence: []
+    blockers: [ADR-02, OPS-FIX-5a]
+    gate_state: blocked_on_scope
+    note: >
+      现有 backup_restore 是**整库**粒度，无单租户恢复能力。
+      多租户后整库恢复会覆盖其他租户数据——本 AT 当前**完全无法满足**。
+
+  # ===== C1 / 账务 =====
+  - id: AT-35
+    stage: C1
+    work_package: W-11
+    scenario: 同一请求并发预留/结算/释放
+    criterion: 唯一业务效果，余额/配额不漂移，journal 守恒
+    related_findings: [BQ-3]
+    current_evidence:
+      - ref: quota-and-billing-review.md §3.3
+        state: design_ready
+        note: >
+          预留四态（held/committed/released/expired）与单事务三层扣减算法已设计。
+          参考实现：consume_ai_quota 的单条 upsert 原子性已验证。
+    blockers: [C0-RELEASE, BQ-FIX-3]
+    gate_state: blocked_on_scope
+
+  - id: AT-36
+    stage: C1
+    work_package: W-11
+    scenario: unknown、延迟 usage、预留到期和恢复
+    criterion: 无未知退款或重复扣费；对账后按冻结规则处理
+    related_findings: [M-1, M-2, M-3, M-4]
+    current_evidence:
+      - ref: ai-metering-runbook.md §5.4
+        state: design_ready
+        note: 未知结果 Runbook R-1～R-7 已给出，含「unknown 状态下禁止自动重试」
+    blockers: [C0-RELEASE, MR-FIX-1, MR-FIX-2, MR-FIX-3, MR-FIX-4, V-1]
+    gate_state: blocked_on_scope
+    note: V-1（供应商计费口径）需采购确认，非技术可解。
+
+  - id: AT-37
+    stage: C1
+    work_package: W-11
+    scenario: 价格变更、币种/单位混用、舍入与超预留
+    criterion: 历史版本稳定，精度规则一致，异常不产生擅自透支
+    related_findings: [BQ-1]
+    current_evidence: []
+    blockers: [C0-RELEASE, BQ-1]
+    gate_state: blocked_on_scope
+
+  - id: AT-38
+    stage: C1
+    work_package: W-11
+    scenario: BYOK 与平台池、固定许可与额度
+    criterion: 收入/供应商成本/非货币权益分开，不假装统一钱包
+    related_findings: [BQ-2, M-1]
+    current_evidence:
+      - ref: quota-and-billing-review.md §3.1
+        state: design_ready
+        note: >
+          三维模型（用户/租户/平台供应商池）已设计，BYOK 不计平台成本
+          的边界已在总设计 §12.2 明确。
+    blockers: [C0-RELEASE, BQ-FIX-2, MR-FIX-1]
+    gate_state: blocked_on_scope
+
+  - id: AT-39
+    stage: C1
+    work_package: W-11
+    scenario: 账务修正、人工调整、投影重建
+    criterion: 新凭证关联原事实，审批可查，投影不更改资金
+    related_findings: []
+    current_evidence: []
+    blockers: [C0-RELEASE]
+    gate_state: blocked_on_scope
+
+  # ===== C2 / 支付 =====
+  - id: AT-40
+    stage: C2
+    work_package: W-12
+    scenario: 重复/乱序/伪造/金额或商户不符回调
+    criterion: 验证后 inbox 幂等，不能错误过账或激活权益
+    related_findings: [F-3]
+    current_evidence: []
+    blockers: [C1-RELEASE]
+    gate_state: blocked_on_scope
+
+  - id: AT-41
+    stage: C2
+    work_package: W-12
+    scenario: 关单竞争、渠道未知、支付成功权益失败
+    criterion: 查询/重放收敛，不重复收款，展示真实中间状态
+    related_findings: [M-3]
+    current_evidence: []
+    blockers: [C1-RELEASE]
+    gate_state: blocked_on_scope
+
+  - id: AT-42
+    stage: C2
+    work_package: W-12
+    scenario: 并发部分退款、重复退款、渠道退款未知
+    criterion: 不超过可退额，不重发新退款，确认后补偿凭证
+    related_findings: []
+    current_evidence: []
+    blockers: [C1-RELEASE]
+    gate_state: blocked_on_scope
+
+  # ===== 跨阶段 =====
+  - id: AT-43
+    stage: 按范围
+    work_package: W-13
+    scenario: SSO 映射、域名伪造和跨机构外部身份
+    criterion: 绑定正确 issuer/subject/租户，不凭 email 给管理员
+    related_findings: [G-1]
+    current_evidence: []
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+
+  - id: AT-44
+    stage: 各阶段
+    work_package: ""   # 设计文档该格仅写「各阶段」，未指定工作包
+    scenario: 浏览器全角色关键链路与错误恢复
+    criterion: 不仅页面打开；从入口到真实操作、状态、文件和审计一致
+    related_findings: [G-2, G-4]
+    current_evidence:
+      - ref: frontend/e2e/
+        state: local_gate_passed
+        note: 已有 Playwright E2E，但仅覆盖现有单租户产品功能
+    blockers: [T-ENABLE-MULTI-TENANT]
+    gate_state: blocked_on_scope
+    note: >
+      本 AT 明确要求「不仅页面打开」。当前 2 条视觉基线已过期未重生成，
+      且在多租户下需要每个角色×每个租户组合的走查，工作量随租户数平方增长。
+
+  - id: AT-45
+    stage: 各阶段
+    work_package: ""   # 设计文档该格仅写「各阶段」，未指定工作包
+    scenario: 迁移、回退、新旧 API、重复回填
+    criterion: 数量/关系/摘要与原证据一致，无数据丢失或旧宽权限恢复
+    related_findings: [F-4, W-3]
+    current_evidence:
+      - ref: tools/ddl_static_check.py
+        state: local_gate_passed
+        note: DDL 语法与外键静态检查已修复并通过；**未在真实 PG 实例验证**
+    blockers: [PG-REAL-INSTANCE, OPS-FIX-7b]
+    gate_state: partially_evidenced
+    note: 「重复回填」的幂等性未验证；后端回滚脚本缺失（OPS-FIX-7b）。
+
+# ---------------------------------------------------------------------------
+# 阻塞项字典（供校验器交叉引用）
+# ---------------------------------------------------------------------------
+blockers:
+  ADR-02:
+    desc: 共享 PostgreSQL + RLS 方案（已采纳，但 W-02 产出尚未在真实实例验证）
+    owner: 技术决策
+    resolved: false
+  T-ENABLE-MULTI-TENANT:
+    desc: 代码中尚无任何租户字段（spec 中 tenant 出现 0 次），无法构造多租户前置数据
+    owner: W-03
+    resolved: false
+  PG-REAL-INSTANCE:
+    desc: 需要真实 PostgreSQL 实例验证 DDL 与 RLS 策略
+    owner: W-02
+    resolved: false
+  Q-07: {desc: candidate 作用域（平台公共 vs 租户资产）, owner: 业务, resolved: false}
+  Q-08: {desc: 指导关系双来源冲突策略, owner: 教师教学负责人, resolved: false}
+  Q-09: {desc: 旧 admin 平台角色映射, owner: 业务, resolved: false}
+  BQ-1: {desc: 租户额度是否可下推/成员间调剂, owner: 业务, resolved: false}
+  BQ-2: {desc: reserved 超时回收时长, owner: 技术, resolved: false}
+  BQ-3: {desc: 预留态实现, owner: W-02, resolved: false}
+  BQ-4: {desc: 试点额度是否设总量上限, owner: 业务, resolved: false}
+  BQ-5: {desc: 账期对齐自然月还是合同周年, owner: 业务, resolved: false}
+  BQ-FIX-1: {desc: tenant_quota_pool / tenant_member_quota 表与单事务消费, owner: W-02, resolved: false}
+  BQ-FIX-2: {desc: provider_pool_quota 表 + 平台 AI 池计量, owner: W-02, resolved: false}
+  BQ-FIX-3: {desc: quota_reservation 四态表, owner: W-02, resolved: false}
+  BQ-FIX-4: {desc: tenant_entitlement_snapshot 单一生效版本, owner: W-02, resolved: false}
+  BQ-FIX-5: {desc: 周期边界冻结 + _utc_periods 强制 UTC + 切换测试, owner: W-02, resolved: false}
+  BQ-FIX-6: {desc: over_quota 可见状态（降级不删数据）, owner: W-05, resolved: false}
+  AC-FIX-1: {desc: 声明 bearerAuth 并逐操作标注 security, owner: W-03, resolved: false}
+  AC-FIX-3: {desc: 统一异常处理器（5 处结构化约定推广）, owner: W-03, resolved: false}
+  AC-FIX-6: {desc: 9 个实体 schema 增加只读 tenant_id, owner: W-02, resolved: false}
+  MR-FIX-1: {desc: 解析并保存上游 usage（token 数）, owner: W-08, resolved: false}
+  MR-FIX-2: {desc: 记录 dispatch_count / fallback_used, owner: W-08, resolved: false}
+  MR-FIX-3: {desc: result 扩展 unknown 态；熔断对 unknown 单独统计, owner: W-08, resolved: false}
+  MR-FIX-4: {desc: 用量查询端点（按 organization_id 过滤 + 审计）, owner: W-08, resolved: false}
+  MR-FIX-8: {desc: ai_attempt 表 + 在 _metered_chat 出口前记录风控尝试, owner: W-08, resolved: false}
+  MR-FIX-9: {desc: 用量端点支持按 outcome / denied_by 过滤, owner: W-08, resolved: false}
+  MR-FIX-10: {desc: 熔断告警改看 ai_attempt 而非 ai_usage, owner: 运维, resolved: false}
+  V-1: {desc: 供应商实际计费口径（需采购/合同确认）, owner: 采购, resolved: false}
+  OPS-FIX-5a: {desc: 定时备份归档机制, owner: 运维, resolved: false}
+  OPS-FIX-5b: {desc: 备份异地副本, owner: 运维, resolved: false}
+  OPS-FIX-5e: {desc: retention 改为按租户存储, owner: W-10, resolved: false}
+  OPS-FIX-6a: {desc: 租户级全量导出, owner: W-10, resolved: false}
+  OPS-FIX-6c: {desc: closing/closed 状态机, owner: W-10, resolved: false}
+  OPS-FIX-7b: {desc: 后端回滚脚本, owner: 运维, resolved: false}
+  NETWORK-LEVEL-CONTROL:
+    desc: 出站网络层控制（防火墙/代理），当前无实现
+    owner: 运维
+    resolved: false
+  C0-RELEASE: {desc: C0 阶段 34 条 AT 全部放行, owner: 项目, resolved: false}
+  C1-RELEASE: {desc: C1 阶段 5 条 AT 全部放行, owner: 项目, resolved: false}

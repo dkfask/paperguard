@@ -40,12 +40,25 @@ SCHEMA_MIGRATIONS = (
 )
 
 
+def data_dir() -> Path:
+    """数据目录：与数据库同源，保证归档/附件等持久化产物与 DB 落在同一备份域。
+
+    优先级与 `_default_db_path` 一致：PAPERGUARD_DB_PATH 的父目录 > PAPERGUARD_DATA_DIR > 仓库默认目录。
+    历史实现里归档目录按 `__file__` 解析为 backend/data/archives，与实际配置的 DB 位置脱钩，
+    导致发布切换代码目录时归档被带走、且不在按数据目录做的备份范围内。
+    """
+    value = os.environ.get("PAPERGUARD_DB_PATH", "").strip()
+    if value:
+        return Path(value).expanduser().resolve().parent
+    return Path(os.environ.get("PAPERGUARD_DATA_DIR", str(_DEFAULT_DB_PATH.parent))).expanduser().resolve()
+
+
 def _default_db_path() -> Path:
     """数据库路径, 可用 PAPERGUARD_DB_PATH 覆盖(测试用/运维配置)。"""
     value = os.environ.get("PAPERGUARD_DB_PATH", "")
     if value:
         return Path(value)
-    return Path(os.environ.get("PAPERGUARD_DATA_DIR", str(_DEFAULT_DB_PATH.parent))) / "paperguard.db"
+    return data_dir() / "paperguard.db"
 
 
 def _now() -> str:
