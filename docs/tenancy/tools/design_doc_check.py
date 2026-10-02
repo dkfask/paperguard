@@ -133,7 +133,7 @@ def count_err_code_rows(path: pathlib.Path) -> dict[str, int]:
 #        因为它让「漏登记」看起来像「本来就该豁免」。
 #   现在 `run_all_gates.py --self-test` 已纳入套件（GATES 末项），
 #   其状态由 `<!-- gate:run_all_gates.py --self-test=0 -->` 标记与 DC-1 核对，
-#   与其余 18 个工具同等对待，豁免没有存在的理由。
+#   与其余工具同等对待，豁免没有存在的理由。
 EXEMPT: set[str] = set()
 
 

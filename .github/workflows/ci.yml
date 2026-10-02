@@ -77,6 +77,11 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          # whitespace_check 要用 `origin/<base>..HEAD` 核对本次 PR 的变更。
+          # checkout 默认 fetch-depth: 1（浅克隆），取不到 origin/main；
+          # 而该工具对「不可核对」是**报红**而不是放行——所以必须拉全历史。
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

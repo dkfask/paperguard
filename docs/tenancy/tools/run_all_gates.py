@@ -109,6 +109,12 @@ GATES = [
     ("spec_rule_id_check.py", "plain", "INC-49 跨规格规则 ID 重复定义"),
     ("secret_scan_check.py", "self-test", "敏感信息扫描自检（阳性/阴性/模板边界）"),
     ("secret_scan_check.py", "plain", "§22.4 敏感信息与冲突标记扫描"),
+    # §22.4 第 6 条的另一半（另一半是上面的 secret_scan_check）。
+    # ★ 本条**在 CI 上必须能核对**：工作区是干净 checkout，所以工具自己读
+    #   GITHUB_BASE_REF 取 origin/<base>..HEAD；base 解析不到时它**报红**，
+    #   而不是退回「扫工作区」然后恒绿。
+    ("whitespace_check.py", "self-test", "行尾空白判定自检（md 硬换行只放行恰好 2 个空格）"),
+    ("whitespace_check.py", "plain", "§22.4 第 6 条：git diff --check + 未跟踪文件全文"),
     ("synthetic_data.py", "plain", "验收前置数据缺口探测"),
     # 本工具曾**既无 --self-test 也无变异记录**，而 §27.3 却写着「每道门禁都有
     # --self-test……一个抓不住错误的检查器不是检查器」。INC-70 补上 19 项自检。
