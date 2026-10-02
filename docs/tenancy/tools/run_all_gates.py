@@ -107,6 +107,8 @@ GATES = [
     ("lease_guard_check.py", "plain", "INC-47 租约栅栏：空租约通配检出"),
     ("spec_rule_id_check.py", "self-test", "规格规则 ID 唯一性自检（定义/引用消歧）"),
     ("spec_rule_id_check.py", "plain", "INC-49 跨规格规则 ID 重复定义"),
+    ("spec_xref_check.py", "self-test", "规格章节交叉引用自检（断链 + 跨规格不误报 + 防空转）"),
+    ("spec_xref_check.py", "plain", "INC-98 规格 §N 交叉引用指向真实章节"),
     ("secret_scan_check.py", "self-test", "敏感信息扫描自检（阳性/阴性/模板边界）"),
     ("secret_scan_check.py", "plain", "§22.4 敏感信息与冲突标记扫描"),
     # §22.4 第 6 条的另一半（另一半是上面的 secret_scan_check）。
