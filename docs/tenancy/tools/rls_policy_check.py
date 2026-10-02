@@ -360,7 +360,10 @@ def verdict(n_tables: int, problems: list[str], errs: list[str]
         return EXIT_TOOL_BROKEN, "未解析到任何带策略的表，本项无数据可核对"
     if problems:
         return EXIT_FINDINGS, f"未通过：{len(problems)} 项"
-    return EXIT_OK, f"通过：{n_tables} 张表全部核对"
+    return EXIT_OK, (f"通过：{n_tables} 张表全部核对"
+                      f"｜★ 本工具校验的是 W-02 **规格文本**里的 RLS 策略定义"
+                      f"（E/F/P 齐全性），**不读 backend/、不查任何运行库**——"
+                      f"这些表是否已建出由 ddl_static_check 报告，见 INC-113")
 
 
 # ---------------------------------------------------------------------------
