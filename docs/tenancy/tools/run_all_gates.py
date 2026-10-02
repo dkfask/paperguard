@@ -133,6 +133,37 @@ VERDICT = {
     2: ("BROKEN", RED, "工具不可运行"),
 }
 
+# ---------------------------------------------------------------------------
+# 「本模式不适用」的门禁（INC-94）
+# ---------------------------------------------------------------------------
+# 判据：**一道门禁的主语不在版本控制里，它就不可能是 CI 门禁。**
+#
+# `contract_readiness_check` 核对的是**本地开发库里的隔离清单**，
+# 而 `backend/data/` 在 `.gitignore:75` 被刻意排除，CI 的干净检出里没有它。
+# 实测（干净克隆，`git clone` 到 /tmp 后实跑）：
+#   · 缺库 ⇒ `找不到数据库` ⇒ **exit=2**
+#   · 补一个「只含表、无数据」的库 ⇒ 仍是 exit=2，
+#     原因是「隔离清单段落存在但 0 条——解析失败」
+#     （隔离清单来自对**有数据**的源库做 dry-run，空库给不出清单）
+# 而 `--mode ci` 只拦退出码 2 ⇒ **流水线第一次跑就会永久红**。
+#
+# 为什么不能用「让它 exit=0」解决：那是**空洞通过**——
+# 它没核对任何东西，却报「通过」。本项目反复吃过这个亏
+# （INC-56 假门禁、INC-70 恒绿、INC-92 空规格判绿）。
+# 也不能用「exit=1（差距已登记）」：它确实报出了 CT-2/CT-3 两条**真实**的
+# contract 缺口（INC-03/INC-04 未裁决），但那些缺口与 CI 无关，
+# 记成「差距」会让本地那 6 道常红门禁的名单在 CI 里变得不可解释。
+#
+# 所以引入**第四种状态**：跑、如实报出结果、**不计入三态、不参与退出码**，
+# 且在输出与 `--json` 里**单独列出并附理由**——绝不静默丢弃。
+# 只有 `--mode ci` 生效；`strict` / `report` 下它们照常参与判定。
+CI_INAPPLICABLE: dict[str, str] = {
+    "contract_readiness_check.py::plain": (
+        "主语是本地开发库的隔离清单，backend/data/ 不在版本控制里；"
+        "空库下 dry-run 给不出清单（实测 exit=2）"),
+}
+
+
 
 def gate_id(r: dict) -> str:
     """门禁身份 = 工具名 + kind。
@@ -337,6 +368,61 @@ def self_test() -> int:
       rc_gap_only == EXIT_OK and d_gap_only["broken"] == [] and
       d_gap_only["gaps"] == ["g_gap.py::plain"])
 
+    # ---- INC-94：「本模式不适用」的门禁 ----
+    #
+    # 这组夹具的核心是**三态不能塌缩成两态**：
+    # 一个 exit=2 的门禁在 ci 模式下被判 N/A 后，
+    # 它**必须从 broken 里消失**（否则 CI 永久红），
+    # 也**绝不能出现在 passed 里**（那是空洞通过）。
+    shutil.rmtree(tmp)
+    tmp.mkdir()
+    _stub(tmp / "g_ok.py", 0)
+    _stub(tmp / "g_broken.py", 2)
+    na_only = [("g_ok.py", "plain", "ok"), ("g_broken.py", "plain", "needs-db")]
+    saved_na = dict(CI_INAPPLICABLE)
+    try:
+        CI_INAPPLICABLE.clear()
+        CI_INAPPLICABLE["g_broken.py::plain"] = "主语不在版本控制里"
+        rc_na, d_na = run(tmp, "ci", gates=na_only)
+        rc_na_strict, d_na_strict = run(tmp, "strict", gates=na_only)
+    finally:
+        CI_INAPPLICABLE.clear()
+        CI_INAPPLICABLE.update(saved_na)
+    t("N/A 门禁在 ci 模式下不计入 broken（否则 CI 永久红）",
+      rc_na == EXIT_OK and d_na["broken"] == [])
+    t("★ N/A 门禁绝不在 passed 里（那是空洞通过）",
+      d_na["passed"] == ["g_ok.py::plain"]
+      and "g_broken.py::plain" not in d_na["passed"])
+    t("N/A 条目带理由进 JSON，且仍记录它**实跑**的真实退出码",
+      len(d_na["na"]) == 1 and d_na["na"][0]["id"] == "g_broken.py::plain"
+      and d_na["na"][0]["code"] == 2 and d_na["na"][0]["reason"])
+    t("N/A 条目仍出现在 exit 明细里（跑了就必须留痕）",
+      d_na["exit"].get("g_broken.py::plain") == 2)
+    t("分桶恒等式扩成「通过+差距+坏+不适用==总数」",
+      len(d_na["passed"]) + len(d_na["gaps"]) + len(d_na["broken"])
+      + len(d_na["na"]) == d_na["total"])
+    t("strict 模式下 N/A 失效，那道门禁重新按 exit=2 计入（不是恒豁免）",
+      d_na_strict["na"] == [] and d_na_strict["broken"] == ["g_broken.py::plain"])
+
+    # ★ 这条是**首版漏了第二个条件**导致的真实回归，本机实跑才发现：
+    # 本机**有**本地开发库 ⇒ `contract_readiness_check` 返回 1 并报出 4 条真实
+    # contract 缺口，却被无条件标成 N/A 抹掉 ⇒ 差距从 6 掉到 5，
+    # **真实差距凭空消失**。N/A 描述的是「此刻查不了」，不是「这门禁不重要」。
+    shutil.rmtree(tmp)
+    tmp.mkdir()
+    _stub(tmp / "g_gap.py", 1)
+    one_gap = [("g_gap.py", "plain", "gap")]
+    try:
+        CI_INAPPLICABLE.clear()
+        CI_INAPPLICABLE["g_gap.py::plain"] = "本机查得了，所以不该豁免"
+        _rc_g, d_g = run(tmp, "ci", gates=one_gap)
+    finally:
+        CI_INAPPLICABLE.clear()
+        CI_INAPPLICABLE.update(saved_na)
+    t("★ 清单里的门禁**实跑出了结论**时仍按结论计入（不得被 N/A 抹掉）",
+      d_g["na"] == [] and d_g["gaps"] == ["g_gap.py::plain"]
+      and "g_gap.py::plain" not in d_g["passed"])
+
     # —— INC-67 回归：同一工具的两种 kind 退出码可以不同，绝不能塌成一个键。
     #    夹具必须**真的造出码不同的两次调用**；用四个互不相同的桩（上一版夹具）
     #    在结构上就碰不到这个分支，所以上一版自检永远发现不了它。
@@ -446,16 +532,39 @@ def main() -> int:
             continue
         r = run_gate(tool, kind)
         r.update({"name": name, "kind": kind, "desc": desc})
+        # ★ INC-94：`--mode ci` 下声明「本模式不适用」的门禁，
+        # **照常跑、照常记下真实退出码**，只是不计入三态。
+        # 跑而不跳是有意的：报告里必须能看见它**为什么**不适用，
+        # 跳过就等于把「查不了」伪装成「查过了」。
+        #
+        # ★★ **两个条件缺一不可**（首版漏了第二个，是我自己造出来的回归）：
+        #   ① 在 `CI_INAPPLICABLE` 里
+        #   ② **实跑确实没跑成**（`code == EXIT_TOOL_BROKEN`）
+        # 只判 ① 会造成：在**有本地开发库的机器上**（本机就是），
+        # `contract_readiness_check` 返回 1、报出 4 条真实 contract 缺口，
+        # 却被标成 N/A 抹掉 ⇒ 差距从 6 掉到 5，**真实差距凭空消失**。
+        # **N/A 描述的是「此刻查不了」这个处境，不是「这门禁不重要」。**
+        _gid = f"{name}::{kind}"
+        if (args.mode == "ci" and _gid in CI_INAPPLICABLE
+                and r["code"] == EXIT_TOOL_BROKEN):
+            r["na"] = CI_INAPPLICABLE[_gid]
         results.append(r)
 
     # —— 判定。**先分桶再计数**，不要用「失败数 = 非零数」——
     #    那样会把「工具坏了」和「检查没过」压成同一个数字。
-    passed = [r for r in results if r["code"] == 0]
-    gaps = [r for r in results if r["code"] == 1]
-    broken = [r for r in results if r["code"] == 2]
+    #
+    # ★ INC-94：带 `na` 的条目**不进任何一个桶**，但**仍计入 `total`**。
+    # 恒等式因此变成 `通过 + 差距 + 不可运行 + 不适用 == 总数`——
+    # **多了一个桶而不是少了一个码**，所以「有码被吞」依然会被 assert 抓住。
+    na = [r for r in results if "na" in r]
+    judged = [r for r in results if "na" not in r]
+    passed = [r for r in judged if r["code"] == 0]
+    gaps = [r for r in judged if r["code"] == 1]
+    broken = [r for r in judged if r["code"] == 2]
     total = len(results)
     # 唯一必须成立的恒等式：分桶之和 == 总数。少一个就说明有码被吞了。
-    assert len(passed) + len(gaps) + len(broken) == total, "分桶与总数不一致"
+    assert (len(passed) + len(gaps) + len(broken) + len(na)
+            == total), "分桶与总数不一致"
 
     # —— 第二个恒等式：**门禁身份必须唯一**（INC-67）。
     #    清单里若出现两条同 (工具, kind)，按身份做键也会静默塌缩。
@@ -497,8 +606,11 @@ def main() -> int:
             "broken": [gate_id(r) for r in broken],
             "input_drift": moved,
             "exit": exit_map,
+            "na": [{"id": gate_id(r), "name": r["name"], "kind": r["kind"],
+                    "code": r["code"], "reason": r["na"]} for r in na],
             "details": [{"id": gate_id(r), "name": r["name"], "kind": r["kind"],
                          "code": r["code"], "secs": r["secs"],
+                         "na": r.get("na"),
                          "tail": tail(r["out"], 4)} for r in results],
         }, ensure_ascii=False, indent=2))
     else:
@@ -513,7 +625,17 @@ def main() -> int:
         print("-" * 78)
         print(f"  共 {total} 道：通过 {GREEN}{len(passed)}{RESET}"
               f" · 差距已记录 {YELLOW}{len(gaps)}{RESET}"
-              f" · 工具不可运行 {RED}{len(broken)}{RESET}")
+              f" · 工具不可运行 {RED}{len(broken)}{RESET}"
+              + (f" · 本模式不适用 {DIM}{len(na)}{RESET}" if na else ""))
+        if na:
+            # ★ 必须**显眼**。把「没查」和「查过且通过」显示成同一个绿色，
+            # 就是本项目反复吃过的那种空洞通过。
+            print(f"\n  {DIM}本模式不适用（**未判定**，不计入上面三态，"
+                  f"也不参与退出码）：{RESET}")
+            for r in na:
+                print(f"    ○ {r['name']}（{r['kind']}）"
+                      f" {DIM}实跑 exit={r['code']}{RESET}")
+                print(f"      {DIM}理由：{r['na']}{RESET}")
         if broken:
             print(f"\n  {RED}工具不可运行的门禁（门禁本身坏了，必须修）：{RESET}")
             for r in broken:

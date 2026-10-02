@@ -94,6 +94,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt      # 含 pglast，ddl_static_check 需要
+      - name: Build schema-only SQLite DB
+        # `schema_disposition_check` 只读 backend/data/paperguard.db 的**表名**
+        # （SELECT name FROM sqlite_master），而 `backend/data/` 在 .gitignore:75
+        # 被刻意排除 ⇒ CI 的干净检出里没有它 ⇒ 工具返回 exit=2（工具不可运行），
+        # 而 `--mode ci` 只拦 2 ⇒ **流水线第一次跑就红**（2026-10-03 干净克隆实测）。
+        #
+        # 这里用**应用自己的建表语句**建一个只含表、无数据的库：
+        # 不是伪造数据，而是把 db.py 里已经写好的 schema 落成文件。
+        # 实测：补库前 exit=2，补库后 exit=0。
+        #
+        # ⚠ `contract_readiness_check` 同样要读这个库，但它核对的是**隔离清单**
+        # （需要对有数据的源库做 dry-run），空库给不出清单——
+        # 那一道由 run_all_gates 的 `CI_INAPPLICABLE` 显式登记为「本模式不适用」。
+        run: |
+          mkdir -p data
+          python -c "
+          import sys; sys.path.insert(0, '.')
+          from app.db import Store
+          Store('data/paperguard.db')._init_schema()
+          print('schema-only DB ready')
+          "
       - name: Run gate suite (ci mode)
         run: python ../docs/tenancy/tools/run_all_gates.py --mode ci
       - name: Publish gate report

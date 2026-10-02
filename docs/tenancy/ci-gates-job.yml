@@ -6,11 +6,14 @@
 > **已于 `43bdccf` 纳入版本控制**（此前「全部未被 git 跟踪」的说法已过期）。
 > ② `design-gates` job **已追加到 `.github/workflows/ci.yml`**，
 > 与 `backend` / `frontend` / `online-verifier` 平级。
-> ③ **已按 CI 的方式实跑验证过**：从 `backend/` 目录用
-> `python ../docs/tenancy/tools/run_all_gates.py` 调用，
-> 结果 `total=38 · drift=null · 通过 31 / 差距 6 / 不可运行 1`，
-> 与从仓库根运行**逐项一致** ⇒ 工具靠 `__file__` 上溯三级定位仓库根，
-> **与工作目录无关**。这一步是为了排除「路径写错导致整个 workflow 失效」。
+> ③ **已按 CI 的方式实跑验证过工作目录无关性**：从 `backend/` 目录调用，
+> 与从仓库根运行**逐项一致** ⇒ 工具靠 `__file__` 上溯三级定位仓库根。
+>
+> ④ ★ **已在真正的干净检出上实测**（2026-10-03，`git clone` 到临时目录后实跑
+> 全套，`HEAD=3313b57`）。**这一步是补上 ③ 的漏洞**：③ 只验证了「工作目录不影响
+> 定位」，**没有验证「干净检出里该有的文件都在」**，而后者才是 CI 的真实初始条件。
+> 实测结果 `total=40 · 通过 31 / 差距 7 / 不可运行 1 / 不适用 1`，
+> 其中唯一那个「不可运行」是本机缺 `pglast`（CI 会装上）。详见 [INC-94]。
 >
 > **但门禁仍不会自动生效，原因有两个，都不是本文件能解决的**：
 >
@@ -63,6 +66,18 @@
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt      # 含 pglast，ddl_static_check 需要
+      - name: Build schema-only SQLite DB
+        # backend/data/ 在 .gitignore:75 被刻意排除，CI 检出后没有 paperguard.db
+        # ⇒ schema_disposition_check 找不到库 ⇒ exit=2 ⇒ --mode ci 拦 ⇒ 流水线红。
+        # 这里用**应用自己的建表语句**建只含表、无数据的库（不是伪造数据）。
+        run: |
+          mkdir -p data
+          python -c "
+          import sys; sys.path.insert(0, '.')
+          from app.db import Store
+          Store('data/paperguard.db')._init_schema()
+          print('schema-only DB ready')
+          "
       - name: Run gate suite (ci mode)
         run: python ../docs/tenancy/tools/run_all_gates.py --mode ci
       - name: Publish gate report
@@ -110,7 +125,7 @@
 | `api_contract_check` | `1` | 8/9 项契约债未偿还（已登记、已跟踪） |
 | `synthetic_data` | `1` | §24.1 验收前置数据 5 项缺口（`T-ENABLE-MULTI-TENANT` 未解除） |
 | `account_path_check` | `1` | 3 条建号路径不写 `organization_context`（INC-09，待产品裁决） |
-| `contract_readiness_check` | `1` | 隔离清单 22 行未清零 + INC-03/04 未裁决（INC-16，contract 未获准） |
+| ~~`contract_readiness_check`~~ | **CI 下 `N/A`** | 隔离清单 22 行未清零 + INC-03/04 未裁决。**本机 `1`，但 CI 下判为「不适用」**——它的主语是本地开发库的**数据**，而 `backend/data/` 不在版本控制里（[INC-94]） |
 | `context_resolution_check` | `1` | 缺 `__post_init__`、CI-1～CI-4 未落地，114 处 `role` 仍需消歧 |
 | `lease_guard_check` | `1` | 2 处租约通配未消除（`db.py:1676` / `db.py:1791`，INC-30/47） |
 
@@ -121,12 +136,34 @@
 只有退出码 `2` 才代表门禁**自己**坏了（依赖缺失、路径失效、退出码越界），
 那种情况必须拦。
 
-> **不要从这张表推断「CI 一定是绿的」。**
-> 上表是**实跑快照**，不是承诺。以 `--mode report` 的实际输出为准：
-> `--mode ci` 当前退出码为 **`2`**，因为 `ddl_static_check` 的 `plain` 在本机缺 `pglast`。
-> **这张表也没有覆盖「清单变了」**——门禁增减后必须重新核对，
+> ★ **这张表是本机实跑快照，不是 CI 的承诺。**
+> 但它**不再是靠推断的**了——2026-10-03 已在干净克隆上实测过 CI 条件
+> （`通过 31 / 差距 7 / 不可运行 1 / 不适用 1`）。
+> **仍然未验证的只剩一件事**：`ddl_static_check` 的 `plain` 在装了 `pglast` 后的
+> 行为**一次都没跑过**——本机跑的是「缺 pglast ⇒ exit=2」这条路径。
+> 若它在 CI 上报 `2`，`--mode ci` 会拦，流水线会红；**这是唯一已知的开跑风险**。
+>
+> **这张表没有覆盖「清单变了」**——门禁增减后必须重新核对，
 > 而这一点目前**没有机器判据**（§27.5 的 `fact275:gate_all_*` 只覆盖设计文档里的三态，
 > 覆盖不到本文件的这张表）。
+
+## 「本模式不适用」（N/A）是什么
+
+`run_all_gates.py` 有第四种状态 `--mode ci` 下**跑、如实记下真实退出码、
+单独列出、不进三态、不参与退出码**。它只用于**主语不在版本控制里**的门禁
+（当前只有 `contract_readiness_check::plain`），每一条都必须在
+`CI_INAPPLICABLE` 里**写明理由**。
+
+- 它**不是**「让门禁通过」——报告里能看见它实跑返回了什么。
+- 它**只在 `--mode ci` 生效**，且**只在实跑确实没跑成（exit=2）时才生效**——
+  在有本地库的机器上那道门禁返回 1 并报出真实缺口，**必须照常计入**。
+  （首版漏了第二个条件，本机实跑时真实差距被凭空抹掉，自检已锁死。）
+- `strict` / `report` 下照常判定，**不许恒豁免**。
+- `--json` 里是单独的 `na` 数组；`exit` 明细里**仍保留**它的真实退出码。
+- DC-1 对「本模式不适用且实跑返回 2」的门禁**不再比对退出码**，但会打一行 `△` 说明跳过了。
+  两个条件必须同时满足，否则不得豁免。
+
+**不要用「让它 exit=0」来解决这类问题**——那是空洞通过（INC-56 / INC-70 / INC-92）。
 
 ## 首次运行需要盯的两点
 

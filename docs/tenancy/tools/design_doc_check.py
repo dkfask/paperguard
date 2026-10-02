@@ -246,6 +246,26 @@ def selftest_count(output: str) -> tuple[int, int] | None:
     return int(n), int(m)
 
 
+def _inapplicable(name: str, flags: list[str], root: pathlib.Path) -> str:
+    """该门禁是否在 `run_all_gates.CI_INAPPLICABLE` 里（并取回理由）。
+
+    刻意**读同一份清单**而不是在本文件里另抄一份：
+    副本会漂移，而漂移的表现是「DC-1 开始放过某个门禁」——
+    **那正是这道豁免最危险的失败方向**（静默失去检出能力）。
+    读不到清单时返回空串 ⇒ 调用方按「不豁免」处理，**失败方向是安全的**。
+    """
+    try:
+        import importlib.util as _ilu
+        sp = _ilu.spec_from_file_location(
+            "_rag_na", root / "docs/tenancy/tools/run_all_gates.py")
+        mod = _ilu.module_from_spec(sp)
+        sp.loader.exec_module(mod)
+        return getattr(mod, "CI_INAPPLICABLE", {}).get(
+            f"{name}::{(flags[0] if flags else 'plain')}", "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _finalize(findings: list[str], broken: list[str]) -> int:
     """三态判定。**抽成纯函数是为了让自检能直接断言它**（INC-93）。
 
@@ -380,6 +400,26 @@ def _main_body() -> int:
                 print(f"  {RED}✗{RESET} {name:30} 工具不存在/无法运行")
                 continue
             if actual != claimed:
+                # ★ INC-94：**对「本模式不适用且实跑返回 2」的门禁，
+                # 不要求退出码与文档相符——但**必须把跳过这件事说出来**。
+                #
+                # 根因：`gate:` 标记里记的是**本机**的退出码，
+                # 而 `contract_readiness_check` 的主语（本地开发库的隔离清单）
+                # 在 CI 的干净检出里根本不存在 ⇒ 实跑必然是 2。
+                # 若照旧要求相符，**DC-1 在 CI 里会永远红**，
+                # 而它红的理由是「文档写的和现实不一样」——**这句话本身是假的**：
+                # 两边都对，只是在不同环境里。
+                #
+                # ⚠ 条件是**两个都要满足**，缺一不可：
+                #   ① 门禁在 `CI_INAPPLICABLE` 里（**必须写明理由**才能进这个清单）
+                #   ② 实跑返回 2（**真的没跑成**）
+                # 只满足 ① 会把「它明明跑出了 1 却放过」变成漏报；
+                # 只满足 ② 会把「工具坏了」解释成「不适用」。
+                if actual == EXIT_TOOL_BROKEN and _inapplicable(name, flags, root):
+                    print(f"  {YELLOW}△{RESET} {name:30} {' '.join(flags)}"
+                          f" {DIM}本模式不适用（已登记理由），不比对退出码；"
+                          f"文档登记 exit={claimed}，实跑 {actual}{RESET}")
+                    continue
                 findings.append(
                     f"DC-1 文档声称 {name} {' '.join(flags)} 的 exit={claimed}，"
                     f"实际 exit={actual} —— 文档已过期")
