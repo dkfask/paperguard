@@ -95,6 +95,79 @@ def _keys(node) -> set[str]:
     return {k.sval for k in (node or [])}
 
 
+#: 同一张表在规格里被声明了不止一次的表名。第 2 层只按**去重后的表**核对，
+#: 第二次声明的约束不会进入核对面 —— 记下来并在结论处报出，避免两个数字无法互相解释。
+DUPLICATE_TABLES: set[str] = set()
+
+
+def collect_sql(sql_text: str, label: str, tables: dict, fks: list,
+                 syntax_errors: list) -> None:
+    """把一段 DDL 文本的解析结果并入 `tables` / `fks` / `syntax_errors`。
+
+    ★ 从 `collect()` 里拆出来的唯一目的：**让第 2 层的收集逻辑可被自检直接测**。
+    原来它只从磁盘读 `DOCS`，自检无法注入样本，于是「列级内联 REFERENCES
+    被静默丢弃」这个缺陷（INC-115）在四十多轮里一直无人能证伪。
+    """
+    for block in re.findall(r"```sql\n(.*?)```", sql_text, re.S):
+        for stmt in (s.strip() for s in block.split(";")):
+            if not stmt or all(c in " \t\n-" for c in stmt):
+                continue
+            try:
+                parsed = parse_sql(stmt)
+            except ParseError as exc:
+                syntax_errors.append(
+                    f"{label}: {' '.join(stmt.split())[:70]} → {str(exc).splitlines()[0]}"
+                )
+                continue
+            for raw in parsed:
+                node = getattr(raw, "stmt", raw)
+                if not isinstance(node, ast.CreateStmt):
+                    continue
+                name = node.relation.relname
+                if name in tables:
+                    DUPLICATE_TABLES.add(name)  # ALTER 场景不重复登记
+                    continue
+                pk: set[str] = set()
+                unique: list[set[str]] = []
+                for elt in node.tableElts or []:
+                    if isinstance(elt, ast.ColumnDef):
+                        for con in elt.constraints or []:
+                            if con.contype == CONSTR_PRIMARY:
+                                pk.add(elt.colname)
+                            elif con.contype == CONSTR_UNIQUE:
+                                unique.append({elt.colname})
+                            elif con.contype == CONSTR_FOREIGN:
+                                # ★ INC-115：列级内联 `col text REFERENCES t(id)`
+                                # 在 PostgreSQL 里是**真正的外键约束**，与表级
+                                # `FOREIGN KEY (col) REFERENCES t(id)` 等价。
+                                # 原实现只在这一分支收表级外键，**19/30 条声明
+                                # （含全部 `tenant_id REFERENCES tenants(id)`）
+                                # 被静默丢弃** —— 第 2 层却照样报「外键目标均可解析」。
+                                fks.append(
+                                    (
+                                        name,
+                                        con.pktable.relname,
+                                        [k.sval for k in (con.pk_attrs or [])],
+                                        [elt.colname],
+                                    )
+                                )
+                    elif isinstance(elt, ast.Constraint):
+                        if elt.contype == CONSTR_PRIMARY:
+                            pk = _keys(elt.keys)
+                        elif elt.contype == CONSTR_UNIQUE:
+                            unique.append(_keys(elt.keys))
+                        elif elt.contype == CONSTR_FOREIGN:
+                            fks.append(
+                                (
+                                    name,
+                                    elt.pktable.relname,
+                                    [k.sval for k in (elt.pk_attrs or [])],
+                                    [k.sval for k in (elt.fk_attrs or [])],
+                                )
+                            )
+                tables[name] = {"pk": pk, "unique": unique}
+
+
 def collect():
     """返回 (tables, fks, syntax_errors)。tables: name -> {'pk','unique'}。"""
     tables: dict[str, dict] = {}
@@ -105,49 +178,8 @@ def collect():
         if not doc.exists():
             syntax_errors.append(f"{rel_doc}: 文件不存在")
             continue
-        text = doc.read_text(encoding="utf-8")
-        for block in re.findall(r"```sql\n(.*?)```", text, re.S):
-            for stmt in (s.strip() for s in block.split(";")):
-                if not stmt or all(c in " \t\n-" for c in stmt):
-                    continue
-                try:
-                    parsed = parse_sql(stmt)
-                except ParseError as exc:
-                    syntax_errors.append(
-                        f"{rel_doc}: {' '.join(stmt.split())[:70]} → {str(exc).splitlines()[0]}"
-                    )
-                    continue
-                for raw in parsed:
-                    node = getattr(raw, "stmt", raw)
-                    if not isinstance(node, ast.CreateStmt):
-                        continue
-                    name = node.relation.relname
-                    if name in tables:
-                        continue  # ALTER 场景不重复登记
-                    pk: set[str] = set()
-                    unique: list[set[str]] = []
-                    for elt in node.tableElts or []:
-                        if isinstance(elt, ast.ColumnDef):
-                            for con in elt.constraints or []:
-                                if con.contype == CONSTR_PRIMARY:
-                                    pk.add(elt.colname)
-                                elif con.contype == CONSTR_UNIQUE:
-                                    unique.append({elt.colname})
-                        elif isinstance(elt, ast.Constraint):
-                            if elt.contype == CONSTR_PRIMARY:
-                                pk = _keys(elt.keys)
-                            elif elt.contype == CONSTR_UNIQUE:
-                                unique.append(_keys(elt.keys))
-                            elif elt.contype == CONSTR_FOREIGN:
-                                fks.append(
-                                    (
-                                        name,
-                                        elt.pktable.relname,
-                                        [k.sval for k in (elt.pk_attrs or [])],
-                                        [k.sval for k in (elt.fk_attrs or [])],
-                                    )
-                                )
-                    tables[name] = {"pk": pk, "unique": unique}
+        collect_sql(doc.read_text(encoding="utf-8"), rel_doc, tables, fks,
+                    syntax_errors)
     return tables, fks, syntax_errors
 
 
@@ -694,6 +726,66 @@ def self_test() -> int:
         ("is_family_anchor：三段具体 ID 本身不是锚点 → False",
          is_family_anchor("AC-11-1", {"AC-11-1", "AC-11-2"}), False),
     ]
+
+    # ---- INC-115：列级内联 `REFERENCES` 与表级 `FOREIGN KEY` 等价，不得只收一半 ----
+    # ------------------------------------------------------------------
+    # 第 2 层此前只收 `ast.Constraint` 分支的表级外键，`ColumnDef` 分支只看
+    # PRIMARY/UNIQUE ⇒ W-02 的 30 条外键声明里，**19 条列级内联的被静默丢弃**，
+    # 而结论句照样打印「外键目标均可解析」。**其中包括全部
+    # `tenant_id text NOT NULL REFERENCES tenants(id)`**。
+    #
+    # 这两条用例**直接断言收集器**，而不是断言某个结论句——
+    # 断言结论句会在「总数变了」时给出假象，收集器才是判据的入口。
+    if PGLAST_MISSING:
+        print("  [SKIP] pglast 未安装，列级外键收集的两条用例无法运行")
+    else:
+        _t: dict = {}
+        _f: list = []
+        _e: list = []
+        collect_sql(
+            "```sql\n"
+            "CREATE TABLE tenants (id text PRIMARY KEY);\n"
+            "CREATE TABLE support_grants (\n"
+            "  id text PRIMARY KEY,\n"
+            "  tenant_id text NOT NULL REFERENCES tenants(id)\n"
+            ");\n"
+            "```\n", "列级样本", _t, _f, _e)
+        fam_cases.append(
+            ("★ INC-115 列级内联 REFERENCES 必须被收集为外键（与表级等价）",
+             len(_f) == 1 and _f[0][0] == "support_grants"
+             and _f[0][1] == "tenants" and _f[0][3] == ["tenant_id"], True))
+
+        _t2: dict = {}
+        _f2: list = []
+        _e2: list = []
+        collect_sql(
+            "```sql\n"
+            "CREATE TABLE tenants (id text PRIMARY KEY);\n"
+            "CREATE TABLE child (\n"
+            "  id text PRIMARY KEY,\n"
+            "  tenant_id text NOT NULL,\n"
+            "  FOREIGN KEY (tenant_id) REFERENCES tenants(id)\n"
+            ");\n"
+            "```\n", "表级样本", _t2, _f2, _e2)
+        fam_cases.append(
+            ("★ INC-115 表级 FOREIGN KEY 仍被收集（不得因修列级而回退）",
+             len(_f2) == 1 and _f2[0][0] == "child", True))
+
+        # 「两种写法都必须收」是本条的全部要害，必须分别断言
+        _t3: dict = {}
+        _f3: list = []
+        _e3: list = []
+        collect_sql(
+            "```sql\n"
+            "CREATE TABLE tenants (id text PRIMARY KEY);\n"
+            "CREATE TABLE a (id text PRIMARY KEY,"
+            " tenant_id text REFERENCES tenants(id));\n"
+            "CREATE TABLE b (id text PRIMARY KEY, tenant_id text,"
+            " FOREIGN KEY (tenant_id) REFERENCES tenants(id));\n"
+            "```\n", "两种写法", _t3, _f3, _e3)
+        fam_cases.append(
+            ("★ INC-115 同一条外键写成列级或表级，收到的条数必须相同（2 条）",
+             len(_f3) == 2, True))
     ok = 0
     for label, (code, _), want in cases:
         good = code == want
@@ -1096,7 +1188,15 @@ def _main() -> int:
 
     tables, fks, syntax_errors = collect()
     print(f"pglast / libpg_query {pglast.__version__}")
-    print(f"解析到 CREATE TABLE {len(tables)} 张，外键 {len(fks)} 条\n")
+    print(f"解析到 CREATE TABLE {len(tables)} 张，外键 {len(fks)} 条"
+          f"（按**去重后的表**计）\n")
+    # ★ 同一张表被两份文档各声明一次时，`collect()` 的 `name in tables: continue`
+    # 会整块跳过第二处 ⇒ 它的外键**不进本层核对**。不报出来就成了
+    # 「第 1 层说 30、第 2 层说 28」这种没人能解释的两个数（INC-112/INC-114 同族）。
+    if DUPLICATE_TABLES:
+        print(f"⚠ 有 {len(DUPLICATE_TABLES)} 张表被**重复声明**，"
+              f"其第二次声明的约束**未进入本层核对**："
+              f"{', '.join(sorted(DUPLICATE_TABLES))}\n")
 
     # 覆盖面闸：一条 CREATE TABLE 都没解析到时，下面所有「✓」都是空话——
     # 语法检查核对了 0 条语句却报告「语法合法」，这和

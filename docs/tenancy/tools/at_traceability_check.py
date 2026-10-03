@@ -132,7 +132,7 @@ def expand_wp(wp: str) -> set[str]:
     return out
 
 
-def spec_at_references() -> list[tuple[str, str]]:
+def spec_at_references(product_dir=None) -> list[tuple[str, str]]:
     """扫描各工作包规格，返回 [(规格文件名, AT-ID), ...]。
 
     **只认「验收表关联列」的引用，不认正文提及**（2026-10-01 实测修正）
@@ -149,7 +149,11 @@ def spec_at_references() -> list[tuple[str, str]]:
     且**排除标注「前置」的**——「本包提供前置」不等于「本包验收该 AT」。
     """
     out: list[tuple[str, str]] = []
-    for spec in sorted((REPO_ROOT / "docs/product").glob("W-*.md")):
+    # ★ INC-117：product_dir 可重定向，使自检的变异用例能改**副本**而不是
+    # 真实规格（实测事故：并发实例可把真实 W-03 写成 0 字节）。
+    # 默认值保持原路径 ⇒ 所有既有调用点行为完全不变。
+    base = product_dir if product_dir is not None else (REPO_ROOT / "docs/product")
+    for spec in sorted(base.glob("W-*.md")):
         if not re.match(r"W-\d{2}", spec.name):
             continue
         try:
@@ -446,19 +450,18 @@ def main() -> int:
         # AT-11 专项：漏引必须能被抓到。变异掉 W-03 验收表里的 AT-07，
         # AT-11 应当从 PASS 转 FAIL——否则它就是一片绿里的空壳。
         import tempfile as _tf
+        # ★ INC-117：变异只改**临时副本**。原实现直接改真实 W-03 再 finally 还原——
+        # 并发实例会在「截断」与「写入」之间互读，把真实规格写成 0 字节（实测事故）。
         with _tf.TemporaryDirectory() as _td:
-            orig = REPO_ROOT / "docs/product"
-            saved = (orig / "W-03-租户上下文与授权实施规格_20261001.md").read_text(
+            orig = Path(_td) / "product"
+            orig.mkdir(parents=True)
+            _w03 = "W-03-租户上下文与授权实施规格_20261001.md"
+            saved = (REPO_ROOT / "docs/product" / _w03).read_text(encoding="utf-8")
+            (orig / _w03).write_text(
+                saved.replace("| AC-03-5 | **AT-07** |", "| AC-03-5 | — |"),
                 encoding="utf-8")
-            try:
-                (orig / "W-03-租户上下文与授权实施规格_20261001.md").write_text(
-                    saved.replace("| AC-03-5 | **AT-07** |", "| AC-03-5 | — |"),
-                    encoding="utf-8")
-                mutated = spec_at_references()
-                lost = ("W-03-租户上下文与授权实施规格_20261001.md", "AT-07") not in mutated
-            finally:
-                (orig / "W-03-租户上下文与授权实施规格_20261001.md").write_text(
-                    saved, encoding="utf-8")
+            mutated = spec_at_references(orig)
+            lost = (_w03, "AT-07") not in mutated
         results.append(("AT-11-M", lost,
                         "抽掉验收表里的 AT-07 后，AT-11 能发现漏引"
                         if lost else "AT-11 对漏引无反应（空壳）"))
@@ -483,24 +486,24 @@ def main() -> int:
         # 否则 AT-12 就是又一片只会说「好」的绿灯。
         import re as _re2
         with _tf.TemporaryDirectory() as _td:
-            target = REPO_ROOT / "docs/product/W-03-租户上下文与授权实施规格_20261001.md"
-            saved12 = target.read_text(encoding="utf-8")
-            try:
-                # 只破坏验收表里的 AC- 首列，正文其余 AC- 保留
-                broken = _re2.sub(r"^\|\s*AC-03-", "| XX-03-", saved12, flags=_re2.M)
-                target.write_text(broken, encoding="utf-8")
-                after = spec_at_references()
-                # 复算 AT-12 的核心判据：W-03 此时必须「解析不出引用」
-                w03_lost = ("W-03-租户上下文与授权实施规格_20261001.md", "AT-01") not in after
-                w03_gone = not any(
-                    n.startswith("W-03-") for n, _ in after)
-                # 且旧逻辑（只遍历 spec_refs）会**完全看不到** W-03 —— 这正是事故成因
-                legacy_blind = w03_gone
-            finally:
-                target.write_text(saved12, encoding="utf-8")
-        # 变异后 W-03 全部 AC 行不可解析 ⇒ 引用消失；恢复后必须回来
-        restored = spec_at_references()
-        back_ok = any(n.startswith("W-03-") for n, _ in restored)
+            # ★ INC-117：同样只改临时副本，真实规格全程只读。
+            target_dir = Path(_td) / "product"
+            target_dir.mkdir(parents=True)
+            _w03n = "W-03-租户上下文与授权实施规格_20261001.md"
+            saved12 = (REPO_ROOT / "docs/product" / _w03n).read_text(encoding="utf-8")
+            target = target_dir / _w03n
+            # 只破坏验收表里的 AC- 首列，正文其余 AC- 保留
+            target.write_text(
+                _re2.sub(r"^\|\s*AC-03-", "| XX-03-", saved12, flags=_re2.M),
+                encoding="utf-8")
+            after = spec_at_references(target_dir)
+            w03_lost = (_w03n, "AT-01") not in after
+            w03_gone = not any(n.startswith("W-03-") for n, _ in after)
+            legacy_blind = w03_gone
+            # 恢复后必须回来（在副本目录内还原，不触碰真实文件）
+            target.write_text(saved12, encoding="utf-8")
+            restored = spec_at_references(target_dir)
+            back_ok = any(n.startswith("W-03-") for n, _ in restored)
         results.append(("AT-12-M", w03_lost and legacy_blind and back_ok,
                         "验收表首列不合约定时，AT-12 能发现该规格解析不出引用"
                         if (w03_lost and back_ok)
