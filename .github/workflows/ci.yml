@@ -136,6 +136,27 @@ jobs:
       # 所以一次调用既能判定又能出报告，不需要第二遍。
       - name: Run gate suite (ci mode) and emit report
         run: python ../docs/tenancy/tools/run_all_gates.py --mode ci --json > gate-report.json
+      # ★ 合并成一次之后，**人读摘要被 `--json` 一起吃进了文件**，
+      #   门禁步骤在 CI 日志里变成**完全静默**。而「红了该看哪一行」
+      #   恰恰是日志的价值——修复前 `--mode ci` 那一步会把摘要打进日志。
+      #   所以补一步**只读**摘要：`always()` 执行、不参与判定、不重跑套件。
+      - name: Show gate summary
+        if: always()
+        run: |
+          python -c "
+          import json, pathlib
+          p = pathlib.Path('gate-report.json')
+          t = p.read_text(encoding='utf-8') if p.is_file() else ''
+          if not t.strip():
+              print('!! gate-report.json 缺失或为空 —— 套件没有产出报告')
+          else:
+              d = json.loads(t)
+              print('门禁套件 mode=%s 共 %d 道' % (d['mode'], d['total']))
+              print('  通过 %d / 差距 %d / 不可运行 %d / 不适用 %d' % (len(d['passed']), len(d['gaps']), len(d['broken']), len(d.get('na') or [])))
+              for g in d['broken']: print('  [BROKEN] ' + g)
+              for g in d['gaps']: print('  [GAP] ' + g)
+              if d.get('input_drift'): print('  [DRIFT] ' + str(d['input_drift']))
+          "
       - name: Upload gate report
         if: always()
         uses: actions/upload-artifact@v4
