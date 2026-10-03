@@ -31,6 +31,7 @@
     DC-7 §27.5 事实标记 本文 §27.5 表格里的关键数字按现实重算比对
     DC-8 自检能力覆盖  每道门禁都必须有自检，且自检项数按现实重算
     DC-11 §27.3 状态列  人读表格「当前」列的退出码必须等于该工具的机器标记
+    DC-12 简报人读表格  收口简报**表格里看得见的数字**必须等于现实（DC-6 只管隐藏标记）
 
 DC-7 与 DC-6 的区别
 ------------------
@@ -674,6 +675,185 @@ def _main_body() -> int:
                 else:
                     print(f"  {GREEN}✓{RESET} {key:14} {val}")
 
+            # ---------------------------------------------------------
+            # DC-12 简报**人读表格**里的数字（INC-120）
+            # ---------------------------------------------------------
+            # 为什么 DC-6 不够（这是实测踩到、且另一执行体独立复核过的）
+            # --------------------------------------------------------------
+            # DC-6 的 `declared` 来自 `re.findall(r"<!--\s*fact:...", btext)`
+            # ——**只读隐藏的 HTML 注释，从不解析人读表格**。于是出现过这样一幕：
+            #   · 表格第 2 列写「19 份门禁工具」
+            #   · 同一行下面的注释写 `fact:tools=23`
+            #   · 现实是 23
+            # ⇒ **DC-6 全绿**，而**眼睛看到的那个数字在撒谎**。
+            #
+            # ★ 这个缺口能存活两小时、还跨过两轮「同步简报」而不被发现，
+            #   根因不是谁忘了改，而是**校验层比真实问题更窄**
+            #   （与 INC-57「标记块比真实过期处更窄」完全同构）。
+            #   **判据只覆盖「有标记的地方」，人读表格就是标记之外的盲区。**
+            #
+            # 为什么不用「给表格每个数字也埋 fact 标记」：
+            #   那样表格里就会同时出现「19」和「<!-- fact:tools=23 -->」两份数字，
+            #   **正是本条要消灭的东西**。所以改成**直接解析表格单元格**——
+            #   表格是给人读的，就该由判据去读它，而不是逼它再抄一遍给机器。
+            #
+            # ★ 防空转（INC-92 同族）：**一个表格行都没解析到就必须报红**。
+            #   否则「正则写坏了」会伪装成「表格里没有需要核对的数字 ⇒ 通过」。
+            dc12_bad = 0
+            dc12_seen = 0
+
+            def _cells(row: str) -> list[str]:
+                return [c.strip() for c in row.strip().strip("|").split("|")]
+
+            def _num(s: str) -> int | None:
+                m = re.search(r"-?\d+", s.replace("**", ""))
+                return int(m.group(0)) if m else None
+
+            def _key(s: str) -> str:
+                """单元格首格 → 查找键。
+
+                ★ **只脱 `**` 粗体标记与反引号，绝不脱单个 `*`**——
+                `**门禁工具** \\`docs/tenancy/tools/*.py\\`` 里的那个 `*` 是通配符，
+                把它一起脱掉会得到 `docs/tenancy/tools/.py`，
+                于是**首版 5 处查找全部落空**、判据上线即报红。
+                这正是「解析器要先拿真实表格试跑一遍」的理由。
+                """
+                return re.sub(r"\s+", " ", s.replace("**", "").replace("`", "")).strip()
+
+            # **不按 `**` 开头过滤**：GATES 那一行首格是
+            # `` `run_all_gates.GATES` 条目 ``，本来就没有粗体。
+            brief_map: dict[str, list[str]] = {}
+            for r in btext.splitlines():
+                if not r.strip().startswith("|"):
+                    continue
+                cs = _cells(r)
+                if cs:
+                    brief_map.setdefault(_key(cs[0]), cs)
+
+            def _row(prefix: str) -> list[str] | None:
+                """按**前缀**找行。用前缀而不是全等，是为了不被
+                「W-01…W-13」这类省略号写法绑死。"""
+                for k, v in brief_map.items():
+                    if k.startswith(prefix):
+                        return v
+                return None
+
+            # 见上方注记：按**文件名**排除简报，兼容「副本在 tmp」的调用方式
+            _ten_wo_brief = [p for p in ten_docs if p.name != brief.name]
+            # §2 产出清单：| **类别** | 份数 | 行数 | 说明 |
+            inv_rows = {
+                "工作包实施规格": (len(specs), spec_lines),
+                # ★ 按**文件名**排除简报，**不按路径**。
+                #   首版写的是 `p != brief`——而自检传进来的是 `tmp/` 里的**副本**，
+                #   路径对不上 ⇒ **真实简报没被排除** ⇒ 行数多算 262 行
+                #   （恰是本轮给简报加的行数）⇒ 自检里 9 条「恢复后回到通过」
+                #   全部转红。**这是 DC-12 当天抓出来的既有潜伏缺陷**：
+                #   同一份「排除自身」的逻辑，只要输入从命令行换进来就会失效。
+                "docs/tenancy/ 文档包": (
+                    len(_ten_wo_brief),
+                    sum(len(p.read_text(encoding="utf-8").splitlines())
+                        for p in _ten_wo_brief)),
+                "门禁工具": (
+                    len(tools),
+                    # ★ 行数**刻意不核对**：它是「每改一次工具就变一次」的常数。
+                    #   DC-12 上线第一次实跑就撞上了这个——判据自己给
+                    #   `design_doc_check.py` 加了 161 行，行数当场从 13513 变 13674。
+                    #   一个每改一次就要追一次的数字，写进文档只会变成反复腐烂的负债
+                    #   （INC-57 原话「不复述、只引用」）。
+                    #   表格该格已改为 `—`，现值请现查 `wc -l docs/tenancy/tools/*.py`。
+                    None),
+            }
+            print(f"\n  {DIM}DC-12 简报人读表格里的数字{RESET}")
+            for key, (exp_n, exp_lines) in inv_rows.items():
+                cs = _row(key)
+                if not cs or len(cs) < 3:
+                    findings.append(
+                        f"DC-12 简报 §2 产出清单里找不到「{key}」这一行"
+                        "（无法核对 = 等于没有校验）")
+                    print(f"  {RED}✗{RESET} 找不到行：{key}")
+                    dc12_bad += 1
+                    continue
+                dc12_seen += 1
+                got_n, got_lines = _num(cs[1]), _num(cs[2])
+                checks = [("份数", got_n, exp_n)]
+                if exp_lines is None:
+                    # 显式跳过，且**必须印出来**——静默跳过与「没查」无法区分
+                    print(f"  {DIM}—{RESET} {key[:22]:22} 行数不复述"
+                          "（每改一次工具就变一次，见该表注记）")
+                else:
+                    checks.append(("行数", got_lines, exp_lines))
+                for label, got, exp in checks:
+                    if got != exp:
+                        findings.append(
+                            f"DC-12 简报 §2「{key}」{label}写 {got}，现实 {exp}"
+                            "——表格是读者唯一看到的地方，它不能与现实不符")
+                        print(f"  {RED}✗{RESET} {key[:22]:22} {label} {got} ≠ {exp}")
+                        dc12_bad += 1
+                    else:
+                        print(f"  {GREEN}✓{RESET} {key[:22]:22} {label} {got}")
+
+            # §3：run_all_gates.GATES 条目 | **42** | 19 次 plain + 23 次 --self-test
+            g_row = _row("run_all_gates.GATES 条目")
+            n_plain = len(plain)
+            n_self = n_gates - n_plain
+            if not g_row or len(g_row) < 2:
+                findings.append("DC-12 简报 §3 找不到「run_all_gates.GATES 条目」行")
+                print(f"  {RED}✗{RESET} 找不到 GATES 条目行")
+                dc12_bad += 1
+            else:
+                dc12_seen += 1
+                got_n = _num(g_row[1])
+                if got_n != n_gates:
+                    findings.append(
+                        f"DC-12 简报 §3 写 GATES {got_n} 条，现实 {n_gates}")
+                    print(f"  {RED}✗{RESET} GATES 条目 {got_n} ≠ {n_gates}")
+                    dc12_bad += 1
+                else:
+                    print(f"  {GREEN}✓{RESET} GATES 条目 {got_n}")
+                g_note = g_row[2] if len(g_row) > 2 else ""
+                for label, got, exp in (("plain", _num(g_note.split("+")[0]),
+                                         n_plain),
+                                        ("self-test", _num(g_note.split("+")[1]),
+                                         n_self)):
+                    if got != exp:
+                        findings.append(
+                            f"DC-12 简报 §3 说 {got} 次 {label}，现实 {exp}")
+                        print(f"  {RED}✗{RESET} GATES {label} {got} ≠ {exp}")
+                        dc12_bad += 1
+                    else:
+                        print(f"  {GREEN}✓{RESET} GATES {label} {got}")
+
+            # §3：plain 三态表 | **通过** `0` | 14 | ... |
+            for label, code in (("通过", 0), ("差距已登记", 1),
+                                ("工具不可运行", 2)):
+                cs = _row(f"{label} {code}")
+                if not cs or len(cs) < 2:
+                    findings.append(
+                        f"DC-12 简报 §3 三态表找不到「{label}`{code}`」行")
+                    print(f"  {RED}✗{RESET} 三态表缺少 {label} 行")
+                    dc12_bad += 1
+                    continue
+                dc12_seen += 1
+                got = _num(cs[1])
+                if got != tri[code]:
+                    findings.append(
+                        f"DC-12 简报 §3 三态「{label}`{code}`」写 {got} 道，"
+                        f"现实 {tri[code]} 道")
+                    print(f"  {RED}✗{RESET} 三态 {label} {got} ≠ {tri[code]}")
+                    dc12_bad += 1
+                else:
+                    print(f"  {GREEN}✓{RESET} 三态 {label} {got}")
+
+            if dc12_seen == 0:
+                findings.append(
+                    "DC-12 一个表格行都没解析到——判据对自己的病无效，"
+                    "必须报红而不是报「通过」")
+                print(f"  {RED}✗{RESET} 未解析到任何表格行")
+                dc12_bad += 1
+            elif not dc12_bad:
+                print(f"  {GREEN}✓{RESET} 简报人读表格 {dc12_seen} 处数字与现实一致"
+                      "（DC-6 只管隐藏标记，这几处是读者唯一看到的地方）")
+
     # DC-7 §27.5 表格里的关键数字
     # -----------------------------------------------------------
     # 为什么需要（2026-10-01 真实踩到）
@@ -1185,7 +1365,7 @@ def self_test() -> int:
 
     saved_argv = sys.argv
 
-    def run_real() -> int:
+    def run_real(capture: bool = False):
         """在**本进程内**跑一次完整核对。
 
         为什么必须把 DEPTH_VAR 抬起来
@@ -1227,7 +1407,10 @@ def self_test() -> int:
         finally:
             sys.argv = argv
             os.environ[DEPTH_VAR] = saved_depth
-        return rc0
+        # ★ INC-120：`capture=True` 时**连人读输出一起回传**。
+        #   DC-12 的用例必须能证明「报红的是 DC-12、不是别人」——
+        #   而 `findings` 只在打印时出现，不回传就等于无法归因。
+        return (rc0, buf.getvalue()) if capture else rc0
 
     dc6_ok = False
     dc6_back = False
@@ -1246,6 +1429,43 @@ def self_test() -> int:
         dc6_back = run_real() == EXIT_OK
     results.append(("★ DC-6 简报 fact 标记过期 → 报红", dc6_ok))
     results.append(("★ DC-6 简报恢复后回到通过（非恒红）", dc6_back))
+
+    # ---- DC-12 专项（INC-120）：**人读表格**过期必须能被抓到 ----
+    # 关键隔离条件：**只改表格里的数字，底下的 `<!-- fact: -->` 注释一个字不动**。
+    #   此时 DC-6 必然全绿（它只读注释），所以**只要有任何东西报红，
+    #   就只能是读表格的 DC-12**——这就是「报红原因被隔离」的构造方式。
+    #   ★ 如果这两条用例只是「随便改个数字看会不会红」，
+    #     那它连 DC-6 都抓得到，**对 DC-12 是零证明力**。
+    dc12_base = dc12_table_red = dc12_back = dc12_isolated = False
+    if brief.is_file() and real_text:
+        saved_b = brief.read_text(encoding="utf-8")
+        # 基线：夹具自洽时必须通过，否则后面两条「报红」毫无意义
+        dc12_base = run_real() == EXIT_OK
+        # 只改 §2 表格的「门禁工具」份数格，**不动 fact 标记**
+        m = re.search(r"^(\| \*\*门禁工具\*\*.*?\|\s*)\d+(\s*\|.*)$",
+                      saved_b, re.M)
+        if m:
+            old_cell = m.group(0)
+            hermetic_brief.write_text(
+                saved_b.replace(old_cell, m.group(1) + "99" + m.group(2), 1),
+                encoding="utf-8")
+            try:
+                rc, out = run_real(capture=True)
+                dc12_table_red = rc == EXIT_FINDINGS
+                # 归因：必须是 DC-12 报的，且 **DC-6 一声不吭**
+                dc12_isolated = ("DC-12" in out
+                                 and "DC-6 简报过期" not in out)
+            finally:
+                hermetic_brief.write_text(saved_b, encoding="utf-8")
+        # 反向：恢复后必须回到通过（证明上一条不是恒红）
+        dc12_back = run_real() == EXIT_OK
+    results.append(("★ DC-12 基线夹具自洽 → 通过（否则下面两条是假阳性）",
+                    dc12_base))
+    results.append(("★ DC-12 只改人读表格数字（fact 标记不动）→ 报红",
+                    dc12_table_red))
+    results.append(("★ DC-12 报红由 DC-12 发出且 DC-6 未参与（原因隔离）",
+                    dc12_isolated))
+    results.append(("★ DC-12 恢复后回到通过（非恒红）", dc12_back))
 
     # `inc_rows` 专项（INC-85）：**删掉发现表里的一行，`inc_max` 纹丝不动**，
     # 只有 `inc_rows` 会报红。这条用例证明的不是「标记能过期」，
