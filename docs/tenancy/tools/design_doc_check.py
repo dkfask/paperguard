@@ -30,7 +30,7 @@
     DC-6 简报事实标记 收口简报的关键数字按现实重算比对
     DC-7 §27.5 事实标记 本文 §27.5 表格里的关键数字按现实重算比对
     DC-8 自检能力覆盖  每道门禁都必须有自检，且自检项数按现实重算
-    DC-9 §27.3 状态列  人读表格「当前」列的退出码必须等于该工具的机器标记
+    DC-11 §27.3 状态列  人读表格「当前」列的退出码必须等于该工具的机器标记
 
 DC-7 与 DC-6 的区别
 ------------------
@@ -194,6 +194,10 @@ def count_rule_ids(root: pathlib.Path) -> int:
 
 SPAWN_BUDGET = 80
 _spawn_used = 0
+# INC-117：本次 main() 里每次 spawn 的 (工具, flags 规范化元组)。
+# **只在真正决定要 spawn 时才记**——工具不存在、预算耗尽都不算，
+# 因为那两种情况压根没起进程，重复它们也无所谓。
+_spawn_log: list[tuple[str, tuple[str, ...]]] = []
 
 
 def run_tool(tools_dir: pathlib.Path, name: str,
@@ -222,6 +226,10 @@ def run_tool(tools_dir: pathlib.Path, name: str,
     p = tools_dir / name
     if not p.exists():
         return None, ""
+    # ★ INC-117：记在**起进程之前**。键用 `tuple(flags)` 规范化，
+    # 与 `ran` 的键类型严格一致——**同一个 `flags` 无论以什么形态传进来，
+    # 在日志和缓存里都必然是同一个键**，两处不会再分叉。
+    _spawn_log.append((name, tuple(flags)))
     env = dict(os.environ)
     env[DEPTH_VAR] = str(int(os.environ.get(DEPTH_VAR, "0")) + 1)
     _spawn_used += 1
@@ -375,6 +383,12 @@ def _main_body() -> int:
     # 预算也该是它的预算。
     global _spawn_used
     _spawn_used = 0
+    # ★ INC-117：与预算同生命周期记录**每一次 spawn 的键**。
+    # DC-8「复用 DC-1 的结果」这件事过去只写在注释里，**没有任何东西核对它**
+    # ——于是键从 `tuple(flags)` 悄悄写成字符串，**22 个自检被重跑一遍**，
+    # 整整多花 134s，**判据全绿、没人发现**。
+    # 现在「同一次 main() 内没有任何 (工具, flags) 被跑两遍」是一条可执行断言。
+    _spawn_log.clear()
 
     print("=" * 76)
     print("设计文档自洽核对")
@@ -474,7 +488,7 @@ def _main_body() -> int:
         if not absent:
             print(f"  {GREEN}✓{RESET} §27.3 表格已列全部 {len(on_disk - EXEMPT)} 个工具")
 
-    # DC-9 §27.3 表格「当前」列的退出码必须与机器标记一致
+    # DC-11 §27.3 表格「当前」列的退出码必须与机器标记一致
     # -----------------------------------------------------------
     # 为什么需要（2026-10-03 真实踩到）
     # ---------------------------------
@@ -489,13 +503,13 @@ def _main_body() -> int:
     # tenant_map_candidates / run_all_gates）**只有 `--self-test` 调用、没有 plain**，
     # 状态列的数字说的是**自检**退出码，而列名只有「当前」——
     # 读者会把自检的绿当成真实核验的绿（与 INC-91 同族：自检 ≠ 抓得住错）。
-    # DC-9 要求这类行**显式写明「仅自检」**，让语义差异可见而不是静默。
-    print(f"\n  {DIM}DC-9 §27.3 状态列退出码与机器标记一致{RESET}")
+    # DC-11 要求这类行**显式写明「仅自检」**，让语义差异可见而不是静默。
+    print(f"\n  {DIM}DC-11 §27.3 状态列退出码与机器标记一致{RESET}")
     _plain = {m.group(1): int(m.group(3)) for m in MARKER.finditer(text)
               if not m.group(2).strip()}
-    dc9_bad = 0
+    dc11_bad = 0
     if not sec:
-        findings.append("DC-9 找不到 §27.3 章节（无法核对状态列）")
+        findings.append("DC-11 找不到 §27.3 章节（无法核对状态列）")
         print(f"  {RED}✗{RESET} 找不到 §27.3 章节")
     else:
         for tool, rest in re.findall(
@@ -505,29 +519,29 @@ def _main_body() -> int:
             cell = cells[-2].strip().replace("\x00", "|") if len(cells) >= 2 else ""
             mnum = re.match(r"`?(\d+)", cell)
             if not mnum:
-                dc9_bad += 1
+                dc11_bad += 1
                 findings.append(
-                    f"DC-9 §27.3 表格 {tool} 的「当前」列不以退出码数字开头：{cell[:40]}")
+                    f"DC-11 §27.3 表格 {tool} 的「当前」列不以退出码数字开头：{cell[:40]}")
                 print(f"  {RED}✗{RESET} {tool:30} 状态列无可核对数字")
                 continue
             n = int(mnum.group(1))
             if tool not in _plain:
                 # 没有 plain 调用：这个数字只能来自自检，必须让读者看出来
                 if "仅自检" not in cell:
-                    dc9_bad += 1
+                    dc11_bad += 1
                     findings.append(
-                        f"DC-9 §27.3 表格 {tool} 无 plain 调用（只有 --self-test 标记），"
+                        f"DC-11 §27.3 表格 {tool} 无 plain 调用（只有 --self-test 标记），"
                         "状态列必须显式写明「仅自检」，否则读者会把自检退出码"
                         "当成真实核验结果")
                     print(f"  {RED}✗{RESET} {tool:30} 无 plain 标记且未写明「仅自检」")
                 continue
             if n != _plain[tool]:
-                dc9_bad += 1
+                dc11_bad += 1
                 findings.append(
-                    f"DC-9 §27.3 表格 {tool} 状态列写 {n}，但机器标记是 {_plain[tool]}"
+                    f"DC-11 §27.3 表格 {tool} 状态列写 {n}，但机器标记是 {_plain[tool]}"
                     "——同一事实两处副本，改一处必须同时改另一处")
                 print(f"  {RED}✗{RESET} {tool:30} 表格 {n} ≠ 标记 {_plain[tool]}")
-        if not dc9_bad:
+        if not dc11_bad:
             n_only = sum(
                 1 for t, rest in re.findall(
                     r"^\|\s*\[`([\w.]+\.py)`\]\([^)]*\)\s*\|(.+)$", sec.group(0), re.M)
@@ -844,8 +858,25 @@ def _main_body() -> int:
             if tool == SELF_NAME and depth >= 1:
                 print(f"  {DIM}—{RESET} {tool:30} 自检项数由父进程判定（递归守卫）")
                 continue
-            if (tool, "self-test") in ran:
-                _code, out = ran[(tool, "self-test")]
+            # ★ INC-117：这里的键**过去写成了字符串** `"--self-test"`，
+            # 而 DC-1 写入用的是 `tuple(flags)` = `("--self-test",)`。
+            # `("x.py", "--self-test") != ("x.py", ("--self-test",))`
+            # ⇒ 这个 `in` **永远为假** ⇒ DC-8 把 DC-1 刚跑过的 23 个自检
+            # **全部重跑一遍**。
+            #
+            # 实测代价：本工具 `--plain` 268.3s，其中约 134s 是纯粹的重跑
+            # （134 + 134 = 268.3，与实测分毫不差）。CI 上机器再慢 1.2 倍
+            # 就撞穿 `run_all_gates.py` 的 300s 单门禁阈值 ⇒
+            # `subprocess.TimeoutExpired` ⇒ 记为 `EXIT_TOOL_BROKEN`(=2)
+            # ⇒ `--mode ci` 恰好只拦 2 ⇒ **Design gates job 报红**。
+            #
+            # 讽刺的是 `:366` 的注释**早就写明了正确意图**（「DC-8 直接复用，
+            # 不为取自检项数再开一轮进程」）——**注释是对的，代码没做到**。
+            # 所以下面用与 DC-1 逐字相同的 `tuple(flags)` 构造键，
+            # 让两处**不可能再分叉**。
+            key = (tool, ("--self-test",))
+            if key in ran:
+                _code, out = ran[key]
             else:
                 # DC-1 没跑过这一条（文档没登记），这里补跑一次——
                 # 「文档没登记」正是要抓的缺口，不能因为没登记就不去发现。
@@ -1031,7 +1062,7 @@ def self_test() -> int:
     (tools / "g1.py").write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
     # g2 **带 --self-test 时 exit 0，否则 exit 2**：无参调用行为与原桩相同，
     # 既有用例不受影响；额外让「只有 --self-test 标记、没有 plain 标记」
-    # 这个状态在夹具里可构造（DC-9 的第 3 组用例需要它）。
+    # 这个状态在夹具里可构造（DC-11 的第 3 组用例需要它）。
     (tools / "g2.py").write_text(
         "import sys\nsys.exit(0 if '--self-test' in sys.argv else 2)\n",
         encoding="utf-8")
@@ -1322,7 +1353,7 @@ def self_test() -> int:
                     dc7_uncovered))
     results.append(("★ DC-7 §27.5 恢复后回到通过（非恒红）", dc7_back))
 
-    # ---- DC-9：证明「状态列数字」这一项真的被核对，且只由它报红 ----
+    # ---- DC-11：证明「状态列数字」这一项真的被核对，且只由它报红 ----
     # -----------------------------------------------------------------
     # DC-3 只看「标记块里有没有登记」，DC-5 只看「人读表格里有没有这一行」——
     # **两者都不看表格里那个数字**。真实踩到：INC-105 把 lease_guard_check
@@ -1331,7 +1362,7 @@ def self_test() -> int:
     # 用例要证明两件事，缺一不可：
     # ① **只改表格里的数字**（标记不动、工具不动）必须报红
     #    —— 这同时证明「报红原因被隔离」：若改表格会连带影响 DC-1/DC-5，
-    #    那这条用例就证明不了是 DC-9 在报。
+    #    那这条用例就证明不了是 DC-11 在报。
     # ② 数字改回一致后必须回到通过 —— 证明不是恒红。
     # ③ 无 plain 标记的行必须显式写「仅自检」，否则报红
     #    —— 这条锁住的是 INC-91 同族的「自检绿被误读成真实核验绿」。
@@ -1341,7 +1372,7 @@ def self_test() -> int:
         (tmp / "tenancy" / "tools" / _g).write_text(
             (tools / _g).read_text(encoding="utf-8"), encoding="utf-8")
 
-    def _dc9_doc(cells: dict[str, str]) -> str:
+    def _dc11_doc(cells: dict[str, str]) -> str:
         head = "".join(f"<!-- gate:{g} ={c} -->\n" for g, c in
                        (("g0.py", "0"), ("g1.py", "1"), ("g2.py", "2")))
         rows = "\n".join(
@@ -1351,23 +1382,23 @@ def self_test() -> int:
                 "| 工具 | 作用 | 当前 |\n|---|---|---|\n" + rows + "\n")
 
     _ok_cells = {"g0.py": "`0` 一致", "g1.py": "`1` 一致", "g2.py": "`2` 一致"}
-    dc9_ok = run(_dc9_doc(_ok_cells)) == EXIT_OK
+    dc11_ok = run(_dc11_doc(_ok_cells)) == EXIT_OK
     # **只动 g1 那一格**：标记仍是 =1、工具仍 exit 1，DC-1/DC-5 都不受影响
-    dc9_stale = run(_dc9_doc({**_ok_cells, "g1.py": "`0` 过期副本"})) == EXIT_FINDINGS
-    dc9_back = run(_dc9_doc(_ok_cells)) == EXIT_OK
+    dc11_stale = run(_dc11_doc({**_ok_cells, "g1.py": "`0` 过期副本"})) == EXIT_FINDINGS
+    dc11_back = run(_dc11_doc(_ok_cells)) == EXIT_OK
     # 拿掉 g2 的 plain 标记 + 不写「仅自检」→ 必须报红
-    _no_plain = (_dc9_doc({**_ok_cells, "g2.py": "`2` 自检通过"}).replace(
+    _no_plain = (_dc11_doc({**_ok_cells, "g2.py": "`2` 自检通过"}).replace(
         "<!-- gate:g2.py =2 -->\n", "<!-- gate:g2.py --self-test=0 -->\n", 1))
-    dc9_selftest_unmarked = run(_no_plain) == EXIT_FINDINGS
+    dc11_selftest_unmarked = run(_no_plain) == EXIT_FINDINGS
     # 同一行写明「仅自检」→ 必须放行
-    _no_plain_ok = (_dc9_doc({**_ok_cells, "g2.py": "`2` 仅自检（无 plain 调用）"}).replace(
+    _no_plain_ok = (_dc11_doc({**_ok_cells, "g2.py": "`2` 仅自检（无 plain 调用）"}).replace(
         "<!-- gate:g2.py =2 -->\n", "<!-- gate:g2.py --self-test=0 -->\n", 1))
-    dc9_selftest_marked = run(_no_plain_ok) != EXIT_FINDINGS
-    results.append(("★ DC-9 状态列数字与标记一致 → 通过（夹具自洽）", dc9_ok))
-    results.append(("★ DC-9 状态列数字过期 → 报红（且只由它报红）", dc9_stale))
-    results.append(("★ DC-9 数字恢复一致 → 回到通过（非恒红）", dc9_back))
-    results.append(("★ DC-9 无 plain 标记且未写「仅自检」→ 报红", dc9_selftest_unmarked))
-    results.append(("★ DC-9 无 plain 标记但写明「仅自检」→ 放行", dc9_selftest_marked))
+    dc11_selftest_marked = run(_no_plain_ok) != EXIT_FINDINGS
+    results.append(("★ DC-11 状态列数字与标记一致 → 通过（夹具自洽）", dc11_ok))
+    results.append(("★ DC-11 状态列数字过期 → 报红（且只由它报红）", dc11_stale))
+    results.append(("★ DC-11 数字恢复一致 → 回到通过（非恒红）", dc11_back))
+    results.append(("★ DC-11 无 plain 标记且未写「仅自检」→ 报红", dc11_selftest_unmarked))
+    results.append(("★ DC-11 无 plain 标记但写明「仅自检」→ 放行", dc11_selftest_marked))
 
     # ---- INC-78：证明 `count_rule_ids` 真的在**引用**，不是在复述 ----
     # --------------------------------------------------------------
@@ -1447,6 +1478,32 @@ def self_test() -> int:
     results.append(("INC-93 口径来源缺失时抛出带说明的错误"
                     "（裸 FileNotFoundError 读不出「这条判据因此没跑」）",
                     "口径来源缺失" in _raised, _raised[:90]))
+
+    # ---- INC-117：DC-8 必须**复用** DC-1 的结果，不得把自检重跑一遍 ----
+    #
+    # 背景（实测，不是推演）：`DC-8` 取自检项数时，查找键写成了
+    # `(tool, "--self-test")`，而 `DC-1` 存的是 `(tool, tuple(flags))`。
+    # 两种键**永不相等** ⇒ 复用**从未发生过** ⇒ 23 个自检各被重跑一次。
+    # 本工具 `--plain` 因此要 268.3s（134 + 134），CI 上 300.1s 撞穿
+    # `run_all_gates` 的 300s 阈值 ⇒ 记为工具不可运行(=2) ⇒ ci 模式报红。
+    #
+    # 为什么用「无重复 spawn」而不是「spawn 次数 = N」：
+    # 后者每加一个门禁工具就要改一次数字，**是一个必然腐烂的常数**；
+    # 前者断言的是**性质**——同一次判定里同一个 (工具, flags) 只该跑一次。
+    # ★ 这条断言对**任何**未来新增的重复 spawn 路径都生效，不只针对 DC-8。
+    if real_text:
+        run_real()   # 清空并重建 _spawn_log
+        _seen: set[tuple[str, tuple[str, ...]]] = set()
+        _dupes: list[str] = []
+        for _k in _spawn_log:
+            if _k in _seen:
+                _dupes.append(f"{_k[0]} {' '.join(_k[1])}".strip())
+            _seen.add(_k)
+        results.append((
+            f"★ INC-117 同一次判定内无重复 spawn"
+            f"（本次 {len(_spawn_log)} 次 / {len(_seen)} 个不同键）",
+            not _dupes,
+            f"被重复 spawn：{sorted(set(_dupes))}"))
 
     shutil.rmtree(tmp, ignore_errors=True)
     print()

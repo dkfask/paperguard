@@ -381,7 +381,7 @@ def scan(app: pathlib.Path) -> dict:
         # ★ 宿主函数区间**预建一次**。首版对每个 Call 都 `ast.walk(tree)` 一遍
         #   找宿主函数 —— O(calls × nodes)，而 `api/workflow.py` 那种大文件
         #   直接把 `ai_egress_check --plain` 推到 **43 秒**，
-        #   进而把 `design_doc_check`（DC-1 会逐个实跑全部 38 道门禁）
+        #   进而把 `design_doc_check`（DC-1 会逐个实跑全部 42 道门禁）
         #   **顶过 300s 超时**。**我加的判据把别人的门禁搞坏了，
         #   而那个门禁的失败看起来像它自己的问题。**
         #   改成「每文件预建区间表 + 线性取最内层」后，复杂度降到 O(calls × funcs)。
