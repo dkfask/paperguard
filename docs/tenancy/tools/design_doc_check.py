@@ -738,17 +738,40 @@ def _main_body() -> int:
                         return v
                 return None
 
-            # 见上方注记：按**文件名**排除简报，兼容「副本在 tmp」的调用方式
-            _ten_wo_brief = [p for p in ten_docs if p.name != brief.name]
+            # ★★ INC-121：识别「哪一份是简报」**不依赖调用方的善意**。
+            #   这一行被同一个坑打穿了两次：
+            #     首版 `p != brief`（按**路径**）——自检传进来的是 tmp/ 里的**副本**，
+            #       路径对不上 ⇒ 真实简报没被排除 ⇒ 行数多算 262 行；
+            #     二版 `p.name != brief.name`（按**文件名**）——`--brief` 允许传
+            #       **任意文件名**，把副本改名成 `brief.md` 就又排除不掉
+            #       ⇒ 报出 2 条假红（份数 17≠18、行数 6270≠6532）。
+            #   ★ **只按名字/路径排除 = 把调用方的命名习惯当契约。**
+            #     两次都是「先按某个假设排除，失败后再换一个假设」，
+            #     而正确的判据一直摆在文件里：**简报是带 fact 标记块的那一份**。
+            #   所以改用**内容指纹**：含 `<!-- fact:gates_total=` 的就是它。
+            #   这对「改名」「换目录」「从别处传入」三种情况同时成立。
+            def _is_the_brief(p: pathlib.Path) -> bool:
+                try:
+                    return "<!-- fact:gates_total=" in p.read_text(encoding="utf-8")
+                except OSError:
+                    return False
+
+            _ten_wo_brief = [p for p in ten_docs if not _is_the_brief(p)]
+            _dropped = [p for p in ten_docs if _is_the_brief(p)]
+            # ★ 防空转：**必须恰好排除掉一份**。0 份说明指纹写坏了
+            #   （那会让「没排除任何东西」伪装成正常）；≥2 份说明口径本身有歧义。
+            if len(_dropped) != 1:
+                findings.append(
+                    f"DC-12 在 docs/tenancy/ 里识别出 {len(_dropped)} 份「收口简报」"
+                    "（按内容指纹）——必须恰好 1 份，否则「排除自己」这个口径不成立")
+                print(f"  {RED}✗{RESET} 简报指纹命中 {len(_dropped)} 份，应为 1")
+                dc12_bad += 1
             # §2 产出清单：| **类别** | 份数 | 行数 | 说明 |
             inv_rows = {
                 "工作包实施规格": (len(specs), spec_lines),
-                # ★ 按**文件名**排除简报，**不按路径**。
-                #   首版写的是 `p != brief`——而自检传进来的是 `tmp/` 里的**副本**，
-                #   路径对不上 ⇒ **真实简报没被排除** ⇒ 行数多算 262 行
-                #   （恰是本轮给简报加的行数）⇒ 自检里 9 条「恢复后回到通过」
-                #   全部转红。**这是 DC-12 当天抓出来的既有潜伏缺陷**：
-                #   同一份「排除自身」的逻辑，只要输入从命令行换进来就会失效。
+                # ★ 排除逻辑见上方 `_is_the_brief()`：按**内容指纹**识别，
+                #   既不看路径也不看文件名，因此对「副本在别处」与「副本被改名」
+                #   两种调用方式同时成立（INC-121 的对照实验结论）。
                 "docs/tenancy/ 文档包": (
                     len(_ten_wo_brief),
                     sum(len(p.read_text(encoding="utf-8").splitlines())
@@ -811,9 +834,23 @@ def _main_body() -> int:
                 else:
                     print(f"  {GREEN}✓{RESET} GATES 条目 {got_n}")
                 g_note = g_row[2] if len(g_row) > 2 else ""
-                for label, got, exp in (("plain", _num(g_note.split("+")[0]),
-                                         n_plain),
-                                        ("self-test", _num(g_note.split("+")[1]),
+                # ★ INC-121：首版直接写 `g_note.split("+")[1]`，
+                #   而第 3 格**未必含 `+`**（写成「、」很自然），此时
+                #   `"".split("+")` 只有 1 个元素 ⇒ **IndexError**。
+                #   实测后果不是假绿（INC-93 兜底报 2），但**崩在 DC-12 中段**：
+                #   §2 与 GATES 条目已经打完 ✓，**后面的三态表一行都没跑**，
+                #   已累积的发现也不再汇总；CI 还会从「有差距(1)」变成「工具坏了(2)」。
+                #   ⇒ 结构缺失必须**报红**，不能靠异常退出。
+                _parts = g_note.split("+")
+                if len(_parts) < 2:
+                    findings.append(
+                        "DC-12 简报 §3 GATES 行的说明格缺「+」分隔，"
+                        f"无法拆出 plain / self-test 两段：{g_note[:60]!r}")
+                    print(f"  {RED}✗{RESET} GATES 说明格无法拆成两段：{g_note[:40]}")
+                    dc12_bad += 1
+                for label, got, exp in (("plain", _num(_parts[0]), n_plain),
+                                        ("self-test",
+                                         _num(_parts[1]) if len(_parts) > 1 else None,
                                          n_self)):
                     if got != exp:
                         findings.append(
@@ -1365,7 +1402,7 @@ def self_test() -> int:
 
     saved_argv = sys.argv
 
-    def run_real(capture: bool = False):
+    def run_real(capture: bool = False, brief_override=None):
         """在**本进程内**跑一次完整核对。
 
         为什么必须把 DEPTH_VAR 抬起来
@@ -1394,8 +1431,10 @@ def self_test() -> int:
         进程被 kill 也只会留下一个 `/tmp` 下的碎片。
         """
         argv = sys.argv
+        # ★ INC-121：允许换成**任意文件名/路径**的副本。
+        #   缺陷正是「换个名字就报假红」，而用同名副本测**永远测不出来**。
         sys.argv = ["design_doc_check.py", "--doc", str(hermetic_doc),
-                    "--brief", str(hermetic_brief)]
+                    "--brief", str(brief_override or hermetic_brief)]
         saved_depth = os.environ.get(DEPTH_VAR, "0")
         os.environ[DEPTH_VAR] = str(int(saved_depth) + 1)
         import contextlib
@@ -1466,6 +1505,51 @@ def self_test() -> int:
     results.append(("★ DC-12 报红由 DC-12 发出且 DC-6 未参与（原因隔离）",
                     dc12_isolated))
     results.append(("★ DC-12 恢复后回到通过（非恒红）", dc12_back))
+
+    # ---- INC-121 专项：两条「换个调用方式就失效」的缺陷 ----
+    #
+    # ① 「排除自己」改名即失效
+    #    同一份内容、只差文件名。**用同名副本测永远测不出来**——
+    #    首版按路径（自检传副本 ⇒ 失配）、二版按文件名（副本改名 ⇒ 失配），
+    #    两次都是「换一个假设」而不是换一条识别依据。
+    #    正确判据是**内容指纹**（含 fact 标记块的那一份），
+    #    它对「改名」「换目录」「从别处传入」同时成立。
+    dc121_renamed = False
+    if brief.is_file() and real_text:
+        renamed = tmp / "brief.md"          # ★ 刻意**不叫**简报原名
+        renamed.write_text(hermetic_brief.read_text(encoding="utf-8"),
+                           encoding="utf-8")
+        dc121_renamed = run_real(brief_override=renamed) == EXIT_OK
+    results.append(("★ INC-121 简报副本**改名**后仍零假红（识别靠内容指纹而非文件名）",
+                    dc121_renamed))
+
+    # ② GATES 说明格缺「+」分隔
+    #    首版 `g_note.split("+")[1]` 在该格不含 `+` 时抛 IndexError，
+    #    崩在 DC-12 **中段**（§2 与 GATES 条目已打完 ✓，三态表一行没跑）。
+    #    期望：**报红(1) 且后续判据继续跑**，而不是「工具不可运行(2)」。
+    dc121_nosep_red = dc121_nosep_notbroken = False
+    if brief.is_file() and real_text:
+        saved_b = hermetic_brief.read_text(encoding="utf-8")
+        # ★ 刻意**只把该行里的「 + 」换成「、」**。
+        #   首版用一条大正则去拆「第 1 格 / 第 3 格」，实测替换结果把整个
+        #   说明格吃掉了（`| **42** |、|`）——**变异本身造出了一个与被测无关的
+        #   坏夹具**。变异必须**最小**。
+        gl = [ln for ln in saved_b.splitlines()
+              if ln.strip().startswith("| `run_all_gates.GATES` 条目")]
+        if gl and " + " in gl[0]:
+            hermetic_brief.write_text(
+                saved_b.replace(gl[0], gl[0].replace(" + ", "、"), 1),
+                encoding="utf-8")
+            try:
+                rc, out = run_real(capture=True)
+                dc121_nosep_red = rc == EXIT_FINDINGS
+                dc121_nosep_notbroken = rc != EXIT_TOOL_BROKEN and "三态" in out
+            finally:
+                hermetic_brief.write_text(saved_b, encoding="utf-8")
+    results.append(("★ INC-121 GATES 说明格缺「+」→ 报红（1）而非崩溃（2）",
+                    dc121_nosep_red))
+    results.append(("★ INC-121 该红之后三态表仍继续执行（不得崩在中段）",
+                    dc121_nosep_notbroken))
 
     # `inc_rows` 专项（INC-85）：**删掉发现表里的一行，`inc_max` 纹丝不动**，
     # 只有 `inc_rows` 会报红。这条用例证明的不是「标记能过期」，

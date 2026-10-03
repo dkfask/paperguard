@@ -86,7 +86,7 @@ GATES = [
     ("schema_disposition_check.py", "self-test", "E4 逐表判定解析自检"),
     ("schema_disposition_check.py", "plain", "E4 逐表判定三方交叉核对"),
     ("design_doc_check.py", "self-test", "设计文档自洽门禁自检"),
-    ("design_doc_check.py", "plain", "设计文档与门禁现实一致（DC-0～DC-9、DC-11；DC-10 已预留未实施）"),
+    ("design_doc_check.py", "plain", "设计文档与门禁现实一致（DC-0～DC-9、DC-11、DC-12；DC-10 已预留未实施）"),
     ("api_contract_check.py", "plain", "OpenAPI 契约 9 项"),
     # 此前只登记了 plain。**该工具实现了 9/9 阳性对照却从未被套件执行**，
     # 与本文件自己的 --self-test 曾被漏登记是同一种缺口（INC-70）。
