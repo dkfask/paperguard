@@ -1656,7 +1656,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 > 实测 `design_doc_check.py --self-test` 就这样漏了很久，是 DC-7 的算术不平**碰巧**发现的。
 > **靠算术不平发现覆盖缺口是运气，不是设计**，所以覆盖做成了显式判据。
 
-<!-- fact275:registry_lines=1174 -->
+<!-- fact275:registry_lines=1181 -->
 
 > **`registry_lines`** 是 `resource-registry.yaml` 的行数。它会被登记漏写时被抓到——
 > 该文件是 W-04 全资源 tenant 化清单的输入，行数变了却没被察觉，

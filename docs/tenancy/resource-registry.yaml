@@ -27,9 +27,9 @@
 # ──────────────────────────────────────────────────────────────────────────
 
 meta:
-  source_sha: 1154b943ed2801c82d649e4b365fafb259f85e3e
+  source_sha: 6cf37f902b6ff453611c505c17d1a3b929e3cc29
   branch: fix/ui-review-findings-20260929
-  generated_at: "2026-10-04"
+  generated_at: "2026-10-05"
   store_public_methods: 127        # 实测：ast 解析，排除 _ 前缀
   store_total_methods: 136         # 实测：含私有方法
   store_construction_points: 18    # 实测：16 × Store() + 1 × Store(db_path)
@@ -371,7 +371,7 @@ tables:
                     delete_workflow_record]
     external_readers: [repositories/workflow_repository.py, api/workflow.py,
                        services/workflow_jobs.py, services/export_jobs.py,
-                       services/document_render_jobs.py, api/document_projects.py]
+                       services/document_render_jobs.py, api/document_projects.py, services/ai_usage_facts.py, services/ai_recovery.py]
     background_consumers: [services/workflow_jobs.py, services/export_jobs.py,
                            services/document_render_jobs.py, worker.py]
     sensitivity: customer_content
@@ -387,7 +387,7 @@ tables:
     risk_flags: [kind_multiplexing_resolved_single_column_ok, json_blob_hides_relations,
                  name_grep_gives_false_negative, projects_organization_context_is_third_json_relation]
     open_question: >
-      **Q-04 已解决**（2026-10-01）——kind 清单已枚举为 **17 种**，全部有确定归属路径，
+      **Q-04 已解决**（2026-10-01）——历史17种 + 2026-10-05本地ai_usage_fact，当前清单 **18 种**，全部有确定归属路径，
       推导链见 docs/tenancy/workflow-records-kind-inventory.md。
       结论：维持单表 + 单列 tenant_id，**不需拆表**；但必须同时加 owner_ref 列固化业务父引用。
       阻塞原因从"无法判定"变为"需 M3 前实测生产字段空值率"（CHK-01～06）。
@@ -648,6 +648,13 @@ tables:
 # 二、访问面登记（不是表，但同样是「入口」）
 # ──────────────────────────────────────────────────────────────────────────
 access_surfaces:
+
+  - id: provider-usage-fact-pilot
+    description: "协议保留usage→persisted request作用域事实严格INSERT/completed/审计单事务；缺测量为unavailable/null，旧估算独立，billable:false"
+    locations: [backend/app/api/ai.py, backend/app/services/ai_usage_facts.py, backend/app/services/ai_recovery.py]
+    reads_tables: [ai_requests, users, tenants, tenant_memberships, workflow_records]
+    writes_tables: [ai_requests, workflow_records, audit_events]
+    status: local_mock_only_no_billing_no_rls
 
   - id: explicit-onboarding-pilot
     description: "显式平台批准→draft→首位owner/成员 create-or-replay；无自动启用/授权upsert/撤权复活"
@@ -962,38 +969,38 @@ command_contracts:
     invalidation_reason: >
       原结论用「`begin_call` 的调用点数量」推断「多少条业务路径被计量」——
       **用一个内部函数的调用点数量去推断有多少条路径经过它**。
-      `begin_call` 位于收敛点 `_metered_chat`（`api/ai.py:357-416`）**内部**，
+      `begin_call` 位于收敛点 `_metered_chat`（`api/ai.py:358-417`）**内部**，
       6 条外部 AI 写操作**全部**经它派发，因此调用点**恰好应为 1**。
       **`begin_call` 调用点为 1 是修复后的正确状态，不是缺陷指标。**
       实测 6 条命令全部调用 `_metered_chat`（配额门禁与 record_usage 均覆盖）。
     # ↓ 以下为**当前证据**，**由 RR-6 逐条核对**。
-    #   刻意用 `{fn, loc}` 配对而不是裸字符串：`ai.py:674` 是**合法文件里的合法行号**，
+    #   刻意用 `{fn, loc}` 配对而不是裸字符串：`ai.py:676` 是**合法文件里的合法行号**，
     #   只查「文件存在 + 行号在范围内」**两项都通过**——**只有「该行落在被点名符号内」
     #   才抓得住指向错误**（INC-86 的原始缺陷正是这一类）。
     evidence_now:
       begin_call_call_sites: 1
-      begin_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:486"}
+      begin_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:487"}
       ai_direct_modules: [backend/app/api/ai.py]
       metered_ai_commands:
-        - {name: test_ai_config,           loc: "backend/app/api/ai.py:720"}
-        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:823"}
+        - {name: test_ai_config,           loc: "backend/app/api/ai.py:722"}
+        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:825"}
         - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:209"}
         - {name: assist_requirement_check, loc: "backend/app/api/projects.py:1345"}
         - {name: parse_spec_candidate,     loc: "backend/app/api/specs.py:64"}
     # ↓ 以下为**原始（已作废）**记录，逐字保留供追溯；**RR-6 按标记跳过**
-    desc_ORIGINAL_INVALID: "ai_governance.begin_call 全仓仅 1 个调用点（api/ai.py:674，在 ai_assist 内）；6 条外部 AI 写操作中 5 条无配额门禁与用量记录"
+    desc_ORIGINAL_INVALID: "ai_governance.begin_call 全仓仅 1 个调用点（api/ai.py:676，在 ai_assist 内）；6 条外部 AI 写操作中 5 条无配额门禁与用量记录"
     evidence_ORIGINAL_INVALID:
       begin_call_call_sites: 1
-      begin_call_site_ORIGINAL_INVALID: "backend/app/api/ai.py:683"   # ★ 该行是 save_admin_ai_config 的参数行
+      begin_call_site_ORIGINAL_INVALID: "backend/app/api/ai.py:685"   # ★ 该行是 save_admin_ai_config 的参数行
       ai_direct_modules: [backend/app/api/ai.py]
       unmetered_ai_commands_ORIGINAL_INVALID:
-        - {name: test_ai_config,           loc: "backend/app/api/ai.py:549"}
-        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:648"}
+        - {name: test_ai_config,           loc: "backend/app/api/ai.py:550"}
+        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:650"}
         - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:209"}
         - {name: assist_requirement_check, loc: "backend/app/api/projects.py:1345"}
         - {name: parse_spec_candidate,     loc: "backend/app/api/specs.py:64"}
-    # ★ 原证据里 3/5 的 loc 已失效（ai.py:540 / ai.py:639 已不在对应函数体内），
-    #   `begin_call_site` 指向的 ai.py:674 更是**另一个函数的参数行**。
+    # ★ 原证据里 3/5 的 loc 已失效（ai.py:541 / ai.py:641 已不在对应函数体内），
+    #   `begin_call_site` 指向的 ai.py:676 更是**另一个函数的参数行**。
     #   **数字对了、指向错了、结论反了**——而没有任何机器核对过这些指针。
     partial_mitigation: "出站守卫 assert_safe_outbound_url + _chat_completion 内 ai_breaker 熔断；熔断非限流，仅失败后打开"
     design_violation: "总设计 13.1 第 553 行那条要求**已被 _metered_chat 满足**——所声称的违反不存在"

@@ -120,7 +120,7 @@
 |---|---|---|---|---|
 | `AI_RATE_LIMITED` | 429 | `ai_governance.py:88` | 超出每分钟突发 | 倒计时后重试 |
 | `AI_DAILY_QUOTA_EXCEEDED` | 429 | `ai_governance.py:99` | 超出日配额 | **当日不可重试**，提示明日 |
-| `AI_UPSTREAM_CIRCUIT_OPEN` | 503 | `api/ai.py:344` | 熔断打开 | 稍后重试，勿立即重试 |
+| `AI_UPSTREAM_CIRCUIT_OPEN` | 503 | `api/ai.py:345` | 熔断打开 | 稍后重试，勿立即重试 |
 | `CONTENT_SECURITY_UNAVAILABLE` | 503 | `wechat_content_security.py:74` | 内容安全服务不可用 | **不自动重试** |
 
 ### 2.5 体系 A 的一致性问题
@@ -141,9 +141,9 @@
 |---|---|---|---|
 | `AI_SECRET_UNAVAILABLE` | 503 | `backend/app/api/ai.py:77` | 凭据缺失主密钥或认证解密失败；联系管理员迁移，不回退其他供应商 |
 | `CAPABILITY_REQUIRED` | 403 | `backend/app/api/saas.py:29` | 活动成员能力不足或无有效成员身份；不重试越权操作 |
-| `IDEMPOTENCY_KEY_REUSED` | 409 | `backend/app/api/ai.py:455` | 相同幂等键提交了不同请求；使用新键或核对原请求 |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | `backend/app/api/ai.py:456` | 相同幂等键提交了不同请求；使用新键或核对原请求 |
 | `PLATFORM_OPERATION_ADMIN_REQUIRED` | 403 | `backend/app/api/operations.py:63` | 平台级运维要求活动全局管理员，租户角色不授予该权限 |
-| `REQUEST_IN_PROGRESS` | 409 | `backend/app/api/ai.py:460` | 原请求未形成可重放的 completed 结果；unknown 不自动重发或退款 |
+| `REQUEST_IN_PROGRESS` | 409 | `backend/app/api/ai.py:461` | 原请求未形成可重放的 completed 结果；unknown 不自动重发或退款 |
 | `TENANT_CONTEXT_INVALID` | 403 | `backend/app/api/ai.py:123` | 租户未知、停用、成员无效或未选定；禁止 BYOK 和平台配置回退 |
 | `TENANT_CONTEXT_MISSING` | 400 | `backend/app/services/tenant_access.py:87` | 租户作用域参数为空；需补齐经服务端验证的租户身份 |
 | `TENANT_NOT_FOUND` | 404 | `backend/app/api/saas.py:102` | 租户不存在或不可为其新增成员 |
@@ -156,10 +156,10 @@
 
 | Code | HTTP | 位置 | 实际触发与客户端边界 |
 |---|---|---|---|
-| `AI_RECONCILIATION_REQUIRED` | 409 | `backend/app/api/ai.py:459` | 原幂等请求结果未知或已待复核；禁止重发/退款，走人工复核 |
-| `AI_RECONCILIATION_STATE_INVALID` | 409 | `backend/app/services/ai_recovery.py:46` | 仅 unknown 可进入待复核；禁止改写 completed/failed_final |
-| `AI_REQUEST_NOT_FOUND` | 404 | `backend/app/services/ai_recovery.py:29` | 限定租户/成员范围内不可见；不透露跨租户存在性 |
-| `AI_RESULT_UNKNOWN` | 502 | `backend/app/api/ai.py:518` | 派发异常或结果记录失败；不能据此断言供应商未执行 |
+| `AI_RECONCILIATION_REQUIRED` | 409 | `backend/app/api/ai.py:460` | 原幂等请求结果未知或已待复核；禁止重发/退款，走人工复核 |
+| `AI_RECONCILIATION_STATE_INVALID` | 409 | `backend/app/services/ai_recovery.py:47` | 仅 unknown 可进入待复核；禁止改写 completed/failed_final |
+| `AI_REQUEST_NOT_FOUND` | 404 | `backend/app/services/ai_recovery.py:30` | 限定租户/成员范围内不可见；不透露跨租户存在性 |
+| `AI_RESULT_UNKNOWN` | 502 | `backend/app/api/ai.py:519` | 派发异常或结果记录失败；不能据此断言供应商未执行 |
 | `AUTH_ACCOUNT_BLOCKED` | 403 | `backend/app/auth.py:739` | 账号停用、需改密或未完成引导；不能继续共享 SaaS 操作 |
 | `AUTH_SESSION_INVALID` | 401 | `backend/app/services/tenant_access.py:122` | 缺少或失效的会话；重新登录 |
 | `TENANT_HEADER_NOT_HONORED` | 403 | `backend/app/services/tenant_access.py:155` | 租户选择器无对应成员记录；不可用头建立授权 |

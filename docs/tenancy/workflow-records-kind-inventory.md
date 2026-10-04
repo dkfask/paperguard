@@ -6,7 +6,7 @@
 
 ## 0. 结论摘要
 
-`workflow_records` 实际存在 **17 种 `kind`**。全部 17 种**都能找到归属推导路径**，但路径质量差异极大：
+2026-10-01 基线含17种；2026-10-05本地新增 `ai_usage_fact`，当前代码清单为 **18 种 `kind`**。新增kind直接携带request/tenant/member/user，legacy请求的tenant/member为空且不得推导为租户；其他17种的历史推导与待裁决仍保留。
 
 | 类别 | 数量 | 含义 |
 |---|---|---|
@@ -29,7 +29,7 @@
 > **因此本清单能证明"代码会写入这些字段"，不能证明"存量数据里这些字段都填了"。**
 > 字段空值率必须在 M3 回填前用**生产只读快照**实测——这是 W-02 T-02.6 校验器的必检项（见 §6）。
 
-## 2. kind 清单（17 种）
+## 2. 历史基线kind清单（17种；新增1种见下）
 
 按归属推导质量分组。`跳数`指从该记录到 `organization_id` 需要经过的关联层数。
 
@@ -165,3 +165,11 @@ CREATE INDEX idx_workflow_records_document_project
 |---|---|---|
 | Q-07 | `document_template_candidate` / `document_spec_candidate` 是平台公共资产候选还是租户资产候选？ | 产品 + D-01/D-08 裁决 |
 | CHK-01～06 | 生产只读快照实测 | 需生产只读授权 |
+
+## 2026-10-05 增量：ai_usage_fact（当前代码清单18种）
+
+| kind | 当前访问面 | 归属与写入边界 |
+|---|---|---|
+| `ai_usage_fact` | `services/ai_usage_facts.py`、`services/ai_recovery.py`；实际写入为SQL严格INSERT，不是Store的upsert | request_id/tenant_id/membership_id/user_id仅来自persisted request；legacy作用域为空；公开读取先取得限定作用域的request，再核对fact的全部作用域键 |
+
+此sidecar与completed状态及审计同事务；36个本地mock测试，不复制正文/凭据、billable恒false、不做真实生产写入。现有通用workflow_record upsert仍存在，尚无数据库级不可变/RLS；不得把服务入口严格INSERT说成全库不可变。后续PG usage fact迁移应显式登记此kind与owner_ref；不凭user反推多租户归属。

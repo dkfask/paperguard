@@ -19,7 +19,7 @@
 | B 有事务、无幂等 | 38 | 29% |
 | C **既无事务也无幂等** | **90** | **70%** |
 
-**最重要的单一发现（2026-10-02 更正，原结论已作废）**：`ai_governance.begin_call()`（突发限流 + 日配额门禁）全仓**只有 1 个调用点**——`api/ai.py:388`，位于 **`_metered_chat`**（`ai.py:357-416`）内部。
+**最重要的单一发现（2026-10-02 更正，原结论已作废）**：`ai_governance.begin_call()`（突发限流 + 日配额门禁）全仓**只有 1 个调用点**——`api/ai.py:389`，位于 **`_metered_chat`**（`ai.py:358-417`）内部。
 
 > **原结论（已作废）**：「6 条调用外部 AI 的写操作中只有 `ai_assist` 一条计量，其余 5 条全部不计量、不限流」，并据此判定违反总设计 13.1 节。
 > **该结论是错的，且错因值得记住**：它**用一个内部函数的调用点数量，去推断有多少条业务路径经过它**。
@@ -43,7 +43,7 @@
 | `begin_call` 调用点全集 | **已验证** | 全仓 grep |
 | 直连 AI 的模块全集 | **已验证** | 全仓 grep `chat/completions`、`/v1/messages` |
 | **运行时实际配额绕过次数** | **未验证** | 未发起任何请求；需接口层 UAT |
-| 熔断实际行为 | **已验证（代码级）** | `api/ai.py:336-340` |
+| 熔断实际行为 | **已验证（代码级）** | `api/ai.py:337-341` |
 
 ### 1.1 方法论说明（重要）
 
@@ -82,10 +82,10 @@
 
 ```
 $ grep -rn "begin_call" --include=*.py backend/app | grep -v "def begin_call"
-backend/app/api/ai.py:388:    ai_governance.begin_call(store, user)      # ← 生产代码唯一调用点
+backend/app/api/ai.py:389:    ai_governance.begin_call(store, user)      # ← 生产代码唯一调用点
 ```
 
-该行位于 **`_metered_chat`**（`api/ai.py:357-416`）内，**不在 `ai_assist` 内**。
+该行位于 **`_metered_chat`**（`api/ai.py:358-417`）内，**不在 `ai_assist` 内**。
 `_metered_chat` 的 docstring 自述其存在理由：
 
 > 真实上游调用的**唯一计量出口**。任何会发往供应商的调用都必须经过这里。
@@ -101,9 +101,9 @@ backend/app/api/ai.py:388:    ai_governance.begin_call(store, user)      # ← �
 
 | 命令 | 端点 | 计量路径 | 配额门禁 | 用量记录 | 幂等 | 事务 |
 |---|---|---|---|---|---|---|
-| `ai_assist` | `POST /api/ai/assist`（`ai.py:735`） | `_metered_chat` | ✓ | ✓ | ✗ | ✗ |
-| `test_ai_config` | `POST /api/ai/config/test`（`ai.py:606`） | `_metered_chat` | ✓ | ✓ | ✗ | ✗ |
-| `test_admin_ai_config` | `POST /api/ai/admin/config/test`（`ai.py:709`） | `_metered_chat` | ✓ | ✓ | ✗ | ✗ |
+| `ai_assist` | `POST /api/ai/assist`（`ai.py:737`） | `_metered_chat` | ✓ | ✓ | ✗ | ✗ |
+| `test_ai_config` | `POST /api/ai/config/test`（`ai.py:608`） | `_metered_chat` | ✓ | ✓ | ✗ | ✗ |
+| `test_admin_ai_config` | `POST /api/ai/admin/config/test`（`ai.py:711`） | `_metered_chat` | ✓ | ✓ | ✗ | ✗ |
 | `import_policy_with_ai` | `POST /api/policies/import`（`policies.py:209`） | `ai_api._metered_chat`（`policies.py:230,241`） | ✓ | ✓ | ✗ | ✗ |
 | `assist_requirement_check` | `POST /api/projects/{id}/requirements/{item_id}/assist`（`projects.py:1345`） | `_metered_chat`（`projects.py:1375`） | ✓ | ✓ | ✗ | ✗ |
 | `parse_spec_candidate` | `POST /api/specs/parse`（`specs.py:64`） | `ai_api._metered_chat`（`specs.py:85`） | ✓ | ✓ | ✗ | ✗ |
@@ -122,8 +122,8 @@ backend/app/api/ai.py:388:    ai_governance.begin_call(store, user)      # ← �
 
 ### 4.4 出站侧的既有缓解（仍然有效，保留）
 
-1. **出站守卫**：`assert_safe_outbound_url(cfg["base_url"], ...)`（`api/ai.py:387`，`_metered_chat` 内、**先于** `begin_call`），注释明写「测试连通性会真的发请求，出口必须完整校验」
-2. **熔断**：`_chat_completion` 内部 `ai_breaker.allow(key)`（`api/ai.py:336-339`），覆盖**全部**上游调用路径
+1. **出站守卫**：`assert_safe_outbound_url(cfg["base_url"], ...)`（`api/ai.py:388`，`_metered_chat` 内、**先于** `begin_call`），注释明写「测试连通性会真的发请求，出口必须完整校验」
+2. **熔断**：`_chat_completion` 内部 `ai_breaker.allow(key)`（`api/ai.py:337-340`），覆盖**全部**上游调用路径
 
 **熔断不是限流**——它只在连续失败后打开（`AI_UPSTREAM_CIRCUIT_OPEN`），对成功调用速率无约束。
 

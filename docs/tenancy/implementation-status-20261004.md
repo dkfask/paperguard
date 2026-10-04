@@ -56,7 +56,7 @@
 
 截至本文生成，验证以本地工作区实际执行结果为准；提交 SHA、CI 和部署身份必须在合并或发布前重新绑定。
 
-## 历史归属准入、显式建户与写作隔离切片（本轮）
+## 历史归属准入、显式建户与写作隔离切片（上一阶段本地完成）
 
 来源提交：`1154b943ed2801c82d649e4b365fafb259f85e3e`；前阶段 `d876798` 与文档提交 `a754b818` 已推送，不重复认证修复。新阶段是受限本地实现，不是完整 SaaS 验收。
 
@@ -89,3 +89,15 @@
 后端 **987 passed**（其中新预检24、pilot63），前端 **84 passed / 20 files**，typecheck通过；依赖弃用警告2条。源码/测试/工具摘要保存在本地证据目录，提交前后断言一致。严格门禁最终结果见本轮发布记录及JSON，不把ci模式0解释为严格放行。
 
 尚未完成：生产共享DB选型/PG+RLS、全资源/文件/cache/async隔离、完整成员导入邀请与组织授权、owner启用、可信权益/席位/计量/账务、支持与租户恢复。业务裁决见 [待裁决包](conditional-tenancy-decision-packet.md)。未执行合并、部署、生产DDL/DML/恢复、付费供应商或支付调用、真实UAT；原生CI另列状态：本轮原生诊断单次读取仍返回“Sign in to Codex with ChatGPT to connect GitHub”，未继续重试登录、未用CLI绕过。
+
+## 2026-10-05 离线续作：可信usage/mock计量
+
+来源：`6cf37f902b6ff453611c505c17d1a3b929e3cc29`，基线`dfb91fd5c05d93601f0adc2f20c309d17ce86794`。
+
+- 按授权只尝试一次普通非强制push，返回exit128 / Empty reply from server；立即停止网络重试，不更改永久代理/凭据。最新远端分支与PR ref未读回，不宣称推送成功；本轮未在push未确认时读取CI。此前原生CI登录阻塞依然只是此前证据，不猜其现状。
+- OpenAI/Anthropic非流式usage保守解析与文本兼容返回，真实transport全部由MockTransport替身；缺失/坏usage为null+unavailable，不把估算/字符改为provider事实，不复制供应商原始payload。
+- request scoped `ai_usage_fact`旁表严格INSERT、completed与审计原子提交；核验当前账号/租户/成员版本，保存失败进入unknown，拒绝重发/退款。metadata API展示独立provider token、质量与复核标记，billable恒false。
+- 成功无usage仍是completed，但需要计量复核；此标记不是实际复核队列/供应商对账。旧记录保持legacy_chars/估算；新事实属于SQLite本地试点，不是PG/RLS/货币账务。
+- 后端1023 passed（新增mock36）；相关6文件96 passed；前端84/20 files及typecheck通过。默认严格门禁/最终本地提交绑定详见 [本轮交付记录](../releases/2026-10-05-pr34-usage-offline.md)。前阶段987用例与38/43是前阶段证据，不冒充本轮strict。
+
+尚未实现：租户域幂等（仍user+key全局唯一，跨tenant同key拒绝）、原子额度reservation/真正账务结算、unknown供应商最终结果核对/校正、真实usage账单对照、流式协议、全资源RLS/文件/任务恢复。保持不合并/不部署/不生产DDL/DML/恢复、不真实支付或付费供应商、不真实UAT。
