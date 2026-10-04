@@ -75,6 +75,10 @@ def list_audit_events(
     visible_ids = visible_organization_ids(store, user)
     result: list[dict[str, Any]] = []
     for event in store.list_audit_events(limit=5000):
+        # Legacy organization filtering is not a SaaS authorization boundary.
+        # Dedicated isolated audit/support projection is not implemented yet.
+        if event.get("resource_type") in {"saas", "platform_role_binding", "operations"}:
+            continue
         event_org = str(event.get("organization_id") or "")
         if user.get("role") != "admin" and event_org not in visible_ids:
             continue

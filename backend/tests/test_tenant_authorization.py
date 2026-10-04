@@ -194,6 +194,8 @@ def test_inactive_global_admin_is_denied(status):
 def test_saas_api_rejects_platform_grants_in_membership(identity, monkeypatch):
     store, user, tenant = identity
     user["role"] = "admin"
+    from app.services.saas_identity import approve_platform_role
+    approve_platform_role(store, user["id"], approval_ref="SYNTHETIC-PLATFORM-APPROVAL", approved_by="offline-fixture")
     client = _client(store, user, monkeypatch)
     for payload in [{"role": "platform_admin", "capabilities": []},
                     {"role": "teacher", "capabilities": ["backup:global"]}]:

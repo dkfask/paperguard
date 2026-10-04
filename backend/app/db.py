@@ -39,6 +39,7 @@ SCHEMA_MIGRATIONS = (
     "0010_tenant_system_settings",
     "0011_runtime_tenancy",
     "0012_ai_request_ledger",
+    "0013_saas_approval_pilot",
 )
 
 
@@ -117,6 +118,27 @@ class Store:
                     auth_version INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS platform_role_bindings (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL UNIQUE,
+                    role_code TEXT NOT NULL CHECK (role_code IN ('platform_admin')),
+                    status TEXT NOT NULL CHECK (status IN ('active','revoked')),
+                    auth_version INTEGER NOT NULL CHECK (auth_version > 0),
+                    approval_ref TEXT NOT NULL,
+                    approved_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS saas_provisioning (
+                    command_key TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL UNIQUE REFERENCES tenants(id),
+                    actor_id TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    approval TEXT NOT NULL,
+                    first_owner_id TEXT,
+                    owner_request_version INTEGER,
+                    owner_auth_version INTEGER,
+                    created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS tenant_memberships (
                     id TEXT PRIMARY KEY,
@@ -694,25 +716,10 @@ class Store:
         school_id = str(context.get("school_id") or "").strip()
         if not school_id:
             return None
-        tenant_id = f"tenant-legacy-{school_id}"
-        # Explicit migration helper only. Existing inactive rows are authoritative;
-        # invoking the bridge must never undo revocation or tenant suspension.
-        existing = next((item for item in self.list_memberships_for_user(user["id"])
-                         if item["tenant_id"] == tenant_id), None)
-        if existing:
-            return existing
-        now = _now()
-        tenant = self.get_tenant(tenant_id)
-        if tenant and tenant.get("status") != "active":
-            return None
-        if tenant is None:
-            self.create_tenant({"id": tenant_id, "slug": school_id, "name": school_id, "created_at": now})
-        return self.save_membership({
-            "id": new_id("membership"), "tenant_id": tenant_id, "user_id": user["id"],
-            "role": user.get("role", "user"),
-            "capabilities": ["tenant:read"] if user.get("status") == "active" else [],
-            "status": "active" if user.get("status") == "active" else "inactive", "created_at": now,
-        })
+        # The compatibility helper may inspect an existing row only. A school
+        # hint/global role is not an approved mapping or authority to create it.
+        return next((item for item in self.list_memberships_for_user(user["id"])
+                     if item["tenant_id"] == f"tenant-legacy-{school_id}"), None)
 
     # -------------------------- 邮箱验证码 --------------------------
 
@@ -2211,8 +2218,15 @@ class Store:
     # ---------------------------- projects -----------------------------
 
     def save_project(self, proj: WritingProject) -> WritingProject:
+        if proj.tenant_id or proj.membership_id:
+            raise PermissionError("tenant projects require scoped repository")
         proj.updated_at = _now()
-        with self._connect() as conn:
+        with self.workflow_transaction() as conn:
+            existing = conn.execute("SELECT data FROM projects WHERE id=?", (proj.id,)).fetchone()
+            if existing:
+                body = json.loads(existing["data"])
+                if body.get("tenant_id") or body.get("membership_id"):
+                    raise PermissionError("legacy project write cannot replace tenant ownership")
             conn.execute(
                 "INSERT OR REPLACE INTO projects (id, template_id, data, updated_at) "
                 "VALUES (?, ?, ?, ?)",
@@ -2226,13 +2240,17 @@ class Store:
         expected_revision: int,
     ) -> WritingProject | None:
         """保存项目的同时检查 revision，避免并发请求静默覆盖。"""
+        if proj.tenant_id or proj.membership_id:
+            raise PermissionError("tenant projects require scoped repository")
         next_revision = expected_revision + 1
         proj.revision = next_revision
         proj.updated_at = _now()
         with self._connect() as conn:
             cur = conn.execute(
                 "UPDATE projects SET template_id = ?, data = ?, updated_at = ? "
-                "WHERE id = ? AND json_extract(data, '$.revision') = ?",
+                "WHERE id = ? AND json_extract(data, '$.revision') = ? "
+                "AND coalesce(json_extract(data, '$.tenant_id'), '') = '' "
+                "AND coalesce(json_extract(data, '$.membership_id'), '') = ''",
                 (
                     proj.template_id,
                     proj.model_dump_json(),
@@ -2260,7 +2278,9 @@ class Store:
         with self._connect() as conn:
             cur = conn.execute(
                 "UPDATE projects SET data = ?, updated_at = ? "
-                "WHERE id = ? AND json_extract(data, '$.revision') = ?",
+                "WHERE id = ? AND json_extract(data, '$.revision') = ? "
+                "AND coalesce(json_extract(data, '$.tenant_id'), '') = '' "
+                "AND coalesce(json_extract(data, '$.membership_id'), '') = ''",
                 (project.model_dump_json(), project.updated_at, project.id, expected_revision),
             )
             if cur.rowcount != 1:
@@ -2270,18 +2290,18 @@ class Store:
     def get_project(self, proj_id: str) -> WritingProject | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT data FROM projects WHERE id = ?", (proj_id,)
+                "SELECT data FROM projects WHERE id = ? AND coalesce(json_extract(data, '$.tenant_id'), '') = '' AND coalesce(json_extract(data, '$.membership_id'), '') = ''", (proj_id,)
             ).fetchone()
         return WritingProject.model_validate_json(row["data"]) if row else None
 
     def list_projects(self) -> list[WritingProject]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT data FROM projects ORDER BY updated_at DESC").fetchall()
+            rows = conn.execute("SELECT data FROM projects WHERE coalesce(json_extract(data, '$.tenant_id'), '') = '' AND coalesce(json_extract(data, '$.membership_id'), '') = '' ORDER BY updated_at DESC").fetchall()
         return [WritingProject.model_validate_json(r["data"]) for r in rows]
 
     def delete_project(self, proj_id: str) -> bool:
         with self._connect() as conn:
-            cur = conn.execute("DELETE FROM projects WHERE id = ?", (proj_id,))
+            cur = conn.execute("DELETE FROM projects WHERE id = ? AND coalesce(json_extract(data, '$.tenant_id'), '') = '' AND coalesce(json_extract(data, '$.membership_id'), '') = ''", (proj_id,))
             return cur.rowcount > 0
 
 

@@ -28,6 +28,8 @@ EC-05  字典中的 HTTP 状态码与代码一致
 
 from __future__ import annotations
 
+import ast
+
 import pathlib
 import re
 import sys
@@ -53,10 +55,23 @@ PATH_PATTERN = r"(/home/|/Users/|/var/|/tmp/)[A-Za-z0-9_./-]+"
 TRACEBACK_PATTERN = r"Traceback \(most recent call last\)|File \"[^\"]+\", line \d+"
 
 
+def iter_saas_error_calls(source: str):
+    for call in ast.walk(ast.parse(source)):
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "fail" and len(call.args) >= 2:
+            status, code = call.args[:2]
+            if isinstance(status, ast.Constant) and isinstance(status.value, int) and isinstance(code, ast.Constant) and isinstance(code.value, str):
+                yield code.value, str(status.value), call.lineno
+
+
 def iter_http_exceptions():
     """产出 (code, status, file, line) —— 只处理含 "code": 的结构化异常。"""
     for f in sorted(APP.rglob("*.py")):
         s = f.read_text(encoding="utf-8")
+        # The approved SaaS helper wraps HTTPException. Its constant status/code
+        # call sites remain contracts; do not let a wrapper hide new errors.
+        if f.name in {"saas_identity.py", "tenant_projects.py"} and f.parent.name == "services":
+            for code, status, line in iter_saas_error_calls(s):
+                yield code, status, f, line
         for m in re.finditer(r"HTTPException\(", s):
             i = m.end() - 1
             depth, j = 0, i
@@ -307,6 +322,10 @@ def self_test() -> int:
         ("★ 无 §5 区 → 占位集为空（不报错）",
          placeholder_codes(empty) == set()),
     ]
+    cases.extend([
+        ("SaaS helper 的常量码不会逃出契约登记", list(iter_saas_error_calls("fail(403, 'SCOPE_DENIED', 'fixture')")) == [("SCOPE_DENIED", "403", 1)]),
+        ("不同 helper 不误算为 HTTP 契约", list(iter_saas_error_calls("other(403, 'NOT_HTTP', 'fixture')")) == []),
+    ])
     ok = 0
     for label, good in cases:
         if good:

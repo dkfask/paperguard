@@ -13,26 +13,34 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.templates import get_store
-from app.auth import current_user
-from app.core.context import get_request_context
-from app.db import Store
+from app.auth import trusted_context
+from app.core.context import RequestContext
+from app.db import Store, _now
 from app.services.backup_restore import create_backup
+from app.services.saas_identity import check_platform
 
 
 router = APIRouter(prefix="/api/operations", tags=["operations"])
 _RETENTION_KEY = "retention_policy"
 
 
-def _audit_operation(store: Store, user: dict, action: str, reason: str = "") -> None:
-    context = get_request_context()
-    store.save_audit_event({
-        "actor_id": str(user.get("id") or ""),
+def approved_operator(ctx: RequestContext = Depends(trusted_context), store: Store = Depends(get_store)) -> RequestContext:
+    if ctx.actor_kind != "platform" or not ctx.has_capability("operations:manage"):
+        raise HTTPException(status_code=403, detail={"code": "PLATFORM_OPERATION_ADMIN_REQUIRED", "message": "仅显式批准的平台管理员可执行平台级运维操作"})
+    with store.workflow_transaction() as conn:
+        check_platform(conn, ctx)
+    return ctx
+
+
+def _audit_operation(store: Store, conn, ctx: RequestContext, action: str, reason: str = "") -> None:
+    store.save_audit_event_conn(conn, {
+        "actor_id": ctx.actor_id,
         "action": action,
         "resource_type": "operations",
         "resource_id": action,
-        "organization_id": context.tenant_id or "",
+        "organization_id": "",
         "reason": reason,
-        "request_id": context.request_id,
+        "request_id": ctx.request_id,
     })
 
 
@@ -57,38 +65,42 @@ def _retention(store: Store) -> dict[str, Any]:
     return {"configured": isinstance(policy, dict), "policy": policy if isinstance(policy, dict) else None}
 
 
-@router.get("/retention")
-def get_retention(store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict[str, Any]:
-    if user.get("role") != "admin" or user.get("status") != "active":
-        raise HTTPException(status_code=403, detail={"code": "PLATFORM_OPERATION_ADMIN_REQUIRED", "message": "仅平台管理员可执行平台级运维操作"})
-    return _retention(store)
+@router.get("/retention", dependencies=[Depends(approved_operator)])
+def get_retention(store: Store = Depends(get_store), ctx: RequestContext = Depends(trusted_context)) -> dict[str, Any]:
+    with store.workflow_transaction() as conn:
+        check_platform(conn, ctx)
+        return _retention(store)
 
 
-@router.put("/retention")
-def set_retention(req: RetentionPolicyUpdate, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict[str, Any]:
-    if user.get("role") != "admin" or user.get("status") != "active":
-        raise HTTPException(status_code=403, detail={"code": "PLATFORM_OPERATION_ADMIN_REQUIRED", "message": "仅平台管理员可执行平台级运维操作"})
-    policy = req.model_dump(mode="json") | {"configured_by": user["id"]}
-    store.set_system_setting(_RETENTION_KEY, json.dumps(policy, ensure_ascii=False))
-    _audit_operation(store, user, "operations.retention.updated", "retention policy changed")
+@router.put("/retention", dependencies=[Depends(approved_operator)])
+def set_retention(req: RetentionPolicyUpdate, store: Store = Depends(get_store), ctx: RequestContext = Depends(trusted_context)) -> dict[str, Any]:
+    policy = req.model_dump(mode="json") | {"configured_by": ctx.actor_id}
+    with store.workflow_transaction() as conn:
+        check_platform(conn, ctx)
+        conn.execute("INSERT OR REPLACE INTO system_settings (key, organization_id, value, updated_at) VALUES (?, '', ?, ?)", (_RETENTION_KEY, json.dumps(policy, ensure_ascii=False), _now()))
+        _audit_operation(store, conn, ctx, "operations.retention.updated", "retention policy changed")
     return {"configured": True, "policy": policy}
 
 
-@router.post("/backup", status_code=200)
-def download_backup(background_tasks: BackgroundTasks, store: Store = Depends(get_store), user: dict = Depends(current_user)):
+@router.post("/backup", status_code=200, dependencies=[Depends(approved_operator)])
+def download_backup(background_tasks: BackgroundTasks, store: Store = Depends(get_store), ctx: RequestContext = Depends(trusted_context)):
     """Download a consistent backup; the temporary response file is removed after sending."""
-    if user.get("role") != "admin" or user.get("status") != "active":
-        raise HTTPException(status_code=403, detail={"code": "PLATFORM_OPERATION_ADMIN_REQUIRED", "message": "仅平台管理员可执行平台级运维操作"})
     handle = tempfile.NamedTemporaryFile(prefix="paperguard-backup-", suffix=".zip", delete=False)
     output = Path(handle.name)
     handle.close()
     try:
+        with store.workflow_transaction() as conn:
+            check_platform(conn, ctx)
         manifest = create_backup(output, db_path=store._db_path)
+        digest = hashlib.sha256(output.read_bytes()).hexdigest()
+        # Snapshot I/O cannot share SQLite's writer lock. Recheck approval after
+        # generation and discard the file on revocation before returning it.
+        with store.workflow_transaction() as conn:
+            check_platform(conn, ctx)
+            _audit_operation(store, conn, ctx, "operations.backup.created", "platform backup generated")
     except Exception:
         output.unlink(missing_ok=True)
         raise
-    digest = hashlib.sha256(output.read_bytes()).hexdigest()
-    _audit_operation(store, user, "operations.backup.created", "platform backup generated")
     background_tasks.add_task(output.unlink, missing_ok=True)
     return FileResponse(
         output, filename="paperguard-backup.zip", media_type="application/zip",

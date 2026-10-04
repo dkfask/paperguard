@@ -26,6 +26,10 @@ def capabilities_for_role(role: str) -> frozenset[str]:
     return ROLE_CAPABILITIES.get(role, frozenset())
 
 
+# The pilot grants only self-membership project access; no organization or
+# tenant-wide project sharing is inferred from a teacher/admin role.
+for _role, _caps in tuple(ROLE_CAPABILITIES.items()):
+    ROLE_CAPABILITIES[_role] = _caps | frozenset({"project:read", "project:write"})
 TENANT_CAPABILITIES = frozenset().union(*ROLE_CAPABILITIES.values())
 PLATFORM_CAPABILITIES = ROLE_CAPABILITIES["admin"] | frozenset({"operations:manage", "backup:global"})
 
@@ -122,8 +126,14 @@ def resolve_request_context(
     # S2 / E3: explicit selector is only a selector, never a grant.
     memberships = store.list_memberships_for_user(user["id"])
     selected = expected_tenant
-    if selected is None and user.get("role") == "admin":
-        return context_for_user(user, request_id=request_id)
+    if selected is None:
+        from app.services.saas_identity import platform_binding
+        from app.core.context import RequestContext
+        binding = platform_binding(store, user["id"])
+        if binding:
+            return RequestContext(actor_kind="platform", actor_id=user["id"], role="platform_admin",
+                                  capabilities=tuple(PLATFORM_CAPABILITIES), auth_version=binding["auth_version"],
+                                  request_id=request_id, trace_id=request_id)
     if selected is None:
         selected = str(user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id") or "").strip() or None
     if selected is None:

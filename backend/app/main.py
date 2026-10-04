@@ -123,6 +123,8 @@ async def add_request_context(request: Request, call_next):
     context = getattr(request.state, "context", None) or RequestContext(request_id=request_id)
     log_event(
         LOGGER, "http.request.completed", context=context, actor_id=getattr(request.state, "actor_id", ""),
+        role=context.role or (getattr(request.state, "logging_metadata", {}) or {}).get("legacy_role", ""),
+        authorization_kind=context.actor_kind,
         status_code=response.status_code, method=request.method,
         path=request.url.path,
         duration_ms=round((time.perf_counter() - started) * 1000, 2),

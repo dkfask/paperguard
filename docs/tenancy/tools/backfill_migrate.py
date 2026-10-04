@@ -138,8 +138,15 @@ def _json(raw: Any) -> dict:
         return {}
 
 
+def _source_connection(src: str):
+    path = pathlib.Path(src).resolve()
+    if any(pathlib.Path(str(path) + suffix).exists() and pathlib.Path(str(path) + suffix).stat().st_size for suffix in ("-wal", "-journal")):
+        raise ValueError("source requires a consistent offline snapshot")
+    return sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)
+
+
 def read_users(src: str) -> list[dict]:
-    con = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+    con = _source_connection(src)
     try:
         cur = con.execute("SELECT * FROM users")
         cols = [d[0] for d in cur.description]
@@ -150,7 +157,7 @@ def read_users(src: str) -> list[dict]:
 
 def read_orgs(src: str) -> dict[str, dict]:
     """组织树：把 data JSON 拆成真实列。"""
-    con = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+    con = _source_connection(src)
     try:
         cur = con.execute("SELECT * FROM organization_units")
         cols = [d[0] for d in cur.description]
@@ -164,6 +171,7 @@ def read_orgs(src: str) -> dict[str, dict]:
                 "type": body.get("type"),
                 "parent_id": (body.get("parent_id") or "").strip() or None,
                 "code": body.get("code"),
+                "status": body.get("status", "active"),
             }
         return out
     finally:
@@ -171,7 +179,7 @@ def read_orgs(src: str) -> dict[str, dict]:
 
 
 def read_scoped(src: str, table: str) -> list[dict]:
-    con = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+    con = _source_connection(src)
     try:
         cur = con.execute(f"SELECT * FROM {table}")
         cols = [d[0] for d in cur.description]
@@ -201,6 +209,8 @@ def org_to_tenant(org_id: str, orgs: dict[str, dict],
         node = orgs.get(cur)
         if node is None:
             return None, f"组织 {cur} 不存在"
+        if node.get("status", "active") != "active":
+            return None, "组织或父组织已失效"
         pid = node.get("parent_id")
         if not pid:
             # 到根了。根必须是 type=school，否则映射表口径对不上。
@@ -816,6 +826,7 @@ def main() -> int:
     ap.add_argument("--output", help="目标库路径")
     ap.add_argument("--q08-strategy", choices=["union", "users_teacher_id", "supervision"],
                     help="Q-08 指导关系冲突策略；不给则规则 8 不执行")
+    ap.add_argument("--admission-report", help="当前源/映射的只读准入报告；apply 必须通过重新计算核对")
     ap.add_argument("--apply", action="store_true", help="真正落盘（默认 dry-run）")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
@@ -873,6 +884,19 @@ def main() -> int:
             report(out, users, migrated, applied=False)
         return EXIT_OK
 
+    if args.apply:
+        if pathlib.Path(args.output).exists() and pathlib.Path(args.output).samefile(args.source):
+            sys.stderr.write("拒绝落盘：目标与源为同一文件。\n")
+            return EXIT_FINDINGS
+        from ownership_preflight import verify_admission
+        try:
+            valid = bool(args.admission_report) and verify_admission(
+                json.loads(pathlib.Path(args.admission_report).read_text()), args.source, args.tenant_map)
+        except (OSError, ValueError, TypeError, sqlite3.DatabaseError):
+            valid = False
+        if not valid:
+            sys.stderr.write("拒绝落盘：缺少当前源/映射/规则身份一致的准入报告（不代表生产授权）。\n")
+            return EXIT_FINDINGS
     out = build_target(args.source, args.output, tmap, args.q08_strategy)
     users = read_users(args.source)
     migrated = 0

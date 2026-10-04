@@ -85,6 +85,8 @@ class WritingProject(BaseModel):
     template_id: str
     template_name: str = ""
     title: str = ""
+    tenant_id: str | None = Field(default=None, json_schema_extra={"readOnly": True})
+    membership_id: str | None = Field(default=None, json_schema_extra={"readOnly": True})
     owner_id: str = ""             # 归属用户 (空 = 旧数据, 视为公开/管理员)
     revision: int = Field(default=0, ge=0)
     template_snapshot: dict | None = None

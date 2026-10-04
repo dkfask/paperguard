@@ -53,6 +53,8 @@ def create_export_job(
     actor_id: str,
 ) -> dict:
     """Create a version-frozen export record and durable queue item atomically."""
+    if project.tenant_id or project.membership_id:
+        raise PermissionError("tenant project export isolation is not implemented")
     now = _now()
     record = {
         "id": new_id("export"),
@@ -141,6 +143,9 @@ def run_project_export(store: Store, export_id: str, actor_id: str = "system") -
     record = store.get_workflow_record("project_export", export_id)
     if not record:
         return {"status": "failed", "error_code": "EXPORT_RECORD_NOT_FOUND"}
+    snapshot = record.get("project_snapshot") or {}
+    if snapshot.get("tenant_id") or snapshot.get("membership_id"):
+        return {"status": "failed", "error_code": "PROJECT_ASYNC_ISOLATION_PENDING"}
     if record.get("status") == "succeeded" and record.get("file_path"):
         return record
     current = str(record.get("status") or "")

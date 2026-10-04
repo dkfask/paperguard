@@ -43,6 +43,7 @@ class StudentImportItem(BaseModel):
 
 
 class BulkImportStudentsRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     students: list[StudentImportItem] = Field(..., min_length=1, max_length=200)
     default_password: str = Field(
         default="Student123456",

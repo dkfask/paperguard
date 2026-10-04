@@ -113,6 +113,9 @@ def test_multi_tenant_requires_selector_and_uses_membership_role(records):
 def test_platform_is_explicit_and_cannot_use_header_without_membership(records):
     store,user,_,_ = records
     user = user | {"role":"admin"}
+    assert resolve(store,user).actor_kind == "member"  # role alone is not a platform grant
+    from app.services.saas_identity import approve_platform_role
+    approve_platform_role(store, user["id"], approval_ref="SYNTHETIC-PLATFORM-APPROVAL", approved_by="offline-fixture")
     assert resolve(store,user).actor_kind == "platform"
     with pytest.raises(HTTPException):
         resolve(store,user,expected_tenant="unknown")

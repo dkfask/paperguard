@@ -640,6 +640,20 @@ async def current_user(request: Request, authorization: str | None = Header(defa
         raise HTTPException(status_code=403, detail={
             "code": "ONBOARDING_REQUIRED", "message": "请先完成邮箱验证和首次登录设置",
         })
+    # Shared members (including revoked members) cannot fall through global-role
+    # legacy resource APIs. Genuine unmapped single-instance users retain their
+    # old flow, but Store also hides tenant-bound project rows from that flow.
+    legacy_resources = ("/api/projects", "/api/workflow", "/api/process-records",
+                        "/api/document", "/api/templates", "/api/policies", "/api/specs",
+                        "/api/teacher", "/api/organizations")
+    if request.url.path.startswith(legacy_resources) and (
+        os.environ.get("PAPERGUARD_TENANCY_MODE", "standalone") == "shared"
+        or user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id")
+        or await run_in_threadpool(store.list_memberships_for_user, user["id"])
+    ):
+        raise HTTPException(status_code=403, detail={
+            "code": "LEGACY_TENANT_PATH_DISABLED", "message": "租户成员必须使用已隔离的业务入口",
+        })
     membership = await run_in_threadpool(resolve_membership, store, user)
     explicit_tenant = str(user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id") or "").strip()
     unresolved_ai_identity = (
@@ -661,6 +675,7 @@ async def current_user(request: Request, authorization: str | None = Header(defa
     )
     request.state.context = context
     request.state.actor_id = str(user.get("id") or "")
+    request.state.logging_metadata = {"legacy_role": user.get("role", "")}
     set_request_context(context)
     return user
 

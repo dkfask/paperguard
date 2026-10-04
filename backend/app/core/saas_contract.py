@@ -20,6 +20,7 @@ class Error(ContractModel):
     code: str
     message: str
     request_id: str
+    checks: dict[str, Literal["passed", "blocked", "unverified"]] | None = None
 
 
 class ErrorBody(ContractModel):
@@ -57,6 +58,7 @@ class SaasRoute(APIRoute):
 
         async def wrapped(request: Request):
             request_id = getattr(request.state, "request_id", "")
+            checks = None
             try:
                 return await handler(request)
             except RequestValidationError:
@@ -67,11 +69,15 @@ class SaasRoute(APIRoute):
                 detail = exc.detail if isinstance(exc.detail, dict) else {}
                 code = str(detail.get("code") or "API_REQUEST_REJECTED")
                 message = str(detail.get("message") or "请求无法执行")
+                candidate_checks = detail.get("checks")
+                readiness_keys = {"owner", "organization", "published_template", "member_admission", "entitlements_quotas", "ai_policy", "readiness"}
+                if isinstance(candidate_checks, dict) and set(candidate_checks) <= readiness_keys and all(v in {"passed", "blocked", "unverified"} for v in candidate_checks.values()):
+                    checks = candidate_checks
             except Exception:
                 # Don't expose SQL, paths, provider output or arbitrary exception text.
                 status, code, message = 500, "API_INTERNAL_ERROR", "请求无法完成，请凭请求标识联系管理员"
-            body = ErrorBody(error=Error(code=code, message=message, request_id=request_id))
-            return JSONResponse(status_code=status, content=body.model_dump())
+            body = ErrorBody(error=Error(code=code, message=message, request_id=request_id, checks=checks))
+            return JSONResponse(status_code=status, content=body.model_dump(exclude_none=True))
 
         return wrapped
 

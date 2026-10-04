@@ -70,6 +70,7 @@ GREEN, RED, YELLOW, DIM, CYAN, RESET = (
 #   skip-if-missing  缺输入时应当报 2（工具不可运行），不是 1
 GATES = [
     ("backfill_validate.py", "self-test", "E5 回填校验器自检（7/7 注入捕获）"),
+    ("ownership_preflight.py", "self-test", "只读归属准入行为负例/篡改变异/无副作用合成演练"),
     ("backfill_migrate.py", "self-test", "E5 回填器自检（变异 + 幂等 + 拒绝猜测）"),
     ("tenant_map_candidates.py", "self-test", "Q-01 映射候选/校验自检"),
     ("account_path_check.py", "self-test", "建号路径契约自检（AST 静态分析）"),

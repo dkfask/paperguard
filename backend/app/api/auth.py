@@ -38,6 +38,7 @@ def get_store() -> Store:
 
 
 class RegisterRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     username: str = ""
     password: str
     display_name: str = ""
@@ -182,6 +183,7 @@ def mini_program_bind_endpoint(req: MiniProgramBindRequest,
 
 
 class MiniProgramRegisterRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     bind_ticket: str
 
 

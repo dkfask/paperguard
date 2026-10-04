@@ -99,7 +99,4 @@ def context_for_user(user: dict[str, Any], *, request_id: str = "", membership: 
             auth_version=int(membership.get("auth_version") or 0),
             request_id=request_id, trace_id=request_id,
         )
-    if user.get("role") == "admin":
-        return RequestContext(actor_kind="platform", actor_id=str(user["id"]), role="admin",
-                              capabilities=tuple(effective_capabilities(user)), request_id=request_id, trace_id=request_id)
     return RequestContext(request_id=request_id, trace_id=request_id)
