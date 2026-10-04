@@ -8,7 +8,7 @@
 - **平台运维授权**：`/api/operations/retention` 与 `/api/operations/backup` 仅平台管理员可执行；保留策略变更和备份生成写入审计。
 - **AI 配置边界**：显式未知租户不再借用平台 AI 配置；系统配置仍支持存量 `school_id` 兼容映射，管理员接口只返回所请求授权范围的配置投影。
 - **密钥保护**：新写入使用 AES-GCM AEAD；缺少 `PAPERGUARD_SECRET_KEY`、明文存量凭据或认证标签失败时 fail-closed，不回退其他供应商。依赖和测试契约已同步。
-- **AI 请求账本最小闭环**：新增请求、幂等键、配额 reservation、dispatching、completed、failed_final、unknown 状态，记录输入/输出 token 估算值；相同幂等键只重放已完成结果，unknown 不自动退款或重试。
+- **AI 请求账本最小闭环**：新增请求、幂等键、配额 reservation、dispatching、completed、failed_final、unknown 状态，记录输入/输出 token 估算值；幂等域按 `tenant_id + membership_id + action + Idempotency-Key` 隔离，unknown 不自动退款或重试。
 - **熔断隔离**：熔断键包含 provider/base URL/model 与 API Key 的不可逆摘要，BYOK 凭据不会共享同一熔断状态。
 - **审计追加写**：统一审计表改为严格 `INSERT`；重复事件 ID 失败，不允许覆盖既有事件。重复导出尝试改用尝试序号生成唯一审计事件。
 
@@ -29,7 +29,7 @@
 - **上下文**：中性 `unresolved` 不含 actor/role/tenant/member/capability/scope；member 必须具备真实三元身份与正版本；platform 不带租户或成员。集合做不可变快照，旧 worker 的 system 字段只作为日志元数据，不冒充授权身份。CI-3 support 暂全量拒绝，而非信任任意 grant ID。
 - **可信入口**：8 个 SaaS 操作使用异步 `trusted_context`；S0→S4、E1～E7 分开拒绝；选择头只定位服务端成员；不自动建成员或猜多租户。成员组织范围暂为空，draft 首位所有者启用路径在该来源提交尚未实现，旧 current_user/user-dict 路由仍独立存在。
 - **线协议**：该 SaaS 切片成功响应 `data/meta`，失败响应 `error.code/message/request_id`，三个写操作提供 command；严格 body 模型拒绝伪造身份字段且不回显校验输入；OpenAPI 声明 bearerAuth，CORS 允许选择头。不改变旧前端 API；无消费者的判断来自当前仓库搜索，不替外部集成背书。
-- **请求隔离**：新 AI 请求的 tenant/member 只来自已验证成员；旧 school_id 不假充租户。规范化指纹绑定请求参数、来源和配置摘要；重放先核对 tenant/member/fingerprint。唯一键仍是 `(user_id,idempotency_key)`，跨租户同键是冲突拒绝，不是完整租户域幂等。
+- **请求隔离**：新 AI 请求的 tenant/member 只来自已验证成员；旧 school_id 不假充租户。规范化指纹绑定请求参数、来源、配置摘要和授权版本；重放先重新核对账号、tenant/member、能力、auth_version 与 fingerprint。新唯一域为 `(idempotency_domain,idempotency_scope,action,idempotency_key)`；历史 `(user_id,key)` 行保留为 `historical_legacy`，不猜测回填租户。
 - **未知结果小闭环**：任意派发异常、供应商成功后本地记录失败进入 unknown；限定租户查询/直接 ID 恢复计划不返回正文；普通成员仅看自己的成员请求，ai:read/manage 可看本租户元数据。ai:manage 的 unknown→reconciliation_required CAS 与审计同事务，重复调用不重复写审计，写时复核版本/账号/租户状态。它**不重发、不退款、不最终结算**，不等于供应商最终结果对账。
 - **工具真实修补**：上下文门禁增加 CI-5 与行为变异；资源扫描支持 Annotated 依赖，不能把可信接口错标公开；AC-03 按操作检查错误契约覆盖。保留剩余角色引用与全站契约失败，不改 gate 标记以强行放绿。
 
@@ -98,6 +98,16 @@
 - OpenAI/Anthropic非流式usage保守解析与文本兼容返回，真实transport全部由MockTransport替身；缺失/坏usage为null+unavailable，不把估算/字符改为provider事实，不复制供应商原始payload。
 - request scoped `ai_usage_fact`旁表严格INSERT、completed与审计原子提交；核验当前账号/租户/成员版本，保存失败进入unknown，拒绝重发/退款。metadata API展示独立provider token、质量与复核标记，billable恒false。
 - 成功无usage仍是completed，但需要计量复核；此标记不是实际复核队列/供应商对账。旧记录保持legacy_chars/估算；新事实属于SQLite本地试点，不是PG/RLS/货币账务。
-- 后端1023 passed（新增mock36）；相关6文件96 passed；前端84/20 files及typecheck通过。默认严格门禁/最终本地提交绑定详见 [本轮交付记录](../releases/2026-10-05-pr34-usage-offline.md)。前阶段987用例与38/43是前阶段证据，不冒充本轮strict。
+- 后端1023 passed（新增mock36）；相关6文件96 passed；前端84/20 files及typecheck通过。默认严格门禁/最终本地提交绑定详见 [本轮交付记录](../releases/2026-10-04-pr34-idempotency-offline.md)。前阶段987用例与38/43是前阶段证据，不冒充本轮strict。
 
-尚未实现：租户域幂等（仍user+key全局唯一，跨tenant同key拒绝）、原子额度reservation/真正账务结算、unknown供应商最终结果核对/校正、真实usage账单对照、流式协议、全资源RLS/文件/任务恢复。保持不合并/不部署/不生产DDL/DML/恢复、不真实支付或付费供应商、不真实UAT。
+尚未实现：原子额度reservation/真正账务结算、unknown供应商最终结果核对/校正、真实usage账单对照、流式协议、全资源RLS/文件/任务恢复。保持不合并/不部署/不生产DDL/DML/恢复、不真实支付或付费供应商、不真实UAT。
+
+## 2026-10-04 离线续作：tenant/member 幂等域与并发派发安全
+
+- SQLite 新增 `0014_ai_tenant_idempotency`。`ai_requests` 增加 `idempotency_domain`、`idempotency_scope`、`auth_version`，使用部分唯一索引隔离 `tenant`、`platform`、`legacy` 三类域，并把旧表行标记为 `historical_legacy`。迁移保留旧字段和事实，不根据旧 `tenant_id`、`school_id` 或账号角色猜测新授权域。
+- 新请求通过 `Store.register_ai_request()` 在 `BEGIN IMMEDIATE` 事务中完成查找或登记；同租户、同成员、同操作、同载荷只保留一个持久请求和一次 mock 派发；同 key 不同载荷返回 `IDEMPOTENCY_KEY_REUSED`，不同操作不复用结果；同账号跨租户使用同 key 可分别登记。
+- 重放重新读取当前账号、租户、成员、能力和 `auth_version`。撤权、停用或版本变化返回 `AUTHORIZATION_STALE`；`unknown` / `reconciliation_required` 返回 `AI_RECONCILIATION_REQUIRED`，不自动重发、退款或最终结算。
+- 平台域只接受显式 `platform_role_bindings`，不会把 `user.role=admin` 直接伪造成平台授权。
+- 本切片仍是 SQLite/local mock 证据，不等于 PostgreSQL/RLS、真实收费、最终 reconciliation worker、生产迁移、部署、合并或 UAT。
+
+本轮幂等专项测试：`backend/tests/test_ai_idempotency.py` 8 passed；后端全量 `1031 passed, 2 warnings`；前端 `84 passed / 20 files`，typecheck 通过。严格门禁重新绑定当前源码/文档后为 `43 total / 34 passed / 9 gaps / 0 broken`；9 个 GAP 保持原门禁结论，未通过放宽规则消除。

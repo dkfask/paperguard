@@ -180,14 +180,16 @@ def test_absent_legacy_user_cannot_become_a_usage_fact_owner(scenario,monkeypatc
     assert len(requests)==1
 
 
-def test_same_key_other_tenant_conflicts_without_provider_redispatch(scenario,monkeypatch):
+def test_same_key_other_tenant_isolated_and_dispatches_once_per_domain(scenario,monkeypatch):
     store,user,cfg=scenario;requests=provider_mock(monkeypatch,'openai',{'prompt_tokens':19,'completion_tokens':7})
-    call(scenario)
-    with pytest.raises(HTTPException) as failure:call((store,user|{'tenant_id':'b'},cfg))
-    assert failure.value.status_code==409 and len(requests)==1
-    # Tenant-domain idempotency is still a separate unimplemented next stage.
-    row=store.get_ai_request_by_idempotency('u','fixture')
-    assert store.get_workflow_record(facts.KIND,row['id'])['tenant_id']=='a'
+    assert call(scenario)=="synthetic output"
+    assert call((store,user|{'tenant_id':'b'},cfg))=="synthetic output"
+    assert len(requests)==2
+    rows=store.list_ai_requests()
+    assert {(row['tenant_id'], row['membership_id'], row['action'], row['idempotency_domain']) for row in rows} == {
+        ('a','m-a','polish','tenant'), ('b','m-b','polish','tenant')
+    }
+    assert all(store.get_workflow_record(facts.KIND,row['id'])['billable'] is False for row in rows)
 
 
 def test_old_completed_rows_keep_legacy_estimates_not_invented_provider_tokens(scenario):

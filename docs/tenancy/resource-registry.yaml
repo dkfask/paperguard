@@ -29,9 +29,9 @@
 meta:
   source_sha: 6cf37f902b6ff453611c505c17d1a3b929e3cc29
   branch: fix/ui-review-findings-20260929
-  generated_at: "2026-10-05"
-  store_public_methods: 127        # 实测：ast 解析，排除 _ 前缀
-  store_total_methods: 136         # 实测：含私有方法
+  generated_at: "2026-10-04"
+  store_public_methods: 128        # 实测：ast 解析，排除 _ 前缀
+  store_total_methods: 138         # 实测：含私有方法
   store_construction_points: 18    # 实测：16 × Store() + 1 × Store(db_path)
   store_construction_by_phase:
     request: 15        # Depends(get_store) 12×api/* + auth.py:617 + main.py:178
@@ -101,15 +101,15 @@ tables:
   - resource: ai_requests
     kind: table
     location: backend/app/db.py:260
-    store_methods: [create_ai_request, get_ai_request_by_idempotency, list_ai_requests, update_ai_request, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
+    store_methods: [register_ai_request, create_ai_request, get_ai_request_by_idempotency, list_ai_requests, update_ai_request, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
     external_readers: [auth.py, api/saas.py, api/ai.py, services/saas_identity.py, services/tenant_projects.py]
     background_consumers: []
     sensitivity: document_content
     tenant_derivable: direct
-    tenant_derivable_reason: "新派发的 tenant/member 只取真实成员记录，不以 school_id 兜底；重放指纹绑定租户/成员/操作/配置。新增限定范围元数据查询及 unknown 待复核 CAS；幂等唯一键仍是用户维度，响应正文保留、最终对账与可信 usage 未完成。"
+    tenant_derivable_reason: "新派发的 tenant/member 只取真实成员记录，不以 school_id 兜底；幂等域按 tenant/member、platform、legacy 隔离，重放指纹绑定租户/成员/操作/配置与 auth_version；旧 user+key 行保留为 historical_legacy，不自动回填。新增限定范围元数据查询及 unknown 待复核 CAS；最终对账与可信 usage 账务仍未完成。"
     migration_rule: new_table
     validation_case: AT-17
-    registry_status: registered_gap
+    registry_status: local_mock_only_idempotency_partial
 
   # ═══ 认证与秘密类（sensitivity: auth_secret）══════════════════════════
   - resource: users
@@ -824,8 +824,8 @@ access_surfaces:
               list_system_settings_organizations, list_schema_migrations,
               # ↓ 仅经 delegated-methods 登记（逐表 store_methods 里没有它们）
               get_user_by_identifier, workflow_transaction, retry_job,
-              create_ai_request, create_tenant, ensure_legacy_tenant_membership, get_ai_request_by_idempotency, get_membership, get_membership_for_user, get_tenant, list_ai_requests, list_memberships_for_tenant, list_memberships_for_user, list_tenants, save_membership, update_ai_request, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
-    count: 127
+              register_ai_request, create_ai_request, create_tenant, ensure_legacy_tenant_membership, get_ai_request_by_idempotency, get_membership, get_membership_for_user, get_tenant, list_ai_requests, list_memberships_for_tenant, list_memberships_for_user, list_tenants, save_membership, update_ai_request, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
+    count: 128
     # 与 delegated-methods 的关系（INC-85）：**两个集合允许重叠，不要相加**。
     # 逐表 store_methods 的口径是「这个方法访问哪张表」；
     # delegated-methods 的口径是「这个方法体内不出现任何表名字符串」。
@@ -982,8 +982,8 @@ command_contracts:
       begin_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:487"}
       ai_direct_modules: [backend/app/api/ai.py]
       metered_ai_commands:
-        - {name: test_ai_config,           loc: "backend/app/api/ai.py:722"}
-        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:825"}
+        - {name: test_ai_config,           loc: "backend/app/api/ai.py:789"}
+        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:892"}
         - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:209"}
         - {name: assist_requirement_check, loc: "backend/app/api/projects.py:1345"}
         - {name: parse_spec_candidate,     loc: "backend/app/api/specs.py:64"}

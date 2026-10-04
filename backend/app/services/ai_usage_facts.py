@@ -108,20 +108,39 @@ def complete_request(store, request_id: str, result: str, *, expected_membership
         if not request or request["status"] != "dispatching":
             raise ValueError("current dispatch required")
         user = conn.execute("SELECT status,must_change_password FROM users WHERE id=?", (request["user_id"],)).fetchone()
-        if not user or user["status"] != "active" or (request["membership_id"] and user["must_change_password"]):
+        if not user or user["status"] != "active" or (request["idempotency_domain"] in {"tenant", "platform"} and user["must_change_password"]):
             raise PermissionError("account authorization changed")
         if request["tenant_id"] or request["membership_id"]:
             if not expected_membership:
                 raise PermissionError("member snapshot required")
             member = conn.execute(
-                "SELECT m.auth_version FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id "
+                "SELECT m.auth_version, m.capabilities FROM tenant_memberships m "
+                "JOIN tenants t ON t.id=m.tenant_id "
                 "WHERE m.id=? AND m.tenant_id=? AND m.user_id=? AND m.status='active' AND t.status='active'",
                 (request["membership_id"], request["tenant_id"], request["user_id"]),
             ).fetchone()
-            if not member or expected_membership["id"] != request["membership_id"] or member["auth_version"] != expected_membership["auth_version"]:
+            try:
+                capabilities = json.loads(member["capabilities"] or "[]") if member else []
+            except (TypeError, ValueError):
+                capabilities = []
+            if (
+                not member
+                or expected_membership["id"] != request["membership_id"]
+                or member["auth_version"] != expected_membership["auth_version"]
+                or int(request["auth_version"] or 0) != member["auth_version"]
+                or "tenant:read" not in capabilities
+            ):
                 raise PermissionError("member authorization changed")
         elif expected_membership is not None:
             raise PermissionError("legacy request is not a tenant request")
+        elif request["idempotency_domain"] == "platform":
+            binding = conn.execute(
+                "SELECT auth_version FROM platform_role_bindings "
+                "WHERE user_id=? AND role_code='platform_admin' AND status='active'",
+                (request["user_id"],),
+            ).fetchone()
+            if not binding or int(request["auth_version"] or 0) != int(binding["auth_version"]):
+                raise PermissionError("platform authorization changed")
         fact = {
             "id": request_id, "request_id": request_id, "tenant_id": request["tenant_id"],
             "membership_id": request["membership_id"], "user_id": request["user_id"],

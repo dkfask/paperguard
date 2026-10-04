@@ -139,11 +139,12 @@
 
 | Code | HTTP | 位置 | 实际触发与客户端边界 |
 |---|---|---|---|
+| `AUTHORIZATION_STALE` | 403 | `backend/app/api/ai.py:_metered_chat` | 重放前发现账号、租户、成员、能力或 auth_version 已变化；不得返回旧结果 |
 | `AI_SECRET_UNAVAILABLE` | 503 | `backend/app/api/ai.py:77` | 凭据缺失主密钥或认证解密失败；联系管理员迁移，不回退其他供应商 |
 | `CAPABILITY_REQUIRED` | 403 | `backend/app/api/saas.py:29` | 活动成员能力不足或无有效成员身份；不重试越权操作 |
-| `IDEMPOTENCY_KEY_REUSED` | 409 | `backend/app/api/ai.py:456` | 相同幂等键提交了不同请求；使用新键或核对原请求 |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | `backend/app/api/ai.py:_metered_chat` | 同一幂等域、操作和 key 提交了不同载荷；使用新 key 或核对原请求；跨 tenant/member 域不会互相复用 |
 | `PLATFORM_OPERATION_ADMIN_REQUIRED` | 403 | `backend/app/api/operations.py:63` | 平台级运维要求活动全局管理员，租户角色不授予该权限 |
-| `REQUEST_IN_PROGRESS` | 409 | `backend/app/api/ai.py:461` | 原请求未形成可重放的 completed 结果；unknown 不自动重发或退款 |
+| `REQUEST_IN_PROGRESS` | 409 | `backend/app/api/ai.py:_metered_chat` | 原请求已登记但尚未形成可重放的 completed 结果；并发重复不得再次派发 |
 | `TENANT_CONTEXT_INVALID` | 403 | `backend/app/api/ai.py:123` | 租户未知、停用、成员无效或未选定；禁止 BYOK 和平台配置回退 |
 | `TENANT_CONTEXT_MISSING` | 400 | `backend/app/services/tenant_access.py:87` | 租户作用域参数为空；需补齐经服务端验证的租户身份 |
 | `TENANT_NOT_FOUND` | 404 | `backend/app/api/saas.py:102` | 租户不存在或不可为其新增成员 |

@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import sqlite3
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -400,6 +399,56 @@ def _chat_completion(
     return text
 
 
+def _ai_identity(store: Store, user: dict) -> dict:
+    """Resolve the persisted idempotency domain for this dispatch.
+
+    A client tenant hint selects a persisted membership; it never creates one.
+    Platform scope is available only from an explicit platform binding. An
+    ordinary global/admin user remains in the isolated legacy domain.
+    """
+    from app.services.saas_identity import platform_binding
+    from app.services.tenant_access import effective_capabilities, resolve_membership
+
+    persisted = store.get_user(str(user.get("id") or "")) if user.get("id") else None
+    current = dict(persisted or user)
+    # `tenant_id` is a request-context selector and is intentionally not a
+    # persisted user grant. Preserve it while refreshing account state above.
+    for key in ("tenant_id",):
+        if key in user:
+            current[key] = user[key]
+    membership = resolve_membership(store, current)
+    tenant_hint = current.get("tenant_id") or (current.get("organization_context") or {}).get("tenant_id")
+    if membership is None and (tenant_hint or store.list_memberships_for_user(str(current.get("id") or ""))):
+        raise HTTPException(status_code=403, detail={
+            "code": "TENANT_CONTEXT_INVALID", "message": "租户上下文无效",
+        })
+    if membership is not None:
+        capabilities = effective_capabilities(current, membership)
+        if "tenant:read" not in capabilities:
+            raise HTTPException(status_code=403, detail={
+                "code": "CAPABILITY_REQUIRED", "capability": "tenant:read", "message": "成员能力不足",
+            })
+        tenant_id = str(membership["tenant_id"])
+        membership_id = str(membership["id"])
+        return {
+            "user": current, "domain": "tenant", "scope": f"{tenant_id}:{membership_id}",
+            "tenant_id": tenant_id, "membership_id": membership_id,
+            "auth_version": int(membership.get("auth_version") or 0),
+        }
+
+    binding = platform_binding(store, str(current.get("id") or "")) if current.get("id") else None
+    if binding and current.get("status") == "active" and not current.get("must_change_password"):
+        return {
+            "user": current, "domain": "platform", "scope": str(current["id"]),
+            "tenant_id": None, "membership_id": None,
+            "auth_version": int(binding.get("auth_version") or 0),
+        }
+    return {
+        "user": current, "domain": "legacy", "scope": str(current.get("id") or user.get("id") or ""),
+        "tenant_id": None, "membership_id": None, "auth_version": 0,
+    }
+
+
 def _metered_chat(
     store: Store,
     user: dict,
@@ -412,122 +461,140 @@ def _metered_chat(
     max_tokens: int = _DEFAULT_MAX_TOKENS,
     idempotency_key: str | None = None,
 ) -> str:
-    """真实上游调用的**唯一计量出口**。任何会发往供应商的调用都必须经过这里。
+    """真实上游调用的唯一计量出口，并绑定显式幂等授权域。
 
-    为什么需要这个函数：修复前配额与用量记账内联在 `ai_assist` 一处，
-    而全仓共有 7 个 `_chat_completion` 调用点（两个配置测试、assist、
-    规范导入含重试、需求辅助、规范解析含重试）——其中 5 条路径**完全
-    不计量**，等于给了「绕过额度又无记录」的入口，违反总设计 13.1 节
-    「配置测试也会产生真实上游消耗……不得作为绕过额度的隐藏入口」。
-
-    顺序与理由（与原 `ai_assist` 修复后一致）：
-
-    1. **出口校验先于配额**——被 SSRF 守卫拦下时请求根本没发出去，
-       不应占用用户额度，也就不需要任何退款逻辑；
-    2. `begin_call` 扣每分钟突发与每日配额；
-    3. 上游失败**不退还**额度（可能已产生真实成本），但**必须记**一条
-       `upstream_error` 用量——否则「谁花了多少」会漏掉最贵的那部分。
-
-    重试路径应当**每次派发各调一次**本函数：重试是第二次真实上游请求，
-    应当计两次而非一次。
+    The registration transaction completes before provider dispatch. This is
+    intentional: a concurrent duplicate observes the durable request and can
+    never become a second provider dispatcher. Unknown outcomes remain terminal
+    for automatic retry purposes and require reconciliation.
     """
     assert_safe_outbound_url(cfg["base_url"], label="Base URL")
     input_chars = sum(len(str(m.get("content", ""))) for m in messages)
     model = str(cfg.get("model", ""))
     base_url = str(cfg.get("base_url", ""))
-    from app.services.tenant_access import resolve_membership
-
-    membership = resolve_membership(store, user)
-    tenant_hint = user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id")
-    if membership is None and (tenant_hint or store.list_memberships_for_user(user["id"])):
-        raise HTTPException(status_code=403, detail={"code": "TENANT_CONTEXT_INVALID", "message": "租户上下文无效"})
-    tenant_id = membership["tenant_id"] if membership else None
-    membership_id = membership["id"] if membership else None
+    identity = _ai_identity(store, user)
+    current_user = identity["user"]
+    tenant_id = identity["tenant_id"]
+    membership_id = identity["membership_id"]
+    auth_version = identity["auth_version"]
+    key = idempotency_key.strip() if idempotency_key and idempotency_key.strip() else None
     fingerprint = {
         "action": action, "tenant_id": tenant_id, "membership_id": membership_id,
-        "model": model, "base_url": base_url, "messages": messages,
-        "temperature": temperature, "max_tokens": max_tokens, "source": source,
+        "idempotency_domain": identity["domain"], "idempotency_scope": identity["scope"],
+        "auth_version": auth_version, "model": model, "base_url": base_url,
+        "messages": messages, "temperature": temperature, "max_tokens": max_tokens,
+        "source": source,
         "credential_digest": hashlib.sha256(str(cfg.get("api_key") or "").encode()).hexdigest(),
     }
-    request_hash = hashlib.sha256(json.dumps(fingerprint, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+    request_hash = hashlib.sha256(json.dumps(
+        fingerprint, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode()).hexdigest()
 
     def replay_existing(row: dict) -> str:
-        if row["tenant_id"] != tenant_id or row["membership_id"] != membership_id or row["request_hash"] != request_hash:
-            raise HTTPException(status_code=409, detail={"code": "IDEMPOTENCY_KEY_REUSED", "message": "幂等键已用于另一份请求或授权范围"})
+        # Re-check current authorization before returning a stored result. The
+        # caller's original tenant/member/version is never trusted on replay.
+        latest_user = store.get_user(str(user.get("id") or "")) if user.get("id") else None
+        if latest_user and (latest_user.get("status") != "active" or latest_user.get("must_change_password")):
+            raise HTTPException(status_code=403, detail={
+                "code": "AUTHORIZATION_STALE", "message": "账号授权状态已变化，请重新解析授权",
+            })
+        latest = _ai_identity(store, user)
+        if (
+            row.get("idempotency_domain") != latest["domain"]
+            or row.get("idempotency_scope") != latest["scope"]
+            or row.get("action") != action
+            or row.get("tenant_id") != latest["tenant_id"]
+            or row.get("membership_id") != latest["membership_id"]
+            or int(row.get("auth_version") or 0) != int(latest["auth_version"])
+            or row.get("request_hash") != request_hash
+        ):
+            if int(row.get("auth_version") or 0) != int(latest["auth_version"]):
+                raise HTTPException(status_code=403, detail={
+                    "code": "AUTHORIZATION_STALE", "message": "成员授权或版本已变化，请重新解析授权",
+                })
+            raise HTTPException(status_code=409, detail={
+                "code": "IDEMPOTENCY_KEY_REUSED", "message": "幂等键已用于另一份请求或授权范围",
+            })
         if row.get("status") == "completed":
             return str(row.get("response_text") or "")
         if row.get("status") in {"unknown", "reconciliation_required"}:
-            raise HTTPException(status_code=409, detail={"code": "AI_RECONCILIATION_REQUIRED", "message": "上游结果未知，需要人工复核，不可重发"})
-        raise HTTPException(status_code=409, detail={"code": "REQUEST_IN_PROGRESS", "message": "相同幂等请求不能再次派发"})
+            raise HTTPException(status_code=409, detail={
+                "code": "AI_RECONCILIATION_REQUIRED", "message": "上游结果未知，需要人工复核，不可重发",
+            })
+        raise HTTPException(status_code=409, detail={
+            "code": "REQUEST_IN_PROGRESS", "message": "相同幂等请求不能再次派发",
+        })
 
-    request_row = None
-    if idempotency_key:
-        request_row = store.get_ai_request_by_idempotency(user["id"], idempotency_key.strip())
-        if request_row:
-            return replay_existing(request_row)
-    request_id = new_id("aireq")
     request_payload = {
-        "id": request_id, "idempotency_key": idempotency_key.strip() if idempotency_key else None,
-        "request_hash": request_hash, "user_id": user["id"],
-        "tenant_id": tenant_id,
-        "membership_id": membership_id, "action": action,
+        "id": new_id("aireq"), "idempotency_key": key, "request_hash": request_hash,
+        "user_id": str(current_user.get("id") or user.get("id") or ""),
+        "tenant_id": tenant_id, "membership_id": membership_id, "action": action,
+        "idempotency_domain": identity["domain"], "idempotency_scope": identity["scope"],
+        "auth_version": auth_version,
         "provider": urlsplit(base_url).hostname or "", "base_url_host": urlsplit(base_url).hostname or "",
         "model": model, "status": "reserved", "reservation_status": "reserved",
     }
+    request_row, created = store.register_ai_request(request_payload)
+    if not created:
+        return replay_existing(request_row)
+    request_id = request_row["id"]
     try:
-        request_row = store.create_ai_request(request_payload)
-    except sqlite3.IntegrityError:
-        # A concurrent request may win the unique idempotency insert.  Re-read
-        # the authoritative row rather than dispatching twice.
-        existing = store.get_ai_request_by_idempotency(user["id"], idempotency_key.strip() if idempotency_key else "")
-        if not existing:
-            raise
-        return replay_existing(existing)
-    try:
-        ai_governance.begin_call(store, user)
+        ai_governance.begin_call(store, current_user)
     except HTTPException as exc:
-        store.update_ai_request(request_id, status="failed_final", reservation_status="released", error_code=str((exc.detail or {}).get("code") if isinstance(exc.detail, dict) else "QUOTA_REJECTED"))
+        store.update_ai_request(
+            request_id, status="failed_final", reservation_status="released",
+            error_code=str((exc.detail or {}).get("code") if isinstance(exc.detail, dict) else "QUOTA_REJECTED"),
+        )
         raise
     store.update_ai_request(request_id, status="dispatching", reservation_status="consumed")
     input_tokens = max(1, input_chars // 4) if input_chars else 0
     try:
-        # 调用形状兼容性：`_chat_completion` 在测试与可能的外部包装里被大量
-        # 替换成替身，两类形状都存在——
-        #   1. 恰好 3 个位置参数、不带 **kwargs：`lambda cfg, messages, temperature`
-        #   2. 3 个位置参数 + **kwargs：`def f(cfg, messages, temperature, **kw)`
-        # 所以：默认值时**完全不传** max_tokens（兼容第 1 类）；非默认值时
-        # 以**关键字**传入（关键字能被第 2 类的 **kwargs 吸收，作为第 4 个
-        # 位置参数则会让第 2 类直接 TypeError）。
         if max_tokens == _DEFAULT_MAX_TOKENS:
             result = _chat_completion(cfg, messages, temperature)
         else:
             result = _chat_completion(cfg, messages, temperature, max_tokens=max_tokens)
     except HTTPException as exc:
         unknown = exc.status_code in {502, 504}
-        # Preserve outcome BEFORE ancillary usage logging can fail.
         store.update_ai_request(
             request_id, status="unknown" if unknown else "failed_final",
             reservation_status="unknown" if unknown else "consumed",
             error_code=str((exc.detail or {}).get("code") if isinstance(exc.detail, dict) else exc.status_code),
             input_tokens=input_tokens, output_tokens=0,
         )
-        ai_governance.record_usage(store, user, action=action, source=source, model=model,
-            base_url=base_url, input_chars=input_chars, output_chars=0, result="upstream_error")
+        ai_governance.record_usage(
+            store, current_user, action=action, source=source, model=model,
+            base_url=base_url, input_chars=input_chars, output_chars=0, result="upstream_error",
+        )
         raise
     except Exception:
-        store.update_ai_request(request_id, status="unknown", reservation_status="unknown", error_code="AI_RESULT_UNKNOWN", input_tokens=input_tokens)
-        raise HTTPException(status_code=502, detail={"code": "AI_RESULT_UNKNOWN", "message": "上游结果无法确认，请勿重发，需人工复核"}) from None
+        store.update_ai_request(
+            request_id, status="unknown", reservation_status="unknown",
+            error_code="AI_RESULT_UNKNOWN", input_tokens=input_tokens,
+        )
+        raise HTTPException(status_code=502, detail={
+            "code": "AI_RESULT_UNKNOWN", "message": "上游结果无法确认，请勿重发，需人工复核",
+        }) from None
     output_tokens = 0
     try:
         output_tokens = max(1, len(result) // 4) if result else 0
-        ai_governance.record_usage(store, user, action=action, source=source, model=model,
-            base_url=base_url, input_chars=input_chars, output_chars=len(result), result="success")
-        ai_usage_facts.complete_request(store, request_id, result, expected_membership=membership,
-            input_estimate=input_tokens, output_estimate=output_tokens)
+        ai_governance.record_usage(
+            store, current_user, action=action, source=source, model=model,
+            base_url=base_url, input_chars=input_chars, output_chars=len(result), result="success",
+        )
+        ai_usage_facts.complete_request(
+            store, request_id, result, expected_membership=identity["membership_id"] and {
+                "id": identity["membership_id"], "auth_version": identity["auth_version"],
+            } or None,
+            input_estimate=input_tokens, output_estimate=output_tokens,
+        )
     except Exception:
-        # Supplier completed, but local recording failed: never auto retry/refund.
-        store.update_ai_request(request_id, status="unknown", reservation_status="unknown", error_code="AI_RESULT_UNKNOWN", input_tokens=input_tokens, output_tokens=output_tokens)
-        raise HTTPException(status_code=502, detail={"code": "AI_RESULT_UNKNOWN", "message": "结果记录未完成，请勿重发，需人工复核"}) from None
+        store.update_ai_request(
+            request_id, status="unknown", reservation_status="unknown", error_code="AI_RESULT_UNKNOWN",
+            input_tokens=input_tokens, output_tokens=output_tokens,
+        )
+        raise HTTPException(status_code=502, detail={
+            "code": "AI_RESULT_UNKNOWN", "message": "结果记录未完成，请勿重发，需人工复核",
+        }) from None
     return result
 
 

@@ -111,7 +111,7 @@ def test_migrate_cli_is_repeatable_and_reports_schema_ledger(tmp_path, monkeypat
         "0007_document_scope_indexes", "0008_miniprogram_auth", "0009_ai_usage_quota",
         "0010_tenant_system_settings", "0011_runtime_tenancy",
         "0012_ai_request_ledger",
-        "0013_saas_approval_pilot",
+        "0013_saas_approval_pilot", "0014_ai_tenant_idempotency",
     ]
     assert [item["version"] for item in first_payload["migrations"]] == [
         item["version"] for item in second_payload["migrations"]
@@ -132,7 +132,7 @@ def test_migrate_package_entrypoint_executes_the_cli(tmp_path):
     assert result.returncode == 0, result.stderr or result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
-    assert payload["migrations"][-1]["version"] == "0013_saas_approval_pilot"
+    assert payload["migrations"][-1]["version"] == "0014_ai_tenant_idempotency"
 
 
 def test_operations_api_configures_retention_and_downloads_backup(tmp_path, monkeypatch):

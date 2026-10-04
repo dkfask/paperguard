@@ -69,6 +69,7 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
   本地 `.env` 已被 gitignore；显式环境变量优先。生产凭据由受控环境注入，
   不在报告、日志或页面中回传明文。
 
+- **离线幂等切片（SQLite/local mock）**：AI 请求按 `tenant/member + action + Idempotency-Key` 隔离；同域同载荷只派发一次，unknown 不自动重发。历史 `(user_id,key)` 记录不自动回填租户；这不是收费、生产迁移或最终对账能力。
 - **用户自带模型（BYOK）**：仅本账号生效。保存、清除、管理员修改均记录审计元数据；
   密钥和论文正文不进入审计。系统已有密钥时，管理员保存配置可留空 API Key 以保留原值。
 - **邮件验证**：配置 Resend 的 `PAPERGUARD_RESEND_API_KEY` / `PAPERGUARD_RESEND_FROM`，

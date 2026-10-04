@@ -32,11 +32,12 @@ def call(scenario,tenant="a",messages=None,**kwargs):
 def test_replay_is_canonical_but_binds_tenant_membership_and_settings(scenario):
     assert call(scenario)=="response"
     assert call(scenario,messages=[{"content":"same","role":"user"}])=="response"
-    for options in [{"tenant":"b"},{"temperature":0.8},{"max_tokens":100}]:
+    assert call(scenario,tenant="b")=="response"
+    for options in [{"temperature":0.8},{"max_tokens":100}]:
         with pytest.raises(HTTPException) as exc:
             call(scenario,**options)
         assert exc.value.status_code==409
-    assert scenario[3]==[1]
+    assert scenario[3]==[1,1]
 
 
 def test_invalid_tenant_is_denied_before_dispatch(scenario):

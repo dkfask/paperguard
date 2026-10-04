@@ -9,6 +9,10 @@
 
 来源 `d87679896285a5b61302a98181f03621adffb38d`：AST 路由 222、写操作 132。新增 AI 请求 unknown 待复核命令用状态 CAS + 同事务追加审计，重复成功为无副作用重放，非供应商派发/最终结算命令。SaaS 三个写操作已带 `meta.command`；其余全站 command 契约债未偿还。下文 2026-10-01 的数字保留为历史取证，不作为当前计数；当前全量以资源登记表和工具实跑为准。
 
+## 2026-10-04 W-08 当前实现注记
+
+AI 派发出口已经不再使用全局 `(user_id, idempotency_key)` 作为新请求的唯一域。SQLite `0014_ai_tenant_idempotency` 使用 `(idempotency_domain, idempotency_scope, action, idempotency_key)` 部分唯一索引，并由 `register_ai_request()` 在 `BEGIN IMMEDIATE` 中完成登记。历史行保持 `historical_legacy`，不猜测租户；本注记只覆盖 AI mock 派发切片，不改变下文对全站写操作债务的历史盘点，也不表示真实收费或最终对账已完成。
+
 ## 0. 结论摘要
 
 全量 **129 条写操作**（POST/PUT/PATCH/DELETE）的契约现状：

@@ -40,6 +40,7 @@ SCHEMA_MIGRATIONS = (
     "0011_runtime_tenancy",
     "0012_ai_request_ledger",
     "0013_saas_approval_pilot",
+    "0014_ai_tenant_idempotency",
 )
 
 
@@ -265,6 +266,9 @@ class Store:
                     tenant_id TEXT,
                     membership_id TEXT,
                     action TEXT NOT NULL,
+                    idempotency_domain TEXT NOT NULL DEFAULT 'historical_legacy',
+                    idempotency_scope TEXT,
+                    auth_version INTEGER NOT NULL DEFAULT 0,
                     provider TEXT NOT NULL DEFAULT '',
                     base_url_host TEXT,
                     model TEXT NOT NULL DEFAULT '',
@@ -275,9 +279,11 @@ class Store:
                     input_tokens INTEGER NOT NULL DEFAULT 0,
                     output_tokens INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE (user_id, idempotency_key)
+                    updated_at TEXT NOT NULL
                 );
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_requests_idempotency_domain
+                    ON ai_requests (idempotency_domain, idempotency_scope, action, idempotency_key)
+                    WHERE idempotency_key IS NOT NULL AND idempotency_key != '';
                 CREATE INDEX IF NOT EXISTS idx_ai_requests_tenant_status
                     ON ai_requests (tenant_id, status, created_at DESC);
                 -- 每用户每日配额计数。period 用 UTC 日期，避免跨时区当天额度错乱。
@@ -513,6 +519,12 @@ class Store:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status, id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memberships_capability ON tenant_memberships(tenant_id, status)")
 
+            # 0014: widen AI idempotency from the historical (user, key)
+            # tuple to an explicit authorization domain. Existing rows are
+            # preserved as historical facts and are never guessed into a
+            # tenant/member scope.
+            self._migrate_ai_request_idempotency(conn)
+
             settings_columns = {row[1] for row in conn.execute("PRAGMA table_info(system_settings)")}
             if "organization_id" not in settings_columns:
                 conn.execute("ALTER TABLE system_settings RENAME TO system_settings_legacy")
@@ -535,6 +547,97 @@ class Store:
                     "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                     (version, _now()),
                 )
+
+    def _migrate_ai_request_idempotency(self, conn: sqlite3.Connection) -> None:
+        # A prior interrupted/fixture rebuild can leave named indexes attached
+        # to a renamed table. Remove only those stale names so the new table
+        # receives the intended indexes below; data rows remain untouched.
+        for index_name in (
+            "uq_ai_requests_idempotency_domain",
+            "idx_ai_requests_tenant_status",
+            "idx_ai_requests_idempotency_lookup",
+        ):
+            index = conn.execute(
+                "SELECT tbl_name FROM sqlite_master WHERE type='index' AND name=?",
+                (index_name,),
+            ).fetchone()
+            if index and index[0] != "ai_requests":
+                conn.execute(f"DROP INDEX IF EXISTS {index_name}")
+
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(ai_requests)")}
+        table = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='ai_requests'"
+        ).fetchone()
+        table_sql = str(table[0] or "") if table else ""
+        needs_rebuild = (
+            not {"idempotency_domain", "idempotency_scope", "auth_version"}.issubset(columns)
+            or "UNIQUE (user_id, idempotency_key)" in table_sql
+        )
+        if needs_rebuild:
+            conn.execute("ALTER TABLE ai_requests RENAME TO ai_requests_legacy_0014")
+            conn.execute(
+                """CREATE TABLE ai_requests (
+                    id TEXT PRIMARY KEY,
+                    idempotency_key TEXT,
+                    request_hash TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    tenant_id TEXT,
+                    membership_id TEXT,
+                    action TEXT NOT NULL,
+                    idempotency_domain TEXT NOT NULL DEFAULT 'historical_legacy',
+                    idempotency_scope TEXT,
+                    auth_version INTEGER NOT NULL DEFAULT 0,
+                    provider TEXT NOT NULL DEFAULT '',
+                    base_url_host TEXT,
+                    model TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    reservation_status TEXT NOT NULL DEFAULT 'reserved',
+                    response_text TEXT,
+                    error_code TEXT,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )"""
+            )
+            old_columns = {row[1] for row in conn.execute("PRAGMA table_info(ai_requests_legacy_0014)")}
+            required = {
+                "id", "idempotency_key", "request_hash", "user_id", "tenant_id",
+                "membership_id", "action", "provider", "base_url_host", "model",
+                "status", "reservation_status", "response_text", "error_code",
+                "input_tokens", "output_tokens", "created_at", "updated_at",
+            }
+            if not required.issubset(old_columns):
+                raise RuntimeError("ai_requests legacy schema is incomplete")
+            conn.execute(
+                """INSERT INTO ai_requests (
+                    id, idempotency_key, request_hash, user_id, tenant_id,
+                    membership_id, action, idempotency_domain, idempotency_scope,
+                    auth_version, provider, base_url_host, model, status,
+                    reservation_status, response_text, error_code, input_tokens,
+                    output_tokens, created_at, updated_at
+                )
+                SELECT id, idempotency_key, request_hash, user_id, tenant_id,
+                       membership_id, action, 'historical_legacy',
+                       'historical:' || user_id, 0, provider, base_url_host, model,
+                       status, reservation_status, response_text, error_code,
+                       input_tokens, output_tokens, created_at, updated_at
+                  FROM ai_requests_legacy_0014"""
+            )
+            conn.execute("DROP TABLE ai_requests_legacy_0014")
+        conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_requests_idempotency_domain
+               ON ai_requests (idempotency_domain, idempotency_scope, action, idempotency_key)
+             WHERE idempotency_key IS NOT NULL AND idempotency_key != ''"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_requests_tenant_status "
+            "ON ai_requests (tenant_id, status, created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_requests_idempotency_lookup "
+            "ON ai_requests (idempotency_domain, idempotency_scope, action, idempotency_key)"
+        )
 
     # ------------------------------ users --------------------------------
 
@@ -1127,38 +1230,84 @@ class Store:
 
     # ----------------------- AI request ledger -----------------------
 
-    def get_ai_request_by_idempotency(self, user_id: str, idempotency_key: str) -> dict | None:
+    def get_ai_request_by_idempotency(
+        self, user_id: str, idempotency_key: str, *,
+        idempotency_domain: str | None = None, idempotency_scope: str | None = None,
+        action: str | None = None, include_historical: bool = True,
+    ) -> dict | None:
+        """Read one request without treating legacy rows as tenant evidence.
+
+        The two-argument form is retained for old operational callers/tests, but
+        new dispatch code must provide the explicit domain/scope/action tuple.
+        """
         if not idempotency_key:
             return None
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM ai_requests WHERE user_id = ? AND idempotency_key = ?",
-                (user_id, idempotency_key),
-            ).fetchone()
+            if idempotency_domain is not None and idempotency_scope is not None and action is not None:
+                row = conn.execute(
+                    "SELECT * FROM ai_requests WHERE idempotency_domain=? AND idempotency_scope=? "
+                    "AND action=? AND idempotency_key=?",
+                    (idempotency_domain, idempotency_scope, action, idempotency_key),
+                ).fetchone()
+            else:
+                sql = "SELECT * FROM ai_requests WHERE user_id=? AND idempotency_key=?"
+                params: list[object] = [user_id, idempotency_key]
+                if not include_historical:
+                    sql += " AND idempotency_domain != 'historical_legacy'"
+                sql += " ORDER BY created_at DESC, id DESC LIMIT 1"
+                row = conn.execute(sql, params).fetchone()
         return dict(row) if row else None
 
-    def create_ai_request(self, entry: dict) -> dict:
+    def register_ai_request(self, entry: dict) -> tuple[dict, bool]:
+        """Atomically find-or-register one dispatch request.
+
+        BEGIN IMMEDIATE plus the scoped partial unique index means concurrent
+        callers cannot both become dispatchers. Historical rows are deliberately
+        outside the new domain and do not block a tenant request.
+        """
         now = entry.get("created_at") or _now()
         payload = {
             "id": entry["id"], "idempotency_key": entry.get("idempotency_key") or None,
             "request_hash": entry["request_hash"], "user_id": entry["user_id"],
             "tenant_id": entry.get("tenant_id"), "membership_id": entry.get("membership_id"),
-            "action": entry["action"], "provider": entry.get("provider", ""),
-            "base_url_host": entry.get("base_url_host"), "model": entry.get("model", ""),
-            "status": entry.get("status", "reserved"),
+            "action": entry["action"],
+            "idempotency_domain": entry.get("idempotency_domain", "legacy"),
+            "idempotency_scope": entry.get("idempotency_scope") or entry["user_id"],
+            "auth_version": int(entry.get("auth_version") or 0),
+            "provider": entry.get("provider", ""), "base_url_host": entry.get("base_url_host"),
+            "model": entry.get("model", ""), "status": entry.get("status", "reserved"),
             "reservation_status": entry.get("reservation_status", "reserved"),
             "response_text": entry.get("response_text"), "error_code": entry.get("error_code"),
             "input_tokens": int(entry.get("input_tokens") or 0),
             "output_tokens": int(entry.get("output_tokens") or 0),
             "created_at": now, "updated_at": entry.get("updated_at") or now,
         }
-        with self._connect() as conn:
+        with self.workflow_transaction() as conn:
+            key = payload["idempotency_key"]
+            if key:
+                existing = conn.execute(
+                    "SELECT * FROM ai_requests WHERE idempotency_domain=? AND idempotency_scope=? "
+                    "AND action=? AND idempotency_key=?",
+                    (payload["idempotency_domain"], payload["idempotency_scope"], payload["action"], key),
+                ).fetchone()
+                if existing:
+                    return dict(existing), False
             conn.execute(
-                "INSERT INTO ai_requests (id, idempotency_key, request_hash, user_id, tenant_id, membership_id, action, provider, base_url_host, model, status, reservation_status, response_text, error_code, input_tokens, output_tokens, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO ai_requests (id, idempotency_key, request_hash, user_id, tenant_id, membership_id, action, "
+                "idempotency_domain, idempotency_scope, auth_version, provider, base_url_host, model, status, "
+                "reservation_status, response_text, error_code, input_tokens, output_tokens, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 tuple(payload.values()),
             )
-        return payload
+            return payload, True
+
+    def create_ai_request(self, entry: dict) -> dict:
+        """Compatibility insert for fixtures and offline migration tools."""
+        payload = dict(entry)
+        if payload.get("idempotency_key") and "idempotency_domain" not in payload:
+            payload["idempotency_domain"] = "legacy"
+            payload["idempotency_scope"] = payload.get("user_id")
+        return self.register_ai_request(payload)[0]
 
     def update_ai_request(self, request_id: str, **changes: object) -> None:
         allowed = {

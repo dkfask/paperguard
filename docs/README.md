@@ -28,4 +28,4 @@
 
 - [历史归属准入与写作pilot交付记录（2026-10-04）](./releases/2026-10-04-pr34-ownership-pilot.md)：源码/离线验证/真实差距/推送/原生CI分别记录，不表示共享SaaS启用。
 
-- [2026-10-05 离线usage/mock计量切片](./releases/2026-10-05-pr34-usage-offline.md)：一次普通push失败后停止网络，provider token事实与估算分离；不是收费、生产部署或供应商UAT。
+- [2026-10-04 离线 AI usage 与 tenant/member 幂等切片](./releases/2026-10-04-pr34-idempotency-offline.md)：SQLite/local mock 完成 provider token 事实与估算分离、租户域幂等和并发派发保护；不是收费、生产部署或供应商 UAT。
