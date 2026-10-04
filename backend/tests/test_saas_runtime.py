@@ -87,7 +87,10 @@ def test_ai_idempotency_replays_completed_result(monkeypatch):
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json() == {"text": "same result"}
     assert len(calls) == 1
-    assert Store().list_ai_requests()[-1]["status"] == "completed"
+    request = Store().get_ai_request_by_idempotency(
+        Store().get_user_by_username(username)["id"], "idem-1"
+    )
+    assert request and request["status"] == "completed"
 
 
 def test_audit_ledger_is_append_only():
