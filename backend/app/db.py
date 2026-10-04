@@ -1183,6 +1183,66 @@ class Store:
                 ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_scoped_ai_request(self, request_id: str, *, tenant_id: str, user_id: str | None, membership_id: str | None) -> dict | None:
+        if not tenant_id:
+            raise ValueError("tenant scope required")
+        sql = "SELECT * FROM ai_requests WHERE id=? AND tenant_id=? AND membership_id IS NOT NULL"
+        params = [request_id, tenant_id]
+        if user_id is not None:
+            sql += " AND user_id=? AND membership_id=?"
+            params.extend([user_id, membership_id])
+        with self._connect() as conn:
+            row = conn.execute(sql, params).fetchone()
+        return dict(row) if row else None
+
+    def list_scoped_ai_requests(self, *, tenant_id: str, user_id: str | None, membership_id: str | None, limit: int = 100) -> list[dict]:
+        if not tenant_id:
+            raise ValueError("tenant scope required")
+        sql = "SELECT * FROM ai_requests WHERE tenant_id=? AND membership_id IS NOT NULL"
+        params = [tenant_id]
+        if user_id is not None:
+            sql += " AND user_id=? AND membership_id=?"
+            params.extend([user_id, membership_id])
+        sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        params.append(max(1, min(limit, 100)))
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_ai_reconciliation(self, request_id: str, *, tenant_id: str, actor_id: str, membership_id: str, auth_version: int, request_correlation_id: str):
+        """CAS unknown -> reconciliation_required + append audit in ONE transaction.
+
+        No refund, dispatch, response text change or final supplier assertion.
+        Audit tenant identity is metadata, NOT the legacy organization_id.
+        """
+        if not tenant_id or not actor_id or not membership_id or auth_version < 1:
+            raise ValueError("resolved member identity required")
+        with self.workflow_transaction() as conn:
+            current = conn.execute(
+                "SELECT m.id FROM tenant_memberships m JOIN users u ON u.id=m.user_id JOIN tenants t ON t.id=m.tenant_id "
+                "WHERE m.id=? AND m.tenant_id=? AND m.user_id=? AND m.auth_version=? "
+                "AND m.status='active' AND u.status='active' AND u.must_change_password=0 AND t.status='active'",
+                (membership_id, tenant_id, actor_id, auth_version),
+            ).fetchone()
+            if current is None:
+                raise PermissionError("authorization snapshot is stale")
+            row = conn.execute("SELECT * FROM ai_requests WHERE id=? AND tenant_id=? AND membership_id IS NOT NULL", (request_id, tenant_id)).fetchone()
+            if row is None:
+                return None
+            row = dict(row)
+            if row["status"] != "unknown":
+                return row, row["status"] == "reconciliation_required"
+            changed = conn.execute("UPDATE ai_requests SET status='reconciliation_required', updated_at=? WHERE id=? AND tenant_id=? AND status='unknown'", (_now(), request_id, tenant_id))
+            if changed.rowcount != 1:
+                raise RuntimeError("AI reconciliation compare-and-swap failed")
+            self.save_audit_event_conn(conn, {
+                "actor_id": actor_id, "action": "ai.request_reconciliation", "resource_type": "ai_request", "resource_id": request_id,
+                "request_id": request_correlation_id, "reason": json.dumps({"tenant_id": tenant_id, "membership_id": membership_id,
+                    "auth_version": auth_version, "before": "unknown", "after": "reconciliation_required", "reason_code": "unknown_external_result"}, sort_keys=True),
+            })
+            updated = conn.execute("SELECT * FROM ai_requests WHERE id=? AND tenant_id=?", (request_id, tenant_id)).fetchone()
+            return dict(updated), False
+
     # ----------------------- system settings -----------------------
 
     def get_system_setting(self, key: str, organization_id: str = "") -> str | None:

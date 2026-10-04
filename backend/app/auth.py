@@ -16,7 +16,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
 from app.core.context import context_for_user, set_request_context
@@ -659,7 +660,7 @@ async def current_user(request: Request, authorization: str | None = Header(defa
         user, request_id=getattr(request.state, "request_id", ""), membership=membership
     )
     request.state.context = context
-    request.state.actor_id = context.actor_id
+    request.state.actor_id = str(user.get("id") or "")
     set_request_context(context)
     return user
 
@@ -695,3 +696,33 @@ def can_manage(user: dict) -> bool:
     if user["role"] in ("teacher", "college_admin") and user.get("status") == "active":
         return True
     return False
+
+
+_saas_bearer = HTTPBearer(auto_error=False, scheme_name="bearerAuth")
+
+
+async def trusted_context(
+    request: Request, credentials: HTTPAuthorizationCredentials | None = Security(_saas_bearer),
+    expected_tenant: str | None = Header(default=None, alias="X-Expected-Tenant"),
+    store: Store = Depends(get_store),
+):
+    """Shared-SaaS boundary; does not reuse permissive legacy user/role guards."""
+    from app.services.tenant_access import resolve_request_context
+
+    user = None
+    if credentials is not None:
+        token = credentials.credentials.strip()
+        user = await run_in_threadpool(
+            store.get_session_user, _token_hash(token), _now(),
+            refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS),
+        )
+    context = await run_in_threadpool(
+        resolve_request_context, store, user, request_id=getattr(request.state, "request_id", ""),
+        expected_tenant=expected_tenant,
+    )
+    if user is not None and onboarding_required(user):
+        raise HTTPException(status_code=403, detail={"code": "AUTH_ACCOUNT_BLOCKED", "message": "请先完成账号设置"})
+    request.state.context = context
+    request.state.actor_id = context.actor_id
+    set_request_context(context)
+    return context

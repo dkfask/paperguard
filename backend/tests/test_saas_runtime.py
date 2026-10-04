@@ -59,7 +59,7 @@ def test_saas_context_contains_server_resolved_membership():
     # Existing session reads the same user row and membership on every request.
     response = client.get("/api/saas/v1/context", headers=headers)
     assert response.status_code == 200, response.text
-    context = response.json()["context"]
+    context = response.json()["data"]["context"]
     assert context["tenant_id"] == tenant["id"]
     assert context["membership_id"]
     assert "tenant:read" in context["capabilities"]

@@ -143,20 +143,22 @@ def test_context_propagates_and_does_not_leak(identity, monkeypatch, path):
                              "membership": member["id"], "caps": ["tenant:read"],
                              "request_id": result.headers["X-Request-ID"]}
     anonymous = client.get("/anonymous")
-    assert anonymous.json()["actor"] == anonymous.json()["tenant"] == ""
+    assert anonymous.json()["actor"] == ""
+    assert anonymous.json()["tenant"] is None
     assert anonymous.headers["X-Request-ID"] != result.headers["X-Request-ID"]
 
 
 def test_unverified_context_hints_do_not_become_authorization_evidence():
     context = context_for_user({"id": "u", "tenant_id": "unverified", "membership_id": "unverified",
                                 "capabilities": ["tenant:manage"], "organization_context": {"tenant_id": "unverified"}})
-    assert context.tenant_id == context.membership_id == ""
+    assert context.tenant_id is context.membership_id is None
     assert context.capabilities == ()
 
 
 def test_membership_empty_caps_cannot_inherit_user_caps():
-    context = context_for_user({"id": "u", "capabilities": ["backup:global"]},
-                               membership={"id": "m", "tenant_id": "t", "role": "teacher", "capabilities": []})
+    context = context_for_user({"id": "u", "status": "active", "capabilities": ["backup:global"]},
+                               membership={"id": "m", "tenant_id": "t", "user_id": "u", "status": "active", "auth_version": 1, "role": "teacher", "capabilities": []})
+    assert context.actor_kind == "member"
     assert context.capabilities == ()
 
 
@@ -206,7 +208,7 @@ def test_existing_session_sees_revocation(identity, monkeypatch):
     member = _membership(store, user, tenant)
     user["organization_context"]["tenant_id"] = tenant["id"]
     client = _client(store, user, monkeypatch)
-    assert client.get("/api/saas/v1/context", headers=HEADERS).json()["context"]["membership_id"] == member["id"]
+    assert client.get("/api/saas/v1/context", headers=HEADERS).json()["data"]["context"]["membership_id"] == member["id"]
     store.save_membership(member | {"status": "revoked"})
     assert client.get("/api/saas/v1/context", headers=HEADERS).status_code == 403
 
@@ -258,8 +260,8 @@ def test_tenant_list_respects_account_status_and_explicit_empty_grants(identity,
     if inactive:
         user["status"] = "suspended"
     response = _client(store, user, monkeypatch).get("/api/saas/v1/tenants", headers=HEADERS)
-    assert response.status_code == 200
-    assert response.json() == []
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == ("AUTH_ACCOUNT_BLOCKED" if inactive else "TENANT_SCOPE_FORBIDDEN")
 
 
 @pytest.mark.parametrize("state", ["revoked", "suspended", "ambiguous"])

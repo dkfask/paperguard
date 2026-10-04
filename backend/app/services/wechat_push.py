@@ -151,7 +151,7 @@ def send_subscribe(access_token: str, openid: str, template_id: str, title: str,
 def deliver_wechat_push(store: Store, *, consumer_id: str, now: datetime | None = None) -> dict:
     """扫描近期已投递事件, 对有绑定且有余量配额的接收人发送订阅消息。"""
     now = now or datetime.now(timezone.utc)
-    context = RequestContext(actor_id="system", role="system", request_id=f"wechat-push-{consumer_id}")
+    context = RequestContext(request_id=f"wechat-push-{consumer_id}")
     configured, templates = _configured()
     if not configured:
         return {"skipped": "not_configured", "sent": 0, "failed": 0, "skipped_events": 0}
@@ -162,7 +162,7 @@ def deliver_wechat_push(store: Store, *, consumer_id: str, now: datetime | None 
     try:
         token = fetch_access_token(app_id, secret)
     except Exception as exc:
-        log_event(LOGGER, "wechat_push.token_failed", context=context, error=type(exc).__name__)
+        log_event(LOGGER, "wechat_push.token_failed", context=context, actor_id="system", role="system", error=type(exc).__name__)
         return {"skipped": "token_failed", "sent": 0, "failed": 0, "skipped_events": 0}
     for event in store.list_delivered_push_events(since=since, limit=_BATCH_LIMIT):
         template_id = templates.get(event["event_type"])

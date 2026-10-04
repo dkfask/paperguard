@@ -57,10 +57,10 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
     failed: list[dict[str, str]] = []
     for job in claimed:
         job_context = RequestContext(
-            actor_id="system", role="system", request_id=f"job-{job['id']}"
+            request_id=f"job-{job['id']}"
         )
         log_event(
-            LOGGER, "job.started", context=job_context,
+            LOGGER, "job.started", context=job_context, actor_id="system", role="system",
             job_id=job["id"], job_type=job["job_type"],
             resource_type=job["resource_type"], resource_id=job["resource_id"],
             attempt_count=job["attempt_count"], consumer_id=consumer_id,
@@ -75,7 +75,7 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
             if result:
                 failed.append({"job_id": job["id"], "state": result["state"], "error": result.get("last_error") or ""})
                 log_event(
-                    LOGGER, "job.failed", context=job_context,
+                    LOGGER, "job.failed", context=job_context, actor_id="system", role="system",
                     job_id=job["id"], job_type=job["job_type"],
                     state=result["state"], error=result.get("last_error") or "",
                 )
@@ -85,7 +85,7 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
             if repository.complete_job(job["id"], lease_token=job.get("lease_token", "")):
                 succeeded.append(job["id"])
                 log_event(
-                    LOGGER, "job.completed", context=job_context,
+                    LOGGER, "job.completed", context=job_context, actor_id="system", role="system",
                     job_id=job["id"], job_type=job["job_type"], state="succeeded",
                 )
             continue
@@ -95,7 +95,7 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
             log_event(
                 LOGGER,
                 "job.cancelled",
-                context=job_context,
+                context=job_context, actor_id="system", role="system",
                 job_id=job["id"],
                 job_type=job["job_type"],
                 state="cancelled",
@@ -109,7 +109,7 @@ def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> 
         if failed_job:
             failed.append({"job_id": job["id"], "state": failed_job["state"], "error": failed_job.get("last_error") or ""})
             log_event(
-                LOGGER, "job.failed", context=job_context,
+                LOGGER, "job.failed", context=job_context, actor_id="system", role="system",
                 job_id=job["id"], job_type=job["job_type"],
                 state=failed_job["state"], error=failed_job.get("last_error") or "",
             )
@@ -138,9 +138,9 @@ def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 
             if rejected:
                 failed.append({"job_id": job["id"], "state": rejected["state"], "error": rejected.get("last_error") or ""})
             continue
-        job_context = RequestContext(actor_id="system", role="system", request_id=f"job-{job['id']}")
+        job_context = RequestContext(request_id=f"job-{job['id']}")
         log_event(
-            LOGGER, "job.started", context=job_context, job_id=job["id"],
+            LOGGER, "job.started", context=job_context, actor_id="system", role="system", job_id=job["id"],
             job_type=job["job_type"], resource_type=job["resource_type"],
             resource_id=job["resource_id"], attempt_count=job["attempt_count"], consumer_id=consumer_id,
         )
@@ -148,7 +148,7 @@ def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 
         if result.get("status") == "succeeded":
             if repository.complete_job(job["id"], lease_token=job.get("lease_token", "")):
                 succeeded.append(job["id"])
-                log_event(LOGGER, "job.completed", context=job_context, job_id=job["id"], job_type=job["job_type"], state="succeeded")
+                log_event(LOGGER, "job.completed", context=job_context, actor_id="system", role="system", job_id=job["id"], job_type=job["job_type"], state="succeeded")
             continue
         failed_job = repository.fail_job(
             job["id"], error=result.get("error_code") or "项目导出失败",
@@ -157,7 +157,7 @@ def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 
         )
         if failed_job:
             failed.append({"job_id": job["id"], "state": failed_job["state"], "error": failed_job.get("last_error") or ""})
-            log_event(LOGGER, "job.failed", context=job_context, job_id=job["id"], job_type=job["job_type"], state=failed_job["state"], error=failed_job.get("last_error") or "")
+            log_event(LOGGER, "job.failed", context=job_context, actor_id="system", role="system", job_id=job["id"], job_type=job["job_type"], state=failed_job["state"], error=failed_job.get("last_error") or "")
     return {"claimed": len(claimed), "succeeded": succeeded, "failed": failed, "at": _now()}
 
 
@@ -177,12 +177,12 @@ def consume_document_render_jobs(store: Store, *, consumer_id: str, limit: int =
     failed: list[dict[str, str]] = []
     for job in claimed:
         job_context = RequestContext(
-            actor_id="system", role="system", request_id=f"job-{job['id']}"
+            request_id=f"job-{job['id']}"
         )
         log_event(
             LOGGER,
             "job.started",
-            context=job_context,
+            context=job_context, actor_id="system", role="system",
             job_id=job["id"],
             job_type=job["job_type"],
             resource_type=job["resource_type"],
@@ -197,7 +197,7 @@ def consume_document_render_jobs(store: Store, *, consumer_id: str, limit: int =
                 log_event(
                     LOGGER,
                     "job.completed",
-                    context=job_context,
+                    context=job_context, actor_id="system", role="system",
                     job_id=job["id"],
                     job_type=job["job_type"],
                     state="succeeded",
@@ -218,7 +218,7 @@ def consume_document_render_jobs(store: Store, *, consumer_id: str, limit: int =
             log_event(
                 LOGGER,
                 "job.failed",
-                context=job_context,
+                context=job_context, actor_id="system", role="system",
                 job_id=job["id"],
                 job_type=job["job_type"],
                 state=failed_job["state"],

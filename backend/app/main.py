@@ -122,7 +122,7 @@ async def add_request_context(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     context = getattr(request.state, "context", None) or RequestContext(request_id=request_id)
     log_event(
-        LOGGER, "http.request.completed", context=context,
+        LOGGER, "http.request.completed", context=context, actor_id=getattr(request.state, "actor_id", ""),
         status_code=response.status_code, method=request.method,
         path=request.url.path,
         duration_ms=round((time.perf_counter() - started) * 1000, 2),
@@ -138,7 +138,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Expected-Tenant", "Idempotency-Key"],
 )
 
 app.include_router(router)

@@ -283,7 +283,7 @@ def check(reg: dict, meas: dict) -> list[str]:
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 ROLE_GUARDS = ("current_user", "require_manager", "require_admin",
-               "require_template_manager")
+               "require_template_manager", "trusted_context")
 
 
 def measure_routes(app: pathlib.Path) -> dict:
@@ -352,6 +352,14 @@ def measure_routes(app: pathlib.Path) -> dict:
                 if (isinstance(d, ast.Call) and isinstance(d.func, ast.Name)
                         and d.func.id == "Depends"):
                     sig_guards |= dep_names(d)
+            # ④ Annotated[RequestContext, Depends(trusted_context)] is DI,
+            # not a default neutral context. Do not label these guarded routes public.
+            for argument in list(n.args.posonlyargs) + args:
+                if argument.annotation is None:
+                    continue
+                for dependency in ast.walk(argument.annotation):
+                    if isinstance(dependency, ast.Call) and isinstance(dependency.func, ast.Name) and dependency.func.id in {"Depends", "Security"}:
+                        sig_guards |= dep_names(dependency)
             # ② 路由级 dependencies（写在装饰器的 keywords 里）
             route_deps: set[str] = set()
             for d in decs:
@@ -430,6 +438,9 @@ def check_routes(reg: dict, rt: dict) -> list[str]:
                      + (f"（派生量，登记表口径 = {k}）" if k in DERIVED else ""))
 
     # ── 划分不变量 ────────────────────────────────────────────
+    if rt["by_guard"].get("trusted_context", 0) and "trusted_context" not in bg:
+        f.append("RR-5 trusted_context 守卫未登记；不得视为公开路由")
+
     # `by_guard` 六项看着像把 total 划分成互斥的六份，所以「加起来等于 total」
     # 是它**唯一的自洽证据**。INC-86 的原值 25+4 也是 29，**不变量照样成立**，
     # 错的是那 5 条的归属——**不变量抓不到归属错误，只抓得到算术不平**。
@@ -727,6 +738,19 @@ def write_c():
         **{k: v for k, v in good["authorization_matrix"]["route_inventory"].items()
            if k != "public_routes_note"}}}}
     cases.append(("★ RR-5 缺 `public_routes_note`（两个口径不分）→ 报红", r5(bad)))
+
+    annotation_fixture = root / "annotated_app"
+    annotation_fixture.mkdir()
+    (annotation_fixture / "demo.py").write_text("""
+from typing import Annotated
+from fastapi import APIRouter, Depends
+router = APIRouter()
+@router.get("/trusted")
+def trusted(ctx: Annotated[RequestContext, Depends(trusted_context)]): ...
+""")
+    annotated = measure_routes(annotation_fixture)
+    cases.append(("★ RR-5 Annotated trusted_context 不漏算为公开",
+                  annotated["by_guard"]["trusted_context"] == 1 and annotated["by_guard"]["none_public"] == 0))
 
     # ── RR-6 证据指针 ──
     ev = {"command_contracts": {"evidence": {

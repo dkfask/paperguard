@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 from urllib.parse import urlsplit, urlunsplit
@@ -433,28 +434,42 @@ def _metered_chat(
     input_chars = sum(len(str(m.get("content", ""))) for m in messages)
     model = str(cfg.get("model", ""))
     base_url = str(cfg.get("base_url", ""))
-    request_hash = hashlib.sha256(
-        (action + "\0" + model + "\0" + base_url + "\0" + repr(messages)).encode("utf-8")
-    ).hexdigest()
+    from app.services.tenant_access import resolve_membership
+
+    membership = resolve_membership(store, user)
+    tenant_hint = user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id")
+    if membership is None and (tenant_hint or store.list_memberships_for_user(user["id"])):
+        raise HTTPException(status_code=403, detail={"code": "TENANT_CONTEXT_INVALID", "message": "租户上下文无效"})
+    tenant_id = membership["tenant_id"] if membership else None
+    membership_id = membership["id"] if membership else None
+    fingerprint = {
+        "action": action, "tenant_id": tenant_id, "membership_id": membership_id,
+        "model": model, "base_url": base_url, "messages": messages,
+        "temperature": temperature, "max_tokens": max_tokens, "source": source,
+        "credential_digest": hashlib.sha256(str(cfg.get("api_key") or "").encode()).hexdigest(),
+    }
+    request_hash = hashlib.sha256(json.dumps(fingerprint, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+    def replay_existing(row: dict) -> str:
+        if row["tenant_id"] != tenant_id or row["membership_id"] != membership_id or row["request_hash"] != request_hash:
+            raise HTTPException(status_code=409, detail={"code": "IDEMPOTENCY_KEY_REUSED", "message": "幂等键已用于另一份请求或授权范围"})
+        if row.get("status") == "completed":
+            return str(row.get("response_text") or "")
+        if row.get("status") in {"unknown", "reconciliation_required"}:
+            raise HTTPException(status_code=409, detail={"code": "AI_RECONCILIATION_REQUIRED", "message": "上游结果未知，需要人工复核，不可重发"})
+        raise HTTPException(status_code=409, detail={"code": "REQUEST_IN_PROGRESS", "message": "相同幂等请求不能再次派发"})
+
     request_row = None
     if idempotency_key:
         request_row = store.get_ai_request_by_idempotency(user["id"], idempotency_key.strip())
         if request_row:
-            if request_row["request_hash"] != request_hash:
-                raise HTTPException(status_code=409, detail={
-                    "code": "IDEMPOTENCY_KEY_REUSED", "message": "幂等键已用于另一份请求"
-                })
-            if request_row.get("status") == "completed":
-                return str(request_row.get("response_text") or "")
-            raise HTTPException(status_code=409, detail={
-                "code": "REQUEST_IN_PROGRESS", "message": "相同幂等请求仍在处理中"
-            })
+            return replay_existing(request_row)
     request_id = new_id("aireq")
     request_payload = {
         "id": request_id, "idempotency_key": idempotency_key.strip() if idempotency_key else None,
         "request_hash": request_hash, "user_id": user["id"],
-        "tenant_id": user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id") or (user.get("organization_context") or {}).get("school_id"),
-        "membership_id": user.get("membership_id"), "action": action,
+        "tenant_id": tenant_id,
+        "membership_id": membership_id, "action": action,
         "provider": urlsplit(base_url).hostname or "", "base_url_host": urlsplit(base_url).hostname or "",
         "model": model, "status": "reserved", "reservation_status": "reserved",
     }
@@ -466,15 +481,7 @@ def _metered_chat(
         existing = store.get_ai_request_by_idempotency(user["id"], idempotency_key.strip() if idempotency_key else "")
         if not existing:
             raise
-        if existing["request_hash"] != request_hash:
-            raise HTTPException(status_code=409, detail={
-                "code": "IDEMPOTENCY_KEY_REUSED", "message": "幂等键已用于另一份请求"
-            })
-        if existing.get("status") == "completed":
-            return str(existing.get("response_text") or "")
-        raise HTTPException(status_code=409, detail={
-            "code": "REQUEST_IN_PROGRESS", "message": "相同幂等请求仍在处理中"
-        })
+        return replay_existing(existing)
     try:
         ai_governance.begin_call(store, user)
     except HTTPException as exc:
@@ -495,29 +502,31 @@ def _metered_chat(
         else:
             result = _chat_completion(cfg, messages, temperature, max_tokens=max_tokens)
     except HTTPException as exc:
-        ai_governance.record_usage(
-            store, user, action=action, source=source, model=model,
-            base_url=base_url, input_chars=input_chars, output_chars=0,
-            result="upstream_error",
-        )
         unknown = exc.status_code in {502, 504}
+        # Preserve outcome BEFORE ancillary usage logging can fail.
         store.update_ai_request(
             request_id, status="unknown" if unknown else "failed_final",
             reservation_status="unknown" if unknown else "consumed",
             error_code=str((exc.detail or {}).get("code") if isinstance(exc.detail, dict) else exc.status_code),
             input_tokens=input_tokens, output_tokens=0,
         )
+        ai_governance.record_usage(store, user, action=action, source=source, model=model,
+            base_url=base_url, input_chars=input_chars, output_chars=0, result="upstream_error")
         raise
-    output_tokens = max(1, len(result) // 4) if result else 0
-    ai_governance.record_usage(
-        store, user, action=action, source=source, model=model,
-        base_url=base_url, input_chars=input_chars, output_chars=len(result),
-        result="success",
-    )
-    store.update_ai_request(
-        request_id, status="completed", reservation_status="settled", response_text=result,
-        input_tokens=input_tokens, output_tokens=output_tokens,
-    )
+    except Exception:
+        store.update_ai_request(request_id, status="unknown", reservation_status="unknown", error_code="AI_RESULT_UNKNOWN", input_tokens=input_tokens)
+        raise HTTPException(status_code=502, detail={"code": "AI_RESULT_UNKNOWN", "message": "上游结果无法确认，请勿重发，需人工复核"}) from None
+    output_tokens = 0
+    try:
+        output_tokens = max(1, len(result) // 4) if result else 0
+        ai_governance.record_usage(store, user, action=action, source=source, model=model,
+            base_url=base_url, input_chars=input_chars, output_chars=len(result), result="success")
+        store.update_ai_request(request_id, status="completed", reservation_status="settled", response_text=result,
+            input_tokens=input_tokens, output_tokens=output_tokens)
+    except Exception:
+        # Supplier completed, but local recording failed: never auto retry/refund.
+        store.update_ai_request(request_id, status="unknown", reservation_status="unknown", error_code="AI_RESULT_UNKNOWN", input_tokens=input_tokens, output_tokens=output_tokens)
+        raise HTTPException(status_code=502, detail={"code": "AI_RESULT_UNKNOWN", "message": "结果记录未完成，请勿重发，需人工复核"}) from None
     return result
 
 

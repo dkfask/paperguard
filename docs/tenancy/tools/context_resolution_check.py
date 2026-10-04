@@ -10,7 +10,7 @@ W-03（租户上下文与授权）目前只有总设计 §8.1 的**散文契约*
 
 | 编号 | 检查 | 对应的 W-03 章节 |
 |---|---|---|
-| CR-1 | `RequestContext` 是 `frozen=True` 且有 CI-1～CI-4 断言 | §2.1 |
+| CR-1 | `RequestContext` 是 `frozen=True` 且有 CI-1～CI-5 断言 | §2.1 |
 | CR-2 | 解析函数按 S0→S4 顺序出现七个失败出口 E1～E7 | §2.2 / §2.3 |
 | CR-3 | 服务层函数**无默认 `ctx` 参数** | §2.4 R-1 |
 | CR-4 | 旧全局 `users.role` 的非测试引用点已清零 | §3.1 |
@@ -53,7 +53,7 @@ GREEN, RED, YELLOW, DIM, CYAN, RESET = (
 
 REQUIRED_EXITS = ["E1", "E2", "E3", "E4", "E5", "E6", "E7"]
 REQUIRED_STEPS = ["S0", "S1", "S2", "S3", "S4"]
-REQUIRED_INVARIANTS = ["CI-1", "CI-2", "CI-3", "CI-4"]
+REQUIRED_INVARIANTS = ["CI-1", "CI-2", "CI-3", "CI-4", "CI-5"]
 # ★ INC-109：S0→S4 的**阶段顺序**不可调换。
 # 依据 W-03 §2.2：「**顺序不可调换**。特别是 S2 在 S3 之前：必须先确认
 # **这个人在这个租户有身份**，再去判断**这个租户是否可用**。反序会让
@@ -294,12 +294,12 @@ def _cr5_cases() -> list[tuple[str, bool]]:
     ghost = next(f"E{n}" for n in range(2, 99) if f"E{n}" not in REQUIRED_EXITS)
     with tempfile.TemporaryDirectory() as td:
         sp = pathlib.Path(td) / "W-03.md"
-        full = ("CI-1 CI-2 CI-3 CI-4 " + " ".join(REQUIRED_EXITS) + " "
+        full = (" ".join(REQUIRED_INVARIANTS) + " " + " ".join(REQUIRED_EXITS) + " "
                 + " ".join(REQUIRED_STEPS))
         sp.write_text(full, encoding="utf-8")
         out.append(("★ CR-5 完全一致 → 无问题",
                     check_spec_alignment(sp) == []))
-        sp.write_text(full.replace("CI-4", "CI-5"), encoding="utf-8")
+        sp.write_text(full.replace("CI-4", "CI-99"), encoding="utf-8")
         out.append(("★ CR-5 规格重编号 → 被抓",
                     any("未定义" in a for a in check_spec_alignment(sp))))
         sp.write_text(full + " " + ghost, encoding="utf-8")
@@ -322,6 +322,7 @@ class RequestContext:
         # CI-2 platform 时 tenant_id 为 None
         # CI-3 support 时 grant 非空
         # CI-4 capabilities 不可变
+        # CI-5 unresolved 中性默认值，不可用于授权
         assert True
 
 def resolve_context(u):
@@ -486,7 +487,7 @@ def check_spec_alignment(spec: pathlib.Path) -> list[str]:
     - 规格删掉 S2 → 门禁**照样报绿**
 
     实测发现：规格声明了 **12 个** ID（E1～E7、S0～S4），
-    门禁只检查 **4 个**（CI-1～CI-4）——E/S 那一族**规格定义了但门禁不查**，
+    门禁只检查 **4 个**（CI-1～CI-5）——E/S 那一族**规格定义了但门禁不查**，
     这正是「各自硬编码、谁都不知道对方存在」的代价。
     """
     declared = spec_declares(spec)
@@ -511,6 +512,72 @@ def check_spec_alignment(spec: pathlib.Path) -> list[str]:
     return problems
 
 
+def invariant_behavior(source: str) -> list[str]:
+    """Execute constructor/capability mutations; comment IDs alone cannot pass.
+
+    Load only local context source (no DB, supplier or auth provisioning calls).
+    CI-3 here verifies fail-closed denial, not implemented support grants.
+    """
+    import types
+    from dataclasses import FrozenInstanceError
+    module = types.ModuleType("_context_gate_probe")
+    sys.modules[module.__name__] = module
+    try:
+        exec(compile(source, "<context-gate-probe>", "exec"), module.__dict__)
+        context = module.RequestContext
+        problems = []
+        neutral = context()
+        if neutral.actor_kind != "unresolved" or neutral.actor_id or neutral.tenant_id is not None or neutral.membership_id is not None or neutral.capabilities or neutral.has_capability("tenant:read"):
+            problems.append("CI-5 default context is not neutral/denied")
+        base = dict(actor_kind="member", actor_id="u", tenant_id="t", membership_id="m", auth_version=1)
+        rejects = [
+            ("CI-1", base | {"tenant_id": None}), ("CI-1", base | {"membership_id": None}),
+            ("CI-1", base | {"auth_version": 0}),
+            ("CI-2", dict(actor_kind="platform", actor_id="p", tenant_id="t")),
+            ("CI-3", dict(actor_kind="support", actor_id="s", support_grant_id="unverified")),
+            ("CI-5", dict(capabilities=("tenant:read",))), ("CI-5", dict(actor_id="u")),
+        ]
+        for rule, payload in rejects:
+            try:
+                context(**payload)
+            except (ValueError, TypeError):
+                pass
+            else:
+                problems.append(f"{rule} invalid context accepted: {sorted(payload)}")
+        caps, orgs = ["tenant:read"], ["org"]
+        ctx = context(**base, capabilities=caps, organization_ids=orgs)
+        caps.append("tenant:manage")
+        orgs.append("other")
+        if ctx.capabilities != ("tenant:read",) or ctx.organization_ids != ("org",):
+            problems.append("CI-4 mutable caller collections changed scope")
+        try:
+            ctx.auth_version = 2
+        except FrozenInstanceError:
+            pass
+        else:
+            problems.append("CI-4 context field is mutable")
+        return problems
+    except Exception as exc:
+        return [f"context behavior not executable: {type(exc).__name__}"]
+    finally:
+        sys.modules.pop(module.__name__, None)
+
+
+def behavior_self_test() -> int:
+    source = (pathlib.Path(__file__).resolve().parents[3] / "backend/app/core/context.py").read_text()
+    cases = [("real immutable neutral/member implementation", source, False),
+             ("CI-5 comment retained but neutral guard removed", source.replace('if self.actor_id or self.role or', 'if False and (self.actor_id or self.role or').replace('self.auth_version or self.support_grant_id is not None:', 'self.auth_version or self.support_grant_id is not None):'), True),
+             ("CI-4 frozen disabled", source.replace('@dataclass(frozen=True)', '@dataclass(frozen=False)'), True),
+             ("CI-1 positive auth version guard removed", source.replace('self.auth_version < 1', 'self.auth_version < 0'), True)]
+    failed = 0
+    for name, src, expected_bad in cases:
+        findings = invariant_behavior(src)
+        ok = bool(findings) == expected_bad and not any("not executable" in f for f in findings)
+        print(f"  {'PASS' if ok else 'FAIL'} behavior: {name}")
+        failed += not ok
+    return EXIT_TOOL_BROKEN if failed else EXIT_OK
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="W-03 上下文解析静态门禁")
     ap.add_argument("--self-test", action="store_true")
@@ -519,7 +586,9 @@ def main() -> int:
     if args.self_test:
         print(f"{CYAN}context_resolution_check 自检{RESET}")
         print("=" * 64)
-        return self_test()
+        static = self_test()
+        behavior = behavior_self_test()
+        return max(static, behavior)
 
     root = pathlib.Path(__file__).resolve().parents[3]
     app_dir = pathlib.Path(args.app_dir) if args.app_dir else root / "backend/app"
@@ -553,7 +622,12 @@ def main() -> int:
             problems.append(f"CR-1 缺不变量 {sorted(missing)}")
             print(f"    {RED}✗{RESET} 缺 {sorted(missing)}")
         else:
-            print(f"    {GREEN}✓{RESET} CI-1～CI-4 齐全")
+            print(f"    {GREEN}✓{RESET} CI-1～CI-5 齐全")
+
+    if c["file"]:
+        behavioral = invariant_behavior(pathlib.Path(c["file"]).read_text())
+        problems.extend("CR-1 " + message for message in behavioral)
+        print(f"    {'FAIL' if behavioral else 'PASS'} constructor/capability mutation checks (CI-1..CI-5)")
 
     print(f"\n  {DIM}CR-2 解析状态机失败出口{RESET}")
     r = resolver_status(files)

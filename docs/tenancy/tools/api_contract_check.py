@@ -279,6 +279,22 @@ def collect_reachable_props(spec: dict, schema: dict, _depth: int = 0) -> set[st
     return props
 
 
+def error_contract_status(spec: dict):
+    """All operations need an error declaration; a tiny slice cannot green AC-03."""
+    missing, bad, good = [], [], []
+    for path, method, op in iter_ops(spec):
+        declared = False
+        for code, resp in op.get("responses", {}).items():
+            if not code.startswith(("4", "5")) or code == "422":
+                continue  # preserve FastAPI legacy validation exception policy
+            declared = True
+            schema = resp.get("content", {}).get("application/json", {}).get("schema", {})
+            (good if "ErrorBody" in __import__("json").dumps(schema) else bad).append(f"{method} {path} {code}")
+        if not declared:
+            missing.append(f"{method} {path}")
+    return missing, bad, good
+
+
 def main() -> int:
     if not BACKEND.exists():
         print(f"{RED}找不到 backend 目录：{BACKEND}{RESET}")
@@ -324,26 +340,24 @@ def main() -> int:
     # 下面的循环不会执行任何检查，然后「全部通过」——而这恰恰是最严重的
     # 现状（215 个操作里 0 个声明错误响应）。
     # 因此 AC-03 必须先断言「错误响应确实存在」，再断言「形态统一」。
-    err_ops: set[str] = set()
-    bad_err: set[str] = set()
-    ok_err: set[str] = set()
-    for path, _m, op in ops:
-        for code, resp in op.get("responses", {}).items():
-            if not code.startswith(("4", "5")):
-                continue
-            if code == "422":
-                continue  # FastAPI 原生校验，刻意保留
-            err_ops.add(path)
-            blob = __import__("json").dumps(
-                resp.get("content", {}).get("application/json", {}).get("schema", {})
-            )
-            (ok_err if "ErrorBody" in blob else bad_err).add(f"{path} {code}")
-    results.append(("AC-03", bool(err_ops) and not bad_err,
-                    f"{len(ok_err)} 个错误响应引用 ErrorBody"
-                    if err_ops and not bad_err
-                    else ("**没有任何操作声明 4xx/5xx 错误响应**——契约未描述任何失败路径"
-                          if not err_ops
-                          else f"{len(bad_err)} 个响应未引用 ErrorBody，例：{sorted(bad_err)[:3]}")))
+    missing_errors, bad_err, ok_err = error_contract_status(spec)
+    ok03 = bool(ops) and not missing_errors and not bad_err
+    results.append(("AC-03", ok03,
+                    f"全部操作错误契约覆盖，{len(ok_err)} 个错误响应引用 ErrorBody"
+                    if ok03 else f"{len(missing_errors)} 个操作未声明业务错误；{len(bad_err)} 个错误响应未引用 ErrorBody"))
+    if self_test:
+        from copy import deepcopy
+        mutation = deepcopy(spec)
+        first_path = next(iter(mutation["paths"]))
+        first_method = next(iter(mutation["paths"][first_path]))
+        responses = mutation["paths"][first_path][first_method]["responses"]
+        for code in list(responses):
+            if code.startswith(("4", "5")):
+                del responses[code]
+        if not error_contract_status(mutation)[0]:
+            print("AC-03 mutation failed: uncovered operation was accepted")
+            return 2
+        print("AC-03 mutation passed: one uncovered operation cannot borrow other operations' errors")
 
     # ---- AC-04 错误响应带 request_id（递归展开 ErrorBody → Error） ----
     errbody_props = collect_reachable_props(spec, {"$ref": "#/components/schemas/ErrorBody"})

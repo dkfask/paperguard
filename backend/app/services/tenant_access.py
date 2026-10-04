@@ -99,3 +99,59 @@ def context_dict(user: dict[str, Any], membership: dict[str, Any] | None) -> dic
         "capabilities": sorted(effective_capabilities(user, membership)),
         "auth_version": int((membership or {}).get("auth_version") or 0),
     }
+
+
+def resolve_request_context(
+    store: Store, user: dict[str, Any] | None, *, request_id: str,
+    expected_tenant: str | None = None,
+):
+    """Resolve a shared-SaaS identity from current persisted records, read-only.
+
+    Session verification is performed by the async auth dependency before this
+    function. Organization/owner/support grants cannot yet be proven and are
+    deliberately not synthesized. Draft activation remains a separate gap.
+    """
+    from app.core.context import context_for_user
+
+    # S0 / E1: invalid session; never consult membership before authentication.
+    if user is None:
+        raise HTTPException(status_code=401, detail={"code": "AUTH_SESSION_INVALID", "message": "会话无效或已过期"})
+    # S1 / E2: account state precedes tenant/member selection.
+    if user.get("status") != "active" or user.get("must_change_password"):
+        raise HTTPException(status_code=403, detail={"code": "AUTH_ACCOUNT_BLOCKED", "message": "账号不可用于此操作，请完成账号设置或联系管理员"})
+    # S2 / E3: explicit selector is only a selector, never a grant.
+    memberships = store.list_memberships_for_user(user["id"])
+    selected = expected_tenant
+    if selected is None and user.get("role") == "admin":
+        return context_for_user(user, request_id=request_id)
+    if selected is None:
+        selected = str(user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id") or "").strip() or None
+    if selected is None:
+        active = [m for m in memberships if m.get("status") == "active"]
+        if len(active) == 1:
+            selected = active[0]["tenant_id"]
+        elif len(memberships) == 1:
+            selected = memberships[0]["tenant_id"]
+        else:
+            raise HTTPException(status_code=403, detail={"code": "TENANT_MEMBERSHIP_REQUIRED", "message": "请选择一个有效成员租户"})
+    membership = next((m for m in memberships if m.get("tenant_id") == selected), None)
+    if membership is None and expected_tenant is None:
+        raise HTTPException(status_code=403, detail={"code": "TENANT_MEMBERSHIP_REQUIRED", "message": "当前账号不是该租户成员"})
+    # E4: revocation is distinct from absence, including a valid explicit selector.
+    if membership is not None and membership.get("status") != "active":
+        raise HTTPException(status_code=403, detail={"code": "TENANT_MEMBERSHIP_INACTIVE", "message": "当前成员身份已停用"})
+    # E5: cannot honor this selector; no tenant data has been read yet.
+    if membership is None:
+        raise HTTPException(status_code=403, detail={"code": "TENANT_HEADER_NOT_HONORED", "message": "无法兑现请求的租户选择"})
+    # S3 / E6: fail closed on missing, suspended, closing and unknown states.
+    tenant = store.get_tenant(selected)
+    if not tenant or tenant.get("status") not in {"active", "draft"}:
+        raise HTTPException(status_code=403, detail={"code": "TENANT_NOT_ACTIVE", "message": "租户当前不可用"})
+    # E7: no persisted first-owner/activation contract exists. No guessed bypass.
+    if tenant.get("status") == "draft":
+        raise HTTPException(status_code=403, detail={"code": "TENANT_NOT_ACTIVE", "message": "租户尚未启用"})
+    # S4: immutable snapshot, with constructor invariants as the final guard.
+    try:
+        return context_for_user(user, membership=membership, request_id=request_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=403, detail={"code": "TENANT_CONTEXT_INVALID", "message": "成员授权记录不完整"}) from None
