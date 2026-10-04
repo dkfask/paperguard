@@ -370,3 +370,21 @@ def test_missing_member_account_returns_not_found(pilot):
     store,client=pilot
     r=client.post('/api/saas/v1/tenants/t1/memberships',headers=platform(),json={'user_id':'missing','role':'student','capabilities':CAPS})
     assert r.status_code==404 and r.json()['error']['code']=='USER_NOT_FOUND'
+
+
+@pytest.mark.parametrize('field,value',[('image',{'url':'/media/uploads/other-tenant.png'}),('table',{'source_xml':'synthetic-untrusted-xml'}),('equation',{'omml':'synthetic-untrusted-omml'})])
+@pytest.mark.parametrize('operation',['create','update'])
+def test_manual_pilot_rejects_unisolated_assets_or_imported_blocks(pilot,field,value,operation):
+    store,client=pilot
+    sections=[{'key':'intro','type':'body','title':'Introduction','paragraphs':[{'id':'block','text':'manual',field:value}]}]
+    # Even a nominal paragraph cannot smuggle a secondary asset/import field.
+    if operation=='create':
+        r=client.post('/api/saas/v1/projects',headers=headers(),json={'sections':sections})
+        assert store.list_projects()==[]
+    else:
+        p=project(client);path='/api/saas/v1/projects/'+p['id']
+        hidden=client.patch(path,headers=headers(tenant='t2'),json={'expected_revision':1,'sections':sections})
+        assert hidden.status_code==404
+        r=client.patch(path,headers=headers(),json={'expected_revision':1,'sections':sections})
+        assert client.get(path,headers=headers()).json()['data']==p
+    assert r.status_code==409 and r.json()['error']['code']=='PROJECT_ASYNC_ISOLATION_PENDING'

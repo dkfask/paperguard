@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 from app.db import _now, new_id
-from app.models.project import WritingProject
+from app.models.project import BlockType, WritingProject
 from app.services.saas_identity import audit, check_member, fail
 
 
@@ -37,9 +37,20 @@ def get_project(store,ctx,project_id):
         return _get(conn,ctx,project_id)
 
 
+def _manual_sections(sections):
+    """Only text blocks are implemented; do not accept unisolated asset links."""
+    for section in sections:
+        for block in section.paragraphs:
+            if block.type != BlockType.PARAGRAPH or any(
+                value is not None for value in (block.image, block.table, block.equation)
+            ):
+                fail(409, 'PROJECT_ASYNC_ISOLATION_PENDING', '图片/文件/导入内容隔离未完成，当前仅支持手写文本段落')
+
+
 def create_project(store,ctx,request):
     with store.workflow_transaction() as conn:
         check_member(conn,ctx,'project:write')
+        _manual_sections(request.sections)
         now=_now();p=WritingProject(id=new_id('project'),template_id='',title=request.title,sections=request.sections,
             owner_id=ctx.actor_id,tenant_id=ctx.tenant_id,membership_id=ctx.membership_id,revision=1,created_at=now,updated_at=now)
         conn.execute('INSERT INTO projects (id,template_id,data,updated_at) VALUES (?,?,?,?)',(p.id,p.template_id,p.model_dump_json(),now))
@@ -51,6 +62,8 @@ def update_project(store,ctx,project_id,request):
     with store.workflow_transaction() as conn:
         check_member(conn,ctx,'project:write');p=_get(conn,ctx,project_id)
         if p.revision!=request.expected_revision:fail(409,'PROJECT_VERSION_CONFLICT','项目版本已变化')
+        if request.sections is not None:
+            _manual_sections(request.sections)
         values=request.model_dump(exclude_unset=True);values.pop('expected_revision')
         p=WritingProject.model_validate(p.model_dump()|values|{'revision':p.revision+1,'updated_at':_now()})
         conn.execute('UPDATE projects SET data=?,updated_at=? WHERE id=?',(p.model_dump_json(),p.updated_at,p.id))
