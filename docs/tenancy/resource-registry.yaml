@@ -1,7 +1,7 @@
 # PaperGuard 租户资源登记表（机器可读）
 #
 # 状态：design_ready — 本表是**登记产物**，不是实施结果。未执行任何 DDL/DML。
-# 生成依据：HEAD e166f97，分支 fix/ui-review-findings-20260929，2026-10-01 实测。
+# 运行时清单更新：基线 4bcedb7 + 授权加固，2026-10-04 AST 实测；不表示隔离设计已实现。
 # 上游规格：docs/product/W-01-预检与ADR实施规格_20261001.md（T-01.4）
 # 消费方：docs/product/W-02-存储与Schema实施规格_20261001.md §4（逐表归属判定）
 # 总设计要求：saas-platform-design-20261001.md:438「未登记入口不放行共享 SaaS」
@@ -27,18 +27,18 @@
 # ──────────────────────────────────────────────────────────────────────────
 
 meta:
-  source_sha: e166f97
+  source_sha: 4bcedb7
   branch: fix/ui-review-findings-20260929
-  generated_at: "2026-10-01"
-  store_public_methods: 111        # 实测：ast 解析，排除 _ 前缀
-  store_total_methods: 119         # 实测：含私有方法
-  store_construction_points: 17    # 实测：16 × Store() + 1 × Store(db_path)
+  generated_at: "2026-10-04"
+  store_public_methods: 124        # 实测：ast 解析，排除 _ 前缀
+  store_total_methods: 133         # 实测：含私有方法
+  store_construction_points: 18    # 实测：16 × Store() + 1 × Store(db_path)
   store_construction_by_phase:
-    request: 14        # Depends(get_store) 12×api/* + auth.py:617 + main.py:178
+    request: 15        # Depends(get_store) 12×api/* + auth.py:617 + main.py:178
     startup: 1         # main.py:77
     worker: 1          # worker.py:35
     cli: 1             # cli/migrate.py:19（Store(db_path)）
-  depends_get_store: 201          # 实测：**AST 表达式计数**，口径 = 真实的
+  depends_get_store: 206          # 实测：**AST 表达式计数**，口径 = 真实的
                                   # `Depends(get_store)` 调用，不含文档字符串/注释。
                                   # INC-85：原写 202，是 grep 行数——`auth.py:613`
                                   # 的 docstring 里有一句「全项目统一用 `Depends(get_store)` 注入」
@@ -53,8 +53,8 @@ meta:
     `Store(` 的 grep 命中 18 行、其中 1 行是上面那句文档字符串。）
   # ↑ 下方所有数字均由 docs/tenancy/tools/resource_registry_check.py 实跑重算（RR-2）。
   #   它们此前**没有任何机器核对过**，而 `depends_get_store` 已经因此错了 1（202→201）。
-  tables_registered: 25
-  business_tables: 24
+  tables_registered: 28
+  business_tables: 27
   # 「哪张表不是业务表」是**人工判断**。此前只写了 24 而没写怎么排除的，
   # 于是这个数字**不可复算**——RR-2 无从核对。把排除清单显式列出来。
   # **编一个默认值比留空更危险**：留空时没人知道 24 是怎么来的，
@@ -71,6 +71,45 @@ meta:
 # 一、25 张表逐条登记
 # ──────────────────────────────────────────────────────────────────────────
 tables:
+
+  - resource: tenants
+    kind: table
+    location: backend/app/db.py:112
+    store_methods: [create_tenant, get_tenant, list_tenants, ensure_legacy_tenant_membership]
+    external_readers: [auth.py, api/saas.py, api/ai.py]
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: direct
+    tenant_derivable_reason: "租户根身份对象；停用判断已接入，完整生命周期与迁移准入未完成。"
+    migration_rule: new_table
+    validation_case: AT-12
+    registry_status: registered_gap
+
+  - resource: tenant_memberships
+    kind: table
+    location: backend/app/db.py:121
+    store_methods: [save_membership, get_membership, get_membership_for_user, list_memberships_for_user, list_memberships_for_tenant, ensure_legacy_tenant_membership]
+    external_readers: [auth.py, api/saas.py, api/ai.py]
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: direct
+    tenant_derivable_reason: "tenant_id 直接归属；撤权与能力更新递增版本，数据库 RLS 和授权缓存协议未完成。"
+    migration_rule: new_table
+    validation_case: AT-12
+    registry_status: registered_gap
+
+  - resource: ai_requests
+    kind: table
+    location: backend/app/db.py:238
+    store_methods: [create_ai_request, get_ai_request_by_idempotency, list_ai_requests, update_ai_request]
+    external_readers: [auth.py, api/saas.py, api/ai.py]
+    background_consumers: []
+    sensitivity: document_content
+    tenant_derivable: direct
+    tenant_derivable_reason: "tenant_id 可空，completed 响应正文用于重放；幂等键仍是用户维度，跨租户请求域与内容保留策略未完成。"
+    migration_rule: new_table
+    validation_case: AT-17
+    registry_status: registered_gap
 
   # ═══ 认证与秘密类（sensitivity: auth_secret）══════════════════════════
   - resource: users
@@ -603,8 +642,9 @@ access_surfaces:
       - {loc: "backend/app/worker.py:35",                  form: "Store()", phase: worker,
          note: "run_once 入口"}
       - {loc: "backend/app/cli/migrate.py:19",             form: "Store(db_path)", phase: cli}
-    count_total: 17
-    count_by_phase: {request: 14, startup: 1, worker: 1, cli: 1}
+      - {loc: "backend/app/api/saas.py:16", form: "Store()", phase: request}
+    count_total: 18
+    count_by_phase: {request: 15, startup: 1, worker: 1, cli: 1}
     severity: blocking
     finding: >
       总设计 saas-platform-design-20261001.md:271 假设 DDL 在「启动过程」，
@@ -727,8 +767,9 @@ access_surfaces:
               get_tenant_system_setting, get_system_ai_config, set_system_setting, set_system_ai_config,
               list_system_settings_organizations, list_schema_migrations,
               # ↓ 仅经 delegated-methods 登记（逐表 store_methods 里没有它们）
-              get_user_by_identifier, workflow_transaction, retry_job]
-    count: 111
+              get_user_by_identifier, workflow_transaction, retry_job,
+              create_ai_request, create_tenant, ensure_legacy_tenant_membership, get_ai_request_by_idempotency, get_membership, get_membership_for_user, get_tenant, list_ai_requests, list_memberships_for_tenant, list_memberships_for_user, list_tenants, save_membership, update_ai_request]
+    count: 124
     # 与 delegated-methods 的关系（INC-85）：**两个集合允许重叠，不要相加**。
     # 逐表 store_methods 的口径是「这个方法访问哪张表」；
     # delegated-methods 的口径是「这个方法体内不出现任何表名字符串」。
@@ -776,7 +817,7 @@ authorization_matrix:
   document: docs/tenancy/permission-matrix.md
   satisfies: "总设计 2.3 节 U-02 的设计侧交付物；27.3 文档包第 1 项剩余部分"
   route_inventory:
-    total: 214
+    total: 219
     method: "AST 解析 @router.* 装饰器 + 参数默认值中的 Depends()"
     # ★ INC-86（2026-10-02）：上面这句方法说明**不完整**，而两种「显而易见的实现」
     #   都会得到错数。RR-5 按本段口径实算，缺这段说明时门禁无法自证方法未被改窄。
@@ -790,14 +831,14 @@ authorization_matrix:
       ③ `Depends()` 有**三种出现位置**：参数默认值、路由级 `dependencies=[...]`、
       router 级 `APIRouter(dependencies=[...])`。只扫参数默认值**看不见**后两种。
     by_guard:
-      current_user: 160
+      current_user: 163
       # ↓ 口径：签名带 `require_manager` **且不带** feature flag 依赖的路由。
       #   **本值原为 25，且原分类只数了「路由级」flag，漏掉 3 个 router 级挂载的 5 条**
       #   （document_packages / document_projects / specs 的 `APIRouter(dependencies=[...])`），
       #   于是那 5 条被错标成「纯 manager」。INC-86 实测正确互斥划分为 **20 + 9 = 29**。
       #   **六项之和仍等于 214**（划分不变量没破），所以原值**看起来完全自洽**。
       require_manager: 20
-      require_admin: 7
+      require_admin: 9
       require_template_manager: 6
       # ★ 这个名字**不是代码里的标识符**（全仓 grep 0 命中），而是一个**派生分类**。
       #   真实守卫名是 `require_general_document_platform`（`core/feature_flags.py:22`），
@@ -844,11 +885,11 @@ command_contracts:
   document: docs/tenancy/command-contracts.md
   satisfies: "27.3 文档包第 3 项的第一部分（状态/幂等/事务契约）"
   scope_note: "OpenAPI 契约与前端类型**尚未产出**，第 3 项未全部完成"
-  write_operations: 129
+  write_operations: 131
   classification:
     A_idempotent: 1
     B_transaction_only: 38
-    C_neither: 90
+    C_neither: 92
   method: "AST 解析 @router.* + 处理器函数体 ∪ 其直接调用的 service 函数体（保守下界，未递归全调用图）"
   only_idempotent_command:
     route: "POST /api/submissions"
@@ -876,11 +917,11 @@ command_contracts:
     #   才抓得住指向错误**（INC-86 的原始缺陷正是这一类）。
     evidence_now:
       begin_call_call_sites: 1
-      begin_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:388"}
+      begin_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:479"}
       ai_direct_modules: [backend/app/api/ai.py]
       metered_ai_commands:
-        - {name: test_ai_config,           loc: "backend/app/api/ai.py:606"}
-        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:709"}
+        - {name: test_ai_config,           loc: "backend/app/api/ai.py:711"}
+        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:814"}
         - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:209"}
         - {name: assist_requirement_check, loc: "backend/app/api/projects.py:1345"}
         - {name: parse_spec_candidate,     loc: "backend/app/api/specs.py:64"}

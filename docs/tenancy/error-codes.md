@@ -2,7 +2,7 @@
 
 > 状态：**as_is_inventory + target_registry**。本文登记**代码中真实存在**的错误码，
 > 并给出目标契约要求但**尚未实现**的码位。**不是**一份"应该有"的理想清单。
-> 日期：2026-10-01。基线：HEAD `e166f97`（含本轮未提交的 F-1/F-5 修复）。
+> 日期：2026-10-04。运行时基线：`4bcedb7` 加本轮授权加固；其余历史统计保留原口径，非全量重审。
 > 配套：`api-contract-delta.md` §3.3（统一错误信封）、`at-traceability-matrix.yaml`（AT-29 依赖本文）。
 
 ---
@@ -17,7 +17,7 @@
 
 | 体系 | 唯一码数 | 抛出点数（`app/` 全量） | 出现位置 | 响应形态 |
 |---|---|---|---|---|
-| **A. HTTP 异常码** | **31** | 47（`api/` 顶层 5） | `HTTPException(detail={"code","message"})` | 4xx/5xx 响应体 |
+| **A. HTTP 异常码** | **42** | 65（2026-10-04 全量重新扫描） | `HTTPException(detail={"code","message"})` | 4xx/5xx 响应体 |
 | **B. 异步任务码** | **9** | — | 任务/归档/渲染记录的 `error_code` 列 | **200 成功响应体**内 |
 | **C. 无码裸字符串** | — | **404**（`api/` 顶层 367） | `HTTPException(detail="...")` | 4xx/5xx 响应体，只有中文文案 |
 | （其他形式） | — | 103（`api/` 顶层 95） | 变量 / 多行 / 无 detail | — |
@@ -68,7 +68,7 @@
 
 ---
 
-## 2. 体系 A：HTTP 异常码（31 个，已实现）
+## 2. 体系 A：HTTP 异常码（42 个，已实现）
 
 全部来自 `HTTPException(detail={"code", "message"})`。
 
@@ -132,6 +132,25 @@
 | **未覆盖域** | 租户、权限、额度、任务、并发冲突**全部无码** |
 
 ---
+
+### 2.7 运行时基础新增码（2026-10-04）
+
+> 这些出口只证明基础路径已实现，不证明 W-03 完整上下文契约或 W-08 对账已完成。
+
+| Code | HTTP | 位置 | 实际触发与客户端边界 |
+|---|---|---|---|
+| `AI_SECRET_UNAVAILABLE` | 503 | `backend/app/api/ai.py:76` | 凭据缺失主密钥或认证解密失败；联系管理员迁移，不回退其他供应商 |
+| `CAPABILITY_REQUIRED` | 403 | `backend/app/services/tenant_access.py:68` | 活动成员能力不足或无有效成员身份；不重试越权操作 |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | `backend/app/api/ai.py:444` | 相同幂等键提交了不同请求；使用新键或核对原请求 |
+| `PLATFORM_OPERATION_ADMIN_REQUIRED` | 403 | `backend/app/api/operations.py:63` | 平台级运维要求活动全局管理员，租户角色不授予该权限 |
+| `REQUEST_IN_PROGRESS` | 409 | `backend/app/api/ai.py:449` | 原请求未形成可重放的 completed 结果；unknown 不自动重发或退款 |
+| `TENANT_CONTEXT_INVALID` | 403 | `backend/app/api/ai.py:122` | 租户未知、停用、成员无效或未选定；禁止 BYOK 和平台配置回退 |
+| `TENANT_CONTEXT_MISSING` | 400 | `backend/app/services/tenant_access.py:83` | 租户作用域参数为空；需补齐经服务端验证的租户身份 |
+| `TENANT_NOT_FOUND` | 404 | `backend/app/api/saas.py:80` | 租户不存在或不可为其新增成员 |
+| `TENANT_SCOPE_FORBIDDEN` | 403 | `backend/app/services/tenant_access.py:87` | 非活动成员或租户停用；不得跨租户访问 |
+| `TENANT_SLUG_TAKEN` | 409 | `backend/app/api/saas.py:65` | 租户标识已占用；选择其他标识 |
+| `USER_NOT_FOUND` | 404 | `backend/app/api/saas.py:82` | 待添加成员的全局用户不存在 |
+
 
 ## 3. 体系 B：异步任务码（9 个，已实现）
 
@@ -223,8 +242,6 @@ HTTP 200
 
 | Code | HTTP | 用途 |
 |---|---|---|
-| `TENANT_CONTEXT_MISSING` | 422 | 请求缺租户上下文 |
-| `TENANT_CONTEXT_INVALID` | 422 | 上下文中的组织节点不存在或不可见 |
 | `TENANT_OVERRIDE_FORBIDDEN` | 400 | 普通路径携带 `X-Expected-Tenant` |
 | `TENANT_SUSPENDED_SECURITY` | 403 | 安全封禁（**不可用导出绕过**） |
 | `TENANT_RESTRICTED` | 403 | 商业限制（**保留合法读取与退出**） |
@@ -265,7 +282,6 @@ HTTP 200
 
 | Code | HTTP | 用途 |
 |---|---|---|
-| `IDEMPOTENCY_KEY_REUSED` | 409 | 同键不同请求体 |
 | `REVISION_CONFLICT` | 409 | `If-Match` 与当前 revision 不符 |
 | `QUOTA_EXHAUSTED` | 429 | 三维额度耗尽（替代 `AI_DAILY_QUOTA_EXCEEDED` 的通用形态） |
 
@@ -322,7 +338,7 @@ HTTP 200
 
 `error_codes_check` 的 EC-06 只核对「占位与已实现**重名**」，
 **它不能证明某个占位码真的被某份规格使用**。
-实测：本节 §5.1～§5.5 登记的 **26 个**占位码里，**13 个**在 13 份规格与总设计里
+实测：本节 §5.1～§5.5 原登记的 **26 个**占位码中，两个 `TENANT_CONTEXT_*` 与 `IDEMPOTENCY_KEY_REUSED` 已移至 §2.7；剩余 **23 个**占位码里，**11 个**在 13 份规格与总设计里
 **一次都没出现**：
 
 | # | 码位 | 来源节 |
@@ -338,8 +354,6 @@ HTTP 200
 | 9 | `JOB_NOT_RETRYABLE` | §5.4 |
 | 10 | `QUOTA_EXHAUSTED` | §5.4 |
 | 11 | `REVISION_CONFLICT` | §5.1 |
-| 12 | `TENANT_CONTEXT_INVALID` | §5.1.1 |
-| 13 | `TENANT_CONTEXT_MISSING` | §5.1.1 |
 
 **必须说清这三件事，否则本表会给出虚假的安全感**：
 
@@ -351,13 +365,13 @@ HTTP 200
    INC-18 发现「W-03 引入的错误码是幽灵码」，处置是**补登记**；
    但**登记本身不解决问题**——不指派主人，它们仍然是幽灵码位，只是从
    「没登记」变成了「登记了但没人用」。
-3. **两个 `TENANT_CONTEXT_*` 明确无出口**。W-03 的七个失败出口
+3. **历史设计与当前实现需要区分**。两个 `TENANT_CONTEXT_*` 已在 2026-10-04 的最小运行时实现并移至 §2.7；下面仅描述 W-03 目标出口的命名差异。W-03 的七个失败出口
    （E1～E7）用的是 `AUTH_SESSION_INVALID` / `AUTH_ACCOUNT_BLOCKED` /
    `TENANT_MEMBERSHIP_REQUIRED` / `TENANT_MEMBERSHIP_INACTIVE` /
    `TENANT_HEADER_NOT_HONORED` / `TENANT_NOT_ACTIVE`（E6/E7 共用），
    **`TENANT_CONTEXT_INVALID` 与 `TENANT_CONTEXT_MISSING` 不在其中**。
    保留登记是因为它们表达了「上下文解析失败」这一类需求，
-   但**在 W-03 实施前它们没有任何出口**。
+   当前已有最小出口，但**并不表示 W-03 七个目标出口全部实现**。
 
 > **处置原则**：不为消除「未认领」而给规格硬塞错误码——
 > 那样只会让码位看起来有主人，而实际实现时未必用得上。

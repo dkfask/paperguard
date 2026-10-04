@@ -12,8 +12,19 @@
 - **熔断隔离**：熔断键包含 provider/base URL/model 与 API Key 的不可逆摘要，BYOK 凭据不会共享同一熔断状态。
 - **审计追加写**：统一审计表改为严格 `INSERT`；重复事件 ID 失败，不允许覆盖既有事件。重复导出尝试改用尝试序号生成唯一审计事件。
 
+## 授权基础加固（本次续作）
+
+- 认证读取只解析已有成员；不自动从 `school_id` 创建租户/成员，也不按最近更新时间猜选多租户身份。显式无效租户返回 403。
+- `capabilities=[]` 是明确拒绝；租户 `admin` 能力与平台运维能力分开；成员 API 拒绝未知角色与平台能力。新成员默认空能力，管理员需显式授予租户能力。
+- 成员 ID 在更新中保持稳定，角色/能力/状态变更原子递增 `auth_version`；重复保存同一授权状态不递增。尚无完整授权缓存或角色多表协议。
+- `current_user` 改为异步依赖，数据库解析通过线程池执行，授权上下文在请求异步任务中设置；同步与异步端点回归均可读取同一身份，匿名后续请求不继承它。
+- 租户停用和成员撤权阻断租户作用域；租户列表尊重活动账号与显式读取能力。
+- BYOK 读取前验证租户/成员；撤权、停用、多成员未选定均不得省略租户信息绕回存量 AI 来源路径。`tenant-legacy-*` 不再享有前缀绕过；仅通过真实租户/活动成员验证后，才按精确匹配保留旧 `school_id` 配置键别名，避免存量用户意外改道平台供应商。认证依赖对 `/api/ai/` 全部配置/测试/调用入口前置拒绝无有效选择的已登记成员身份，防止不经 `_resolve_cfg` 的端点绕过。
+- 原生 CI 连接要求登录 ChatGPT，最新 head 的远端检查状态未读取；不使用 CLI 绕过该诊断连接。
+
 ## 明确未完成 / 未验证
 
+- 尚未提供完整租户选择流程、成员状态变更 API 与历史 `school_id` 的授权映射/回填。`ensure_legacy_tenant_membership` 只保留显式兼容辅助用途，认证路径不调用它；不能把辅助方法当作已批准迁移。
 - 现有业务表尚未全部完成 `tenant_id` 强制列、数据库 RLS、文件/附件租户隔离和跨租户矩阵；W-02 全量回填与 PostgreSQL 隔离演练仍未完成。
 - 当前保留整体 SQLite/data 备份恢复；租户级/任务级恢复、tombstone、撤权重放、密钥同代校验和恢复后对账尚未形成生产可执行闭环。
 - AI 请求账本目前提供最小状态记录和幂等重放，尚未完成供应商真实 token usage 统一采集、reservation 账务结算、unknown reconciliation worker、预算/权益/价格账本。
@@ -25,7 +36,7 @@
 ```bash
 .venv/bin/pytest -q backend/tests
 .venv/bin/pytest -q backend/tests/test_saas_runtime.py backend/tests/test_secret_store.py backend/tests/test_ai_metering_coverage.py
-python3 docs/tenancy/tools/run_all_gates.py --help
+.venv/bin/python docs/tenancy/tools/run_all_gates.py --mode strict --json
 ```
 
 截至本文生成，验证以本地工作区实际执行结果为准；提交 SHA、CI 和部署身份必须在合并或发布前重新绑定。

@@ -1541,7 +1541,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 | [`error-codes.md`](../tenancy/error-codes.md) | 已实现错误码 + 目标占位；三套并存的错误表达体系 |
 
 <!-- §27.5 人读表格里的关键数字，由 `design_doc_check` DC-7 按现实重算比对。 -->
-<!-- fact275:err_codes_implemented=40 --><!-- fact275:err_codes_placeholder=26 -->
+<!-- fact275:err_codes_implemented=51 --><!-- fact275:err_codes_placeholder=23 -->
 
 > **口径（数「不同码位」，不数表格行数）**：`err_codes_implemented` = `error-codes.md` §2（体系 A）∪ §3（体系 B）的**去重**码位数；`err_codes_placeholder` = §5 全部子表（5.1～5.6）里**去重后的**占位码位数。§5.1.1 的 E7 行**复用 `TENANT_NOT_ACTIVE`**，所以加那一行**不增加码位数**——若按行数计，任何「同一码位对应多个出口」的行都会被误报成「多了一个码位」。
 | [`system-settings-scope-inventory.md`](../tenancy/system-settings-scope-inventory.md) | 系统设置的租户作用域盘点（Q-05） |
@@ -1654,7 +1654,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 > 实测 `design_doc_check.py --self-test` 就这样漏了很久，是 DC-7 的算术不平**碰巧**发现的。
 > **靠算术不平发现覆盖缺口是运气，不是设计**，所以覆盖做成了显式判据。
 
-<!-- fact275:registry_lines=1078 -->
+<!-- fact275:registry_lines=1119 -->
 
 > **`registry_lines`** 是 `resource-registry.yaml` 的行数。它会被登记漏写时被抓到——
 > 该文件是 W-04 全资源 tenant 化清单的输入，行数变了却没被察觉，
