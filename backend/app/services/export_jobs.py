@@ -179,7 +179,7 @@ def run_project_export(store: Store, export_id: str, actor_id: str = "system") -
         record["error_code"] = ""
         saved = store.save_workflow_record("project_export", record, expected_revision=record.get("revision", 0))
         store.save_audit_event({
-            "id": f"audit-{export_id}-succeeded",
+            "id": f"audit-{export_id}-attempt-{record.get('attempt', 0)}-succeeded",
             "actor_id": actor_id,
             "action": "project.export.succeeded",
             "resource_type": "project_export",
@@ -200,7 +200,7 @@ def run_project_export(store: Store, export_id: str, actor_id: str = "system") -
         except Exception:
             pass
         store.save_audit_event({
-            "id": f"audit-{export_id}-failed",
+            "id": f"audit-{export_id}-attempt-{record.get('attempt', 0)}-failed",
             "actor_id": actor_id,
             "action": "project.export.failed",
             "resource_type": "project_export",

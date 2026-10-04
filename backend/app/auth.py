@@ -19,6 +19,7 @@ import httpx
 from fastapi import Depends, Header, HTTPException, Request
 
 from app.core.context import context_for_user, set_request_context
+from app.services.tenant_access import effective_capabilities, resolve_membership
 from app.db import Store, new_id
 from app.services import emailer
 
@@ -588,6 +589,10 @@ def public_user(user: dict) -> dict:
         "teacher_id": user.get("teacher_id"),
         "must_change_password": bool(user.get("must_change_password", 0)),
         "organization_context": user.get("organization_context") or {},
+        "tenant_id": user.get("tenant_id") or None,
+        "membership_id": user.get("membership_id") or None,
+        "capabilities": sorted({str(item) for item in (user.get("capabilities") or [])}),
+        "auth_version": int(user.get("auth_version") or 0),
         "requested_role": user.get("requested_role"),
         "requested_organization_context": user.get("requested_organization_context") or {},
         "role_application_status": user.get("role_application_status", "unselected"),
@@ -630,7 +635,16 @@ def current_user(request: Request, authorization: str | None = Header(default=No
         raise HTTPException(status_code=403, detail={
             "code": "ONBOARDING_REQUIRED", "message": "请先完成邮箱验证和首次登录设置",
         })
-    context = context_for_user(user, request_id=getattr(request.state, "request_id", ""))
+    membership = resolve_membership(store, user)
+    if membership:
+        user["tenant_id"] = membership.get("tenant_id", "")
+        user["membership_id"] = membership.get("id", "")
+        user["auth_version"] = int(membership.get("auth_version") or 1)
+    user["capabilities"] = sorted(effective_capabilities(user, membership))
+    user.setdefault("auth_version", 1)
+    context = context_for_user(
+        user, request_id=getattr(request.state, "request_id", ""), membership=membership
+    )
     request.state.context = context
     request.state.actor_id = context.actor_id
     set_request_context(context)

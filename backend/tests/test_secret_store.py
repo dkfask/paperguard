@@ -7,8 +7,8 @@ JSON 序列化进 SQLite。数据库文件一旦被备份误传、误挂载或�
 这些用例要锁住的性质：
 1. 库里**不出现**明文密钥
 2. 存进去再取出来是同一个值（功能没坏）
-3. 存量明文数据在未配置主密钥时仍可读（不能因配置遗漏让全平台 AI 挂掉）
-4. 密文被篡改会被 MAC 拒绝（这是选 encrypt-then-MAC 而非纯 XOR 流的理由）
+3. 缺少主密钥或存量明文时必须 fail-closed，不允许静默降级
+4. 密文被篡改会被 AEAD 拒绝
 """
 
 from __future__ import annotations
@@ -87,24 +87,19 @@ def test_tampered_ciphertext_is_rejected():
         secret_store.decrypt_secret(tampered)
 
 
-def test_legacy_plaintext_passes_through(monkeypatch):
-    """存量明文必须原样返回，且不因未配置主密钥而不可读。"""
+def test_plaintext_or_missing_master_key_fails_closed(monkeypatch):
     monkeypatch.delenv("PAPERGUARD_SECRET_KEY", raising=False)
-    assert secret_store.decrypt_secret(_SECRET) == _SECRET
-    # 未配置主密钥时写入不报错，但会告警
-    assert secret_store.encrypt_secret(_SECRET) == _SECRET
+    with pytest.raises(secret_store.SecretDecryptError):
+        secret_store.decrypt_secret(_SECRET)
+    with pytest.raises(secret_store.SecretDecryptError):
+        secret_store.encrypt_secret(_SECRET)
 
 
-def test_reveal_config_degrades_gracefully(monkeypatch):
-    """解密失败不应让整个配置读取崩掉——否则所有 AI 功能一起挂。
-
-    正确行为是把该字段置空，上层自然当成「未配置」。
-    """
+def test_reveal_config_fails_closed(monkeypatch):
     cipher = secret_store.encrypt_secret(_SECRET)
     monkeypatch.setenv("PAPERGUARD_SECRET_KEY", "ffffffffffffffff" * 4)
-    out = secret_store.reveal_config({"base_url": "https://x.example", "api_key": cipher})
-    assert out["api_key"] == ""
-    assert out["base_url"] == "https://x.example"
+    with pytest.raises(secret_store.SecretDecryptError):
+        secret_store.reveal_config({"base_url": "https://x.example", "api_key": cipher})
 
 
 # --------------------------------------------------------------------------

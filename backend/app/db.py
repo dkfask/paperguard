@@ -37,6 +37,8 @@ SCHEMA_MIGRATIONS = (
     "0008_miniprogram_auth",
     "0009_ai_usage_quota",
     "0010_tenant_system_settings",
+    "0011_runtime_tenancy",
+    "0012_ai_request_ledger",
 )
 
 
@@ -107,6 +109,33 @@ class Store:
                     data TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS tenants (
+                    id TEXT PRIMARY KEY,
+                    slug TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    auth_version INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS tenant_memberships (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    capabilities TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    auth_version INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (tenant_id, user_id),
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_memberships_user_status
+                    ON tenant_memberships (user_id, status, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_memberships_tenant_status
+                    ON tenant_memberships (tenant_id, status, updated_at DESC);
                 CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
                     username TEXT UNIQUE NOT NULL,
@@ -206,6 +235,29 @@ class Store:
                     ON ai_usage (user_id, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_ai_usage_org_created
                     ON ai_usage (organization_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS ai_requests (
+                    id TEXT PRIMARY KEY,
+                    idempotency_key TEXT,
+                    request_hash TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    tenant_id TEXT,
+                    membership_id TEXT,
+                    action TEXT NOT NULL,
+                    provider TEXT NOT NULL DEFAULT '',
+                    base_url_host TEXT,
+                    model TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    reservation_status TEXT NOT NULL DEFAULT 'reserved',
+                    response_text TEXT,
+                    error_code TEXT,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (user_id, idempotency_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_ai_requests_tenant_status
+                    ON ai_requests (tenant_id, status, created_at DESC);
                 -- 每用户每日配额计数。period 用 UTC 日期，避免跨时区当天额度错乱。
                 CREATE TABLE IF NOT EXISTS ai_quota (
                     user_id TEXT NOT NULL,
@@ -433,6 +485,12 @@ class Store:
             # SQLite 无法直接给已有表改主键，只能重建。存量行一律归到
             # organization_id=''（平台全局默认），因此升级后行为不回退：
             # 原来生效的配置仍然生效，只是从此可以被单校覆盖。
+            # 0011: materialize tenant and membership runtime storage.
+            # Existing organization_context remains a legacy compatibility view;
+            # no user supplied tenant id is trusted until a membership exists.
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status, id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memberships_capability ON tenant_memberships(tenant_id, status)")
+
             settings_columns = {row[1] for row in conn.execute("PRAGMA table_info(system_settings)")}
             if "organization_id" not in settings_columns:
                 conn.execute("ALTER TABLE system_settings RENAME TO system_settings_legacy")
@@ -519,6 +577,126 @@ class Store:
         if user is None and "@" in identifier:
             user = self.get_user_by_email(identifier)
         return user
+
+    # ------------------------- tenancy runtime -------------------------
+
+    @staticmethod
+    def _membership_row(row: sqlite3.Row | dict | None) -> dict | None:
+        if row is None:
+            return None
+        data = dict(row)
+        try:
+            caps = json.loads(data.get("capabilities") or "[]")
+        except (TypeError, ValueError):
+            caps = []
+        data["capabilities"] = [str(item) for item in caps] if isinstance(caps, list) else []
+        return data
+
+    def create_tenant(self, tenant: dict) -> dict:
+        now = tenant.get("updated_at") or tenant.get("created_at") or _now()
+        payload = {
+            "id": tenant["id"], "slug": tenant["slug"], "name": tenant["name"],
+            "status": tenant.get("status", "active"),
+            "auth_version": int(tenant.get("auth_version", 1)),
+            "created_at": tenant.get("created_at", now), "updated_at": now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO tenants (id, slug, name, status, auth_version, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                "slug=excluded.slug, name=excluded.name, status=excluded.status, "
+                "auth_version=excluded.auth_version, updated_at=excluded.updated_at",
+                tuple(payload.values()),
+            )
+        return payload
+
+    def get_tenant(self, tenant_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
+        return dict(row) if row else None
+
+    def list_tenants(self, *, status: str | None = "active") -> list[dict]:
+        with self._connect() as conn:
+            if status is None:
+                rows = conn.execute("SELECT * FROM tenants ORDER BY created_at, id").fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM tenants WHERE status = ? ORDER BY created_at, id", (status,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_membership(self, membership: dict) -> dict:
+        now = membership.get("updated_at") or membership.get("created_at") or _now()
+        payload = {
+            "id": membership["id"], "tenant_id": membership["tenant_id"],
+            "user_id": membership["user_id"], "role": membership["role"],
+            "capabilities": json.dumps(sorted({str(x) for x in (membership.get("capabilities") or [])}), ensure_ascii=False),
+            "status": membership.get("status", "active"),
+            "auth_version": int(membership.get("auth_version", 1)),
+            "created_at": membership.get("created_at", now), "updated_at": now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO tenant_memberships (id, tenant_id, user_id, role, capabilities, status, auth_version, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(tenant_id, user_id) DO UPDATE SET "
+                "id=excluded.id, role=excluded.role, capabilities=excluded.capabilities, status=excluded.status, "
+                "auth_version=excluded.auth_version, updated_at=excluded.updated_at",
+                tuple(payload.values()),
+            )
+        payload["capabilities"] = json.loads(payload["capabilities"])
+        return payload
+
+    def get_membership(self, membership_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM tenant_memberships WHERE id = ?", (membership_id,)).fetchone()
+        return self._membership_row(row)
+
+    def get_membership_for_user(self, user_id: str, tenant_id: str | None = None) -> dict | None:
+        with self._connect() as conn:
+            if tenant_id:
+                row = conn.execute(
+                    "SELECT * FROM tenant_memberships WHERE user_id = ? AND tenant_id = ? AND status = 'active'",
+                    (user_id, tenant_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM tenant_memberships WHERE user_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
+                    (user_id,),
+                ).fetchone()
+        return self._membership_row(row)
+
+    def list_memberships_for_user(self, user_id: str) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tenant_memberships WHERE user_id = ? ORDER BY updated_at DESC, id",
+                (user_id,),
+            ).fetchall()
+        return [self._membership_row(row) for row in rows]
+
+    def list_memberships_for_tenant(self, tenant_id: str, *, active_only: bool = True) -> list[dict]:
+        with self._connect() as conn:
+            query = "SELECT * FROM tenant_memberships WHERE tenant_id = ?"
+            params: list[object] = [tenant_id]
+            if active_only:
+                query += " AND status = 'active'"
+            query += " ORDER BY created_at, id"
+            rows = conn.execute(query, params).fetchall()
+        return [self._membership_row(row) for row in rows]
+
+    def ensure_legacy_tenant_membership(self, user: dict) -> dict | None:
+        """Bridge legacy school context without trusting client input as auth."""
+        context = user.get("organization_context") or {}
+        school_id = str(context.get("school_id") or "").strip()
+        if not school_id:
+            return None
+        tenant_id = f"tenant-legacy-{school_id}"
+        existing = self.get_membership_for_user(user["id"], tenant_id)
+        if existing:
+            return existing
+        now = _now()
+        self.create_tenant({"id": tenant_id, "slug": school_id, "name": school_id, "created_at": now})
+        return self.save_membership({
+            "id": new_id("membership"), "tenant_id": tenant_id, "user_id": user["id"],
+            "role": user.get("role", "user"), "capabilities": [], "created_at": now,
+        })
 
     # -------------------------- 邮箱验证码 --------------------------
 
@@ -921,6 +1099,71 @@ class Store:
                     " FROM ai_usage"
                     " GROUP BY user_id, organization_id ORDER BY calls DESC LIMIT ?",
                     (limit,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    # ----------------------- AI request ledger -----------------------
+
+    def get_ai_request_by_idempotency(self, user_id: str, idempotency_key: str) -> dict | None:
+        if not idempotency_key:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM ai_requests WHERE user_id = ? AND idempotency_key = ?",
+                (user_id, idempotency_key),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def create_ai_request(self, entry: dict) -> dict:
+        now = entry.get("created_at") or _now()
+        payload = {
+            "id": entry["id"], "idempotency_key": entry.get("idempotency_key") or None,
+            "request_hash": entry["request_hash"], "user_id": entry["user_id"],
+            "tenant_id": entry.get("tenant_id"), "membership_id": entry.get("membership_id"),
+            "action": entry["action"], "provider": entry.get("provider", ""),
+            "base_url_host": entry.get("base_url_host"), "model": entry.get("model", ""),
+            "status": entry.get("status", "reserved"),
+            "reservation_status": entry.get("reservation_status", "reserved"),
+            "response_text": entry.get("response_text"), "error_code": entry.get("error_code"),
+            "input_tokens": int(entry.get("input_tokens") or 0),
+            "output_tokens": int(entry.get("output_tokens") or 0),
+            "created_at": now, "updated_at": entry.get("updated_at") or now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO ai_requests (id, idempotency_key, request_hash, user_id, tenant_id, membership_id, action, provider, base_url_host, model, status, reservation_status, response_text, error_code, input_tokens, output_tokens, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(payload.values()),
+            )
+        return payload
+
+    def update_ai_request(self, request_id: str, **changes: object) -> None:
+        allowed = {
+            "status", "reservation_status", "response_text", "error_code",
+            "input_tokens", "output_tokens", "updated_at",
+        }
+        changes = {key: value for key, value in changes.items() if key in allowed}
+        if not changes:
+            return
+        changes.setdefault("updated_at", _now())
+        assignments = ", ".join(f"{key} = ?" for key in changes)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE ai_requests SET {assignments} WHERE id = ?",
+                (*changes.values(), request_id),
+            )
+
+    def list_ai_requests(self, *, tenant_id: str | None = None, limit: int = 100) -> list[dict]:
+        with self._connect() as conn:
+            if tenant_id is None:
+                rows = conn.execute(
+                    "SELECT * FROM ai_requests ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (max(1, min(limit, 1000)),),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM ai_requests WHERE tenant_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (tenant_id, max(1, min(limit, 1000))),
                 ).fetchall()
         return [dict(row) for row in rows]
 
@@ -1364,7 +1607,7 @@ class Store:
         """Write metadata-only audit evidence in its dedicated ledger."""
         payload = self._audit_payload(event)
         conn.execute(
-            "INSERT OR REPLACE INTO audit_events "
+            "INSERT INTO audit_events "
             "(id, actor_id, action, resource_type, resource_id, organization_id, result, reason, request_id, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             payload,

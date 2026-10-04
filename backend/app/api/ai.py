@@ -10,16 +10,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import sqlite3
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.auth import current_user, require_admin
 from app.db import Store, new_id
-from app.services import ai_breaker, ai_governance
+from app.services import ai_breaker, ai_governance, secret_store
 from app.services.outbound_guard import assert_safe_outbound_url
 
 router = APIRouter(prefix="/api/ai")
@@ -68,7 +70,12 @@ def _system_cfg(
 ) -> tuple[dict, str] | None:
     """获取系统级默认模型配置: 优先该校的数据库设置, 其次平台全局默认, 最后环境变量。"""
     if store is not None:
-        db_cfg = store.get_system_ai_config(organization_id)
+        try:
+            db_cfg = store.get_system_ai_config(organization_id)
+        except secret_store.SecretDecryptError as exc:
+            raise HTTPException(status_code=503, detail={
+                "code": "AI_SECRET_UNAVAILABLE", "message": "AI 凭据不可解密，已拒绝回退到其他供应商"
+            }) from exc
         if db_cfg and all(db_cfg.get(k) for k in ("base_url", "api_key", "model")):
             return {
                 "base_url": str(db_cfg["base_url"]).strip().rstrip("/"),
@@ -79,6 +86,19 @@ def _system_cfg(
     if env_cfg:
         return env_cfg, "system_env"
     return None
+
+
+def _tenant_or_school_of(user: dict | None) -> tuple[str, bool]:
+    context = (user or {}).get("organization_context") or {}
+    tenant_id = str((user or {}).get("tenant_id") or context.get("tenant_id") or "").strip()
+    # Legacy organization_context is bridged to tenant-legacy-* memberships,
+    # but existing config rows are keyed by school_id.  Keep that migration
+    # mapping explicit; a real tenant_id remains fail-closed when unknown.
+    if tenant_id and tenant_id.startswith("tenant-legacy-"):
+        return str(context.get("school_id") or ""), False
+    if tenant_id:
+        return tenant_id, True
+    return str(context.get("school_id") or ""), False
 
 
 def _school_of(user: dict | None) -> str:
@@ -98,14 +118,25 @@ def _resolve_cfg(store: Store, user: dict) -> tuple[dict, str] | None:
     应当能用自己的模型供应商，论文正文才不会全部流向同一家外部处理者。
     本校没配则回退到平台全局默认。
     """
-    user_cfg = store.get_user_ai_config(user["id"])
+    try:
+        user_cfg = store.get_user_ai_config(user["id"])
+    except secret_store.SecretDecryptError as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "AI_SECRET_UNAVAILABLE", "message": "AI 凭据不可解密，请联系管理员完成密钥迁移"
+        }) from exc
     if user_cfg and all(user_cfg.get(k) for k in ("base_url", "api_key", "model")):
         return {
             "base_url": str(user_cfg["base_url"]).strip().rstrip("/"),
             "api_key": str(user_cfg["api_key"]).strip(),
             "model": str(user_cfg["model"]).strip(),
         }, "user"
-    sys = _system_cfg(store, _school_of(user))
+    scope_id, explicit_tenant = _tenant_or_school_of(user)
+    if explicit_tenant and not store.get_tenant(scope_id):
+        # An explicit but unknown tenant must not borrow platform defaults.
+        raise HTTPException(status_code=403, detail={
+            "code": "TENANT_CONTEXT_INVALID", "message": "租户上下文无效，禁止回退平台 AI 配置"
+        })
+    sys = _system_cfg(store, scope_id)
     if sys:
         cfg, sub_source = sys
         # 统一对外归属为 "system" (或在状态中返回更具体的来源)
@@ -310,13 +341,17 @@ def _parse_error_detail(resp: httpx.Response) -> str:
 
 
 def _breaker_key(cfg: dict) -> str:
-    """熔断按**上游端点**分组：同一供应商共享一份熔断状态。
+    """隔离熔断状态，避免一个 BYOK 凭据拖垮其他租户。
 
-    用 base_url 而不是 api_key：同一供应商的多个密钥故障时通常也是
-    同一个原因（供应商挂了 / 额度耗尽），按端点聚合才能在第一次
-    「撞墙」时就保护住，而不是等每个密钥各失败 5 次。
+    只把凭据的不可逆摘要放进进程内键，绝不把 API Key 写入日志或状态。
+    ``provider/base_url/model/credential`` 共同构成上游身份；同一供应商的
+    不同租户密钥故障不会互相打开熔断。
     """
-    return _normalize_base_url(cfg.get("base_url", "")).lower()
+    base_url = _normalize_base_url(cfg.get("base_url", "")).lower()
+    provider = str(cfg.get("provider") or urlsplit(base_url).hostname or "").lower()
+    model = str(cfg.get("model") or "")
+    credential_digest = hashlib.sha256(str(cfg.get("api_key") or "").encode("utf-8")).hexdigest()[:16]
+    return f"{provider}|{base_url}|{model}|cred:{credential_digest}"
 
 
 def _chat_completion(
@@ -364,6 +399,7 @@ def _metered_chat(
     action: str,
     source: str,
     max_tokens: int = _DEFAULT_MAX_TOKENS,
+    idempotency_key: str | None = None,
 ) -> str:
     """真实上游调用的**唯一计量出口**。任何会发往供应商的调用都必须经过这里。
 
@@ -385,10 +421,58 @@ def _metered_chat(
     应当计两次而非一次。
     """
     assert_safe_outbound_url(cfg["base_url"], label="Base URL")
-    ai_governance.begin_call(store, user)
     input_chars = sum(len(str(m.get("content", ""))) for m in messages)
     model = str(cfg.get("model", ""))
     base_url = str(cfg.get("base_url", ""))
+    request_hash = hashlib.sha256(
+        (action + "\0" + model + "\0" + base_url + "\0" + repr(messages)).encode("utf-8")
+    ).hexdigest()
+    request_row = None
+    if idempotency_key:
+        request_row = store.get_ai_request_by_idempotency(user["id"], idempotency_key.strip())
+        if request_row:
+            if request_row["request_hash"] != request_hash:
+                raise HTTPException(status_code=409, detail={
+                    "code": "IDEMPOTENCY_KEY_REUSED", "message": "幂等键已用于另一份请求"
+                })
+            if request_row.get("status") == "completed":
+                return str(request_row.get("response_text") or "")
+            raise HTTPException(status_code=409, detail={
+                "code": "REQUEST_IN_PROGRESS", "message": "相同幂等请求仍在处理中"
+            })
+    request_id = new_id("aireq")
+    request_payload = {
+        "id": request_id, "idempotency_key": idempotency_key.strip() if idempotency_key else None,
+        "request_hash": request_hash, "user_id": user["id"],
+        "tenant_id": user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id") or (user.get("organization_context") or {}).get("school_id"),
+        "membership_id": user.get("membership_id"), "action": action,
+        "provider": urlsplit(base_url).hostname or "", "base_url_host": urlsplit(base_url).hostname or "",
+        "model": model, "status": "reserved", "reservation_status": "reserved",
+    }
+    try:
+        request_row = store.create_ai_request(request_payload)
+    except sqlite3.IntegrityError:
+        # A concurrent request may win the unique idempotency insert.  Re-read
+        # the authoritative row rather than dispatching twice.
+        existing = store.get_ai_request_by_idempotency(user["id"], idempotency_key.strip() if idempotency_key else "")
+        if not existing:
+            raise
+        if existing["request_hash"] != request_hash:
+            raise HTTPException(status_code=409, detail={
+                "code": "IDEMPOTENCY_KEY_REUSED", "message": "幂等键已用于另一份请求"
+            })
+        if existing.get("status") == "completed":
+            return str(existing.get("response_text") or "")
+        raise HTTPException(status_code=409, detail={
+            "code": "REQUEST_IN_PROGRESS", "message": "相同幂等请求仍在处理中"
+        })
+    try:
+        ai_governance.begin_call(store, user)
+    except HTTPException as exc:
+        store.update_ai_request(request_id, status="failed_final", reservation_status="released", error_code=str((exc.detail or {}).get("code") if isinstance(exc.detail, dict) else "QUOTA_REJECTED"))
+        raise
+    store.update_ai_request(request_id, status="dispatching", reservation_status="consumed")
+    input_tokens = max(1, input_chars // 4) if input_chars else 0
     try:
         # 调用形状兼容性：`_chat_completion` 在测试与可能的外部包装里被大量
         # 替换成替身，两类形状都存在——
@@ -401,17 +485,29 @@ def _metered_chat(
             result = _chat_completion(cfg, messages, temperature)
         else:
             result = _chat_completion(cfg, messages, temperature, max_tokens=max_tokens)
-    except HTTPException:
+    except HTTPException as exc:
         ai_governance.record_usage(
             store, user, action=action, source=source, model=model,
             base_url=base_url, input_chars=input_chars, output_chars=0,
             result="upstream_error",
         )
+        unknown = exc.status_code in {502, 504}
+        store.update_ai_request(
+            request_id, status="unknown" if unknown else "failed_final",
+            reservation_status="unknown" if unknown else "consumed",
+            error_code=str((exc.detail or {}).get("code") if isinstance(exc.detail, dict) else exc.status_code),
+            input_tokens=input_tokens, output_tokens=0,
+        )
         raise
+    output_tokens = max(1, len(result) // 4) if result else 0
     ai_governance.record_usage(
         store, user, action=action, source=source, model=model,
         base_url=base_url, input_chars=input_chars, output_chars=len(result),
         result="success",
+    )
+    store.update_ai_request(
+        request_id, status="completed", reservation_status="settled", response_text=result,
+        input_tokens=input_tokens, output_tokens=output_tokens,
     )
     return result
 
@@ -728,7 +824,8 @@ def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_adm
 
 @router.post("/assist")
 def ai_assist(req: AssistRequest, user: dict = Depends(current_user),
-              store: Store = Depends(get_store)) -> dict:
+              store: Store = Depends(get_store),
+              idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")) -> dict:
     if req.action not in _ACTIONS:
         raise HTTPException(status_code=400, detail=f"不支持的 AI 操作: {req.action}")
     if not req.text.strip():
@@ -749,6 +846,6 @@ def ai_assist(req: AssistRequest, user: dict = Depends(current_user),
     messages, temperature = _build_messages(req.action, req.text, req)
     result = _metered_chat(
         store, user, cfg, messages, temperature,
-        action=req.action, source=source,
+        action=req.action, source=source, idempotency_key=idempotency_key,
     )
     return {"text": result}

@@ -75,11 +75,11 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
   或 SMTP 的 `PAPERGUARD_SMTP_HOST` / `PORT` / `USER` / `PASSWORD` / `FROM`。
   **未配置邮件服务时，邮箱注册、验证码发送和邮箱绑定明确返回 `EMAIL_NOT_CONFIGURED`，
   不降级为免验证成功**。无邮箱的兼容账号注册与学校统一注册是独立路径。
-- **静态密钥保护**：配置 `PAPERGUARD_SECRET_KEY` 后，新写入供应商密钥以 `pgsec1$...`
-  格式加密并校验完整性，页面仅显示脱敏摘要。建议主密钥使用至少 32 字节的随机值，
+- **静态密钥保护**：配置 `PAPERGUARD_SECRET_KEY` 后，新写入供应商密钥以 AES-GCM
+  `pgsec1$...` 格式加密并校验完整性，页面仅显示脱敏摘要。主密钥使用至少 32 字节随机值，
   通过受控环境保存，和数据库备份分开保管，恢复时使用原主密钥，**不得直接换新值**。
-  当前兼容实现未配置主密钥时会保留明文并告警，因此“代码有加密能力”不等于
-  “任意部署都已加密”；生产和商业化放行前必须核验主密钥与明文残留。
+  缺少主密钥、发现明文存量凭据或解密失败均 fail-closed，不会静默回退到其他供应商；
+  存量明文迁移必须在受控维护窗口完成。
 - **运行治理**：SSRF 防护、数据接收方披露、每日调用次数配额、突发限流、用量记录和
   上游熔断已实现。默认每用户每 UTC 日 200 次、每分钟 10 次，可用
   `PAPERGUARD_AI_DAILY_QUOTA` / `PAPERGUARD_AI_BURST_PER_MINUTE` 调整；
@@ -148,7 +148,7 @@ docker compose up -d --build
 - 小程序提交详情展示教师退回理由与修订截止；预检/确认提交对逾期、已有待审、正文过期返回稳定错误码，并给出「联系教师 / 查看待审核提交 / 重新预检」下一步。仍不是真机 UAT。
 - 小程序学生可撤回待审核提交（教师不能代撤）；提交历史展示修改说明与上轮未解决阻断；我的任务把已通过/归档阶段折叠为历史。由 `check:structure`、`test:flow` 与工作流 happy path 覆盖，不是真机 UAT。
 - 小程序登录页用户可见名称为「论文卫士Pro」；任务、提交详情与提交确认页展示截止倒计时/逾期时长；提交确认页、提交详情与教师审阅检查页签逐条展示必交材料绑定结果，检查未完成/失败给出重新预检；提交详情时间线按提交、撤回、退回、通过事件展示；教师「其他任务」打开已有决定的只读审阅记录，审阅页在已退回/已通过后不再显示退回、通过、新增批注或人工确认。`GET /api/my-tasks` 在撤回/重开后仍用 `last_submission_id` 回填只读 `current_submission`，不把撤回提交重新排进待审队列。仍不是真机 UAT。
-- 当前产品定位是**单学校/单学院试点**，不是共享多租户 SaaS。仓库没有 `tenant` 实体、没有计费/余额/支付代码路径；AI 计费需求仍未启用。不要把组织层级或学院作用域宣传成多租户 SaaS。
+- 当前 PR 已落地共享部署的租户/成员运行时基础、最小 SaaS API、AI 请求账本和密钥 fail-closed；这**不等于完整多租户 SaaS**。现有业务资源全量 tenant_id/RLS、租户级恢复、对账、支付和商业放行仍未完成。不要把本地测试或 CI 绿灯宣传成 SaaS 已上线。详见 `docs/tenancy/implementation-status-20261004.md`。
 - 上传检查和自动修复需要登录; 项目与图片按用户权限隔离
 - 上传检查文件只在处理期间使用; 写作项目和图片会持久化到 Docker volume, 删除项目后按引用回收图片
 - 导出和自动修复生成的临时文件在响应完成后清理
@@ -223,6 +223,9 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 | GET/POST | `/api/outbox`、`/api/outbox/claim` | 查看范围内待发送事件、原子领取租约 |
 | POST | `/api/outbox/{id}/ack`、`/fail`、`/retry` | 消费确认、失败回退/封顶和人工重试 |
 | GET/PUT/POST | `/api/operations/retention`、`/api/operations/backup` | 保留期限配置与管理员一致性备份下载 |
+| GET | `/api/saas/v1/context` | 返回服务端解析的租户、成员、能力和授权版本上下文 |
+| GET/POST | `/api/saas/v1/tenants` | 平台管理员创建租户；成员可读取被授权租户列表 |
+| GET/POST | `/api/saas/v1/tenants/{tenant_id}/memberships` | 成员范围读取与平台管理员成员绑定 |
 | POST | `/api/projects/{id}/export-preview` | 正式下载前只读预览版本、规范门禁、缺失项、章节/表格/图片/公式摘要 |
 | POST | `/api/auth/mp/login` | 微信 code 换取已绑定会话或一次性绑定票据 |
 | POST | `/api/auth/mp/bind` | 用校内账号密码绑定当前微信身份 |

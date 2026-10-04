@@ -35,6 +35,7 @@ def _breaker_env(monkeypatch):
     monkeypatch.setenv("PAPERGUARD_AI_BREAKER_RESET_SEC", "30")
     monkeypatch.setenv("PAPERGUARD_AI_DAILY_QUOTA", "1000")
     monkeypatch.setenv("PAPERGUARD_AI_BURST_PER_MINUTE", "1000")
+    monkeypatch.setenv("PAPERGUARD_SECRET_KEY", "0123456789abcdef" * 4)
     ai_breaker.reset_all()
     yield
     ai_breaker.reset_all()
