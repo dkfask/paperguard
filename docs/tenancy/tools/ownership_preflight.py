@@ -157,7 +157,7 @@ def preflight(source: str | Path, mapping: str | Path) -> dict:
                 finding(table, row.get("id",row.get("key","unknown")), "RESOURCE_OWNERSHIP_AMBIGUOUS" if len(scope)>1 else "RESOURCE_OWNERSHIP_MISSING_OR_CONFLICT", candidate_count=len(scope))
             else: resolved[(table,row.get("id"))] = next(iter(scope))
     for table in sorted(set(rows)-GLOBAL_TABLES-RESOURCE_TABLES-{"organization_units"}):
-        if rows[table]: finding(table,"unclassified","UNREGISTERED_NONEMPTY_RESOURCE")
+        if rows[table]: finding("unregistered_resource",table,"UNREGISTERED_NONEMPTY_RESOURCE")
     # Detect source or mapping races; no previous snapshot can authorize new data.
     if before != snapshot(source): raise ValueError("SOURCE_CHANGED_DURING_PREFLIGHT")
     map_hash = hashlib.sha256(mapping.read_bytes()).hexdigest()

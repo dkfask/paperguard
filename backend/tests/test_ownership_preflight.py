@@ -125,3 +125,18 @@ def test_no_implicit_role_or_status_migration(source,field,value,code):
     edit(db,'UPDATE users SET '+field+'=?',(value,))
     r=preflight_module.preflight(db,mapping)
     assert r['decision']=='BLOCKED' and any(f['code']==code for f in r['findings'])
+
+
+@pytest.mark.parametrize('name',['unreviewed table','private"table'])
+def test_unregistered_nonempty_quoted_tables_fail_closed_without_name_leak(source,name):
+    db,mapping=source
+    identifier='"'+name.replace('"','""')+'"'
+    edit(db,'CREATE TABLE '+identifier+' (id TEXT)')
+    edit(db,'INSERT INTO '+identifier+' VALUES (?)',('synthetic-review-required',))
+    before=preflight_module.snapshot(db)
+    report=preflight_module.preflight(db,mapping)
+    assert report['decision']=='BLOCKED'
+    assert any(f['code']=='UNREGISTERED_NONEMPTY_RESOURCE' for f in report['findings'])
+    assert name not in json.dumps(report) and 'synthetic-review-required' not in json.dumps(report)
+    assert not preflight_module.verify_admission(report,db,mapping)
+    assert preflight_module.snapshot(db)==before

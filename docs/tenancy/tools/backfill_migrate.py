@@ -181,7 +181,11 @@ def read_orgs(src: str) -> dict[str, dict]:
 def read_scoped(src: str, table: str) -> list[dict]:
     con = _source_connection(src)
     try:
-        cur = con.execute(f"SELECT * FROM {table}")
+        # Names come from sqlite_master as well as fixed migration tables.
+        # Quote identifiers: spaces/quotes must not turn a nonempty table into
+        # a swallowed OperationalError and an apparent empty resource.
+        identifier = '"' + table.replace('"', '""') + '"'
+        cur = con.execute(f"SELECT * FROM {identifier}")
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
     except sqlite3.OperationalError:
