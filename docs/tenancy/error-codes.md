@@ -17,7 +17,7 @@
 
 | 体系 | 唯一码数 | 抛出点数（`app/` 全量） | 出现位置 | 响应形态 |
 |---|---|---|---|---|
-| **A. HTTP 异常码** | **42** | 65（2026-10-04 全量重新扫描） | `HTTPException(detail={"code","message"})` | 4xx/5xx 响应体 |
+| **A. HTTP 异常码** | **52** | 85（2026-10-04 全量重新扫描） | `HTTPException(detail={"code","message"})` | 4xx/5xx 响应体 |
 | **B. 异步任务码** | **9** | — | 任务/归档/渲染记录的 `error_code` 列 | **200 成功响应体**内 |
 | **C. 无码裸字符串** | — | **404**（`api/` 顶层 367） | `HTTPException(detail="...")` | 4xx/5xx 响应体，只有中文文案 |
 | （其他形式） | — | 103（`api/` 顶层 95） | 变量 / 多行 / 无 detail | — |
@@ -68,7 +68,7 @@
 
 ---
 
-## 2. 体系 A：HTTP 异常码（42 个，已实现）
+## 2. 体系 A：HTTP 异常码（52 个，已实现）
 
 全部来自 `HTTPException(detail={"code", "message"})`。
 
@@ -139,18 +139,35 @@
 
 | Code | HTTP | 位置 | 实际触发与客户端边界 |
 |---|---|---|---|
-| `AI_SECRET_UNAVAILABLE` | 503 | `backend/app/api/ai.py:76` | 凭据缺失主密钥或认证解密失败；联系管理员迁移，不回退其他供应商 |
-| `CAPABILITY_REQUIRED` | 403 | `backend/app/services/tenant_access.py:68` | 活动成员能力不足或无有效成员身份；不重试越权操作 |
-| `IDEMPOTENCY_KEY_REUSED` | 409 | `backend/app/api/ai.py:444` | 相同幂等键提交了不同请求；使用新键或核对原请求 |
+| `AI_SECRET_UNAVAILABLE` | 503 | `backend/app/api/ai.py:77` | 凭据缺失主密钥或认证解密失败；联系管理员迁移，不回退其他供应商 |
+| `CAPABILITY_REQUIRED` | 403 | `backend/app/api/saas.py:27` | 活动成员能力不足或无有效成员身份；不重试越权操作 |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | `backend/app/api/ai.py:455` | 相同幂等键提交了不同请求；使用新键或核对原请求 |
 | `PLATFORM_OPERATION_ADMIN_REQUIRED` | 403 | `backend/app/api/operations.py:63` | 平台级运维要求活动全局管理员，租户角色不授予该权限 |
-| `REQUEST_IN_PROGRESS` | 409 | `backend/app/api/ai.py:449` | 原请求未形成可重放的 completed 结果；unknown 不自动重发或退款 |
-| `TENANT_CONTEXT_INVALID` | 403 | `backend/app/api/ai.py:122` | 租户未知、停用、成员无效或未选定；禁止 BYOK 和平台配置回退 |
+| `REQUEST_IN_PROGRESS` | 409 | `backend/app/api/ai.py:460` | 原请求未形成可重放的 completed 结果；unknown 不自动重发或退款 |
+| `TENANT_CONTEXT_INVALID` | 403 | `backend/app/api/ai.py:123` | 租户未知、停用、成员无效或未选定；禁止 BYOK 和平台配置回退 |
 | `TENANT_CONTEXT_MISSING` | 400 | `backend/app/services/tenant_access.py:83` | 租户作用域参数为空；需补齐经服务端验证的租户身份 |
-| `TENANT_NOT_FOUND` | 404 | `backend/app/api/saas.py:80` | 租户不存在或不可为其新增成员 |
-| `TENANT_SCOPE_FORBIDDEN` | 403 | `backend/app/services/tenant_access.py:87` | 非活动成员或租户停用；不得跨租户访问 |
-| `TENANT_SLUG_TAKEN` | 409 | `backend/app/api/saas.py:65` | 租户标识已占用；选择其他标识 |
-| `USER_NOT_FOUND` | 404 | `backend/app/api/saas.py:82` | 待添加成员的全局用户不存在 |
+| `TENANT_NOT_FOUND` | 404 | `backend/app/api/saas.py:102` | 租户不存在或不可为其新增成员 |
+| `TENANT_SCOPE_FORBIDDEN` | 403 | `backend/app/api/saas.py:32` | 非活动成员或租户停用；不得跨租户访问 |
+| `TENANT_SLUG_TAKEN` | 409 | `backend/app/api/saas.py:83` | 租户标识已占用；选择其他标识 |
+| `USER_NOT_FOUND` | 404 | `backend/app/api/saas.py:104` | 待添加成员的全局用户不存在 |
 
+
+### 2.8 可信 SaaS 与 AI 待复核新增码（2026-10-04）
+
+| Code | HTTP | 位置 | 实际触发与客户端边界 |
+|---|---|---|---|
+| `AI_RECONCILIATION_REQUIRED` | 409 | `backend/app/api/ai.py:459` | 原幂等请求结果未知或已待复核；禁止重发/退款，走人工复核 |
+| `AI_RECONCILIATION_STATE_INVALID` | 409 | `backend/app/services/ai_recovery.py:46` | 仅 unknown 可进入待复核；禁止改写 completed/failed_final |
+| `AI_REQUEST_NOT_FOUND` | 404 | `backend/app/services/ai_recovery.py:29` | 限定租户/成员范围内不可见；不透露跨租户存在性 |
+| `AI_RESULT_UNKNOWN` | 502 | `backend/app/api/ai.py:518` | 派发异常或结果记录失败；不能据此断言供应商未执行 |
+| `AUTH_ACCOUNT_BLOCKED` | 403 | `backend/app/auth.py:724` | 账号停用、需改密或未完成引导；不能继续共享 SaaS 操作 |
+| `AUTH_SESSION_INVALID` | 401 | `backend/app/services/tenant_access.py:118` | 缺少或失效的会话；重新登录 |
+| `TENANT_HEADER_NOT_HONORED` | 403 | `backend/app/services/tenant_access.py:145` | 租户选择器无对应成员记录；不可用头建立授权 |
+| `TENANT_MEMBERSHIP_INACTIVE` | 403 | `backend/app/services/tenant_access.py:142` | 成员已撤销/停用；同会话必须拒绝 |
+| `TENANT_MEMBERSHIP_REQUIRED` | 403 | `backend/app/services/tenant_access.py:136` | 没有有效或唯一选定的成员租户；不得猜选 |
+| `TENANT_NOT_ACTIVE` | 403 | `backend/app/services/tenant_access.py:149` | 租户停用/缺失/未启用；首位所有者例外仍无持久化契约 |
+
+SaaS 局部路由工厂还输出 `API_INPUT_INVALID`（422）、`API_INTERNAL_ERROR`（500）与 `API_REQUEST_REJECTED`（保留原 HTTP 状态）。这些来自类型化错误工厂，不是 `HTTPException` 常量出口，因此不计入当前 EC HTTP 异常码计数；响应不回显请求输入或内部异常。验证见 `test_ai_recovery_contract.py`。
 
 ## 3. 体系 B：异步任务码（9 个，已实现）
 
@@ -250,17 +267,8 @@ HTTP 200
 ### 5.1.1 上下文解析失败出口（来自 W-03 §2.3，2026-10-01 补）
 
 `W-03-租户上下文与授权实施规格_20261001.md` §2.2 的状态机定义五个成功步骤（S0～S4）
-与**七个失败出口**。下表是这七个出口的码位占位。
+与**七个失败出口**。这些出口已在 §2.8 登记为局部共享 SaaS 实现；不再重复列入占位表。支持授权、成员组织授权与 draft 首位所有者启用仍未完成。
 
-| Code | HTTP | 出口 | 触发条件 | 可重试 |
-|---|---|---|---|---|
-| `AUTH_SESSION_INVALID` | 401 | E1 | 无会话 / 会话过期 | 是（重新登录） |
-| `AUTH_ACCOUNT_BLOCKED` | 403 | E2 | 账号停用/锁定/需改密 | 否 |
-| `TENANT_MEMBERSHIP_REQUIRED` | 403 | E3 | 有效会话但**不是该租户成员** | 否 |
-| `TENANT_MEMBERSHIP_INACTIVE` | 403 | E4 | 是成员但 `status ≠ 'active'` | 否 |
-| `TENANT_HEADER_NOT_HONORED` | 403 | E5 | 携带了无法兑现的 `X-Expected-Tenant` | 否 |
-| `TENANT_NOT_ACTIVE` | 403 | E6 | 租户 `status ∈ ('suspended_security','closing','closed')` | 否 |
-| `TENANT_NOT_ACTIVE` | 403 | E7 | 租户 `status = 'draft'` 且非首位所有者/非启用端点 | 否 |
 
 > **E3 与 E4 必须分开，不能合并成一个 `AUTH_FORBIDDEN`。**
 > 两者 HTTP 都是 403，但 E3 是「你不在这里」（授权问题），
@@ -338,7 +346,7 @@ HTTP 200
 
 `error_codes_check` 的 EC-06 只核对「占位与已实现**重名**」，
 **它不能证明某个占位码真的被某份规格使用**。
-实测：本节 §5.1～§5.5 原登记的 **26 个**占位码中，两个 `TENANT_CONTEXT_*` 与 `IDEMPOTENCY_KEY_REUSED` 已移至 §2.7；剩余 **23 个**占位码里，**11 个**在 13 份规格与总设计里
+实测：本节 §5.1～§5.5 原登记的 **26 个**占位码中，两个 `TENANT_CONTEXT_*` 与 `IDEMPOTENCY_KEY_REUSED` 已移至 §2.7，六个 W-03 出口码已移至 §2.8；剩余 **17 个**占位码里，**11 个**在 13 份规格与总设计里
 **一次都没出现**：
 
 | # | 码位 | 来源节 |

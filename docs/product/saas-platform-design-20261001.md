@@ -5,7 +5,7 @@
 > 文档性质：指导后续开发的目标设计，不是实现报告、正式报价、服务等级承诺或上线批准。
 > 代码基线：`e166f97e0111528273e2dc722702481b3efa7f37`，分支 `fix/ui-review-findings-20260929`。
 > 新增对象、字段、接口、页面、任务包和验收条件均为**建议设计，待评审采纳**，不得据此声称已经实现。
-> **实施同步（2026-10-04）**：PR #34 已落地一组可回滚的运行时基础（租户/成员存储、请求上下文、最小 SaaS API、AI 请求状态账本、AEAD 密钥 fail-closed、平台运维收权、审计追加写和熔断键隔离）；这只覆盖 G0/W-01/W-03 的最小边界，不代表 W-02 全量资源隔离、租户级恢复、对账、支付或 C0/C1/C2 放行。逐项状态见 [`docs/tenancy/implementation-status-20261004.md`](../tenancy/implementation-status-20261004.md)。
+> **实施同步（2026-10-04）**：PR #34 已落地一组可回滚的运行时基础（租户/成员存储、请求上下文、最小 SaaS API、AI 请求状态账本、AEAD 密钥 fail-closed、平台运维收权、审计追加写和熔断键隔离）；下一阶段来源 `d87679896285a5b61302a98181f03621adffb38d` 补了可信上下文/SaaS 契约和 AI 元数据待复核切片；support、组织范围、draft 启用与旧业务迁移仍缺失。这只覆盖 G0/W-01/W-03/W-08/W-10 的局部边界，不代表 W-02 全量资源隔离、租户级恢复、对账、支付或 C0/C1/C2 放行。逐项状态见 [`docs/tenancy/implementation-status-20261004.md`](../tenancy/implementation-status-20261004.md)。
 
 ## 阅读导航
 
@@ -1541,7 +1541,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 | [`error-codes.md`](../tenancy/error-codes.md) | 已实现错误码 + 目标占位；三套并存的错误表达体系 |
 
 <!-- §27.5 人读表格里的关键数字，由 `design_doc_check` DC-7 按现实重算比对。 -->
-<!-- fact275:err_codes_implemented=51 --><!-- fact275:err_codes_placeholder=23 -->
+<!-- fact275:err_codes_implemented=61 --><!-- fact275:err_codes_placeholder=17 -->
 
 > **口径（数「不同码位」，不数表格行数）**：`err_codes_implemented` = `error-codes.md` §2（体系 A）∪ §3（体系 B）的**去重**码位数；`err_codes_placeholder` = §5 全部子表（5.1～5.6）里**去重后的**占位码位数。§5.1.1 的 E7 行**复用 `TENANT_NOT_ACTIVE`**，所以加那一行**不增加码位数**——若按行数计，任何「同一码位对应多个出口」的行都会被误报成「多了一个码位」。
 | [`system-settings-scope-inventory.md`](../tenancy/system-settings-scope-inventory.md) | 系统设置的租户作用域盘点（Q-05） |
@@ -1633,7 +1633,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 
 <!-- fact275:gate_all_total=42 --><!-- fact275:gate_all_pass=37 --><!-- fact275:gate_all_gap=5 --><!-- fact275:gate_all_broken=0 -->
 <!-- fact275:selftest_account_path_check=9 --><!-- fact275:selftest_api_contract_check=9 --><!-- fact275:selftest_at_traceability_check=18 --><!-- fact275:selftest_backfill_migrate=6 --><!-- fact275:selftest_backfill_validate=7 --><!-- fact275:selftest_context_resolution_check=22 --><!-- fact275:selftest_contract_readiness_check=8 --><!-- fact275:selftest_ddl_static_check=50 --><!-- fact275:selftest_design_doc_check=48 --><!-- fact275:selftest_error_codes_check=4 --><!-- fact275:selftest_lease_guard_check=8 --><!-- fact275:selftest_rls_policy_check=27 --><!-- fact275:selftest_run_all_gates=29 --><!-- fact275:selftest_schema_disposition_check=8 --><!-- fact275:selftest_secret_scan_check=15 --><!-- fact275:selftest_spec_citation_check=9 -->
-<!-- fact275:selftest_whitespace_check=20 --><!-- fact275:selftest_synthetic_data=19 --><!-- fact275:selftest_ai_egress_check=23 --><!-- fact275:selftest_resource_registry_check=26 --><!-- fact275:selftest_spec_rule_id_check=36 --><!-- fact275:selftest_spec_xref_check=10 --><!-- fact275:selftest_tenant_map_candidates=11 -->
+<!-- fact275:selftest_whitespace_check=20 --><!-- fact275:selftest_synthetic_data=19 --><!-- fact275:selftest_ai_egress_check=23 --><!-- fact275:selftest_resource_registry_check=27 --><!-- fact275:selftest_spec_rule_id_check=36 --><!-- fact275:selftest_spec_xref_check=10 --><!-- fact275:selftest_tenant_map_candidates=11 -->
 > 下面 22 个 `selftest_*` 标记是**各工具自检的项数**，由 `design_doc_check` DC-8
 > 实跑 `--self-test` 后从输出里取 `N/M` 比对（不解析源码、不猜默认值）。
 > **口径**：工具必须在自检输出里印出可解析的 `N/M`；取不到的会被 DC-8 单独列出，
@@ -1654,7 +1654,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 > 实测 `design_doc_check.py --self-test` 就这样漏了很久，是 DC-7 的算术不平**碰巧**发现的。
 > **靠算术不平发现覆盖缺口是运气，不是设计**，所以覆盖做成了显式判据。
 
-<!-- fact275:registry_lines=1119 -->
+<!-- fact275:registry_lines=1125 -->
 
 > **`registry_lines`** 是 `resource-registry.yaml` 的行数。它会被登记漏写时被抓到——
 > 该文件是 W-04 全资源 tenant 化清单的输入，行数变了却没被察觉，
