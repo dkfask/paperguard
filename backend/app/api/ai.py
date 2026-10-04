@@ -91,11 +91,6 @@ def _system_cfg(
 def _tenant_or_school_of(user: dict | None) -> tuple[str, bool]:
     context = (user or {}).get("organization_context") or {}
     tenant_id = str((user or {}).get("tenant_id") or context.get("tenant_id") or "").strip()
-    # Legacy organization_context is bridged to tenant-legacy-* memberships,
-    # but existing config rows are keyed by school_id.  Keep that migration
-    # mapping explicit; a real tenant_id remains fail-closed when unknown.
-    if tenant_id and tenant_id.startswith("tenant-legacy-"):
-        return str(context.get("school_id") or ""), False
     if tenant_id:
         return tenant_id, True
     return str(context.get("school_id") or ""), False
@@ -118,6 +113,26 @@ def _resolve_cfg(store: Store, user: dict) -> tuple[dict, str] | None:
     应当能用自己的模型供应商，论文正文才不会全部流向同一家外部处理者。
     本校没配则回退到平台全局默认。
     """
+    scope_id, explicit_tenant = _tenant_or_school_of(user)
+    if explicit_tenant:
+        tenant = store.get_tenant(scope_id)
+        member = store.get_membership_for_user(user["id"], scope_id)
+        if not tenant or tenant.get("status") != "active" or member is None or user.get("status") != "active":
+            # Validate authorization before reading any credentials, including BYOK.
+            raise HTTPException(status_code=403, detail={
+                "code": "TENANT_CONTEXT_INVALID", "message": "租户上下文无效，禁止读取或回退 AI 配置"
+            })
+        # Only a validated legacy membership may reuse the old school config
+        # key. The prefix is a config alias, never authorization evidence.
+        school_id = _school_of(user)
+        if school_id and scope_id == f"tenant-legacy-{school_id}":
+            scope_id = school_id
+    elif store.list_memberships_for_user(user["id"]):
+        # Revoked, suspended or ambiguous memberships cannot fall back into
+        # the pre-tenancy compatibility path merely by omitting a tenant hint.
+        raise HTTPException(status_code=403, detail={
+            "code": "TENANT_CONTEXT_INVALID", "message": "请先选择有效的租户成员身份"
+        })
     try:
         user_cfg = store.get_user_ai_config(user["id"])
     except secret_store.SecretDecryptError as exc:
@@ -130,12 +145,6 @@ def _resolve_cfg(store: Store, user: dict) -> tuple[dict, str] | None:
             "api_key": str(user_cfg["api_key"]).strip(),
             "model": str(user_cfg["model"]).strip(),
         }, "user"
-    scope_id, explicit_tenant = _tenant_or_school_of(user)
-    if explicit_tenant and not store.get_tenant(scope_id):
-        # An explicit but unknown tenant must not borrow platform defaults.
-        raise HTTPException(status_code=403, detail={
-            "code": "TENANT_CONTEXT_INVALID", "message": "租户上下文无效，禁止回退平台 AI 配置"
-        })
     sys = _system_cfg(store, scope_id)
     if sys:
         cfg, sub_source = sys

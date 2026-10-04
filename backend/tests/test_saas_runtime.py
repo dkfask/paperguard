@@ -52,11 +52,15 @@ def test_saas_context_contains_server_resolved_membership():
     user = store.get_user_by_username(username)
     user["organization_context"] = {"school_id": f"school-{uuid.uuid4().hex[:8]}"}
     store.save_user(user)
-    # Existing session reads the same user row on every request.
+    # Mapping is an explicit migration/provisioning action, never an auth read.
+    tenant = store.create_tenant({"id": f"tenant-{uuid.uuid4().hex}", "slug": f"school-{uuid.uuid4().hex}", "name": "Test school"})
+    store.save_membership({"id": f"membership-{uuid.uuid4().hex}", "tenant_id": tenant["id"],
+                           "user_id": user["id"], "role": "student", "capabilities": ["tenant:read"]})
+    # Existing session reads the same user row and membership on every request.
     response = client.get("/api/saas/v1/context", headers=headers)
     assert response.status_code == 200, response.text
     context = response.json()["context"]
-    assert context["tenant_id"].startswith("tenant-legacy-")
+    assert context["tenant_id"] == tenant["id"]
     assert context["membership_id"]
     assert "tenant:read" in context["capabilities"]
     assert context["auth_version"] >= 1

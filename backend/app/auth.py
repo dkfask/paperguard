@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import Depends, Header, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 from app.core.context import context_for_user, set_request_context
 from app.services.tenant_access import effective_capabilities, resolve_membership
@@ -622,20 +623,32 @@ def get_store() -> Store:
     return Store()
 
 
-def current_user(request: Request, authorization: str | None = Header(default=None),
+async def current_user(request: Request, authorization: str | None = Header(default=None),
                  store: Store = Depends(get_store)) -> dict:
     """从 Authorization 头解析未过期、未撤销的当前用户, 并阻断未完成学生引导的业务请求。"""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="未登录")
     token = authorization.removeprefix("Bearer ").strip()
-    user = store.get_session_user(_token_hash(token), _now(), refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS))
+    user = await run_in_threadpool(
+        store.get_session_user, _token_hash(token), _now(),
+        refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS),
+    )
     if user is None:
         raise HTTPException(status_code=401, detail="登录已失效, 请重新登录")
     if onboarding_required(user) and not _onboarding_path_exempt(request.url.path):
         raise HTTPException(status_code=403, detail={
             "code": "ONBOARDING_REQUIRED", "message": "请先完成邮箱验证和首次登录设置",
         })
-    membership = resolve_membership(store, user)
+    membership = await run_in_threadpool(resolve_membership, store, user)
+    explicit_tenant = str(user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id") or "").strip()
+    unresolved_ai_identity = (
+        membership is None and request.url.path.startswith("/api/ai/")
+        and bool(await run_in_threadpool(store.list_memberships_for_user, user["id"]))
+    )
+    if membership is None and (explicit_tenant or unresolved_ai_identity):
+        raise HTTPException(status_code=403, detail={
+            "code": "TENANT_CONTEXT_INVALID", "message": "租户上下文无效或成员身份已停用",
+        })
     if membership:
         user["tenant_id"] = membership.get("tenant_id", "")
         user["membership_id"] = membership.get("id", "")
@@ -671,7 +684,7 @@ def require_template_manager(user: dict = Depends(current_user)) -> dict:
 
 def require_admin(user: dict = Depends(current_user)) -> dict:
     """系统级设置权限: 仅限 admin。"""
-    if user["role"] != "admin":
+    if user["role"] != "admin" or user.get("status") != "active":
         raise HTTPException(status_code=403, detail="仅系统管理员可执行此操作")
     return user
 

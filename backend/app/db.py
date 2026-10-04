@@ -637,12 +637,19 @@ class Store:
             conn.execute(
                 "INSERT INTO tenant_memberships (id, tenant_id, user_id, role, capabilities, status, auth_version, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(tenant_id, user_id) DO UPDATE SET "
-                "id=excluded.id, role=excluded.role, capabilities=excluded.capabilities, status=excluded.status, "
-                "auth_version=excluded.auth_version, updated_at=excluded.updated_at",
+                "role=excluded.role, capabilities=excluded.capabilities, status=excluded.status, "
+                "auth_version=tenant_memberships.auth_version + CASE WHEN "
+                "tenant_memberships.role != excluded.role OR "
+                "tenant_memberships.capabilities != excluded.capabilities OR "
+                "tenant_memberships.status != excluded.status THEN 1 ELSE 0 END, "
+                "updated_at=excluded.updated_at",
                 tuple(payload.values()),
             )
-        payload["capabilities"] = json.loads(payload["capabilities"])
-        return payload
+            row = conn.execute(
+                "SELECT * FROM tenant_memberships WHERE tenant_id = ? AND user_id = ?",
+                (payload["tenant_id"], payload["user_id"]),
+            ).fetchone()
+        return self._membership_row(row)
 
     def get_membership(self, membership_id: str) -> dict | None:
         with self._connect() as conn:
@@ -688,14 +695,23 @@ class Store:
         if not school_id:
             return None
         tenant_id = f"tenant-legacy-{school_id}"
-        existing = self.get_membership_for_user(user["id"], tenant_id)
+        # Explicit migration helper only. Existing inactive rows are authoritative;
+        # invoking the bridge must never undo revocation or tenant suspension.
+        existing = next((item for item in self.list_memberships_for_user(user["id"])
+                         if item["tenant_id"] == tenant_id), None)
         if existing:
             return existing
         now = _now()
-        self.create_tenant({"id": tenant_id, "slug": school_id, "name": school_id, "created_at": now})
+        tenant = self.get_tenant(tenant_id)
+        if tenant and tenant.get("status") != "active":
+            return None
+        if tenant is None:
+            self.create_tenant({"id": tenant_id, "slug": school_id, "name": school_id, "created_at": now})
         return self.save_membership({
             "id": new_id("membership"), "tenant_id": tenant_id, "user_id": user["id"],
-            "role": user.get("role", "user"), "capabilities": [], "created_at": now,
+            "role": user.get("role", "user"),
+            "capabilities": ["tenant:read"] if user.get("status") == "active" else [],
+            "status": "active" if user.get("status") == "active" else "inactive", "created_at": now,
         })
 
     # -------------------------- 邮箱验证码 --------------------------

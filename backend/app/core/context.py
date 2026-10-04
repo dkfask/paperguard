@@ -65,22 +65,22 @@ def context_for_user(
         if key.endswith("_id") and value
     )
     school_id = str(organization.get("school_id") or "")
+    from app.services.tenant_access import effective_capabilities
+
+    capabilities = effective_capabilities(user, membership)
     membership = membership or {}
     raw_version = membership.get("auth_version", user.get("auth_version", 0))
     try:
         auth_version = int(raw_version or 0)
     except (TypeError, ValueError):
         auth_version = 0
-    capabilities = membership.get("capabilities") or user.get("capabilities") or ()
-    if isinstance(capabilities, str):
-        capabilities = [item.strip() for item in capabilities.split(",") if item.strip()]
     return RequestContext(
         actor_id=str(user.get("id") or ""),
         role=str(membership.get("role") or user.get("role") or ""),
         organization_ids=organization_ids,
         school_id=school_id,
-        tenant_id=str(membership.get("tenant_id") or user.get("tenant_id") or organization.get("tenant_id") or ""),
-        membership_id=str(membership.get("id") or user.get("membership_id") or ""),
+        tenant_id=str(membership.get("tenant_id") or ""),
+        membership_id=str(membership.get("id") or ""),
         capabilities=_string_tuple(capabilities),
         auth_version=auth_version,
         request_id=request_id,

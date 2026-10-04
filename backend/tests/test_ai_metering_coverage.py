@@ -209,8 +209,8 @@ def test_admin_config_test_is_metered(stub_upstream):
     assert len(rows) == 1, f"管理员配置测试未计量或重复计量: {rows}"
     assert rows[0]["result"] == "success"
     # source 必须能分辨「这笔是管理员测平台配置产生的」，否则无法做成本分摊。
-    # 三种取值都合法：请求自带配置 / 落库配置 / 环境变量配置。
-    assert rows[0]["source"] in {"user", "system", "system_env"}, rows[0]["source"]
+    # 数据库默认来源是 system_db；前序测试有无写入默认配置不改变契约。
+    assert rows[0]["source"] in {"user", "system", "system_db", "system_env"}, rows[0]["source"]
 
 
 # --------------------------------------------------------------------------
