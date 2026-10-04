@@ -2,7 +2,7 @@
 
 - 目标：把 PR #34 从“只报告 SaaS gaps”推进到可验证的最小运行时闭环；不合并、不部署、不执行生产写入。
 - 当前分支：`fix/ui-review-findings-20260929`。
-- 变更身份：实现提交 `baa7479`（以 `git rev-parse HEAD` 的完整 SHA 为准）；CI 检查和部署身份仍需在合并或发布前重新绑定。本文件不把本地绿灯当作上线证据。
+- 变更身份：实现提交 `3cddd4d293b0a0237092e724bb852e7c3d4a5958`（代码实现提交）；CI 检查和部署身份仍需在合并或发布前重新绑定。本文件不把本地绿灯当作上线证据。
 - 实现摘要：W-01/W-03 租户成员运行时、`/api/saas/v1` 最小边界、平台运维收权与审计、AI 配置未知租户 fail-closed、AES-GCM 凭据保护、请求/幂等/reservation/unknown 最小账本、凭据隔离熔断、审计 append-only。
 - 未完成：全资源 `tenant_id`/RLS 与迁移回填、租户/任务级恢复和 reconciliation、真实 provider token usage/权益账务、支付及生产 UAT。
 
