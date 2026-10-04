@@ -259,3 +259,13 @@ pytest -q        # 当前 657 passed, 2 skipped: 引擎 / docx 读写 / 模板/�
 - **模板**(`/api/templates`):章节树 + 每类元素样式 + 封面字段,在线配置
 - **检查规则包**(`backend/app/core/rules/packs/*.yaml`):GB/T 7713、GB/T 7714、SIM-UNIV 通用规则,每条含 `scope`(JMESPath)、`when`(JSONLogic)、`message` 和可选 `fix`; 规范项可按规则 ID 冻结受控覆盖 `when/scope/severity/message/fix`
 - **写作规范**:学校/学院/专业/课程/批次/教师要求独立建模,支持 Markdown frontmatter、自动/人工/文档要求、组织绑定、版本生效时间、项目快照、统一报告、豁免和申诉留痕
+
+### 2026-10-04 SaaS 安全基础续作（受限本地切片）
+
+PR #34 已有只读历史归属准入、显式平台批准下的draft/首位owner与安全成员创建，以及tenant/member限定的空白手写项目create/list/get/CAS update。导出、文件、异步及完整启用尚未隔离的入口拒绝，不代表共享SaaS上线。
+
+- [实施状态与证据边界](docs/tenancy/implementation-status-20261004.md)
+- [待裁决的客户映射/平台身份/指导关系/DB选择](docs/tenancy/conditional-tenancy-decision-packet.md)
+- [本轮交付记录](docs/releases/2026-10-04-pr34-ownership-pilot.md)
+
+本地真实历史归属预检仍BLOCKED；无生产迁移、部署、合并或真实UAT授权。

@@ -1541,7 +1541,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 | [`error-codes.md`](../tenancy/error-codes.md) | 已实现错误码 + 目标占位；三套并存的错误表达体系 |
 
 <!-- §27.5 人读表格里的关键数字，由 `design_doc_check` DC-7 按现实重算比对。 -->
-<!-- fact275:err_codes_implemented=61 --><!-- fact275:err_codes_placeholder=17 -->
+<!-- fact275:err_codes_implemented=76 --><!-- fact275:err_codes_placeholder=17 -->
 
 > **口径（数「不同码位」，不数表格行数）**：`err_codes_implemented` = `error-codes.md` §2（体系 A）∪ §3（体系 B）的**去重**码位数；`err_codes_placeholder` = §5 全部子表（5.1～5.6）里**去重后的**占位码位数。§5.1.1 的 E7 行**复用 `TENANT_NOT_ACTIVE`**，所以加那一行**不增加码位数**——若按行数计，任何「同一码位对应多个出口」的行都会被误报成「多了一个码位」。
 | [`system-settings-scope-inventory.md`](../tenancy/system-settings-scope-inventory.md) | 系统设置的租户作用域盘点（Q-05） |
@@ -1567,10 +1567,10 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 | 工具 | 作用 | 当前 |
 |---|---|---|
 | [`ddl_static_check.py`](../tenancy/tools/ddl_static_check.py) | DDL 语法（pglast）+ 第 1 层结构判据（**SC-5 状态列必须有取值约束**、**SC-6 外键目标可解析**、**SC-7 §3.6.4 张数与 ALTER 一致**、**SC-8 CHECK 必须声明规则出处**、**SC-9 C0 表不得引用 C1/C2 规则**、**SC-10 §9.2–9.4 对象数、DDL 承载与「阶段表」三者一致（INC-80/INC-84）**，均零依赖） | `0` 本机缺 `pglast`（CI 装 `requirements-dev.txt` 后可跑）  |
-| [`api_contract_check.py`](../tenancy/tools/api_contract_check.py) | OpenAPI 契约 9 项 | `1` 8/9 未达标 |
+| [`api_contract_check.py`](../tenancy/tools/api_contract_check.py) | OpenAPI 契约 9 项 | `1` 5/9 未达标 |
 | [`at_traceability_check.py`](../tenancy/tools/at_traceability_check.py) | AT 矩阵与本文 §24.2 逐字一致；规格↔AT 归属与漏引双向核对（AT-01～AT-12） | `0` 阳性对照 18/18 |
 | [`backfill_validate.py`](../tenancy/tools/backfill_validate.py) | 回填七项核对 + 故障注入自检 | `0` **仅自检**（套件只调 `--self-test`，**无 plain 调用**）；自检 7/7 |
-| [`error_codes_check.py`](../tenancy/tools/error_codes_check.py) | 错误码登记一致性（EC-01～EC-06） | `0` 自检 4/4 |
+| [`error_codes_check.py`](../tenancy/tools/error_codes_check.py) | 错误码登记一致性（EC-01～EC-06） | `0` 自检 6/6 |
 | [`lease_guard_check.py`](../tenancy/tools/lease_guard_check.py) | **INC-47 租约栅栏：检出「空租约通配」**（`db.py:1676`/`db.py:1791`）。★ **2026-10-03 INC-105 已消除两处通配并转绿**（改为 `lease_token = ?` 精确匹配），其中 `mark_workflow_event_delivered_with_lease` 原本是**任何人都能无令牌 ack 别人 outbox 事件**的越权面 | `0` 自检 8/8；**0 处通配，运行时防线亦已补**（`test_lease_token_enforcement.py` 5 项） |
 | [`spec_rule_id_check.py`](../tenancy/tools/spec_rule_id_check.py) | **INC-49 跨规格规则 ID 重复定义 + RI-1 悬空引用 + EP-2 §18.2 接口归属绑定**（13 份规格 444 个规则 ID，只认定义不认引用；外部命名空间显式排除；EP-2 核对归属包与规则 ID 真实存在） | `0` 自检项数见 §27.5（由 DC-8 实跑核对；此处不复述，见 INC-92） |
 | [`spec_xref_check.py`](../tenancy/tools/spec_xref_check.py) | **INC-98 规格章节交叉引用**（`§N` 必须指向本规格、总设计或被指名规格的真实章节；跨规格引用与总设计章节**不算断链**；扫到 0 处引用 ⇒ 报 2，**不得据此判绿**） | `0`；自检项数以 `--self-test` 输出为准 |
@@ -1613,11 +1613,12 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 
 | 工具 | 作用 | 当前 |
 |---|---|---|
-| [`run_all_gates.py`](../tenancy/tools/run_all_gates.py) | 门禁套件统一入口（`--mode ci/strict/report`）；**它自己的 `--self-test` 也在套件里**（INC-69：此前不在，于是那 21 项判据只有人工敲过）；**`is_crash()` 把「未捕获异常」也归入工具不可运行**（INC-81：异常退出码 `1` 与「有差距」**完全相同**，只靠退出码区分不了，**不兜住就等于工具崩溃对 CI 隐形**） | `0` **仅自检**（无 plain 调用）；自检 22/22，套件见下方三态 |
+| [`run_all_gates.py`](../tenancy/tools/run_all_gates.py) | 门禁套件统一入口（`--mode ci/strict/report`）；**它自己的 `--self-test` 也在套件里**（INC-69：此前不在，于是那 21 项判据只有人工敲过）；**`is_crash()` 把「未捕获异常」也归入工具不可运行**（INC-81：异常退出码 `1` 与「有差距」**完全相同**，只靠退出码区分不了，**不兜住就等于工具崩溃对 CI 隐形**） | `0` **仅自检**（无 plain 调用）；自检 29/29，套件见下方三态 |
 | [`design_doc_check.py`](../tenancy/tools/design_doc_check.py) | **本文对门禁的陈述是否与现实一致**（DC 判据清单见本工具 docstring，此处不复述编号区间——见 INC-92） | `0`；自检项数以 `--self-test` 输出为准 |
 | [`schema_disposition_check.py`](../tenancy/tools/schema_disposition_check.py) | E4 逐表归属判定：规格 / 代码 schema / 工具假设交叉核对（SD-1～SD-5） | `0` 自检 8/8，三方一致 |
 | [`backfill_migrate.py`](../tenancy/tools/backfill_migrate.py) | 按 §3.2 规则 1～8 回填租户归属；默认 dry-run | `0` **仅自检**（无 plain 调用）；MIG-07 账实平衡通过，自检 6/6 |
 | [`tenant_map_candidates.py`](../tenancy/tools/tenant_map_candidates.py) | Q-01 映射候选生成 + 人工确认结果的自洽校验 | `0` **仅自检**（无 plain 调用）；自检 11/11 |
+| [`ownership_preflight.py`](../tenancy/tools/ownership_preflight.py) | 历史归属只读预检、脱敏报告、绑定复验与CLI回填准入；生产授权恒false | `0` **仅自检**（无 plain 调用）；自检 24/24 |
 | [`ci-gates-job.yml`](../tenancy/ci-gates-job.yml) | CI 接入片段与接入顺序约束 | 待与工具同批提交 |
 
 > 每道门禁都有 `--self-test`（阳性对照）或变异测试记录，用来证明**它能抓错**——
@@ -1631,30 +1632,31 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 
 ##### 门禁套件三态（机器校验用，勿手改）
 
-<!-- fact275:gate_all_total=42 --><!-- fact275:gate_all_pass=37 --><!-- fact275:gate_all_gap=5 --><!-- fact275:gate_all_broken=0 -->
-<!-- fact275:selftest_account_path_check=9 --><!-- fact275:selftest_api_contract_check=9 --><!-- fact275:selftest_at_traceability_check=18 --><!-- fact275:selftest_backfill_migrate=6 --><!-- fact275:selftest_backfill_validate=7 --><!-- fact275:selftest_context_resolution_check=22 --><!-- fact275:selftest_contract_readiness_check=8 --><!-- fact275:selftest_ddl_static_check=50 --><!-- fact275:selftest_design_doc_check=48 --><!-- fact275:selftest_error_codes_check=4 --><!-- fact275:selftest_lease_guard_check=8 --><!-- fact275:selftest_rls_policy_check=27 --><!-- fact275:selftest_run_all_gates=29 --><!-- fact275:selftest_schema_disposition_check=8 --><!-- fact275:selftest_secret_scan_check=15 --><!-- fact275:selftest_spec_citation_check=9 -->
+<!-- fact275:gate_all_total=43 --><!-- fact275:gate_all_pass=38 --><!-- fact275:gate_all_gap=5 --><!-- fact275:gate_all_broken=0 -->
+<!-- fact275:selftest_account_path_check=9 --><!-- fact275:selftest_api_contract_check=9 --><!-- fact275:selftest_at_traceability_check=18 --><!-- fact275:selftest_backfill_migrate=6 --><!-- fact275:selftest_backfill_validate=7 --><!-- fact275:selftest_context_resolution_check=22 --><!-- fact275:selftest_contract_readiness_check=8 --><!-- fact275:selftest_ddl_static_check=50 --><!-- fact275:selftest_design_doc_check=48 --><!-- fact275:selftest_error_codes_check=6 --><!-- fact275:selftest_lease_guard_check=8 --><!-- fact275:selftest_rls_policy_check=27 --><!-- fact275:selftest_run_all_gates=29 --><!-- fact275:selftest_schema_disposition_check=8 --><!-- fact275:selftest_secret_scan_check=15 --><!-- fact275:selftest_spec_citation_check=9 -->
 <!-- fact275:selftest_whitespace_check=20 --><!-- fact275:selftest_synthetic_data=19 --><!-- fact275:selftest_ai_egress_check=23 --><!-- fact275:selftest_resource_registry_check=27 --><!-- fact275:selftest_spec_rule_id_check=36 --><!-- fact275:selftest_spec_xref_check=10 --><!-- fact275:selftest_tenant_map_candidates=11 -->
-> 下面 22 个 `selftest_*` 标记是**各工具自检的项数**，由 `design_doc_check` DC-8
+<!-- fact275:selftest_ownership_preflight=24 -->
+> 下面 24 个 `selftest_*` 标记是**各工具自检的项数**，由 `design_doc_check` DC-8
 > 实跑 `--self-test` 后从输出里取 `N/M` 比对（不解析源码、不猜默认值）。
 > **口径**：工具必须在自检输出里印出可解析的 `N/M`；取不到的会被 DC-8 单独列出，
 > **不静默排除**——`backfill_migrate` 首版只印散文总结，正是这一条把它排除在外。
 
-**口径**：`gate_all_*` 数的是 **40 次调用**（18 道 `plain` + 22 项 `--self-test`）的退出码三态。
-它与收口简报里 `gates_*`（**只数 17 次 `plain`**）口径不同，**两者不可互相换算或相加**——
+**口径**：`gate_all_*` 数的是 **43 次调用**（19 道 `plain` + 24 项 `--self-test`）的退出码三态。
+它与收口简报里 `gates_*`（**只数 19 次 `plain`**）口径不同，**两者不可互相换算或相加**——
 混用会得出「22 + 6 + 1 ≠ 29」这种自相矛盾的数字（首版简报正是这么写的，被 DC-6 当场抓出）。
 **这两个次数同样只由本节的 `fact275` 标记承载**——正文里复述的次数没有判据守着，
 2026-10-01 实测正文曾长期停在「31 次调用（15 + 16）」而标记已是 34（INC-85 顺带修正）。
 
 这三个数字由本文的 `gate:` 标记推导，**不是实跑出来的**；准确性由 DC-1 保证
 （DC-1 逐个实跑工具并比对声明值），因此是**传递可信**。
-实跑整套门禁约 60s，不适合放进每次文档检查。
+实跑整套门禁需数分钟，不适合放进每次文档检查。
 
 > **DC-7 同时做套件条目 ↔ 标记的双向覆盖核对**（`suite_covered`）。
 > DC-3 只要求「每个工具文件至少出现一次」，所以**某个套件条目漏登记时 DC-3 依然绿**——
 > 实测 `design_doc_check.py --self-test` 就这样漏了很久，是 DC-7 的算术不平**碰巧**发现的。
 > **靠算术不平发现覆盖缺口是运气，不是设计**，所以覆盖做成了显式判据。
 
-<!-- fact275:registry_lines=1125 -->
+<!-- fact275:registry_lines=1174 -->
 
 > **`registry_lines`** 是 `resource-registry.yaml` 的行数。它会被登记漏写时被抓到——
 > 该文件是 W-04 全资源 tenant 化清单的输入，行数变了却没被察觉，
@@ -1696,6 +1698,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 <!-- gate:synthetic_data.py =1 -->
 <!-- gate:account_path_check.py --self-test=0 -->
 <!-- gate:account_path_check.py =1 -->
+<!-- gate:ownership_preflight.py --self-test=0 -->
 <!-- gate:backfill_migrate.py --self-test=0 -->
 <!-- gate:tenant_map_candidates.py --self-test=0 -->
 <!-- gate:schema_disposition_check.py --self-test=0 -->

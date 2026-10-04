@@ -140,16 +140,16 @@
 | Code | HTTP | 位置 | 实际触发与客户端边界 |
 |---|---|---|---|
 | `AI_SECRET_UNAVAILABLE` | 503 | `backend/app/api/ai.py:77` | 凭据缺失主密钥或认证解密失败；联系管理员迁移，不回退其他供应商 |
-| `CAPABILITY_REQUIRED` | 403 | `backend/app/api/saas.py:27` | 活动成员能力不足或无有效成员身份；不重试越权操作 |
+| `CAPABILITY_REQUIRED` | 403 | `backend/app/api/saas.py:29` | 活动成员能力不足或无有效成员身份；不重试越权操作 |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | `backend/app/api/ai.py:455` | 相同幂等键提交了不同请求；使用新键或核对原请求 |
 | `PLATFORM_OPERATION_ADMIN_REQUIRED` | 403 | `backend/app/api/operations.py:63` | 平台级运维要求活动全局管理员，租户角色不授予该权限 |
 | `REQUEST_IN_PROGRESS` | 409 | `backend/app/api/ai.py:460` | 原请求未形成可重放的 completed 结果；unknown 不自动重发或退款 |
 | `TENANT_CONTEXT_INVALID` | 403 | `backend/app/api/ai.py:123` | 租户未知、停用、成员无效或未选定；禁止 BYOK 和平台配置回退 |
-| `TENANT_CONTEXT_MISSING` | 400 | `backend/app/services/tenant_access.py:83` | 租户作用域参数为空；需补齐经服务端验证的租户身份 |
+| `TENANT_CONTEXT_MISSING` | 400 | `backend/app/services/tenant_access.py:87` | 租户作用域参数为空；需补齐经服务端验证的租户身份 |
 | `TENANT_NOT_FOUND` | 404 | `backend/app/api/saas.py:102` | 租户不存在或不可为其新增成员 |
-| `TENANT_SCOPE_FORBIDDEN` | 403 | `backend/app/api/saas.py:32` | 非活动成员或租户停用；不得跨租户访问 |
+| `TENANT_SCOPE_FORBIDDEN` | 403 | `backend/app/api/saas.py:39` | 非活动成员或租户停用；不得跨租户访问 |
 | `TENANT_SLUG_TAKEN` | 409 | `backend/app/api/saas.py:83` | 租户标识已占用；选择其他标识 |
-| `USER_NOT_FOUND` | 404 | `backend/app/api/saas.py:104` | 待添加成员的全局用户不存在 |
+| `USER_NOT_FOUND` | 404 | `backend/app/services/saas_identity.py:101` | 待添加成员的全局用户不存在 |
 
 
 ### 2.8 可信 SaaS 与 AI 待复核新增码（2026-10-04）
@@ -160,14 +160,34 @@
 | `AI_RECONCILIATION_STATE_INVALID` | 409 | `backend/app/services/ai_recovery.py:46` | 仅 unknown 可进入待复核；禁止改写 completed/failed_final |
 | `AI_REQUEST_NOT_FOUND` | 404 | `backend/app/services/ai_recovery.py:29` | 限定租户/成员范围内不可见；不透露跨租户存在性 |
 | `AI_RESULT_UNKNOWN` | 502 | `backend/app/api/ai.py:518` | 派发异常或结果记录失败；不能据此断言供应商未执行 |
-| `AUTH_ACCOUNT_BLOCKED` | 403 | `backend/app/auth.py:724` | 账号停用、需改密或未完成引导；不能继续共享 SaaS 操作 |
-| `AUTH_SESSION_INVALID` | 401 | `backend/app/services/tenant_access.py:118` | 缺少或失效的会话；重新登录 |
-| `TENANT_HEADER_NOT_HONORED` | 403 | `backend/app/services/tenant_access.py:145` | 租户选择器无对应成员记录；不可用头建立授权 |
-| `TENANT_MEMBERSHIP_INACTIVE` | 403 | `backend/app/services/tenant_access.py:142` | 成员已撤销/停用；同会话必须拒绝 |
-| `TENANT_MEMBERSHIP_REQUIRED` | 403 | `backend/app/services/tenant_access.py:136` | 没有有效或唯一选定的成员租户；不得猜选 |
-| `TENANT_NOT_ACTIVE` | 403 | `backend/app/services/tenant_access.py:149` | 租户停用/缺失/未启用；首位所有者例外仍无持久化契约 |
+| `AUTH_ACCOUNT_BLOCKED` | 403 | `backend/app/auth.py:739` | 账号停用、需改密或未完成引导；不能继续共享 SaaS 操作 |
+| `AUTH_SESSION_INVALID` | 401 | `backend/app/services/tenant_access.py:122` | 缺少或失效的会话；重新登录 |
+| `TENANT_HEADER_NOT_HONORED` | 403 | `backend/app/services/tenant_access.py:155` | 租户选择器无对应成员记录；不可用头建立授权 |
+| `TENANT_MEMBERSHIP_INACTIVE` | 403 | `backend/app/services/tenant_access.py:152` | 成员已撤销/停用；同会话必须拒绝 |
+| `TENANT_MEMBERSHIP_REQUIRED` | 403 | `backend/app/services/tenant_access.py:146` | 没有有效或唯一选定的成员租户；不得猜选 |
+| `TENANT_NOT_ACTIVE` | 403 | `backend/app/services/tenant_access.py:159` | 租户停用/缺失/未启用；首位所有者例外仍无持久化契约 |
 
 SaaS 局部路由工厂还输出 `API_INPUT_INVALID`（422）、`API_INTERNAL_ERROR`（500）与 `API_REQUEST_REJECTED`（保留原 HTTP 状态）。这些来自类型化错误工厂，不是 `HTTPException` 常量出口，因此不计入当前 EC HTTP 异常码计数；响应不回显请求输入或内部异常。验证见 `test_ai_recovery_contract.py`。
+
+### 2.9 归属/建号/项目试点（实际服务端出口）
+
+| Code | HTTP | 位置 | 触发与边界 |
+|---|---|---|---|
+| `AUTHORIZATION_STALE` | 403 | `backend/app/services/saas_identity.py:58` | 平台批准/成员/账号/租户或能力已撤销、停用或版本变化；必须重新解析授权 |
+| `IDEMPOTENCY_CONFLICT` | 409 | `backend/app/services/saas_identity.py:78` | 同一建户幂等键的执行者或规范化请求指纹不同，拒绝覆盖既有客户 |
+| `IDEMPOTENCY_KEY_REQUIRED` | 422 | `backend/app/services/saas_identity.py:72` | 建户命令缺少有效幂等键，拒绝创建draft |
+| `LEGACY_TENANT_PATH_DISABLED` | 403 | `backend/app/auth.py:654` | 已登记成员或shared模式访问尚未隔离的旧业务命名空间，拒绝回退 |
+| `MEMBERSHIP_ACCOUNT_INELIGIBLE` | 409 | `backend/app/services/saas_identity.py:102` | 目标全局账号停用或未完成账号设置，不创建成员 |
+| `MEMBERSHIP_ALREADY_EXISTS` | 409 | `backend/app/services/saas_identity.py:107` | 已有活动成员的角色/能力与创建命令不同，不能用重复建号变更授权 |
+| `MEMBERSHIP_REACTIVATION_FORBIDDEN` | 409 | `backend/app/services/saas_identity.py:106` | 已有成员被撤权/停用，create-or-replay不得复活 |
+| `OWNER_IDENTITY_UNVERIFIED` | 409 | `backend/app/services/saas_identity.py:123` | 首位owner须为已验证并完成初始化的活动全局账号 |
+| `PROJECT_ASYNC_ISOLATION_PENDING` | 409 | `backend/app/services/tenant_projects.py:47` | 文件/导出/异步/图片/导入块尚未隔离；手写试点拒绝未实现动作 |
+| `PROJECT_SCOPE_NOT_FOUND` | 404 | `backend/app/services/tenant_projects.py:22` | 当前tenant/member/owner作用域下项目不可见，跨租户不透露存在性 |
+| `PROJECT_VERSION_CONFLICT` | 409 | `backend/app/services/tenant_projects.py:64` | 写作项目revision不匹配，CAS更新拒绝 |
+| `TENANT_ACTIVATION_BLOCKED` | 409 | `backend/app/services/saas_identity.py:144` | 客户状态或七项服务端readiness事实不满足，仍禁止启用 |
+| `TENANT_APPROVAL_INVALID` | 409 | `backend/app/services/saas_identity.py:83` | 建户负责人/有效学校根/退出联系人/期限等服务端核对不通过 |
+| `TENANT_OWNER_SETUP_FORBIDDEN` | 409 | `backend/app/services/saas_identity.py:121` | 非已批准draft、已设owner或已有成员要求隐式提升，拒绝设置 |
+| `TENANT_VERSION_CONFLICT` | 409 | `backend/app/services/saas_identity.py:129` | 首位owner/启用命令的租户期望版本不匹配，拒绝陈旧写入 |
 
 ## 3. 体系 B：异步任务码（9 个，已实现）
 

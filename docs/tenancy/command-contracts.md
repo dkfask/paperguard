@@ -60,15 +60,15 @@
 | 要素 | 实现 |
 |---|---|
 | 幂等键 | `SubmissionConfirm.idempotency_key`，`Field(min_length=8, max_length=160)`（`models/workflow.py:88`） |
-| 存储 | `workflow_idempotency` 表，`PK(user_id, action, idem_key)`（`db.py:299-307`） |
-| 内容指纹 | `request_hash` 列（`db.py:303`）→ 满足总设计 4.8 行「相同键不同内容必须冲突」 |
-| 事务 | `db.py:1403 workflow_transaction()` + `db.py:1500 save_workflow_idempotency_conn()` |
+| 存储 | `workflow_idempotency` 表，`PK(user_id, action, idem_key)`（`db.py:321-329`） |
+| 内容指纹 | `request_hash` 列（`db.py:325`）→ 满足总设计 4.8 行「相同键不同内容必须冲突」 |
+| 事务 | `db.py:1410 workflow_transaction()` + `db.py:1507 save_workflow_idempotency_conn()` |
 
 **但幂等范围不满足目标模型**：现 PK 是 `(user_id, action, idem_key)`，总设计 9.4 节要求**租户+成员+操作+键**。同一账号在两租户（AT-01）会互相顶掉幂等记录。已在登记表 `workflow_idempotency` 条目登记。
 
 ## 3. 事务：38 条有事务
 
-统一入口 `db.py:1403 workflow_transaction()`，用于「业务状态 + 任务 + outbox 同事务提交」（总设计 19.1 行）。`_conn(...)` / `*_in_transaction(...)` 变体供 service 层复用。
+统一入口 `db.py:1410 workflow_transaction()`，用于「业务状态 + 任务 + outbox 同事务提交」（总设计 19.1 行）。`_conn(...)` / `*_in_transaction(...)` 变体供 service 层复用。
 
 **未验证**：事务内是否真的包含了全部应原子提交的写入。逐条核对属 W-03/W-09 范围。
 
@@ -145,7 +145,7 @@ backend/app/api/ai.py:388:    ai_governance.begin_call(store, user)      # ← �
 | 风险类型 | 代表命令 | 定级依据 |
 |---|---|---|
 | 创建外部可见效果 | `create_project`、`create_policy`、`create_organization`、`create_template` | 重复提交产生重复实体 |
-| 批量写多对象 | `batch_upgrade_policy_projects`（`policies.py:650`）、`bulk_import_students`（`teacher.py:152`）、`import_members`（`workflow.py:796`） | 重复执行产生倍增效果；**总设计 6.3 行要求批量变更「任何越界在第一笔写入前整体拒绝」** |
+| 批量写多对象 | `batch_upgrade_policy_projects`（`policies.py:650`）、`bulk_import_students`（`teacher.py:153`）、`import_members`（`workflow.py:796`） | 重复执行产生倍增效果；**总设计 6.3 行要求批量变更「任何越界在第一笔写入前整体拒绝」** |
 | 文件/产物写入 | `upload_image`、`import_docx_template`、`upload_policy_document`、`restore_local_snapshot` | 重复执行产生孤儿产物（总设计 19.2 行） |
 | 状态机推进 | `decide_requirement_waiver`、`decide_requirement_dispute`、`submit_policy_review`、`publish_policy` | 状态机跃迁需前置状态校验 + 并发保护 |
 | 外发通知 | `request_email_code`（`auth.py:156`） | 重复触发邮件 |
@@ -200,7 +200,7 @@ metering: {record_usage: true, credential_ref_frozen: true}
 | CC-3 | 引入 `Idempotency-Key` 头，作用域为租户+成员+操作+键 | W-08 / W-03 | 高 |
 | CC-4 | `workflow_idempotency` PK 扩展为 `(tenant_id, membership_id, action, idem_key)` | W-02 T-02.5 | 中 |
 | CC-5 | 为 129 条写操作逐条产出契约 YAML（§6 模板），登记 capability/状态/事务/幂等/版本/审计 | W-03 + W-08 | 中 |
-| CC-6 | 批量类命令（`policies.py:650`、`teacher.py:152`、`workflow.py:796`）补整体拒绝语义 | W-03 | 中 |
+| CC-6 | 批量类命令（`policies.py:650`、`teacher.py:153`、`workflow.py:796`）补整体拒绝语义 | W-03 | 中 |
 | CC-7 | 状态机推进类命令补 `version` 与 409 | W-03 | 中 |
 
 ## 9. 明确不做

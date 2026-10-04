@@ -1,7 +1,7 @@
 # PaperGuard 租户资源登记表（机器可读）
 #
 # 状态：design_ready — 本表是**登记产物**，不是实施结果。未执行任何 DDL/DML。
-# 运行时清单更新：来源 d876798 + 可信上下文/AI 元数据待复核，2026-10-04 AST 实测；不表示隔离设计已实现。
+# 运行时清单更新：上一阶段 d876798 已推送；本轮归属准入/显式批准/写作切片来源 1154b94，2026-10-04 AST 实测；不表示隔离设计已实现。
 # 上游规格：docs/product/W-01-预检与ADR实施规格_20261001.md（T-01.4）
 # 消费方：docs/product/W-02-存储与Schema实施规格_20261001.md §4（逐表归属判定）
 # 总设计要求：saas-platform-design-20261001.md:438「未登记入口不放行共享 SaaS」
@@ -27,7 +27,7 @@
 # ──────────────────────────────────────────────────────────────────────────
 
 meta:
-  source_sha: d87679896285a5b61302a98181f03621adffb38d
+  source_sha: 1154b943ed2801c82d649e4b365fafb259f85e3e
   branch: fix/ui-review-findings-20260929
   generated_at: "2026-10-04"
   store_public_methods: 127        # 实测：ast 解析，排除 _ 前缀
@@ -38,7 +38,7 @@ meta:
     startup: 1         # main.py:77
     worker: 1          # worker.py:35
     cli: 1             # cli/migrate.py:19（Store(db_path)）
-  depends_get_store: 210          # 实测：**AST 表达式计数**，口径 = 真实的
+  depends_get_store: 219          # 实测：**AST 表达式计数**，口径 = 真实的
                                   # `Depends(get_store)` 调用，不含文档字符串/注释。
                                   # INC-85：原写 202，是 grep 行数——`auth.py:613`
                                   # 的 docstring 里有一句「全项目统一用 `Depends(get_store)` 注入」
@@ -53,8 +53,8 @@ meta:
     `Store(` 的 grep 命中 18 行、其中 1 行是上面那句文档字符串。）
   # ↑ 下方所有数字均由 docs/tenancy/tools/resource_registry_check.py 实跑重算（RR-2）。
   #   它们此前**没有任何机器核对过**，而 `depends_get_store` 已经因此错了 1（202→201）。
-  tables_registered: 28
-  business_tables: 27
+  tables_registered: 30
+  business_tables: 29
   # 「哪张表不是业务表」是**人工判断**。此前只写了 24 而没写怎么排除的，
   # 于是这个数字**不可复算**——RR-2 无从核对。把排除清单显式列出来。
   # **编一个默认值比留空更危险**：留空时没人知道 24 是怎么来的，
@@ -74,9 +74,9 @@ tables:
 
   - resource: tenants
     kind: table
-    location: backend/app/db.py:112
+    location: backend/app/db.py:113
     store_methods: [create_tenant, get_tenant, list_tenants, ensure_legacy_tenant_membership]
-    external_readers: [auth.py, api/saas.py, api/ai.py]
+    external_readers: [auth.py, api/saas.py, api/ai.py, services/saas_identity.py, services/tenant_projects.py]
     background_consumers: []
     sensitivity: auth_secret
     tenant_derivable: direct
@@ -87,9 +87,9 @@ tables:
 
   - resource: tenant_memberships
     kind: table
-    location: backend/app/db.py:121
+    location: backend/app/db.py:143
     store_methods: [save_membership, get_membership, get_membership_for_user, list_memberships_for_user, list_memberships_for_tenant, ensure_legacy_tenant_membership]
-    external_readers: [auth.py, api/saas.py, api/ai.py]
+    external_readers: [auth.py, api/saas.py, api/ai.py, services/saas_identity.py, services/tenant_projects.py]
     background_consumers: []
     sensitivity: auth_secret
     tenant_derivable: direct
@@ -100,9 +100,9 @@ tables:
 
   - resource: ai_requests
     kind: table
-    location: backend/app/db.py:238
+    location: backend/app/db.py:260
     store_methods: [create_ai_request, get_ai_request_by_idempotency, list_ai_requests, update_ai_request, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
-    external_readers: [auth.py, api/saas.py, api/ai.py]
+    external_readers: [auth.py, api/saas.py, api/ai.py, services/saas_identity.py, services/tenant_projects.py]
     background_consumers: []
     sensitivity: document_content
     tenant_derivable: direct
@@ -114,7 +114,7 @@ tables:
   # ═══ 认证与秘密类（sensitivity: auth_secret）══════════════════════════
   - resource: users
     kind: table
-    location: backend/app/db.py:110
+    location: backend/app/db.py:111
     ddl_shape: "id PK, username UNIQUE, email?, password_hash, salt, role, teacher_id, ai_config, status"
     store_methods: [save_user, get_user, get_user_by_email, get_user_by_username,
                     get_user_by_token, list_users, get_session_user,
@@ -129,16 +129,46 @@ tables:
     tenant_derivable_reason: >
       全局认证身份（总设计 9.2 行）。访问由 tenant_memberships 决定。
       users.role 是全局单角色、users.teacher_id 是全局指导关系
-      （db.py:118、db.py:123），正是 ADR-03 要拆分、25.1「旧全局 admin 被滥用」
+      （db.py:119、db.py:145），正是 ADR-03 要拆分、25.1「旧全局 admin 被滥用」
       的实际来源。**W-02 不改这两列语义**（属 W-03/W-04）。
     migration_rule: no_change
     validation_case: AT-07
     registry_status: registered
     risk_flags: [global_role_antipattern, global_teacher_binding]
 
+  - resource: platform_role_bindings
+    kind: table
+    location: backend/app/db.py:122
+    ddl_shape: "id PK, user_id UNIQUE FK users, role_code platform_admin, status active/revoked, auth_version positive, approval_ref, approved_by"
+    store_methods: []
+    external_readers: [services/saas_identity.py, services/tenant_access.py, api/operations.py]
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: none
+    tenant_derivable_reason: "独立的平台授权；仅离线审批入口写入，不从旧admin/login/注册/导入生成。非客户成员身份。"
+    migration_rule: new_table
+    validation_case: AT-07
+    registry_status: registered_gap
+    risk_flags: [sqlite_pilot_only, platform_revocation_protocol_pending]
+
+  - resource: saas_provisioning
+    kind: table
+    location: backend/app/db.py:132
+    ddl_shape: "command_key PK, tenant_id UNIQUE FK tenants, actor_id, fingerprint, approval JSON, first_owner_id, owner_request_version, owner_auth_version"
+    store_methods: []
+    external_readers: [services/saas_identity.py, api/saas.py]
+    background_consumers: []
+    sensitivity: customer_metadata
+    tenant_derivable: direct
+    tenant_derivable_reason: "建户批准/幂等/首位owner记录绑定tenant_id；不代替合同、权益、完整准入或共享库生产DDL。"
+    migration_rule: new_table
+    validation_case: AT-01
+    registry_status: registered_gap
+    risk_flags: [draft_only, activation_blocked, sqlite_pilot_only]
+
   - resource: sessions
     kind: table
-    location: backend/app/db.py:135
+    location: backend/app/db.py:157
     ddl_shape: "id PK, user_id FK→users CASCADE, token_hash UNIQUE, expires_at, revoked_at"
     store_methods: [create_session, get_session_user, revoke_session, revoke_user_sessions]
     external_readers: []
@@ -154,7 +184,7 @@ tables:
 
   - resource: email_verification_codes
     kind: table
-    location: backend/app/db.py:127
+    location: backend/app/db.py:149
     ddl_shape: "email PK, code_hash, purpose, expires_at, attempts"
     store_methods: [save_email_code, get_email_code, delete_email_code,
                     bump_email_code_attempts]
@@ -173,7 +203,7 @@ tables:
 
   - resource: mini_program_bindings
     kind: table
-    location: backend/app/db.py:146
+    location: backend/app/db.py:122
     ddl_shape: "user_id UNIQUE, openid_hash UNIQUE, openid_cipher"
     store_methods: [bind_mini_program, get_mini_program_binding_by_openid,
                     get_mini_program_binding_by_user, delete_mini_program_binding]
@@ -192,7 +222,7 @@ tables:
 
   - resource: mini_program_bind_tickets
     kind: table
-    location: backend/app/db.py:155
+    location: backend/app/db.py:177
     ddl_shape: "ticket_hash UNIQUE, openid_hash, expires_at, used_at"
     store_methods: [create_mini_program_bind_ticket, get_mini_program_bind_ticket,
                     bind_mini_program]
@@ -208,7 +238,7 @@ tables:
   # ═══ 客户业务内容类（sensitivity: customer_content）════════════════════
   - resource: templates
     kind: table
-    location: backend/app/db.py:99
+    location: backend/app/db.py:100
     ddl_shape: "id PK, data TEXT, updated_at"
     store_methods: [save_template, get_template, list_templates, delete_template]
     external_readers: [api/templates.py, api/projects.py, api/workflow.py,
@@ -231,8 +261,8 @@ tables:
 
   - resource: projects
     kind: table
-    location: backend/app/db.py:104
-    ddl_shape: "id PK, template_id, data TEXT, updated_at"
+    location: backend/app/db.py:105
+    ddl_shape: "id PK, template_id, data TEXT, updated_at；pilot tenant/member持久化在data JSON，非全表RLS隔离"
     store_methods: [save_project, get_project, list_projects, delete_project,
                     update_project_check_runs, update_project_if_revision]
     external_readers: [api/projects.py, api/templates.py, api/workflow.py,
@@ -252,7 +282,7 @@ tables:
 
   - resource: document_packages
     kind: table
-    location: backend/app/db.py:222
+    location: backend/app/db.py:244
     ddl_shape: "id PK, version 四元组, data TEXT, created_at, UNIQUE(template_version_id, spec_version_id, renderer_version, rule_engine_version)"
     store_methods: [save_document_package, get_document_package,
                     get_document_package_bundle, list_document_package_bundles]
@@ -261,7 +291,7 @@ tables:
     sensitivity: customer_content
     tenant_derivable: conditional
     tenant_derivable_reason: >
-      通用文档包。UNIQUE 四元组**不含租户**（db.py:230），而模板按设计是租户资产或
+      通用文档包。UNIQUE 四元组**不含租户**（db.py:252），而模板按设计是租户资产或
       公共资产 → 两个租户用同一版本四元组会撞唯一键，第二个租户无法创建。
       **这是共享库下的硬冲突，不是理论风险。**
     migration_rule: unique_extend
@@ -271,7 +301,7 @@ tables:
 
   - resource: document_projects
     kind: table
-    location: backend/app/db.py:234
+    location: backend/app/db.py:256
     ddl_shape: "id PK, package_id, owner_id, data TEXT, revision, updated_at"
     store_methods: [save_document_project, get_document_project,
                     list_document_projects, update_document_project_if_revision]
@@ -291,7 +321,7 @@ tables:
 
   - resource: requirement_sets
     kind: table
-    location: backend/app/db.py:217
+    location: backend/app/db.py:239
     ddl_shape: "id PK, data TEXT, updated_at"
     store_methods: [save_requirement_set, get_requirement_set,
                     list_requirement_sets, delete_requirement_set]
@@ -306,7 +336,7 @@ tables:
 
   - resource: validation_runs
     kind: table
-    location: backend/app/db.py:244
+    location: backend/app/db.py:266
     ddl_shape: "id PK, project_id, data TEXT, created_at"
     store_methods: [save_validation_run, get_validation_run, list_validation_runs]
     external_readers: []
@@ -320,7 +350,7 @@ tables:
 
   - resource: check_runs
     kind: table
-    location: backend/app/db.py:259
+    location: backend/app/db.py:281
     ddl_shape: "id PK, project_id, data TEXT, created_at"
     store_methods: [save_check_run, get_check_run, list_check_runs]
     external_readers: []
@@ -334,7 +364,7 @@ tables:
 
   - resource: workflow_records
     kind: table
-    location: backend/app/db.py:271
+    location: backend/app/db.py:293
     ddl_shape: "PK(kind, id), data TEXT, created_at, updated_at"
     store_methods: [save_workflow_record, save_workflow_record_conn,
                     get_workflow_record, list_workflow_records,
@@ -366,7 +396,7 @@ tables:
   # ═══ 客户身份类（sensitivity: customer_identity）════════════════════════
   - resource: organization_units
     kind: table
-    location: backend/app/db.py:254
+    location: backend/app/db.py:276
     ddl_shape: "id PK, data TEXT, updated_at   ← parent_id/name/type 全在 JSON 内"
     store_methods: [save_organization_unit, get_organization_unit,
                     list_organization_units, delete_organization_unit]
@@ -379,7 +409,7 @@ tables:
       的 parent_id 是 JSON 字段）。总设计第 10 节要求「根组织经人工确认映射租户，
       子树继承并持久化」——当前 schema **没有任何可查询面支撑该映射**，
       M1 预检只能全表扫描 + 应用层解析。list_organization_units() 每次
-      全量反序列化（db.py:1301-1306）。
+      全量反序列化（db.py:1308-1313）。
     migration_rule: new_table
     validation_case: AT-10
     registry_status: registered_gap
@@ -390,7 +420,7 @@ tables:
   # ═══ 业务证明类（sensitivity: business_proof）════════════════════════════
   - resource: audit_events
     kind: table
-    location: backend/app/db.py:279
+    location: backend/app/db.py:301
     ddl_shape: "id PK, actor_id, action, resource_type, resource_id, organization_id, result, reason, request_id, created_at"
     store_methods: [save_audit_event, save_audit_event_conn, list_audit_events]
     external_readers: [api/workflow.py]
@@ -408,7 +438,7 @@ tables:
 
   - resource: policy_audit_events
     kind: table
-    location: backend/app/db.py:265
+    location: backend/app/db.py:287
     ddl_shape: "id PK, policy_id, data TEXT, created_at"
     store_methods: [save_policy_audit, list_policy_audits]
     external_readers: []
@@ -425,7 +455,7 @@ tables:
   # ═══ 运行与安全类（sensitivity: runtime_security）══════════════════════
   - resource: jobs
     kind: table
-    location: backend/app/db.py:326
+    location: backend/app/db.py:348
     ddl_shape: "id PK, job_type, resource_type, resource_id, state, attempt_count, max_attempts, available_at, lease_until, lease_token, leased_by, last_error, ..."
     store_methods: [create_job_conn, get_job, get_job_conn, list_jobs,
                     claim_jobs, complete_job, fail_job, cancel_job,
@@ -442,7 +472,7 @@ tables:
       总设计 19.1 行任务契约 11 项要求中，**本表 6 项全缺**：
       tenant_id、resource_version、payload_schema_version、attempt_generation、
       lease_epoch、deadline。已有 lease_token 但**无 epoch/栅栏**，
-      对应 25.1「任务租约短于处理」风险（db.py:326-342）。
+      对应 25.1「任务租约短于处理」风险（db.py:348-364）。
       W-02 只加列，**不改领取逻辑**（属 W-09）。
     migration_rule: expand_sidecar
     validation_case: AT-25
@@ -452,7 +482,7 @@ tables:
 
   - resource: workflow_events
     kind: table
-    location: backend/app/db.py:308
+    location: backend/app/db.py:330
     ddl_shape: "id PK, event_type, recipient_id, resource_type, resource_id, dedupe_key UNIQUE, data TEXT, delivery_status, lease_*, attempt_count"
     store_methods: [save_workflow_event_conn, claim_workflow_events,
                     list_pending_workflow_events, list_workflow_events,
@@ -476,7 +506,7 @@ tables:
 
   - resource: ai_usage
     kind: table
-    location: backend/app/db.py:192
+    location: backend/app/db.py:214
     ddl_shape: "id PK, user_id, organization_id, action, source, model, base_url_host, input_chars, output_chars, result, created_at"
     store_methods: [record_ai_usage, ai_usage_summary]
     external_readers: [services/ai_governance.py, services/secret_store.py]
@@ -496,7 +526,7 @@ tables:
 
   - resource: ai_quota
     kind: table
-    location: backend/app/db.py:210
+    location: backend/app/db.py:232
     ddl_shape: "PK(user_id, period), used, updated_at   ← period 为 UTC 日期"
     store_methods: [consume_ai_quota, get_ai_quota_used, release_ai_quota]
     external_readers: []
@@ -514,7 +544,7 @@ tables:
 
   - resource: mini_program_push_quotas
     kind: table
-    location: backend/app/db.py:166
+    location: backend/app/db.py:188
     ddl_shape: "PK(user_id, template_id), remaining, updated_at"
     store_methods: [grant_push_quota, consume_push_quota, reset_push_quota]
     external_readers: [services/ai_governance.py, services/wechat_push.py]
@@ -528,7 +558,7 @@ tables:
 
   - resource: mini_program_push_log
     kind: table
-    location: backend/app/db.py:173
+    location: backend/app/db.py:195
     ddl_shape: "id PK, event_id UNIQUE, recipient_id, template_id, status, error_code, created_at"
     store_methods: [record_mini_program_push, has_mini_program_push,
                     list_delivered_push_events]
@@ -544,7 +574,7 @@ tables:
   # ═══ 幂等类 ════════════════════════════════════════════════════════════
   - resource: workflow_idempotency
     kind: table
-    location: backend/app/db.py:299
+    location: backend/app/db.py:321
     ddl_shape: "PK(user_id, action, idem_key), request_hash, response, created_at"
     store_methods: [save_workflow_idempotency_conn, get_workflow_idempotency]
     external_readers: [api/workflow.py, repositories/workflow_repository.py]
@@ -553,7 +583,7 @@ tables:
     tenant_derivable: direct
     tenant_derivable_reason: >
       总设计 9.4 行要求幂等唯一范围为**租户+成员+操作+键**；现 PK 是
-      (user_id, action, idem_key)（db.py:299-307）。同一账号在两租户（AT-01）
+      (user_id, action, idem_key)（db.py:321-329）。同一账号在两租户（AT-01）
       会**互相顶掉幂等记录**，第二个租户的请求被误判为重复。
       request_hash 已存在 → 总设计 4.8 行「相同键不同内容必须冲突」的基础已具备。
     migration_rule: pk_extend
@@ -564,7 +594,7 @@ tables:
   # ═══ 配置类 ════════════════════════════════════════════════════════════
   - resource: system_settings
     kind: table
-    location: backend/app/db.py:182
+    location: backend/app/db.py:204
     ddl_shape: "PK(key, organization_id), value, updated_at   ← 0010 迁移后的形态"
     store_methods: [get_system_setting, get_tenant_system_setting,
                     get_system_ai_config, set_system_setting,
@@ -574,7 +604,7 @@ tables:
     sensitivity: auth_secret
     tenant_derivable: conditional
     tenant_derivable_reason: >
-      0010 迁移（db.py:428-452）把全局键值表改为 (key, organization_id) 复合主键，
+      0010 迁移（db.py:450-474）把全局键值表改为 (key, organization_id) 复合主键，
       存量行归到 organization_id=''（平台全局默认）。**空串 '' 不得继续承载
       多语义**（总设计 9.1 行）——需拆为 scope_type + scope_id 显式三态：
       平台 / 租户 / 成员。AI 配置可能含密钥引用，sensitivity 定为 auth_secret。
@@ -596,7 +626,7 @@ tables:
   # ═══ 平台类 ════════════════════════════════════════════════════════════
   - resource: schema_migrations
     kind: table
-    location: backend/app/db.py:347
+    location: backend/app/db.py:369
     ddl_shape: "version PK, applied_at"
     store_methods: [list_schema_migrations]
     external_readers: [cli/migrate.py, backend/tests/test_phase9_security_migration.py]
@@ -605,7 +635,7 @@ tables:
     tenant_derivable: none
     tenant_derivable_reason: >
       平台迁移账本。当前是**打标而非迁移状态**：SCHEMA_MIGRATIONS 为硬编码
-      字符串元组（db.py:29-40），写入是无条件 INSERT OR IGNORE（db.py:453-457），
+      字符串元组（db.py:29-40），写入是无条件 INSERT OR IGNORE（db.py:475-479），
       cli/migrate.py:19-27 只校验版本号齐全。**账本显示「已应用」与 DDL 实际生效
       之间无对账关系**。W-02 T-02.2 用新账本替代。
     migration_rule: ledger_replace
@@ -619,8 +649,27 @@ tables:
 # ──────────────────────────────────────────────────────────────────────────
 access_surfaces:
 
+  - id: explicit-onboarding-pilot
+    description: "显式平台批准→draft→首位owner/成员 create-or-replay；无自动启用/授权upsert/撤权复活"
+    locations: [backend/app/services/saas_identity.py, backend/app/api/saas.py, backend/app/api/operations.py]
+    reads_tables: [users, tenants, tenant_memberships, platform_role_bindings, saas_provisioning, organization_units]
+    writes_tables: [tenants, tenant_memberships, platform_role_bindings, saas_provisioning, audit_events, system_settings]
+    status: local_pilot_only
+
+  - id: tenant-member-writing-pilot
+    description: "可信tenant/member作用域下手写空白项目创建/list/get/CAS update；旧Store隐藏并拒写这些项目，导出/异步显式拒绝"
+    locations: [backend/app/services/tenant_projects.py, backend/app/api/saas.py, backend/app/services/export_jobs.py]
+    reads_tables: [projects, users, tenants, tenant_memberships]
+    writes_tables: [projects, audit_events]
+    status: partial_isolation_no_rls
+
+  - id: offline-ownership-admission
+    description: "immutable只读历史归属预检，全量重算准入绑定；GO_REHEARSAL仅离线演练，production_authorized恒false"
+    locations: [docs/tenancy/tools/ownership_preflight.py, docs/tenancy/tools/backfill_migrate.py]
+    status: offline_rehearsal_only
+
   - id: store-ctor
-    description: "Store 构造点 —— 每次构造触发 _init_schema() 执行 28 张表 DDL"
+    description: "Store 构造点 —— 每次构造触发 _init_schema() 执行 30 张表 DDL"
     locations_all_17:
       - {loc: "backend/app/auth.py:618", form: "Store()",          phase: request, note: "get_store()，Depends 统一入口"}
       - {loc: "backend/app/api/auth.py:35",                form: "Store()", phase: request}
@@ -635,14 +684,14 @@ access_surfaces:
       - {loc: "backend/app/api/specs.py:41",               form: "Store()", phase: request}
       - {loc: "backend/app/api/teacher.py:21",             form: "Store()", phase: request}
       - {loc: "backend/app/api/templates.py:61",           form: "Store()", phase: request}
-      - {loc: "backend/app/main.py:178",                   form: "Store()", phase: request,
+      - {loc: "backend/app/main.py:180",                   form: "Store()", phase: request,
          note: "**在 download_image 端点内逐请求构造**，见 access-surface: image-download-path"}
       - {loc: "backend/app/main.py:77",                    form: "Store()", phase: startup,
          note: "启动函数内；同时调用 recover_pending_archives / recover_pending_exports，见 u09-touchpoint"}
       - {loc: "backend/app/worker.py:35",                  form: "Store()", phase: worker,
          note: "run_once 入口"}
       - {loc: "backend/app/cli/migrate.py:19",             form: "Store(db_path)", phase: cli}
-      - {loc: "backend/app/api/saas.py:22", form: "Store()", phase: request}
+      - {loc: "backend/app/api/saas.py:24", form: "Store()", phase: request}
     count_total: 18
     count_by_phase: {request: 15, startup: 1, worker: 1, cli: 1}
     severity: blocking
@@ -657,7 +706,7 @@ access_surfaces:
     registry_status: registered
 
   - id: image-download-path
-    description: "backend/app/main.py:174-178 GET /media/uploads/{filename}"
+    description: "backend/app/main.py:176-180 GET /media/uploads/{filename}"
     severity: high
     finding: >
       端点内 `store = Store()` 逐请求构造，并调用 **store.list_projects() 拉取全部项目**，
@@ -679,14 +728,14 @@ access_surfaces:
     count_misaligned: 9
     resolution_points:
       aligned:
-        - {loc: "backend/app/db.py:43-53", fn: "data_dir", env: "PAPERGUARD_DB_PATH > PAPERGUARD_DATA_DIR", role: "基准"}
+        - {loc: "backend/app/db.py:44-54", fn: "data_dir", env: "PAPERGUARD_DB_PATH > PAPERGUARD_DATA_DIR", role: "基准"}
         - {loc: "backend/app/api/workflow.py", fn: "_archive_dir", env: "复用 data_dir", role: "BUG-20261001-02 已修"}
       misaligned:
         - {loc: "backend/app/services/backup_restore.py:27-28", fn: "configured_data_dir",
            env: "仅 PAPERGUARD_DATA_DIR", problem: "不读 DB_PATH —— 备份根可与在线 DB 分裂"}
         - {loc: "backend/app/services/backup_restore.py:31-35", fn: "configured_db_path",
            env: "PAPERGUARD_DB_PATH > configured_data_dir()", problem: "与上一条规则不同"}
-        - {loc: "backend/app/main.py:160-165", fn: "_configured_upload_dir",
+        - {loc: "backend/app/main.py:162-167", fn: "_configured_upload_dir",
            env: "仅 PAPERGUARD_DATA_DIR", problem: "不读 DB_PATH；与 document_assets 重复实现"}
         - {loc: "backend/app/services/document_assets.py:9,17-18", fn: "document_upload_dir",
            env: "仅 PAPERGUARD_DATA_DIR", problem: "不读 DB_PATH；与 main.py 重复实现同一目录"}
@@ -817,7 +866,7 @@ authorization_matrix:
   document: docs/tenancy/permission-matrix.md
   satisfies: "总设计 2.3 节 U-02 的设计侧交付物；27.3 文档包第 1 项剩余部分"
   route_inventory:
-    total: 222
+    total: 230
     method: "AST 解析 @router.* 装饰器 + 参数默认值中的 Depends()"
     # ★ INC-86（2026-10-02）：上面这句方法说明**不完整**，而两种「显而易见的实现」
     #   都会得到错数。RR-5 按本段口径实算，缺这段说明时门禁无法自证方法未被改窄。
@@ -831,7 +880,7 @@ authorization_matrix:
       ③ `Depends()` 有**三种出现位置**：参数默认值、路由级 `dependencies=[...]`、
       router 级 `APIRouter(dependencies=[...])`；还必须识别 `Annotated[..., Depends(...)]`。只扫参数默认值**看不见**后两种。
     by_guard:
-      current_user: 160
+      current_user: 157
       # ↓ 口径：签名带 `require_manager` **且不带** feature flag 依赖的路由。
       #   **本值原为 25，且原分类只数了「路由级」flag，漏掉 3 个 router 级挂载的 5 条**
       #   （document_packages / document_projects / specs 的 `APIRouter(dependencies=[...])`），
@@ -839,7 +888,7 @@ authorization_matrix:
       #   **六项之和仍等于 214**（划分不变量没破），所以原值**看起来完全自洽**。
       require_manager: 20
       require_admin: 7
-      trusted_context: 8
+      trusted_context: 19
       require_template_manager: 6
       # ★ 这个名字**不是代码里的标识符**（全仓 grep 0 命中），而是一个**派生分类**。
       #   真实守卫名是 `require_general_document_platform`（`core/feature_flags.py:22`），
@@ -886,7 +935,7 @@ command_contracts:
   document: docs/tenancy/command-contracts.md
   satisfies: "27.3 文档包第 3 项的第一部分（状态/幂等/事务契约）"
   scope_note: "OpenAPI 契约与前端类型**尚未产出**，第 3 项未全部完成"
-  write_operations: 132
+  write_operations: 138
   classification:
     A_idempotent: 2
     B_transaction_only: 38
@@ -900,7 +949,7 @@ command_contracts:
   scoped_reconciliation_command:
     route: "POST /api/saas/v1/ai/requests/{request_id}/reconciliation"
     fn: request_reconciliation
-    loc: backend/app/api/saas.py:126
+    loc: backend/app/api/saas.py:223
     scope_note: "unknown 的单调状态 CAS 与同事务审计；重放不新增审计；不是供应商最终结果对账"
   critical_gap:
     id: GAP-C-01
@@ -1047,7 +1096,7 @@ isolation_quarantine:
       resolution: >
         2026-10-01 已完成分析 → docs/tenancy/system-settings-scope-inventory.md。
         实际只有 2 个设置键（ai_default_config / retention_policy）。
-        拆分依据：db.py:449-451 的 0010 迁移是确定性的，可用 schema_migrations
+        拆分依据：db.py:471-473 的 0010 迁移是确定性的，可用 schema_migrations
         中 0010_tenant_system_settings 的 applied_at 作分界，**不可凭值猜测**。
         连带发现 5 个 AI 配置解析链差距（G-1~G-5），其中
         **G-3（users.ai_config 无组织维度 → BYOK 不绑定租户成员）属 W-07 最高风险项**。
