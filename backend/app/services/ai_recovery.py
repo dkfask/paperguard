@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from app.core.context import RequestContext
 from app.core.saas_contract import AiRequestView, RecoveryPlan
 from app.db import Store
+from app.services.ai_usage_facts import view_fields
 
 
 def _scope(ctx: RequestContext) -> dict:
@@ -14,20 +15,20 @@ def _scope(ctx: RequestContext) -> dict:
     return {"tenant_id": ctx.tenant_id, "user_id": ctx.actor_id, "membership_id": ctx.membership_id}
 
 
-def _view(row: dict) -> AiRequestView:
+def _view(row: dict, store: Store) -> AiRequestView:
     return AiRequestView(**{name: row[name] for name in ("id", "tenant_id", "membership_id", "action", "status", "reservation_status", "updated_at")},
-                         input_tokens_estimate=row["input_tokens"], output_tokens_estimate=row["output_tokens"])
+                         input_tokens_estimate=row["input_tokens"], output_tokens_estimate=row["output_tokens"], **view_fields(store, row))
 
 
 def list_requests(ctx: RequestContext, store: Store, *, limit: int):
-    return [_view(row) for row in store.list_scoped_ai_requests(**_scope(ctx), limit=limit)]
+    return [_view(row, store) for row in store.list_scoped_ai_requests(**_scope(ctx), limit=limit)]
 
 
 def recovery_plan(ctx: RequestContext, store: Store, request_id: str) -> RecoveryPlan:
     row = store.get_scoped_ai_request(request_id, **_scope(ctx))
     if row is None:
         raise HTTPException(status_code=404, detail={"code": "AI_REQUEST_NOT_FOUND", "message": "请求不存在或不可见"})
-    return RecoveryPlan(request=_view(row), next_action="manual_reconciliation" if row["status"] in {"unknown", "reconciliation_required", "dispatching"} else "none")
+    return RecoveryPlan(request=_view(row, store), next_action="manual_reconciliation" if row["status"] in {"unknown", "reconciliation_required", "dispatching"} else "none")
 
 
 def request_reconciliation(ctx: RequestContext, store: Store, request_id: str):
@@ -44,4 +45,4 @@ def request_reconciliation(ctx: RequestContext, store: Store, request_id: str):
     row, replay = result
     if row["status"] != "reconciliation_required":
         raise HTTPException(status_code=409, detail={"code": "AI_RECONCILIATION_STATE_INVALID", "message": "仅未知请求可标记人工复核"})
-    return _view(row), replay
+    return _view(row, store), replay

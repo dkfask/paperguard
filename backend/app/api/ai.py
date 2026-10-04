@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import current_user, require_admin
 from app.db import Store, new_id
-from app.services import ai_breaker, ai_governance, secret_store
+from app.services import ai_breaker, ai_governance, secret_store, ai_usage_facts
 from app.services.outbound_guard import assert_safe_outbound_url
 
 router = APIRouter(prefix="/api/ai")
@@ -300,7 +300,8 @@ def _anthropic_completion(
     if resp.status_code >= 400:
         raise HTTPException(status_code=502, detail=_parse_error_detail(resp))
     try:
-        return _anthropic_response_text(resp.json())
+        data = resp.json()
+        return ai_usage_facts.completion(_anthropic_response_text(data), protocol="anthropic", data=data)
     except (TypeError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=502, detail="AI 服务返回了无法解析的内容") from exc
 
@@ -521,8 +522,8 @@ def _metered_chat(
         output_tokens = max(1, len(result) // 4) if result else 0
         ai_governance.record_usage(store, user, action=action, source=source, model=model,
             base_url=base_url, input_chars=input_chars, output_chars=len(result), result="success")
-        store.update_ai_request(request_id, status="completed", reservation_status="settled", response_text=result,
-            input_tokens=input_tokens, output_tokens=output_tokens)
+        ai_usage_facts.complete_request(store, request_id, result, expected_membership=membership,
+            input_estimate=input_tokens, output_estimate=output_tokens)
     except Exception:
         # Supplier completed, but local recording failed: never auto retry/refund.
         store.update_ai_request(request_id, status="unknown", reservation_status="unknown", error_code="AI_RESULT_UNKNOWN", input_tokens=input_tokens, output_tokens=output_tokens)
@@ -582,7 +583,8 @@ def _dispatch_completion(
             # HTTP 200/2xx 响应, 尝试解析 choices
             try:
                 data = resp.json()
-                return data["choices"][0]["message"]["content"].strip()
+                text = data["choices"][0]["message"]["content"].strip()
+                return ai_usage_facts.completion(text, protocol="openai", data=data)
             except Exception as exc:
                 # 常见场景: 域名根目录是静态网站前端(返回 200 HTML), 不是 JSON
                 if not is_last:

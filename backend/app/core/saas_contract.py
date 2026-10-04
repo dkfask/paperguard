@@ -132,6 +132,12 @@ class AiRequestView(ContractModel):
     # The legacy columns contain character-based ESTIMATES, not supplier facts.
     input_tokens_estimate: int
     output_tokens_estimate: int
+    usage_quality: Literal["provider_reported", "unavailable", "legacy_chars"] = "legacy_chars"
+    provider_input_tokens: int | None = Field(default=None, ge=0)
+    provider_output_tokens: int | None = Field(default=None, ge=0)
+    provider_request_ref: str | None = None
+    metering_review_required: bool = True
+    billable: Literal[False] = False
     updated_at: str
 
 

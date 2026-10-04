@@ -47,7 +47,9 @@ def test_invalid_tenant_is_denied_before_dispatch(scenario):
 
 def test_legacy_school_hint_is_not_persisted_as_a_proven_tenant(scenario):
     store,user,cfg,_=scenario
-    ai._metered_chat(store,{"id":"legacy","organization_context":{"school_id":"a"}},cfg,[],0.2,action="test",source="user",idempotency_key="key")
+    # Real standalone users exist globally; school hints still aren't tenants.
+    legacy = store.save_user(user | {"id":"legacy", "username":"legacy", "organization_context":{"school_id":"a"}})
+    ai._metered_chat(store,legacy,cfg,[],0.2,action="test",source="user",idempotency_key="key")
     row=store.get_ai_request_by_idempotency("legacy","key")
     assert row["tenant_id"] is None and row["membership_id"] is None
 
