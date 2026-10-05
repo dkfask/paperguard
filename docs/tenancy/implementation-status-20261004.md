@@ -90,15 +90,15 @@
 
 尚未完成：生产共享DB选型/PG+RLS、全资源/文件/cache/async隔离、完整成员导入邀请与组织授权、owner启用、可信权益/席位/计量/账务、支持与租户恢复。业务裁决见 [待裁决包](conditional-tenancy-decision-packet.md)。未执行合并、部署、生产DDL/DML/恢复、付费供应商或支付调用、真实UAT；原生CI另列状态：本轮原生诊断单次读取仍返回“Sign in to Codex with ChatGPT to connect GitHub”，未继续重试登录、未用CLI绕过。
 
-## 2026-10-05 离线续作：可信usage/mock计量
+## 2026-10-04 离线续作：可信 usage/mock 计量
 
-来源：`6cf37f902b6ff453611c505c17d1a3b929e3cc29`，基线`dfb91fd5c05d93601f0adc2f20c309d17ce86794`。
+来源：`6cf37f902b6ff453611c505c17d1a3b929e3cc29`，基线`dfb91fd5c05d93601f0adc2f20c309d17ce86794`。该阶段记录已与当前 tenant/member 幂等阶段分开；本段不替代当前 strict 证据。
 
 - 按授权只尝试一次普通非强制push，返回exit128 / Empty reply from server；立即停止网络重试，不更改永久代理/凭据。最新远端分支与PR ref未读回，不宣称推送成功；本轮未在push未确认时读取CI。此前原生CI登录阻塞依然只是此前证据，不猜其现状。
 - OpenAI/Anthropic非流式usage保守解析与文本兼容返回，真实transport全部由MockTransport替身；缺失/坏usage为null+unavailable，不把估算/字符改为provider事实，不复制供应商原始payload。
 - request scoped `ai_usage_fact`旁表严格INSERT、completed与审计原子提交；核验当前账号/租户/成员版本，保存失败进入unknown，拒绝重发/退款。metadata API展示独立provider token、质量与复核标记，billable恒false。
 - 成功无usage仍是completed，但需要计量复核；此标记不是实际复核队列/供应商对账。旧记录保持legacy_chars/估算；新事实属于SQLite本地试点，不是PG/RLS/货币账务。
-- 后端1023 passed（新增mock36）；相关6文件96 passed；前端84/20 files及typecheck通过。默认严格门禁/最终本地提交绑定详见 [本轮交付记录](../releases/2026-10-04-pr34-idempotency-offline.md)。前阶段987用例与38/43是前阶段证据，不冒充本轮strict。
+- 后端1023 passed（新增mock36）；相关6文件96 passed；前端84/20 files及typecheck通过。默认严格门禁/最终本地提交绑定详见 [本轮交付记录](../releases/2026-10-04-pr34-usage-offline.md)。前阶段987用例与38/43是前阶段证据，不冒充本轮strict。
 
 尚未实现：原子额度reservation/真正账务结算、unknown供应商最终结果核对/校正、真实usage账单对照、流式协议、全资源RLS/文件/任务恢复。保持不合并/不部署/不生产DDL/DML/恢复、不真实支付或付费供应商、不真实UAT。
 
@@ -110,4 +110,4 @@
 - 平台域只接受显式 `platform_role_bindings`，不会把 `user.role=admin` 直接伪造成平台授权。
 - 本切片仍是 SQLite/local mock 证据，不等于 PostgreSQL/RLS、真实收费、最终 reconciliation worker、生产迁移、部署、合并或 UAT。
 
-本轮幂等专项测试：`backend/tests/test_ai_idempotency.py` 8 passed；后端全量 `1031 passed, 2 warnings`；前端 `84 passed / 20 files`，typecheck 通过。严格门禁重新绑定当前源码/文档后为 `43 total / 34 passed / 9 gaps / 0 broken`；9 个 GAP 保持原门禁结论，未通过放宽规则消除。
+本轮幂等专项测试：`backend/tests/test_ai_idempotency.py` 8 passed；后端全量 `1031 passed, 2 warnings`；前端 `84 passed / 20 files`，typecheck 通过。严格门禁在文档事实回绑后为 `43 total / 38 passed / 5 gaps / 0 broken`；本阶段只保留原五项 GAP，不把文档漂移误计为产品退化。

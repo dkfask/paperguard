@@ -20,8 +20,24 @@
 - 幂等专项：`8 passed`。
 - 后端全量：`1031 passed, 2 warnings`。
 - 前端：`84 passed / 20 files`，typecheck 通过。
-- 严格门禁：`43 total / 34 passed / 9 gaps / 0 broken`；GAP 保持真实未决项，未修改门禁逻辑。
+- 严格门禁（初始实跑）：`43 total / 34 passed / 9 gaps / 0 broken`；其中 4 个新增/变化结果经增量归因确认是文档/门禁输入漂移，不是幂等代码回归。文档事实回绑后重新实跑为 `43 total / 38 passed / 5 gaps / 0 broken`，严格退出码仍为 `1`，未把 GAP 改绿。
 - `git diff --check`：通过。
+
+## 严格门禁增量归因
+
+历史权威机器报告为 `docs/releases/2026-10-04-pr34-context-recovery-gates.json`：来源 `d87679896285a5b61302a98181f03621adffb38d`，`42 total / 37 passed / 5 gaps / 0 broken`。当前幂等切片初始运行在 `a2b828f772c0eb41fa759bf80545f931cd4426f6` 上为 `43 total / 34 passed / 9 gaps / 0 broken`。
+
+- `ownership_preflight.py::self-test` 是门禁集合新增项，解释总数从 42 增至 43；本项自检通过。
+- `spec_citation_check.py::plain`：W-02/W-06/W-07/W-08/W-09/W-10/W-12 的源码行号随既有实现移动而失效；已按当前符号位置回绑，工具恢复通过。分类：`CONTRACT-DRIFT`，不是产品行为回归。
+- `schema_disposition_check.py::plain`：当前 SQLite 运行时已有 5 张受限 pilot 表未列入 W-02 §4；已补充显式 `迁移` 判定并与资源登记对齐。分类：`DATA-PRECONDITION` / 设计输入漂移，不是本轮幂等逻辑回归。
+- `design_doc_check.py::plain` 与 `::self-test`：收口简报中的规格行数、tenancy 文档行数和自检状态已过期；更新事实标记后恢复 `48/48` 自检与 plain 通过。分类：`TEST-DEFECT`（过期测试输入），不是源码回归。
+- 原五项 GAP 未变化：`contract_readiness_check.py::plain`、`context_resolution_check.py::plain`、`api_contract_check.py::plain`、`synthetic_data.py::plain`、`account_path_check.py::plain`。它们继续按设计保持未决，不能作为 SaaS/RLS/账务已完成证据。
+
+增量机器报告：`docs/releases/2026-10-04-pr34-idempotency-gates.json`。初始与修复后命令均为：
+
+```bash
+env -u DESIGN_DOC_CHECK_DEPTH .venv/bin/python docs/tenancy/tools/run_all_gates.py --mode strict --json
+```
 
 ## 未完成与边界
 
