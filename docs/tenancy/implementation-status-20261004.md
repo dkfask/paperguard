@@ -90,7 +90,7 @@
 
 尚未完成：生产共享DB选型/PG+RLS、全资源/文件/cache/async隔离、完整成员导入邀请与组织授权、owner启用、可信权益/席位/计量/账务、支持与租户恢复。业务裁决见 [待裁决包](conditional-tenancy-decision-packet.md)。未执行合并、部署、生产DDL/DML/恢复、付费供应商或支付调用、真实UAT；原生CI另列状态：本轮原生诊断单次读取仍返回“Sign in to Codex with ChatGPT to connect GitHub”，未继续重试登录、未用CLI绕过。
 
-## 2026-10-04 离线续作：可信 usage/mock 计量
+## 2026-10-05 离线续作：可信 usage/mock 计量
 
 来源：`6cf37f902b6ff453611c505c17d1a3b929e3cc29`，基线`dfb91fd5c05d93601f0adc2f20c309d17ce86794`。该阶段记录已与当前 tenant/member 幂等阶段分开；本段不替代当前 strict 证据。
 
@@ -102,7 +102,7 @@
 
 尚未实现：原子额度reservation/真正账务结算、unknown供应商最终结果核对/校正、真实usage账单对照、流式协议、全资源RLS/文件/任务恢复。保持不合并/不部署/不生产DDL/DML/恢复、不真实支付或付费供应商、不真实UAT。
 
-## 2026-10-04 离线续作：tenant/member 幂等域与并发派发安全
+## 2026-10-05 离线续作：tenant/member 幂等域与并发派发安全
 
 - SQLite 新增 `0014_ai_tenant_idempotency`。`ai_requests` 增加 `idempotency_domain`、`idempotency_scope`、`auth_version`，使用部分唯一索引隔离 `tenant`、`platform`、`legacy` 三类域，并把旧表行标记为 `historical_legacy`。迁移保留旧字段和事实，不根据旧 `tenant_id`、`school_id` 或账号角色猜测新授权域。
 - 新请求通过 `Store.register_ai_request()` 在 `BEGIN IMMEDIATE` 事务中完成查找或登记；同租户、同成员、同操作、同载荷只保留一个持久请求和一次 mock 派发；同 key 不同载荷返回 `IDEMPOTENCY_KEY_REUSED`，不同操作不复用结果；同账号跨租户使用同 key 可分别登记。
@@ -111,3 +111,15 @@
 - 本切片仍是 SQLite/local mock 证据，不等于 PostgreSQL/RLS、真实收费、最终 reconciliation worker、生产迁移、部署、合并或 UAT。
 
 本轮幂等专项测试：`backend/tests/test_ai_idempotency.py` 8 passed；后端全量 `1031 passed, 2 warnings`；前端 `84 passed / 20 files`，typecheck 通过。严格门禁在文档事实回绑后为 `43 total / 38 passed / 5 gaps / 0 broken`；本阶段只保留原五项 GAP，不把文档漂移误计为产品退化。
+
+## 2026-10-05 离线续作：W-08/C1 前置 quota 原子预留与异常持有
+
+- `Store.register_ai_request_with_reservation()` 将幂等查找、`ai_requests` 登记、分钟/日非货币 quota 计数、`workflow_records(kind=ai_quota_reservation)` 严格插入和审计放在同一 `BEGIN IMMEDIATE` 事务；quota 拒绝保留 `failed_final/released` 的前置事实，不留下计数或 reservation。
+- reservation 记录快照 tenant/member/user、幂等域、quota scope、窗口、限制、来源/配置键、`unit=request`、`quantity=1` 和 `billable=false`。相同域/操作/key 重放不再扣 quota；跨可信 tenant/member scope 不互相污染。
+- 派发使用 `reserved → dispatching → settled/consumed`；只有明确证明未派发时允许按 reservation ID 一次性释放。超时、取消、进程失联、结果保存失败和未知供应商结果保持 unknown/frozen，禁止自动释放、退款和重发；重启后通过 metadata/sidecar 可见。
+- 新增专项测试覆盖重复回放、载荷冲突、双租户作用域、并发额度不足、审计失败回滚、单次释放和 unknown 冻结（6 passed）；相关 AI 回归 52 passed，后端全量 1037 passed，前端 84/20 files，typecheck、secret scan 和 whitespace guard 通过。实现仍为 SQLite/local mock 非付费运行闸门，不是余额、财务账本、真实权益、PG/RLS、最终供应商对账或生产迁移。
+
+### 本阶段未完成
+
+- 真实权益/套餐与租户级商业 quota 配置、货币账务、供应商账单核对/校正、reconciliation worker、PG/RLS 和生产故障注入仍未完成。
+- 本地 strict 门禁继续保留原五项 GAP；本切片不改变合并、部署、生产写入、真实付费供应商调用或 UAT 授权边界。

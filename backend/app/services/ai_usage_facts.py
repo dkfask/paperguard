@@ -141,6 +141,22 @@ def complete_request(store, request_id: str, result: str, *, expected_membership
             ).fetchone()
             if not binding or int(request["auth_version"] or 0) != int(binding["auth_version"]):
                 raise PermissionError("platform authorization changed")
+        reservation_row = conn.execute(
+            "SELECT data FROM workflow_records WHERE kind='ai_quota_reservation' AND id=?",
+            (request_id,),
+        ).fetchone()
+        if reservation_row:
+            reservation = json.loads(reservation_row["data"])
+            if reservation.get("state") != "dispatching":
+                raise ValueError("AI reservation is not dispatching")
+            reservation["state"] = "settled"
+            reservation["revision"] = int(reservation.get("revision") or 0) + 1
+            reservation["settled_at"] = now
+            reservation["updated_at"] = now
+            conn.execute(
+                "UPDATE workflow_records SET data=?, updated_at=? WHERE kind='ai_quota_reservation' AND id=?",
+                (json.dumps(reservation, ensure_ascii=False, separators=(",", ":")), now, request_id),
+            )
         fact = {
             "id": request_id, "request_id": request_id, "tenant_id": request["tenant_id"],
             "membership_id": request["membership_id"], "user_id": request["user_id"],

@@ -521,6 +521,15 @@ def _metered_chat(
             raise HTTPException(status_code=409, detail={
                 "code": "AI_RECONCILIATION_REQUIRED", "message": "上游结果未知，需要人工复核，不可重发",
             })
+        if row.get("status") == "failed_final" and row.get("error_code") in {
+            "AI_RATE_LIMITED", "AI_DAILY_QUOTA_EXCEEDED",
+        }:
+            message = (
+                f"今日 AI 调用次数已达上限（{ai_governance.daily_quota()} 次），明日 0 时（UTC）重置"
+                if row.get("error_code") == "AI_DAILY_QUOTA_EXCEEDED"
+                else f"操作过于频繁，请稍后再试（每分钟最多 {ai_governance.burst_per_minute()} 次）"
+            )
+            raise HTTPException(status_code=429, detail={"code": row["error_code"], "message": message})
         raise HTTPException(status_code=409, detail={
             "code": "REQUEST_IN_PROGRESS", "message": "相同幂等请求不能再次派发",
         })
@@ -534,19 +543,16 @@ def _metered_chat(
         "provider": urlsplit(base_url).hostname or "", "base_url_host": urlsplit(base_url).hostname or "",
         "model": model, "status": "reserved", "reservation_status": "reserved",
     }
-    request_row, created = store.register_ai_request(request_payload)
+    request_row, created = ai_governance.reserve_call(
+        store, current_user, domain=identity["domain"], scope=identity["scope"], entry=request_payload,
+    )
     if not created:
         return replay_existing(request_row)
     request_id = request_row["id"]
-    try:
-        ai_governance.begin_call(store, current_user)
-    except HTTPException as exc:
-        store.update_ai_request(
-            request_id, status="failed_final", reservation_status="released",
-            error_code=str((exc.detail or {}).get("code") if isinstance(exc.detail, dict) else "QUOTA_REJECTED"),
-        )
-        raise
-    store.update_ai_request(request_id, status="dispatching", reservation_status="consumed")
+    # C1 quota is already charged atomically by reserve_call. This compatibility
+    # guard only verifies the durable hold; it must not increment counters again.
+    ai_governance.begin_call(store, current_user, request_id)
+    store.mark_ai_request_dispatching(request_id)
     input_tokens = max(1, input_chars // 4) if input_chars else 0
     try:
         if max_tokens == _DEFAULT_MAX_TOKENS:
@@ -555,7 +561,7 @@ def _metered_chat(
             result = _chat_completion(cfg, messages, temperature, max_tokens=max_tokens)
     except HTTPException as exc:
         unknown = exc.status_code in {502, 504}
-        store.update_ai_request(
+        store.mark_ai_request_outcome(
             request_id, status="unknown" if unknown else "failed_final",
             reservation_status="unknown" if unknown else "consumed",
             error_code=str((exc.detail or {}).get("code") if isinstance(exc.detail, dict) else exc.status_code),
@@ -567,7 +573,7 @@ def _metered_chat(
         )
         raise
     except Exception:
-        store.update_ai_request(
+        store.mark_ai_request_outcome(
             request_id, status="unknown", reservation_status="unknown",
             error_code="AI_RESULT_UNKNOWN", input_tokens=input_tokens,
         )
@@ -588,7 +594,7 @@ def _metered_chat(
             input_estimate=input_tokens, output_estimate=output_tokens,
         )
     except Exception:
-        store.update_ai_request(
+        store.mark_ai_request_outcome(
             request_id, status="unknown", reservation_status="unknown", error_code="AI_RESULT_UNKNOWN",
             input_tokens=input_tokens, output_tokens=output_tokens,
         )

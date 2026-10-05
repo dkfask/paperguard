@@ -73,6 +73,16 @@ def new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
+class AiQuotaExceeded(RuntimeError):
+    """Raised after an atomic AI request/reservation transaction rejects quota."""
+
+    def __init__(self, code: str, message: str, *, request_id: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.request_id = request_id
+
+
 class Store:
     """模板与项目的 SQLite 存储。"""
 
@@ -1198,6 +1208,29 @@ class Store:
             )
             return cur.rowcount > 0
 
+    @staticmethod
+    def _consume_ai_quota_conn(
+        conn: sqlite3.Connection, quota_scope: str, period: str, now: str, limit: int
+    ) -> bool:
+        cur = conn.execute(
+            "INSERT INTO ai_quota (user_id, period, used, updated_at) VALUES (?, ?, 1, ?)"
+            " ON CONFLICT(user_id, period) DO UPDATE SET"
+            "   used = used + 1, updated_at = excluded.updated_at"
+            " WHERE used < ?",
+            (quota_scope, period, now, limit),
+        )
+        return cur.rowcount > 0
+
+    @staticmethod
+    def _release_ai_quota_conn(
+        conn: sqlite3.Connection, quota_scope: str, period: str, now: str
+    ) -> None:
+        conn.execute(
+            "UPDATE ai_quota SET used = MAX(0, used - 1), updated_at = ?"
+            " WHERE user_id = ? AND period = ?",
+            (now, quota_scope, period),
+        )
+
     def release_ai_quota(self, user_id: str, period: str, now: str) -> None:
         """回退一次占用。请求在上游报错**之前**就被拒绝时不该占额度。"""
         with self._connect() as conn:
@@ -1300,6 +1333,219 @@ class Store:
                 tuple(payload.values()),
             )
             return payload, True
+
+    def register_ai_request_with_reservation(
+        self,
+        entry: dict,
+        *,
+        quota_scope: str,
+        day_period: str,
+        minute_period: str,
+        daily_limit: int,
+        burst_limit: int,
+        quota_source: str,
+        quota_config_keys: list[str] | tuple[str, ...],
+    ) -> tuple[dict, bool]:
+        """Register one request and reserve both quota windows atomically.
+
+        The request row, both quota counters, reservation sidecar and audit event
+        share one ``BEGIN IMMEDIATE`` transaction. A quota rejection is retained
+        as a durable pre-dispatch fact, but no quota counter or reservation is
+        left behind. The sidecar deliberately reuses ``workflow_records`` so this
+        SQLite/local slice does not introduce a financial-ledger table.
+        """
+        now = entry.get("created_at") or _now()
+        payload = {
+            "id": entry["id"], "idempotency_key": entry.get("idempotency_key") or None,
+            "request_hash": entry["request_hash"], "user_id": entry["user_id"],
+            "tenant_id": entry.get("tenant_id"), "membership_id": entry.get("membership_id"),
+            "action": entry["action"],
+            "idempotency_domain": entry.get("idempotency_domain", "legacy"),
+            "idempotency_scope": entry.get("idempotency_scope") or entry["user_id"],
+            "auth_version": int(entry.get("auth_version") or 0),
+            "provider": entry.get("provider", ""), "base_url_host": entry.get("base_url_host"),
+            "model": entry.get("model", ""), "status": "reserved",
+            "reservation_status": "reserved", "response_text": None,
+            "error_code": None, "input_tokens": int(entry.get("input_tokens") or 0),
+            "output_tokens": int(entry.get("output_tokens") or 0),
+            "created_at": now, "updated_at": entry.get("updated_at") or now,
+        }
+        quota_error: tuple[str, str] | None = None
+        with self.workflow_transaction() as conn:
+            key = payload["idempotency_key"]
+            if key:
+                existing = conn.execute(
+                    "SELECT * FROM ai_requests WHERE idempotency_domain=? AND idempotency_scope=? "
+                    "AND action=? AND idempotency_key=?",
+                    (payload["idempotency_domain"], payload["idempotency_scope"], payload["action"], key),
+                ).fetchone()
+                if existing:
+                    return dict(existing), False
+            conn.execute(
+                "INSERT INTO ai_requests (id, idempotency_key, request_hash, user_id, tenant_id, membership_id, action, "
+                "idempotency_domain, idempotency_scope, auth_version, provider, base_url_host, model, status, "
+                "reservation_status, response_text, error_code, input_tokens, output_tokens, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(payload.values()),
+            )
+            stamp = now
+            if not self._consume_ai_quota_conn(conn, quota_scope, minute_period, stamp, burst_limit):
+                quota_error = (
+                    "AI_RATE_LIMITED",
+                    f"操作过于频繁，请稍后再试（每分钟最多 {burst_limit} 次）",
+                )
+            elif not self._consume_ai_quota_conn(conn, quota_scope, day_period, stamp, daily_limit):
+                self._release_ai_quota_conn(conn, quota_scope, minute_period, stamp)
+                quota_error = (
+                    "AI_DAILY_QUOTA_EXCEEDED",
+                    f"今日 AI 调用次数已达上限（{daily_limit} 次），明日 0 时（UTC）重置",
+                )
+            if quota_error:
+                code, _message = quota_error
+                conn.execute(
+                    "UPDATE ai_requests SET status='failed_final', reservation_status='released', "
+                    "error_code=?, updated_at=? WHERE id=?",
+                    (code, stamp, payload["id"]),
+                )
+                self.save_audit_event_conn(conn, {
+                    "id": new_id("audit"), "actor_id": payload["user_id"],
+                    "action": "ai.quota.rejected", "resource_type": "ai_request",
+                    "resource_id": payload["id"],
+                    "reason": json.dumps({"code": code, "quota_scope": quota_scope}, sort_keys=True),
+                })
+            else:
+                reservation = {
+                    "id": payload["id"], "request_id": payload["id"],
+                    "tenant_id": payload["tenant_id"], "membership_id": payload["membership_id"],
+                    "user_id": payload["user_id"], "idempotency_domain": payload["idempotency_domain"],
+                    "idempotency_scope": payload["idempotency_scope"], "action": payload["action"],
+                    "unit": "request", "quantity": 1, "state": "reserved", "revision": 0,
+                    "quota_scope": quota_scope, "quota_source": quota_source,
+                    "quota_config_keys": list(quota_config_keys),
+                    "daily_limit": daily_limit, "burst_limit": burst_limit,
+                    "day_period": day_period, "minute_period": minute_period,
+                    "billable": False, "created_at": now, "updated_at": now,
+                }
+                conn.execute(
+                    "INSERT INTO workflow_records (kind,id,data,created_at,updated_at) VALUES (?,?,?,?,?)",
+                    ("ai_quota_reservation", payload["id"], self._workflow_payload(reservation), now, now),
+                )
+                self.save_audit_event_conn(conn, {
+                    "id": new_id("audit"), "actor_id": payload["user_id"],
+                    "action": "ai.quota.reserved", "resource_type": "ai_request",
+                    "resource_id": payload["id"],
+                    "reason": json.dumps({"quota_scope": quota_scope, "billable": False}, sort_keys=True),
+                })
+        if quota_error:
+            code, message = quota_error
+            raise AiQuotaExceeded(code, message, request_id=payload["id"])
+        return payload, True
+
+    def get_ai_quota_reservation(self, request_id: str) -> dict | None:
+        return self.get_workflow_record("ai_quota_reservation", request_id)
+
+    def _update_ai_quota_reservation_conn(
+        self, conn: sqlite3.Connection, request_id: str, *, state: str,
+        expected_state: str | None = None, **extra: object,
+    ) -> dict | None:
+        row = conn.execute(
+            "SELECT data FROM workflow_records WHERE kind='ai_quota_reservation' AND id=?",
+            (request_id,),
+        ).fetchone()
+        if not row:
+            return None
+        record = json.loads(row["data"])
+        if expected_state is not None and record.get("state") != expected_state:
+            return record
+        record["state"] = state
+        record["revision"] = int(record.get("revision") or 0) + 1
+        record.update(extra)
+        record["updated_at"] = _now()
+        cur = conn.execute(
+            "UPDATE workflow_records SET data=?, updated_at=? WHERE kind='ai_quota_reservation' AND id=?",
+            (self._workflow_payload(record), record["updated_at"], request_id),
+        )
+        return record if cur.rowcount == 1 else None
+
+    def mark_ai_request_dispatching(self, request_id: str) -> dict | None:
+        with self.workflow_transaction() as conn:
+            row = conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone()
+            if not row:
+                return None
+            if row["status"] != "reserved":
+                return dict(row)
+            reservation = self._update_ai_quota_reservation_conn(
+                conn, request_id, state="dispatching", expected_state="reserved"
+            )
+            if reservation is None or reservation.get("state") != "dispatching":
+                raise RuntimeError("AI reservation missing or already consumed")
+            conn.execute(
+                "UPDATE ai_requests SET status='dispatching', reservation_status='consumed', updated_at=? WHERE id=?",
+                (_now(), request_id),
+            )
+            return dict(conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone())
+
+    def mark_ai_request_outcome(
+        self, request_id: str, *, status: str, reservation_status: str,
+        error_code: str | None = None, input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> dict | None:
+        with self.workflow_transaction() as conn:
+            row = conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone()
+            if not row:
+                return None
+            if row["status"] == "completed":
+                return dict(row)
+            state = "unknown" if status in {"unknown", "reconciliation_required"} else "consumed"
+            reservation = self._update_ai_quota_reservation_conn(
+                conn, request_id, state=state,
+                expected_state="dispatching" if row["status"] == "dispatching" else None,
+                error_code=error_code,
+            )
+            changes = ["status=?", "reservation_status=?", "error_code=?", "updated_at=?"]
+            params: list[object] = [status, reservation_status, error_code, _now()]
+            if input_tokens is not None:
+                changes.append("input_tokens=?"); params.append(input_tokens)
+            if output_tokens is not None:
+                changes.append("output_tokens=?"); params.append(output_tokens)
+            params.append(request_id)
+            conn.execute(f"UPDATE ai_requests SET {', '.join(changes)} WHERE id=?", params)
+            return dict(conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone())
+
+    def release_ai_request_reservation(
+        self, request_id: str, *, reason: str, proven_not_dispatched: bool,
+    ) -> bool:
+        """Release only a still-reserved request; repeat calls are idempotent."""
+        if not proven_not_dispatched:
+            raise ValueError("explicit proof of non-dispatch is required")
+        with self.workflow_transaction() as conn:
+            row = conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone()
+            reservation_row = conn.execute(
+                "SELECT data FROM workflow_records WHERE kind='ai_quota_reservation' AND id=?", (request_id,)
+            ).fetchone()
+            if not row or not reservation_row:
+                return False
+            reservation = json.loads(reservation_row["data"])
+            if reservation.get("state") == "released":
+                return True
+            if reservation.get("state") != "reserved" or row["status"] != "reserved":
+                return False
+            self._release_ai_quota_conn(conn, reservation["quota_scope"], reservation["minute_period"], _now())
+            self._release_ai_quota_conn(conn, reservation["quota_scope"], reservation["day_period"], _now())
+            self._update_ai_quota_reservation_conn(
+                conn, request_id, state="released", expected_state="reserved", release_reason=reason,
+            )
+            conn.execute(
+                "UPDATE ai_requests SET status='failed_final', reservation_status='released', "
+                "error_code='AI_PRE_DISPATCH_RELEASED', updated_at=? WHERE id=?",
+                (_now(), request_id),
+            )
+            self.save_audit_event_conn(conn, {
+                "id": new_id("audit"), "actor_id": row["user_id"],
+                "action": "ai.quota.released", "resource_type": "ai_request",
+                "resource_id": request_id, "reason": reason,
+            })
+            return True
 
     def create_ai_request(self, entry: dict) -> dict:
         """Compatibility insert for fixtures and offline migration tools."""

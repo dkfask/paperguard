@@ -86,6 +86,7 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
   `PAPERGUARD_AI_DAILY_QUOTA` / `PAPERGUARD_AI_BURST_PER_MINUTE` 调整；
   熔断默认连续 5 次失败后打开，30 秒后允许恢复探针，可用
   `PAPERGUARD_AI_BREAKER_THRESHOLD` / `PAPERGUARD_AI_BREAKER_RESET_SEC` 调整。
+  新的 W-08/C1 前置切片把请求登记、分钟/日非付费 quota 预留、审计和 reservation 状态放进同一 SQLite 事务；`unknown` 持有不自动释放或重发，仍不代表余额、收费或财务账务。
 
 ### 商业化边界：已有运行用量，尚无收费账务
 

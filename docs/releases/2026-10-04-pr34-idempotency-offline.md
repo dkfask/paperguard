@@ -1,6 +1,6 @@
 # PR #34：AI tenant/member 幂等离线切片
 
-日期：2026-10-04
+日期：2026-10-05
 分支：`fix/ui-review-findings-20260929`
 范围：W-08 的 SQLite/local mock 切片
 

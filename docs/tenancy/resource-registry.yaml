@@ -29,9 +29,9 @@
 meta:
   source_sha: 6cf37f902b6ff453611c505c17d1a3b929e3cc29
   branch: fix/ui-review-findings-20260929
-  generated_at: "2026-10-04"
-  store_public_methods: 128        # 实测：ast 解析，排除 _ 前缀
-  store_total_methods: 138         # 实测：含私有方法
+  generated_at: "2026-10-05"
+  store_public_methods: 133        # 实测：ast 解析，排除 _ 前缀
+  store_total_methods: 146         # 实测：含私有方法
   store_construction_points: 18    # 实测：16 × Store() + 1 × Store(db_path)
   store_construction_by_phase:
     request: 15        # Depends(get_store) 12×api/* + auth.py:617 + main.py:178
@@ -371,7 +371,7 @@ tables:
                     delete_workflow_record]
     external_readers: [repositories/workflow_repository.py, api/workflow.py,
                        services/workflow_jobs.py, services/export_jobs.py,
-                       services/document_render_jobs.py, api/document_projects.py, services/ai_usage_facts.py, services/ai_recovery.py]
+                       services/document_render_jobs.py, api/document_projects.py, services/ai_usage_facts.py, services/ai_recovery.py, api/ai.py]
     background_consumers: [services/workflow_jobs.py, services/export_jobs.py,
                            services/document_render_jobs.py, worker.py]
     sensitivity: customer_content
@@ -649,6 +649,13 @@ tables:
 # ──────────────────────────────────────────────────────────────────────────
 access_surfaces:
 
+  - id: ai-quota-reservation-pilot
+    description: "request登记、tenant/member限定非货币quota双窗口原子预留；quota拒绝保留pre-dispatch事实；unknown冻结且不自动释放；billable恒false"
+    locations: [backend/app/api/ai.py, backend/app/services/ai_governance.py, backend/app/db.py, backend/app/services/ai_usage_facts.py, backend/app/services/ai_recovery.py]
+    reads_tables: [ai_requests, workflow_records, ai_quota, users, tenants, tenant_memberships]
+    writes_tables: [ai_requests, workflow_records, ai_quota, audit_events]
+    status: local_mock_only_no_billing_no_rls
+
   - id: provider-usage-fact-pilot
     description: "协议保留usage→persisted request作用域事实严格INSERT/completed/审计单事务；缺测量为unavailable/null，旧估算独立，billable:false"
     locations: [backend/app/api/ai.py, backend/app/services/ai_usage_facts.py, backend/app/services/ai_recovery.py]
@@ -824,8 +831,8 @@ access_surfaces:
               list_system_settings_organizations, list_schema_migrations,
               # ↓ 仅经 delegated-methods 登记（逐表 store_methods 里没有它们）
               get_user_by_identifier, workflow_transaction, retry_job,
-              register_ai_request, create_ai_request, create_tenant, ensure_legacy_tenant_membership, get_ai_request_by_idempotency, get_membership, get_membership_for_user, get_tenant, list_ai_requests, list_memberships_for_tenant, list_memberships_for_user, list_tenants, save_membership, update_ai_request, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
-    count: 128
+              register_ai_request, register_ai_request_with_reservation, create_ai_request, create_tenant, ensure_legacy_tenant_membership, get_ai_request_by_idempotency, get_ai_quota_reservation, get_membership, get_membership_for_user, get_tenant, list_ai_requests, list_memberships_for_tenant, list_memberships_for_user, list_tenants, save_membership, update_ai_request, mark_ai_request_dispatching, mark_ai_request_outcome, release_ai_request_reservation, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
+    count: 133
     # 与 delegated-methods 的关系（INC-85）：**两个集合允许重叠，不要相加**。
     # 逐表 store_methods 的口径是「这个方法访问哪张表」；
     # delegated-methods 的口径是「这个方法体内不出现任何表名字符串」。
@@ -974,16 +981,15 @@ command_contracts:
       **`begin_call` 调用点为 1 是修复后的正确状态，不是缺陷指标。**
       实测 6 条命令全部调用 `_metered_chat`（配额门禁与 record_usage 均覆盖）。
     # ↓ 以下为**当前证据**，**由 RR-6 逐条核对**。
-    #   刻意用 `{fn, loc}` 配对而不是裸字符串：`ai.py:676` 是**合法文件里的合法行号**，
-    #   只查「文件存在 + 行号在范围内」**两项都通过**——**只有「该行落在被点名符号内」
-    #   才抓得住指向错误**（INC-86 的原始缺陷正是这一类）。
+    #   计量出口现由 `reserve_call` 统一完成 request+quota reservation；
+    #   `begin_call` 仅保留给旧的直接治理调用/兼容测试，不再是生产派发路径。
     evidence_now:
-      begin_call_call_sites: 1
-      begin_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:487"}
+      reserve_call_call_sites: 1
+      reserve_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:542"}
       ai_direct_modules: [backend/app/api/ai.py]
       metered_ai_commands:
-        - {name: test_ai_config,           loc: "backend/app/api/ai.py:789"}
-        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:892"}
+        - {name: test_ai_config,           loc: "backend/app/api/ai.py:795"}
+        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:898"}
         - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:209"}
         - {name: assist_requirement_check, loc: "backend/app/api/projects.py:1345"}
         - {name: parse_spec_candidate,     loc: "backend/app/api/specs.py:64"}

@@ -1,6 +1,6 @@
 {
   "schema_version": "pr34-strict-gate-incremental-attribution.v1",
-  "generated_on": "2026-10-04",
+  "generated_on": "2026-10-05",
   "branch": "fix/ui-review-findings-20260929",
   "pull_request": 34,
   "source_commit": "91355ad",

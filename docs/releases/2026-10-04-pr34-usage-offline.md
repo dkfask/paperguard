@@ -1,4 +1,4 @@
-# PR #34 离线可信 usage/mock 计量切片（2026-10-04）
+# PR #34 离线可信 usage/mock 计量切片（2026-10-05）
 
 基线 `dfb91fd5c05d93601f0adc2f20c309d17ce86794`；源码 `6cf37f902b6ff453611c505c17d1a3b929e3cc29`。分支 `fix/ui-review-findings-20260929`，PR #34。本轮不重做前阶段归属/建号/写作隔离。
 

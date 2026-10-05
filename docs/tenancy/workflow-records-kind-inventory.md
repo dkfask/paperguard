@@ -173,3 +173,11 @@ CREATE INDEX idx_workflow_records_document_project
 | `ai_usage_fact` | `services/ai_usage_facts.py`、`services/ai_recovery.py`；实际写入为SQL严格INSERT，不是Store的upsert | request_id/tenant_id/membership_id/user_id仅来自persisted request；legacy作用域为空；公开读取先取得限定作用域的request，再核对fact的全部作用域键 |
 
 此sidecar与completed状态及审计同事务；36个本地mock测试，不复制正文/凭据、billable恒false、不做真实生产写入。现有通用workflow_record upsert仍存在，尚无数据库级不可变/RLS；不得把服务入口严格INSERT说成全库不可变。后续PG usage fact迁移应显式登记此kind与owner_ref；不凭user反推多租户归属。
+
+## 2026-10-05 增量：ai_quota_reservation（当前代码清单19种）
+
+| kind | 当前访问面 | 归属与写入边界 |
+|---|---|---|
+| `ai_quota_reservation` | `Store.register_ai_request_with_reservation()`、`mark_ai_request_dispatching()`、`mark_ai_request_outcome()`、`release_ai_request_reservation()`；由 `ai_governance.reserve_call()` 创建 | `id == request_id`；tenant/member/user、幂等域、quota scope、窗口、来源与 `billable=false` 在原子登记时快照；仅 `reserved → dispatching → settled/consumed` 或经明确未派发证据 `reserved → released`；`unknown` 保持冻结，不自动释放或重发 |
+
+该sidecar复用 `workflow_records`，不是货币预留或财务账本。quota计数仍是非货币运行闸门；quota拒绝保留 `ai_requests.status=failed_final` 的前置事实，但不留下预留记录或计数。后续PG/RLS、真实权益与账务迁移必须重新定义表级租户列、不可变约束和对账来源。

@@ -120,6 +120,7 @@
 |---|---|---|---|---|
 | `AI_RATE_LIMITED` | 429 | `ai_governance.py:88` | 超出每分钟突发 | 倒计时后重试 |
 | `AI_DAILY_QUOTA_EXCEEDED` | 429 | `ai_governance.py:99` | 超出日配额 | **当日不可重试**，提示明日 |
+| `AI_RESERVATION_INVALID` | 409 | `ai_governance.py:136` | 持久化 quota 预留不存在或已失效 | **不可重发**，读取请求状态并人工处理 |
 | `AI_UPSTREAM_CIRCUIT_OPEN` | 503 | `api/ai.py:345` | 熔断打开 | 稍后重试，勿立即重试 |
 | `CONTENT_SECURITY_UNAVAILABLE` | 503 | `wechat_content_security.py:74` | 内容安全服务不可用 | **不自动重试** |
 

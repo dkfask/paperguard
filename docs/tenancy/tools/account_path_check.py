@@ -242,7 +242,8 @@ def report(sites: list[Site], strict: bool) -> int:
         mark = {"ok": f"{GREEN}✓{RESET}", "not-applicable": f"{DIM}—{RESET}",
                 "unverified": f"{YELLOW}?{RESET}", "risk": f"{RED}✗{RESET}"}[level]
         print(f"  {mark} {s.path}:{s.line}  {s.func}()")
-        print(f"      {DIM}role={s.role or '未设'} status={s.status or '未设'}{f"  ctx={s.ctx_value[:52]}" if s.sets_ctx else ""}{RESET}")
+        ctx = f"  ctx={s.ctx_value[:52]}" if s.sets_ctx else ""
+        print(f"      {DIM}role={s.role or '未设'} status={s.status or '未设'}{ctx}{RESET}")
         print(f"      {why}")
         if level == "risk":
             risky.append((s, why))

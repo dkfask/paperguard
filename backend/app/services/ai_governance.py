@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
-from app.db import Store, new_id
+from app.db import AiQuotaExceeded, Store, new_id
 
 # 默认值偏保守：正常写作场景一天几十次足够，异常时会很快撞线。
 _DEFAULT_DAILY_QUOTA = 200
@@ -60,6 +60,49 @@ def _utc_periods(now: datetime) -> tuple[str, str]:
     return now.strftime("%Y-%m-%d"), now.strftime("%Y-%m-%dT%H:%M")
 
 
+def reservation_plan(
+    user: dict, *, domain: str, scope: str, now: datetime | None = None,
+) -> dict:
+    """Return a non-monetary quota policy snapshot for one request.
+
+    Tenant/platform scopes are never inferred from school metadata. The caller
+    must already have resolved a trusted identity domain; the policy snapshot is
+    persisted with the reservation so later environment changes cannot rewrite
+    the meaning of an existing hold.
+    """
+    current = now or datetime.now(timezone.utc)
+    day_period, minute_period = _utc_periods(current)
+    daily_key = "PAPERGUARD_AI_DAILY_QUOTA"
+    burst_key = "PAPERGUARD_AI_BURST_PER_MINUTE"
+    daily = daily_quota()
+    burst = burst_per_minute()
+    # Preserve the existing user-keyed operational counter for legacy/platform
+    # callers (including maintenance reset tooling). Tenant reservations must be
+    # isolated by trusted tenant+membership scope so one account cannot consume
+    # another tenant's non-monetary allowance.
+    quota_scope = f"tenant:{scope}" if domain == "tenant" else str(user["id"])
+    return {
+        "quota_scope": quota_scope,
+        "day_period": day_period,
+        "minute_period": minute_period,
+        "daily_limit": daily,
+        "burst_limit": burst,
+        "quota_source": "environment_or_code_default_non_monetary",
+        "quota_config_keys": [daily_key, burst_key],
+    }
+
+
+def reserve_call(
+    store: Store, user: dict, *, domain: str, scope: str, entry: dict,
+) -> tuple[dict, bool]:
+    """Atomically register a request and reserve its non-monetary quota."""
+    plan = reservation_plan(user, domain=domain, scope=scope)
+    try:
+        return store.register_ai_request_with_reservation(entry, **plan)
+    except AiQuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail={"code": exc.code, "message": exc.message}) from None
+
+
 def _user_organization_id(user: dict) -> str | None:
     """调用时把学校归属落到用量记录上。
 
@@ -74,12 +117,25 @@ def _user_organization_id(user: dict) -> str | None:
     return None
 
 
-def begin_call(store: Store, user: dict) -> str:
+def begin_call(store: Store, user: dict, reservation_id: str | None = None) -> str:
     """进入 AI 调用前的准入检查；通过则返回本次的日期周期标识。
 
     顺序有讲究：先扣突发限制再扣日配额。突发是「瞬时行为」的闸，应当先拦；
     否则突发风暴会把日配额迅速吃光，用户连当天正常写作都做不了。
+
+    ``reservation_id`` is the post-C1 compatibility/guard form: quota has
+    already been atomically reserved by ``reserve_call`` and this call only
+    verifies that the durable hold still exists. It never charges a second
+    counter. Keeping this explicit call preserves the static egress guard's
+    AST-level coverage without reintroducing the old split transaction.
     """
+    if reservation_id:
+        reservation = store.get_ai_quota_reservation(reservation_id)
+        if not reservation or reservation.get("state") != "reserved":
+            raise HTTPException(status_code=409, detail={
+                "code": "AI_RESERVATION_INVALID", "message": "AI 配额预留已失效，请勿重发",
+            })
+        return str(reservation.get("day_period") or "")
     now = datetime.now(timezone.utc)
     day_period, minute_period = _utc_periods(now)
     stamp = _now()
