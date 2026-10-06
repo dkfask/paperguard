@@ -566,6 +566,16 @@ def main() -> int:
         _prior = {result_key(x["name"], x["kind"]): {"code": x["code"],
                                                     "out": x.get("out", "")}
                   for x in results if x.get("code") is not None}
+        # ⚠ **自检一律不传**（实测踩到）：自检的职责是**在变异过的夹具上**
+        #   证明判据抓得住错，而复用给的是「未变异状态下刚跑出来的结果」。
+        #   两者对同一批 (工具, flags) 给出不同答案 ⇒ 复用直接污染夹具基线。
+        #   实测：`design_doc_check --self-test` 在套件里 41/52，
+        #   单独跑是 52/52 ⇒ **11 条 FAIL 全是复用造成的假红**。
+        #   自检慢是它该付的代价：阳性对照必须真的跑一遍。
+        #   复用的目标从来是「plain 这类重复执行」，
+        #   而**不是**「让自检也变快」——后者是用判据的强度换时间。
+        if kind == "self-test":
+            _prior = {}
         r = run_gate(tool, kind,
                      env_extra={RESULT_VAR: json.dumps(_prior, ensure_ascii=False)}
                      if _prior else None)
