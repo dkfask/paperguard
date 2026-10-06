@@ -1473,8 +1473,32 @@ def self_test() -> int:
 
     saved_argv = sys.argv
 
-    def run_real(capture: bool = False, brief_override=None):
+    # ★ INC-123：同一次自检里，**输入完全相同**的判定不必重跑。
+    #
+    # 实测（2026-10-07）：`--self-test` 有 16 次 `run_real()`，
+    # 每次都 spawn 同样 41 个门禁 ⇒ 本机 186s、CI 上撞穿 300s 阈值
+    # ⇒ 记「工具不可运行」=2 ⇒ ci 模式报红。
+    # 与 INC-117 同源：**同一个 (工具, flags) 被反复跑**。
+    #
+    # 为什么可以复用：自检的变异只发生在 `/tmp` 下的**副本**，
+    # 而 DC-1 spawn 出去的门禁读的是**真实仓库文件**——它们既不看副本、
+    # 也不受副本变异影响。实测两次判定的 spawn 键集合与退出码完全一致。
+    #
+    # ⚠ **缓存键必须是输入指纹，不是「同一个用例」**：
+    #   键若写成用例名，两条输入不同的用例会互相污染
+    #   ⇒ 变异用例的结论被上一条的结果顶替 ⇒ **把优化变成假绿**
+    #   （INC-121 的形态：夹具必须真的被走到）。
+    #   指纹 = (设计文档副本内容, 简报副本内容, 简报路径名) 的哈希。
+    _memo: dict[str, tuple[int, str]] = {}
+
+    def run_real(capture: bool = False, brief_override=None, use_memo: bool = True):
         """在**本进程内**跑一次完整核对。
+
+        `use_memo=False` 强制真的跑一遍，**并重建 `_spawn_log`**。
+        用途：专门验证「结果复用是否接上」的用例必须走真实路径——
+        否则它的输入与前一次判定完全相同，会被 INC-123 的指纹缓存
+        直接返回旧结果，`_spawn_log` 里根本没有本次的 spawn，
+        **断言转红的原因不是判据坏了，而是压根没跑**。
 
         为什么必须把 DEPTH_VAR 抬起来
         ------------------------------
@@ -1504,8 +1528,21 @@ def self_test() -> int:
         argv = sys.argv
         # ★ INC-121：允许换成**任意文件名/路径**的副本。
         #   缺陷正是「换个名字就报假红」，而用同名副本测**永远测不出来**。
+        _brief_path = pathlib.Path(brief_override or hermetic_brief)
         sys.argv = ["design_doc_check.py", "--doc", str(hermetic_doc),
-                    "--brief", str(brief_override or hermetic_brief)]
+                    "--brief", str(_brief_path)]
+        # ★ INC-123：输入指纹。**含简报文件名**——
+        #   INC-121 那条用例正是「内容相同、文件名不同」，必须判为不同输入。
+        import hashlib
+        _fp = "|".join([
+            hashlib.sha256(hermetic_doc.read_bytes()).hexdigest(),
+            hashlib.sha256(_brief_path.read_bytes()).hexdigest()
+            if _brief_path.is_file() else "-",
+            _brief_path.name,
+        ])
+        if use_memo and _fp in _memo:
+            _rc, _out = _memo[_fp]
+            return (_rc, _out) if capture else _rc
         saved_depth = os.environ.get(DEPTH_VAR, "0")
         os.environ[DEPTH_VAR] = str(int(saved_depth) + 1)
         import contextlib
@@ -1520,6 +1557,7 @@ def self_test() -> int:
         # ★ INC-120：`capture=True` 时**连人读输出一起回传**。
         #   DC-12 的用例必须能证明「报红的是 DC-12、不是别人」——
         #   而 `findings` 只在打印时出现，不回传就等于无法归因。
+        _memo[_fp] = (rc0, buf.getvalue())
         return (rc0, buf.getvalue()) if capture else rc0
 
     dc6_ok = False
@@ -1867,7 +1905,9 @@ def self_test() -> int:
     # 前者断言的是**性质**——同一次判定里同一个 (工具, flags) 只该跑一次。
     # ★ 这条断言对**任何**未来新增的重复 spawn 路径都生效，不只针对 DC-8。
     if real_text:
-        run_real()   # 清空并重建 _spawn_log
+        # `use_memo=False`：这条断言的对象就是 `_spawn_log`，
+        # 而它的输入与前面某次判定相同 ⇒ 会被缓存直接返回，spawn 日志不重建。
+        run_real(use_memo=False)   # 清空并重建 _spawn_log
         _seen: set[tuple[str, tuple[str, ...]]] = set()
         _dupes: list[str] = []
         for _k in _spawn_log:
@@ -1922,7 +1962,12 @@ def self_test() -> int:
                 os.environ[RESULT_VAR] = json.dumps(
                     {f"{_probe_name}::": {"code": 7, "out": "套件已跑结果"}},
                     ensure_ascii=False)
-                _rc, _out = run_real(capture=True)
+                # ⚠ `use_memo=False`：这三条断言的是 `_spawn_log` 与
+                #   判定输出，而它们的输入与前面某次判定**完全相同**
+                #   （都没有变异）⇒ 会被 INC-123 的指纹缓存直接返回旧结果，
+                #   `_spawn_log` 压根不会被重建 ⇒ **断言转红的原因不是判据坏了**。
+                #   验证复用机制本身，就必须强制走真实路径。
+                _rc, _out = run_real(capture=True, use_memo=False)
                 # ① 复用生效：给了结果的这一项**不应**出现在 spawn 日志里
                 _hit = _probe_key not in _spawn_log
                 # ①b 复用值**真的被采用**：判定输出里能看到这个探针工具，
@@ -1933,7 +1978,7 @@ def self_test() -> int:
                 _env_gone = RESULT_VAR not in os.environ
                 # ③ 反向对照：**不给**结果时它必须被实跑。
                 #    没有这一条，①可能只是因为「DC-1 压根不 spawn 它」而恒真。
-                run_real(capture=True)
+                run_real(capture=True, use_memo=False)
                 _miss_spawns = _probe_key in _spawn_log
             finally:
                 if _saved_env is None:
