@@ -295,7 +295,7 @@ def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
         )
         save_confirmed_candidate(store, TEMPLATE_CANDIDATE_KIND, confirmed, record)
         store.save_audit_event({
-            "id": f"audit-{candidate.candidate_id}-confirmed",
+            "id": new_id("audit"),
             "actor_id": str(manager.get("id") or ""),
             "action": "template.candidate.confirmed",
             "resource_type": "template_candidate",
@@ -309,7 +309,7 @@ def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
         raise HTTPException(status_code=404, detail="模板候选不存在或无权访问") from exc
     except TemplateCandidateError as exc:
         store.save_audit_event({
-            "id": f"audit-{candidate.candidate_id}-confirmation-failed",
+            "id": new_id("audit"),
             "actor_id": str(manager.get("id") or ""),
             "action": "template.candidate.confirmation_failed",
             "resource_type": "template_candidate",

@@ -70,7 +70,7 @@ def reservation_plan(
     persisted with the reservation so later environment changes cannot rewrite
     the meaning of an existing hold.
     """
-    current = now or datetime.now(timezone.utc)
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     day_period, minute_period = _utc_periods(current)
     daily_key = "PAPERGUARD_AI_DAILY_QUOTA"
     burst_key = "PAPERGUARD_AI_BURST_PER_MINUTE"
@@ -101,6 +101,8 @@ def reserve_call(
         return store.register_ai_request_with_reservation(entry, **plan)
     except AiQuotaExceeded as exc:
         raise HTTPException(status_code=429, detail={"code": exc.code, "message": exc.message}) from None
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail={"code": "AUTHORIZATION_STALE", "message": "预留前授权已变化"}) from exc
 
 
 def _user_organization_id(user: dict) -> str | None:
@@ -109,6 +111,8 @@ def _user_organization_id(user: dict) -> str | None:
     不在汇总时再关联用户表：用户的学校归属之后可能变，一变历史用量的归属
     就跟着漂移，计费口径不成立。
     """
+    if user.get("tenant_id"):
+        return str(user["tenant_id"])
     context = user.get("organization_context")
     if isinstance(context, dict):
         school_id = context.get("school_id")

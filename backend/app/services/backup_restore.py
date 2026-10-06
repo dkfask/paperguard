@@ -38,7 +38,8 @@ def configured_data_dir() -> Path:
     """
     from app.db import data_dir
 
-    return data_dir()
+    explicit = os.environ.get("PAPERGUARD_DATA_DIR", "").strip()
+    return Path(explicit).expanduser().resolve() if explicit else data_dir()
 
 
 def configured_db_path() -> Path:

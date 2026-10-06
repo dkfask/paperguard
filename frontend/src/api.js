@@ -1080,14 +1080,14 @@ export async function getAiDisclosure() {
 
 // ---------- 管理员设置系统默认模型 ----------
 
-export async function getAdminAiConfig() {
-  const resp = await api(`${API_BASE}/ai/admin/config`)
+export async function getAdminAiConfig(organizationId = '') {
+  const resp = await api(`${API_BASE}/ai/admin/config?organization_id=${encodeURIComponent(organizationId)}`)
   if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '获取系统 AI 配置失败'))
   return resp.json()
 }
 
-export async function saveAdminAiConfig(config) {
-  const resp = await api(`${API_BASE}/ai/admin/config`, {
+export async function saveAdminAiConfig(config, organizationId = '') {
+  const resp = await api(`${API_BASE}/ai/admin/config?organization_id=${encodeURIComponent(organizationId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -1099,13 +1099,13 @@ export async function saveAdminAiConfig(config) {
   return resp.json()
 }
 
-export async function clearAdminAiConfig() {
-  const resp = await api(`${API_BASE}/ai/admin/config`, { method: 'DELETE' })
+export async function clearAdminAiConfig(organizationId = '') {
+  const resp = await api(`${API_BASE}/ai/admin/config?organization_id=${encodeURIComponent(organizationId)}`, { method: 'DELETE' })
   if (!resp.ok && resp.status !== 204) throw new Error('清除系统默认 AI 配置失败')
 }
 
-export async function testAdminAiConfig(config) {
-  const resp = await api(`${API_BASE}/ai/admin/config/test`, {
+export async function testAdminAiConfig(config, organizationId = '') {
+  const resp = await api(`${API_BASE}/ai/admin/config/test?organization_id=${encodeURIComponent(organizationId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),

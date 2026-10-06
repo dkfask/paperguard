@@ -93,7 +93,7 @@ def current_context(ctx: Annotated[RequestContext, Depends(trusted_context)], st
 def list_tenants(ctx: Annotated[RequestContext, Depends(trusted_context)], store: Store = Depends(get_store)):
     if ctx.actor_kind == "platform":
         _platform(ctx)
-        tenants = store.list_tenants()
+        tenants = store.list_tenants(status=None)
     else:
         _tenant(ctx, ctx.tenant_id, "tenant:read")
         tenants = [store.get_tenant(ctx.tenant_id)]

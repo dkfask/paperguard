@@ -54,6 +54,7 @@ DC-7 存在的理由是实测踩到的：**DC-3/DC-5 校验的标记与表格，
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pathlib
 import re
@@ -151,6 +152,56 @@ def parse_markers(text: str) -> list[tuple[str, list[str], int]]:
 
 DEPTH_VAR = "DESIGN_DOC_CHECK_DEPTH"
 SELF_NAME = pathlib.Path(__file__).name
+# 套件用它把**已经跑过**的门禁结果交给下游工具复用（INC-122）。
+RESULT_VAR = "PAPERGUARD_GATE_RESULTS"
+
+
+def load_shared_results() -> dict[tuple[str, tuple[str, ...]], tuple[int, str]]:
+    """读套件已经跑过的门禁结果，键与 `ran` / `_spawn_log` **完全一致**。
+
+    为什么需要它（2026-10-07 实测，不是推演）
+    ------------------------------------------
+    本工具 `--plain` 的 DC-1 必须实跑文档登记的每个门禁来核对退出码，
+    **其中包括本工具自己的 `--self-test`**。而 `--self-test` 内部有 6 次
+    全量 `run_real()`，于是 `plain` 里套着一个完整自检。
+
+    实测（本机 / CI 同口径）：
+        plain          192.9s / 300.1s（CI 撞穿 `run_all_gates` 的 300s 阈值
+                       ⇒ `TimeoutExpired` ⇒ 记 `EXIT_TOOL_BROKEN`=2
+                       ⇒ `--mode ci` 恰好只拦 2 ⇒ **Design gates job 报红**）
+        --self-test    169.0s / 285.6s
+        plain 且挡掉自身 spawn   **7.9s**（省掉 96%）
+
+    而套件的 `GATES` 里 `design_doc_check.py --self-test` 就在
+    `plain` **前一项**（run_all_gates.py:89-90）——**它刚跑过一遍**。
+    重复执行是纯浪费，且正是把 `plain` 顶过阈值的唯一原因。
+
+    ⚠ 为什么**不能**直接跳过这条核对：文档可以任意声称自身状态，
+    没有哪个独立执行体会发现。**核对必须保留**，只能去掉重复执行。
+
+    键的类型必须与写入端逐字相同（`tuple(flags)`）——
+    INC-117 的教训：字符串 `"--self-test"` 与元组 `("--self-test",)`
+    永不相等，于是复用从未发生、22 个自检被重跑一遍，
+    **而当时判据全绿、没有任何东西发现**。
+    """
+    raw = os.environ.get(RESULT_VAR, "")
+    if not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return {}
+        out: dict[tuple[str, tuple[str, ...]], tuple[int, str]] = {}
+        for key, val in data.items():
+            name, _, flags = key.partition("::")
+            # 写入端用 `" ".join(flags)` 编码，这里按空格切回来，
+            # **两端必须共用同一个编码函数**（见 `_result_key`）。
+            out[(name, tuple(flags.split(" ")) if flags else ())] = (
+                int(val["code"]), str(val.get("out", "")))
+        return out
+    except (ValueError, TypeError, KeyError, AttributeError):
+        # 复用是**优化**不是判据：读不懂就退回实跑，绝不让它改变判定。
+        return {}
 
 
 def count_rule_ids(root: pathlib.Path) -> int:
@@ -375,6 +426,16 @@ def _main_body() -> int:
     # DC-1 跑过的 (工具, flags) → (退出码, 输出)。DC-8 直接复用，
     # 不为「取自检项数」再开一轮进程。
     ran: dict[tuple[str, tuple[str, ...]], tuple[int | None, str]] = {}
+    # ★ INC-122：套件已经跑过的门禁结果。DC-1 取值时**先查这里**，
+    # 命中就不必再 spawn 一次——被省掉的那次正是把 `plain` 顶过 300s 阈值的
+    # 唯一原因（详见 `load_shared_results` 的实测数据）。
+    # 用完后**必须从环境里删掉**：自检会连着跑多次 `run_real()`，
+    # 而那些 `run_real()` 读的是**变异过的副本**——
+    # 若继续复用套件那次「未变异」的结果，DC-1 就会拿旧结论判新文档，
+    # **等于把优化变成了假绿**。
+    shared = load_shared_results()
+    if shared:
+        os.environ.pop(RESULT_VAR, None)
     # §27.5 的事实标记。DC-7 与 DC-8 都要用，提到 main() 作用域。
     declared275 = dict(FACT275.findall(text))
     # spawn 预算**按本次 main() 计**（INC-71）。
@@ -410,8 +471,18 @@ def _main_body() -> int:
             if name == SELF_NAME and int(os.environ.get(DEPTH_VAR, "0")) >= 1:
                 print(f"  {DIM}—{RESET} {name:30} 自身状态由父进程判定（递归守卫）")
                 continue
-            actual, out = run_tool(tools_dir, name, flags)
-            ran[(name, tuple(flags))] = (actual, out)
+            # ★ INC-122：**先查套件已经跑过的结果**，命中就不 spawn。
+            # 键用 `tuple(flags)`，与写入端 `shared` 的键类型逐字一致
+            # （INC-117：字符串与元组永不相等 ⇒ 复用从未发生）。
+            _key = (name, tuple(flags))
+            if _key in shared:
+                actual, out = shared[_key]
+                # 复用必须**印出来**：「静默跳过」与「没查」在输出里长得一样。
+                print(f"  {DIM}↺{RESET} {name:30} {' '.join(flags) or '(默认)':12}"
+                      f" {DIM}复用套件已跑结果 exit={actual}（未重复执行）{RESET}")
+            else:
+                actual, out = run_tool(tools_dir, name, flags)
+            ran[_key] = (actual, out)
             if actual is None:
                 findings.append(f"DC-2 标记引用的工具不存在或无法运行：{name}")
                 print(f"  {RED}✗{RESET} {name:30} 工具不存在/无法运行")
@@ -1808,6 +1879,79 @@ def self_test() -> int:
             f"（本次 {len(_spawn_log)} 次 / {len(_seen)} 个不同键）",
             not _dupes,
             f"被重复 spawn：{sorted(set(_dupes))}"))
+
+    # ---- INC-122：套件传入的已跑结果必须**真的被复用**，且**用完即弃** ----
+    #
+    # 两条都要可执行地验证，否则任何一个退化成「恒真」：
+    #   ① 复用生效：给了结果 ⇒ DC-1 不再 spawn 那一项
+    #      （不给这一条，复用可能根本没接上，而**判据全绿、没人发现**——
+    #        这正是 INC-117 的形态）
+    #   ② 用完即弃：复用**只对第一次判定有效**
+    #      （不给这一条，`run_real()` 的第二次判定会拿套件那次
+    #        「未变异」的结果去判**已变异**的副本 ⇒ 把优化变成假绿）
+    # ⚠ 探针必须用**被判定文档里真实存在的标记**。
+    #   `run_real()` 判定的是**真实设计文档的副本**，它的 `gate:` 标记引用
+    #   24 个真实工具；`g0/g1/g2` 那三根桩只属于早期用 `run()` 造夹具文档的
+    #   用例，**不在这份文档的标记里**。
+    #   ⇒ 拿桩名当探针，第 ① 条会**恒真**（那个键压根不会被 DC-1 碰到），
+    #     而第 ③ 条反向对照会如实报「它确实没被 spawn」——
+    #     **一个恒真的 PASS 配一个诚实的 FAIL，正是最坏的组合**：
+    #     看起来「正向通过、反向失败」，实际是探针选错、判据没在测任何东西。
+    #   这个坑与 INC-121（用同名副本测「按文件名排除」永远测不出来）同源：
+    #   **夹具必须让被测路径真的被走到。**
+    if real_text:
+        # 取一个**确实登记在文档里**的无参工具，且排除本工具自己
+        #（自己那条由递归守卫处理，不是复用路径）。
+        # ⚠ `parse_markers` 返回 **(name, flags, exit)** 三元组——
+        #   首版当成二元组用，于是探针键成了 `('x.py', [], 1)` 这种
+        #   **DC-1 永远匹配不上的形态**，复用根本没接上，
+        #   而 ① 因为「那个键压根不会被 spawn」照样 PASS。
+        #   **一个恒真的 PASS 比一条 FAIL 更危险**（INC-117 的形态）。
+        _cands = sorted({m[0] for m in parse_markers(real_text)
+                         if not m[1] and m[0] != SELF_NAME})
+        if not _cands:
+            broken.append("INC-122 夹具：设计文档里没有任何无参工具标记，无法构造复用探针")
+        else:
+            _probe_name = _cands[0]
+            _probe_key = (_probe_name, ())
+            _saved_env = os.environ.get(RESULT_VAR)
+            try:
+                # 复用值取一个**与文档声称不同**的码（文档声称 0/1，给 7）：
+                # 复用生效时 DC-1 会把 7 与文档声明比对并报出该工具的差异，
+                # **证明它取的是复用值而不是自己跑出来的码**。
+                os.environ[RESULT_VAR] = json.dumps(
+                    {f"{_probe_name}::": {"code": 7, "out": "套件已跑结果"}},
+                    ensure_ascii=False)
+                _rc, _out = run_real(capture=True)
+                # ① 复用生效：给了结果的这一项**不应**出现在 spawn 日志里
+                _hit = _probe_key not in _spawn_log
+                # ①b 复用值**真的被采用**：判定输出里能看到这个探针工具，
+                #     而它恰好是唯一报「实跑 7」的那一项。
+                #     没有这一条，①可能是「那个键压根不存在」造成的恒真。
+                _used = (f"{_probe_name}" in _out and "实际 exit=7" in _out)
+                # ② 用完即摘：判定结束后 RESULT_VAR 必须已从环境里消失
+                _env_gone = RESULT_VAR not in os.environ
+                # ③ 反向对照：**不给**结果时它必须被实跑。
+                #    没有这一条，①可能只是因为「DC-1 压根不 spawn 它」而恒真。
+                run_real(capture=True)
+                _miss_spawns = _probe_key in _spawn_log
+            finally:
+                if _saved_env is None:
+                    os.environ.pop(RESULT_VAR, None)
+                else:
+                    os.environ[RESULT_VAR] = _saved_env
+            results.append((
+                f"★ INC-122 套件传入的结果被复用（{_probe_name} 不再重复 spawn）",
+                _hit, f"给了结果却仍被 spawn：{_probe_name}"))
+            results.append((
+                f"★ INC-122 复用值真的被采用（{_probe_name} 报的是套件的 7，不是自跑的码）",
+                _used, "判定输出里看不到该探针或看不到 exit=7 ⇒ 复用没真正接上"))
+            results.append((
+                "★ INC-122 复用只对第一次判定有效（用完即摘，不跨判定复用）",
+                _env_gone, "RESULT_VAR 未被摘除 ⇒ 后续判定会拿到上一轮的结果"))
+            results.append((
+                "★ INC-122 反向对照：没有结果时必须照常实跑（非恒真）",
+                _miss_spawns, f"未给结果却没被 spawn：{_probe_name} ⇒ 上面几条是恒真断言"))
 
     shutil.rmtree(tmp, ignore_errors=True)
     print()

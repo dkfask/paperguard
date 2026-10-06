@@ -31,7 +31,7 @@ meta:
   branch: fix/ui-review-findings-20260929
   generated_at: "2026-10-05"
   store_public_methods: 133        # 实测：ast 解析，排除 _ 前缀
-  store_total_methods: 146         # 实测：含私有方法
+  store_total_methods: 149         # 实测：含私有方法
   store_construction_points: 18    # 实测：16 × Store() + 1 × Store(db_path)
   store_construction_by_phase:
     request: 15        # Depends(get_store) 12×api/* + auth.py:617 + main.py:178
@@ -985,11 +985,11 @@ command_contracts:
     #   `begin_call` 仅保留给旧的直接治理调用/兼容测试，不再是生产派发路径。
     evidence_now:
       reserve_call_call_sites: 1
-      reserve_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:542"}
+      reserve_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:452"}
       ai_direct_modules: [backend/app/api/ai.py]
       metered_ai_commands:
-        - {name: test_ai_config,           loc: "backend/app/api/ai.py:795"}
-        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:898"}
+        - {name: test_ai_config,           loc: "backend/app/api/ai.py:772"}
+        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:877"}
         - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:209"}
         - {name: assist_requirement_check, loc: "backend/app/api/projects.py:1345"}
         - {name: parse_spec_candidate,     loc: "backend/app/api/specs.py:64"}

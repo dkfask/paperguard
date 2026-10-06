@@ -192,8 +192,20 @@ watch(sidebarOpen, async (open) => {
 // 视口变宽到常驻侧栏布局时，抽屉状态必须复位，否则遮罩会留在屏幕上。
 watch(() => route.path, closeSidebar)
 
-onMounted(() => window.addEventListener('keydown', trapSidebarFocus))
-onBeforeUnmount(() => window.removeEventListener('keydown', trapSidebarFocus))
+let desktopViewport
+function resetDrawerForViewport() {
+  if (desktopViewport?.matches) closeSidebar()
+}
+onMounted(() => {
+  window.addEventListener('keydown', trapSidebarFocus)
+  desktopViewport = window.matchMedia('(min-width: 900px)')
+  desktopViewport.addEventListener('change', resetDrawerForViewport)
+  resetDrawerForViewport()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', trapSidebarFocus)
+  desktopViewport?.removeEventListener('change', resetDrawerForViewport)
+})
 
 watchEffect(() => {
   document.title = `${routeTitle.value} · PaperGuard`

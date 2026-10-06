@@ -1,4 +1,6 @@
 """Typed wire contracts for the SaaS slice, not a legacy API-wide wrapper."""
+import logging
+import traceback
 from typing import Generic, Literal, TypeVar
 
 from fastapi import HTTPException, Request
@@ -73,8 +75,15 @@ class SaasRoute(APIRoute):
                 readiness_keys = {"owner", "organization", "published_template", "member_admission", "entitlements_quotas", "ai_policy", "readiness"}
                 if isinstance(candidate_checks, dict) and set(candidate_checks) <= readiness_keys and all(v in {"passed", "blocked", "unverified"} for v in candidate_checks.values()):
                     checks = candidate_checks
-            except Exception:
+            except Exception as exc:
                 # Don't expose SQL, paths, provider output or arbitrary exception text.
+                # Log a correlation ID and exception type, not arbitrary exception
+                # text/locals, which may carry credentials or document content.
+                logging.getLogger("paperguard.saas").error(
+                    "SaaS handler failed request_id=%s exception_type=%s frames=%s",
+                    request_id, type(exc).__name__,
+                    [(frame.name, frame.lineno) for frame in traceback.extract_tb(exc.__traceback__)],
+                )
                 status, code, message = 500, "API_INTERNAL_ERROR", "请求无法完成，请凭请求标识联系管理员"
             body = ErrorBody(error=Error(code=code, message=message, request_id=request_id, checks=checks))
             return JSONResponse(status_code=status, content=body.model_dump(exclude_none=True))

@@ -1141,7 +1141,34 @@ class Store:
                 (int(value), user_id),
             )
 
-    def get_user_ai_config(self, user_id: str) -> dict | None:
+    def _member_ai_config_id_conn(
+        self, conn: sqlite3.Connection, user_id: str, tenant_id: str,
+        membership_id: str | None,
+    ) -> str:
+        row = conn.execute(
+            "SELECT m.id, m.capabilities FROM tenant_memberships m "
+            "JOIN tenants t ON t.id=m.tenant_id JOIN users u ON u.id=m.user_id "
+            "WHERE m.user_id=? AND m.tenant_id=? AND m.status='active' "
+            "AND t.status='active' AND u.status='active' AND u.must_change_password=0",
+            (user_id, tenant_id),
+        ).fetchone()
+        if (not row or (membership_id and row['id'] != membership_id)
+                or 'tenant:read' not in json.loads(row['capabilities'] or '[]')):
+            raise PermissionError("AI member configuration scope denied")
+        # JSON tuple is unambiguous even for IDs containing punctuation.
+        return json.dumps([tenant_id, row['id'], user_id], separators=(',', ':'))
+
+    def get_user_ai_config(self, user_id: str, *, tenant_id: str | None = None,
+                           membership_id: str | None = None) -> dict | None:
+        if tenant_id:
+            with self.workflow_transaction() as conn:
+                scope_id = self._member_ai_config_id_conn(conn, user_id, tenant_id, membership_id)
+                row = conn.execute(
+                    "SELECT data FROM workflow_records WHERE kind='ai_member_config' AND id=?",
+                    (scope_id,),
+                ).fetchone()
+                # Native members must never inherit the global user's BYOK.
+                return secret_store.reveal_config(json.loads(row['data'])['config']) if row else None
         user = self.get_user(user_id)
         if not user or not user.get("ai_config"):
             return None
@@ -1149,10 +1176,31 @@ class Store:
             data = json.loads(user["ai_config"])
         except (TypeError, ValueError):
             return None
-        # 存量数据是明文，reveal_config 会原样返回；新写入的是密文，这里解密
+        # Plaintext/invalid historical credentials fail closed; no implicit migration.
         return secret_store.reveal_config(data) if isinstance(data, dict) else None
 
-    def set_user_ai_config(self, user_id: str, cfg: dict | None) -> None:
+    def set_user_ai_config(self, user_id: str, cfg: dict | None, *,
+                           tenant_id: str | None = None, membership_id: str | None = None) -> None:
+        if tenant_id:
+            with self.workflow_transaction() as conn:
+                scope_id = self._member_ai_config_id_conn(conn, user_id, tenant_id, membership_id)
+                if cfg is None:
+                    conn.execute("DELETE FROM workflow_records WHERE kind='ai_member_config' AND id=?", (scope_id,))
+                else:
+                    now = _now()
+                    record = {'tenant_id': tenant_id, 'user_id': user_id,
+                              'config': secret_store.protect_config(cfg)}
+                    conn.execute(
+                        "INSERT INTO workflow_records(kind,id,data,created_at,updated_at) VALUES(?,?,?,?,?) "
+                        "ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at",
+                        ('ai_member_config', scope_id, self._workflow_payload(record), now, now),
+                    )
+                self.save_audit_event_conn(conn, {
+                    'id': new_id('audit'), 'actor_id': user_id, 'organization_id': tenant_id,
+                    'action': 'ai.config.saved' if cfg else 'ai.config.cleared',
+                    'resource_type': 'ai_config:member', 'resource_id': scope_id,
+                })
+            return
         payload = json.dumps(secret_store.protect_config(cfg), ensure_ascii=False) if cfg else None
         with self._connect() as conn:
             conn.execute(
@@ -1354,6 +1402,11 @@ class Store:
         left behind. The sidecar deliberately reuses ``workflow_records`` so this
         SQLite/local slice does not introduce a financial-ledger table.
         """
+        if any(type(value) is not int or value < 1 for value in (daily_limit, burst_limit)):
+            raise ValueError("quota limits must be positive integers")
+        expected_scope = f"tenant:{entry['idempotency_scope']}" if entry.get('idempotency_domain') == 'tenant' else entry['user_id']
+        if quota_scope != expected_scope or day_period == minute_period:
+            raise ValueError("quota snapshot scope/windows do not match request")
         now = entry.get("created_at") or _now()
         payload = {
             "id": entry["id"], "idempotency_key": entry.get("idempotency_key") or None,
@@ -1381,6 +1434,7 @@ class Store:
                 ).fetchone()
                 if existing:
                     return dict(existing), False
+            self._validate_ai_request_authorization_conn(conn, payload)
             conn.execute(
                 "INSERT INTO ai_requests (id, idempotency_key, request_hash, user_id, tenant_id, membership_id, action, "
                 "idempotency_domain, idempotency_scope, auth_version, provider, base_url_host, model, status, "
@@ -1420,6 +1474,7 @@ class Store:
                     "user_id": payload["user_id"], "idempotency_domain": payload["idempotency_domain"],
                     "idempotency_scope": payload["idempotency_scope"], "action": payload["action"],
                     "unit": "request", "quantity": 1, "state": "reserved", "revision": 0,
+                    "auth_version": payload["auth_version"],
                     "quota_scope": quota_scope, "quota_source": quota_source,
                     "quota_config_keys": list(quota_config_keys),
                     "daily_limit": daily_limit, "burst_limit": burst_limit,
@@ -1444,6 +1499,40 @@ class Store:
     def get_ai_quota_reservation(self, request_id: str) -> dict | None:
         return self.get_workflow_record("ai_quota_reservation", request_id)
 
+    def _validate_ai_request_authorization_conn(self, conn: sqlite3.Connection, request: dict) -> None:
+        user = conn.execute("SELECT status,must_change_password FROM users WHERE id=?", (request['user_id'],)).fetchone()
+        domain = request['idempotency_domain']
+        if (user and (user['status'] != 'active' or (domain in {'tenant', 'platform'} and user['must_change_password']))) or (domain in {'tenant', 'platform'} and not user):
+            raise PermissionError("AI request account authorization changed")
+        if domain == 'tenant':
+            member = conn.execute(
+                "SELECT m.auth_version,m.capabilities FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id "
+                "WHERE m.id=? AND m.tenant_id=? AND m.user_id=? AND m.status='active' AND t.status='active'",
+                (request['membership_id'], request['tenant_id'], request['user_id']),
+            ).fetchone()
+            if (not member or member['auth_version'] != request['auth_version']
+                    or 'tenant:read' not in json.loads(member['capabilities'] or '[]')):
+                raise PermissionError("AI request membership authorization changed")
+        elif domain == 'platform':
+            binding = conn.execute(
+                "SELECT auth_version FROM platform_role_bindings WHERE user_id=? AND status='active' AND role_code='platform_admin'",
+                (request['user_id'],),
+            ).fetchone()
+            if not binding or binding['auth_version'] != request['auth_version']:
+                raise PermissionError("AI request platform authorization changed")
+
+    @staticmethod
+    def _validate_ai_reservation_binding(request: dict, reservation: dict) -> None:
+        fields = ('user_id', 'tenant_id', 'membership_id', 'action', 'idempotency_domain', 'idempotency_scope')
+        expected_scope = f"tenant:{request['idempotency_scope']}" if request['idempotency_domain'] == 'tenant' else request['user_id']
+        if (reservation.get('request_id') != request['id']
+                or any(reservation.get(key) != request[key] for key in fields)
+                or reservation.get('quota_scope') != expected_scope
+                or reservation.get('auth_version', request['auth_version']) != request['auth_version']
+                or reservation.get('quantity') != 1 or reservation.get('unit') != 'request'
+                or reservation.get('billable') is not False):
+            raise ValueError("AI reservation scope binding mismatch")
+
     def _update_ai_quota_reservation_conn(
         self, conn: sqlite3.Connection, request_id: str, *, state: str,
         expected_state: str | None = None, **extra: object,
@@ -1456,7 +1545,7 @@ class Store:
             return None
         record = json.loads(row["data"])
         if expected_state is not None and record.get("state") != expected_state:
-            return record
+            raise ValueError("AI reservation transition conflict")
         record["state"] = state
         record["revision"] = int(record.get("revision") or 0) + 1
         record.update(extra)
@@ -1473,7 +1562,12 @@ class Store:
             if not row:
                 return None
             if row["status"] != "reserved":
-                return dict(row)
+                raise ValueError("AI request cannot be dispatched twice")
+            self._validate_ai_request_authorization_conn(conn, dict(row))
+            sidecar = conn.execute("SELECT data FROM workflow_records WHERE kind='ai_quota_reservation' AND id=?", (request_id,)).fetchone()
+            if not sidecar:
+                raise ValueError("AI reservation missing")
+            self._validate_ai_reservation_binding(dict(row), json.loads(sidecar['data']))
             reservation = self._update_ai_quota_reservation_conn(
                 conn, request_id, state="dispatching", expected_state="reserved"
             )
@@ -1496,6 +1590,12 @@ class Store:
                 return None
             if row["status"] == "completed":
                 return dict(row)
+            if status not in {'unknown', 'reconciliation_required', 'failed_final'}:
+                raise ValueError("invalid AI outcome")
+            if row['status'] in {'unknown', 'reconciliation_required'} and status == 'failed_final':
+                raise ValueError("unknown AI outcome must stay frozen")
+            if row['reservation_status'] == 'released':
+                raise ValueError("released AI reservation cannot be consumed")
             state = "unknown" if status in {"unknown", "reconciliation_required"} else "consumed"
             reservation = self._update_ai_quota_reservation_conn(
                 conn, request_id, state=state,
@@ -1526,6 +1626,7 @@ class Store:
             if not row or not reservation_row:
                 return False
             reservation = json.loads(reservation_row["data"])
+            self._validate_ai_reservation_binding(dict(row), reservation)
             if reservation.get("state") == "released":
                 return True
             if reservation.get("state") != "reserved" or row["status"] != "reserved":
@@ -2188,12 +2289,17 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
-    def list_workflow_records(self, kind: str, limit: int = 500) -> list[dict]:
+    def list_workflow_records(self, kind: str, limit: int | None = 500) -> list[dict]:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT data FROM workflow_records WHERE kind = ? ORDER BY updated_at DESC LIMIT ?",
-                (kind, max(1, min(limit, 5000))),
-            ).fetchall()
+            if limit is None:
+                rows = conn.execute(
+                    "SELECT data FROM workflow_records WHERE kind=? ORDER BY updated_at DESC, id", (kind,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT data FROM workflow_records WHERE kind = ? ORDER BY updated_at DESC LIMIT ?",
+                    (kind, max(1, min(limit, 5000))),
+                ).fetchall()
         return [json.loads(row["data"]) for row in rows]
 
     def delete_workflow_record(self, kind: str, record_id: str) -> bool:

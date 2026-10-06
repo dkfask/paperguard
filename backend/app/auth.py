@@ -654,8 +654,12 @@ async def current_user(request: Request, authorization: str | None = Header(defa
         raise HTTPException(status_code=403, detail={
             "code": "LEGACY_TENANT_PATH_DISABLED", "message": "租户成员必须使用已隔离的业务入口",
         })
-    membership = await run_in_threadpool(resolve_membership, store, user)
-    explicit_tenant = str(user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id") or "").strip()
+    # This header is only a selector: resolve_membership checks persisted
+    # ownership and current member/tenant state before exposing credentials.
+    expected_tenant = request.headers.get("X-Expected-Tenant", "").strip() if request.url.path.startswith("/api/ai/") else ""
+    selected_user = user | {"tenant_id": expected_tenant} if expected_tenant else user
+    membership = await run_in_threadpool(resolve_membership, store, selected_user)
+    explicit_tenant = str(selected_user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id") or "").strip()
     unresolved_ai_identity = (
         membership is None and request.url.path.startswith("/api/ai/")
         and bool(await run_in_threadpool(store.list_memberships_for_user, user["id"]))

@@ -1541,7 +1541,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 | [`error-codes.md`](../tenancy/error-codes.md) | 已实现错误码 + 目标占位；三套并存的错误表达体系 |
 
 <!-- §27.5 人读表格里的关键数字，由 `design_doc_check` DC-7 按现实重算比对。 -->
-<!-- fact275:err_codes_implemented=76 --><!-- fact275:err_codes_placeholder=17 -->
+<!-- fact275:err_codes_implemented=77 --><!-- fact275:err_codes_placeholder=17 -->
 
 > **口径（数「不同码位」，不数表格行数）**：`err_codes_implemented` = `error-codes.md` §2（体系 A）∪ §3（体系 B）的**去重**码位数；`err_codes_placeholder` = §5 全部子表（5.1～5.6）里**去重后的**占位码位数。§5.1.1 的 E7 行**复用 `TENANT_NOT_ACTIVE`**，所以加那一行**不增加码位数**——若按行数计，任何「同一码位对应多个出口」的行都会被误报成「多了一个码位」。
 | [`system-settings-scope-inventory.md`](../tenancy/system-settings-scope-inventory.md) | 系统设置的租户作用域盘点（Q-05） |
@@ -1633,7 +1633,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 ##### 门禁套件三态（机器校验用，勿手改）
 
 <!-- fact275:gate_all_total=43 --><!-- fact275:gate_all_pass=38 --><!-- fact275:gate_all_gap=5 --><!-- fact275:gate_all_broken=0 -->
-<!-- fact275:selftest_account_path_check=9 --><!-- fact275:selftest_api_contract_check=9 --><!-- fact275:selftest_at_traceability_check=18 --><!-- fact275:selftest_backfill_migrate=6 --><!-- fact275:selftest_backfill_validate=7 --><!-- fact275:selftest_context_resolution_check=22 --><!-- fact275:selftest_contract_readiness_check=8 --><!-- fact275:selftest_ddl_static_check=50 --><!-- fact275:selftest_design_doc_check=48 --><!-- fact275:selftest_error_codes_check=6 --><!-- fact275:selftest_lease_guard_check=8 --><!-- fact275:selftest_rls_policy_check=27 --><!-- fact275:selftest_run_all_gates=29 --><!-- fact275:selftest_schema_disposition_check=8 --><!-- fact275:selftest_secret_scan_check=15 --><!-- fact275:selftest_spec_citation_check=9 -->
+<!-- fact275:selftest_account_path_check=9 --><!-- fact275:selftest_api_contract_check=9 --><!-- fact275:selftest_at_traceability_check=18 --><!-- fact275:selftest_backfill_migrate=6 --><!-- fact275:selftest_backfill_validate=7 --><!-- fact275:selftest_context_resolution_check=22 --><!-- fact275:selftest_contract_readiness_check=8 --><!-- fact275:selftest_ddl_static_check=50 --><!-- fact275:selftest_design_doc_check=52 --><!-- fact275:selftest_error_codes_check=6 --><!-- fact275:selftest_lease_guard_check=8 --><!-- fact275:selftest_rls_policy_check=27 --><!-- fact275:selftest_run_all_gates=29 --><!-- fact275:selftest_schema_disposition_check=8 --><!-- fact275:selftest_secret_scan_check=15 --><!-- fact275:selftest_spec_citation_check=9 -->
 <!-- fact275:selftest_whitespace_check=20 --><!-- fact275:selftest_synthetic_data=19 --><!-- fact275:selftest_ai_egress_check=23 --><!-- fact275:selftest_resource_registry_check=27 --><!-- fact275:selftest_spec_rule_id_check=36 --><!-- fact275:selftest_spec_xref_check=10 --><!-- fact275:selftest_tenant_map_candidates=11 -->
 <!-- fact275:selftest_ownership_preflight=24 -->
 > 下面 24 个 `selftest_*` 标记是**各工具自检的项数**，由 `design_doc_check` DC-8
@@ -1656,7 +1656,7 @@ ADR（Architecture Decision Record，架构决策记录）应有方案、替代�
 > 实测 `design_doc_check.py --self-test` 就这样漏了很久，是 DC-7 的算术不平**碰巧**发现的。
 > **靠算术不平发现覆盖缺口是运气，不是设计**，所以覆盖做成了显式判据。
 
-<!-- fact275:registry_lines=1181 -->
+<!-- fact275:registry_lines=1187 -->
 
 > **`registry_lines`** 是 `resource-registry.yaml` 的行数。它会被登记漏写时被抓到——
 > 该文件是 W-04 全资源 tenant 化清单的输入，行数变了却没被察觉，

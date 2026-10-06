@@ -75,6 +75,16 @@ def test_legacy_admin_never_equals_platform_approval(pilot):
     assert store.list_memberships_for_user('operator')==[]
 
 
+def test_platform_can_rediscover_new_draft_without_exposing_it_to_members(pilot):
+    store, client = pilot
+    draft = new_draft(client)
+    response = client.get('/api/saas/v1/tenants', headers=platform())
+    assert response.status_code == 200
+    assert draft['id'] in {item['id'] for item in response.json()['data']}
+    response = client.get('/api/saas/v1/tenants', headers=headers())
+    assert draft['id'] not in {item['id'] for item in response.json()['data']}
+
+
 @pytest.mark.parametrize('actor',['shared','tenant-admin','old-admin'])
 def test_nonplatform_cannot_create_tenant_or_assign_owner(pilot,actor):
     store,client=pilot

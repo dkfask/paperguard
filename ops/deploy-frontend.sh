@@ -31,7 +31,7 @@ if [[ ! -f "$SRC/index.html" ]]; then
 fi
 
 STAGE="${WEBROOT}.staging-${VERSION}"
-BACKUP="${WEBROOT}.prev-${VERSION}"
+BACKUP="${WEBROOT}.prev-${VERSION}-$$"
 
 # /var/www 属 root:root，而 /var/www/paperguard 属 ubuntu:ubuntu，
 # 所以以 ubuntu 身份运行时对 WEBROOT 的创建与换名都需要提权。
@@ -76,9 +76,44 @@ fi
 echo "    入口 ${ENTRY}"
 echo "    文件数 $(find "$STAGE" -type f | wc -l | tr -d ' ')"
 
+# Snapshot both markers before switching bytes. EXIT also covers explicit
+# failed-probe exits; an ERR-only trap would miss those failure branches.
+MARKER_STATE=$(mktemp -d)
+MARKER_JSON="$(dirname "$MARKER")/current-release.json"
+for key in plain json; do
+  file="$MARKER"; [[ "$key" == json ]] && file="$MARKER_JSON"
+  if [[ -f "$file" ]]; then cp -p "$file" "$MARKER_STATE/$key"; fi
+done
+SWAP_STARTED=0
+rollback_on_exit() {
+  code=$?
+  trap - EXIT
+  if [[ "$code" != 0 && "$SWAP_STARTED" == 1 ]]; then
+    echo "错误: 切换后验证失败，恢复前端与版本标记" >&2
+    if [[ -d "$BACKUP" ]]; then
+      ${SUDO} rm -rf "$WEBROOT"
+      ${SUDO} mv "$BACKUP" "$WEBROOT" || code=1
+    elif [[ "$HAD_WEBROOT" == 0 ]]; then
+      ${SUDO} rm -rf "$WEBROOT"
+    fi
+    for key in plain json; do
+      file="$MARKER"; [[ "$key" == json ]] && file="$MARKER_JSON"
+      if [[ -f "$MARKER_STATE/$key" ]]; then
+        cp -p "$MARKER_STATE/$key" "$file" || code=1
+      else
+        rm -f "$file"
+      fi
+    done
+  fi
+  rm -rf "$MARKER_STATE"
+  exit "$code"
+}
+trap rollback_on_exit EXIT
+HAD_WEBROOT=0
+[[ -d "$WEBROOT" ]] && HAD_WEBROOT=1
+SWAP_STARTED=1
 echo "==> 3/5 原子换名（先备份现网）"
 if [[ -d "$WEBROOT" ]]; then
-  ${SUDO} rm -rf "$BACKUP"
   ${SUDO} mv "$WEBROOT" "$BACKUP"
 fi
 ${SUDO} mv "$STAGE" "$WEBROOT"
@@ -94,7 +129,8 @@ find "$WEBROOT" -type f ! -name '._*' -print0 \
   | xargs -0 sha256sum \
   | sed "s#${WEBROOT}/##" > "${RELEASES}/${VERSION}/frontend.sha256"
 echo "$VERSION" > "${RELEASES}/${VERSION}/frontend-entry.txt"
-echo "$VERSION" > "$MARKER"
+printf '%s\n' "$VERSION" > "${MARKER}.new-$$"
+mv "${MARKER}.new-$$" "$MARKER"
 echo "    current-release = $VERSION"
 
 echo "==> 5/5 冒烟检查"

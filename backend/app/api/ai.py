@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from app.auth import current_user, require_admin
 from app.db import Store, new_id
 from app.services import ai_breaker, ai_governance, secret_store, ai_usage_facts
-from app.services.outbound_guard import assert_safe_outbound_url
+from app.services.outbound_guard import GuardedTransport, assert_safe_outbound_url
 
 router = APIRouter(prefix="/api/ai")
 
@@ -134,7 +134,7 @@ def _resolve_cfg(store: Store, user: dict) -> tuple[dict, str] | None:
             "code": "TENANT_CONTEXT_INVALID", "message": "请先选择有效的租户成员身份"
         })
     try:
-        user_cfg = store.get_user_ai_config(user["id"])
+        user_cfg = store.get_user_ai_config(user["id"], tenant_id=member["tenant_id"] if explicit_tenant else None, membership_id=member["id"] if explicit_tenant else None)
     except secret_store.SecretDecryptError as exc:
         raise HTTPException(status_code=503, detail={
             "code": "AI_SECRET_UNAVAILABLE", "message": "AI 凭据不可解密，请联系管理员完成密钥迁移"
@@ -173,6 +173,7 @@ def _audit_ai_config(
     scope: str,
     result: str = "success",
     reason: str = "",
+    organization_id: str | None = None,
 ) -> None:
     """记录 AI 配置变更。
 
@@ -192,7 +193,7 @@ def _audit_ai_config(
             "action": action,
             "resource_type": f"ai_config:{scope}",
             "resource_id": str(actor.get("id") or scope),
-            "organization_id": str(context.get("school_id") or ""),
+            "organization_id": str(organization_id if organization_id is not None else actor.get("tenant_id") or context.get("school_id") or ""),
             "result": result,
             "reason": reason,
             "created_at": _now(),
@@ -289,7 +290,7 @@ def _anthropic_completion(
     payload = _anthropic_payload(cfg, messages, temperature, max_tokens)
     timeout = float(os.environ.get("PAPERGUARD_AI_TIMEOUT", "60"))
     try:
-        with httpx.Client(timeout=timeout) as client:
+        with httpx.Client(timeout=timeout, transport=GuardedTransport(), trust_env=False) as client:
             resp = client.post(url, json=payload, headers=headers)
     except httpx.TimeoutException as exc:
         raise HTTPException(status_code=504, detail="AI 服务响应超时, 请稍后重试") from exc
@@ -375,9 +376,8 @@ def _chat_completion(
     Anthropic Base URL (路径以 /anthropic 结尾) 走 /v1/messages;
     其他地址走 OpenAI 兼容 /chat/completions。
 
-    OpenAI 兼容地址支持自动容错:
-    若直接用 base_url 访问时返回非 JSON 网页(如返回 200 HTML 或 404),
-    且 base_url 不以 /v1 结尾, 自动尝试 fallback 到 base_url + '/v1'。
+    OpenAI 兼容地址必须配置正确的 API 基址（通常含 /v1）。
+    不对未知结果盲猜另一个 URL 重发正文；一次预留只允许一次派发。
 
     熔断放在这里（而不是两个协议函数各自实现）是因为它要覆盖**全部**
     上游调用路径，且只有在这一层才能同时看到成功与失败。
@@ -552,8 +552,20 @@ def _metered_chat(
     # C1 quota is already charged atomically by reserve_call. This compatibility
     # guard only verifies the durable hold; it must not increment counters again.
     ai_governance.begin_call(store, current_user, request_id)
-    store.mark_ai_request_dispatching(request_id)
+    try:
+        store.mark_ai_request_dispatching(request_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail={"code": "AUTHORIZATION_STALE", "message": "派发前授权已变化"}) from exc
     input_tokens = max(1, input_chars // 4) if input_chars else 0
+    # ★ 熔断闸**只保留 `_chat_completion` 里的那一道**（它负责
+    #   allow / record_failure / record_success 全套状态机）。
+    #   本轮曾在这里额外加一道 `allow` 以求「快速失败」，结果：
+    #     ① 半开状态下它先放行、内层才判定 ⇒ **探针配额被消耗两次**，
+    #        半开探针失败后熔断没能重新打开（`test_ai_breaker.py` 抓到）。
+    #     ② 提到预留之前时，503 走不到下面的记账分支
+    #        ⇒ **熔断拒绝的请求不记 `ai_usage`**，用户白占额度。
+    #   熔断省下的是**上游成本**，不是用户额度；两者必须分别记账，
+    #   而记账统一由本函数的 `except HTTPException` 承担。
     try:
         if max_tokens == _DEFAULT_MAX_TOKENS:
             result = _chat_completion(cfg, messages, temperature)
@@ -615,62 +627,27 @@ def _dispatch_completion(
 
     timeout = float(os.environ.get("PAPERGUARD_AI_TIMEOUT", "60"))
     base_url = _normalize_base_url(cfg["base_url"])
-    candidate_urls = [f"{base_url}/chat/completions"]
-    if not base_url.endswith("/v1"):
-        candidate_urls.append(f"{base_url}/v1/chat/completions")
-
-    payload = {
-        "model": cfg["model"],
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
+    # One admitted request means one outbound dispatch. Never resend a prompt
+    # to a guessed URL after an ambiguous response; configure /v1 explicitly.
+    url = f"{base_url}/chat/completions"
+    payload = {"model": cfg["model"], "messages": messages,
+               "temperature": temperature, "max_tokens": max_tokens}
     headers = {"Authorization": f"Bearer {cfg['api_key']}"}
-
-    last_error: HTTPException | None = None
-    with httpx.Client(timeout=timeout) as client:
-        for idx, url in enumerate(candidate_urls):
-            is_last = (idx == len(candidate_urls) - 1)
-            try:
-                resp = client.post(url, json=payload, headers=headers)
-            except httpx.TimeoutException as exc:
-                raise HTTPException(status_code=504, detail="AI 服务响应超时, 请稍后重试") from exc
-            except httpx.HTTPError as exc:
-                if not is_last:
-                    continue
-                raise HTTPException(status_code=502, detail="无法连接 AI 服务, 请检查 Base URL") from exc
-
-            # 遇到 404 或 502/503 时, 如果有备选 candidate (/v1), 先尝试备选
-            if resp.status_code in (404, 502, 503) and not is_last:
-                continue
-
-            if resp.status_code >= 400:
-                err_detail = _parse_error_detail(resp)
-                last_error = HTTPException(status_code=502, detail=err_detail)
-                # 401 / 403 认证错误通常说明 endpoint 已经找对(或上游返回明确鉴权失败), 不必盲目 fallback
-                # 但如果是 404 或特定网关未路由则继续
-                if resp.status_code not in (404,) or is_last:
-                    raise last_error
-                continue
-
-            # HTTP 200/2xx 响应, 尝试解析 choices
-            try:
-                data = resp.json()
-                text = data["choices"][0]["message"]["content"].strip()
-                return ai_usage_facts.completion(text, protocol="openai", data=data)
-            except Exception as exc:
-                # 常见场景: 域名根目录是静态网站前端(返回 200 HTML), 不是 JSON
-                if not is_last:
-                    continue
-                hint = "AI 服务返回了无法解析的内容"
-                content_type = resp.headers.get("content-type", "")
-                if "text/html" in content_type.lower():
-                    hint = "AI 服务返回了 HTML 页面而非 API 数据, 若 Base URL 未包含「/v1」请尝试加上"
-                raise HTTPException(status_code=502, detail=hint) from exc
-
-    if last_error:
-        raise last_error
-    raise HTTPException(status_code=502, detail="无法连接 AI 服务")
+    with httpx.Client(timeout=timeout, transport=GuardedTransport(), trust_env=False) as client:
+        try:
+            resp = client.post(url, json=payload, headers=headers)
+        except httpx.TimeoutException as exc:
+            raise HTTPException(status_code=504, detail="AI 服务响应超时, 请稍后重试") from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="无法连接 AI 服务, 请检查 Base URL") from exc
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=_parse_error_detail(resp))
+        try:
+            data = resp.json()
+            text = data["choices"][0]["message"]["content"].strip()
+            return ai_usage_facts.completion(text, protocol="openai", data=data)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="AI 服务返回了无法解析的内容，请核对 Base URL（包括 /v1）") from exc
 
 
 def _build_messages(action: str, text: str, req: AssistRequest) -> list[dict]:
@@ -749,9 +726,9 @@ def ai_disclosure(user: dict = Depends(current_user), store: Store = Depends(get
         "source": source,
         "model": model,
         "data_recipient_host": recipient,
-        "content_sent": "所选论文段落文本" if resolved else "",
+        "content_sent": "所选段落、用于摘要/关键词生成的论文正文、要求核查的正文片段，以及规范/模板导入时提取的上传文档文本" if resolved else "",
         "notice": (
-            "使用 AI 功能时，所选论文段落文本会发送给你所填的服务商处理，"
+            "使用 AI 功能时，所选段落、用于生成或要求核查的论文正文，以及上传文档中提取的文本会发送给当前配置的服务商处理，"
             "内容将离开本系统并可能存储在其境内。请确认该服务商已获授权，"
             "并满足学校对数据出境与委托处理的要求。"
         ),
@@ -760,7 +737,7 @@ def ai_disclosure(user: dict = Depends(current_user), store: Store = Depends(get
 
 @router.get("/config")
 def get_ai_config(user: dict = Depends(current_user), store: Store = Depends(get_store)) -> dict:
-    cfg = store.get_user_ai_config(user["id"])
+    cfg = store.get_user_ai_config(user["id"], tenant_id=user.get("tenant_id"), membership_id=user.get("membership_id"))
     if not cfg or not all(cfg.get(k) for k in ("base_url", "api_key", "model")):
         return {"configured": False, "base_url": None, "model": None, "api_key_masked": None}
     return {
@@ -774,8 +751,8 @@ def get_ai_config(user: dict = Depends(current_user), store: Store = Depends(get
 @router.put("/config")
 def save_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
                    store: Store = Depends(get_store)) -> dict:
-    cfg = _request_cfg(req, store.get_user_ai_config(user["id"]))
-    store.set_user_ai_config(user["id"], cfg)
+    cfg = _request_cfg(req, None if (req.api_key or "").strip() else store.get_user_ai_config(user["id"], tenant_id=user.get("tenant_id"), membership_id=user.get("membership_id")))
+    store.set_user_ai_config(user["id"], cfg, tenant_id=user.get("tenant_id"), membership_id=user.get("membership_id"))
     _audit_ai_config(
         store, user,
         action="ai.config.saved",
@@ -787,14 +764,14 @@ def save_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
 
 @router.delete("/config", status_code=204)
 def clear_ai_config(user: dict = Depends(current_user), store: Store = Depends(get_store)) -> None:
-    store.set_user_ai_config(user["id"], None)
+    store.set_user_ai_config(user["id"], None, tenant_id=user.get("tenant_id"), membership_id=user.get("membership_id"))
     _audit_ai_config(store, user, action="ai.config.cleared", scope="user")
 
 
 @router.post("/config/test")
 def test_ai_config(req: AiConfigRequest, user: dict = Depends(current_user),
                    store: Store = Depends(get_store)) -> dict:
-    cfg = _request_cfg(req, store.get_user_ai_config(user["id"]))
+    cfg = _request_cfg(req, None if (req.api_key or "").strip() else store.get_user_ai_config(user["id"], tenant_id=user.get("tenant_id"), membership_id=user.get("membership_id")))
     try:
         # 测试连通性会真的发请求，出口必须完整校验，且必须计量——
         # 否则这里就是一个不占配额、不留记录的免费上游入口。
@@ -867,13 +844,14 @@ def save_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_adm
     不传则写入平台全局默认。
     """
     # 已存在数据库配置或环境变量配置时, 管理员可以只修改 URL/模型, 留空表示保留密钥。
-    fallback = _system_cfg(store, organization_id)
+    fallback = None if (req.api_key or "").strip() else _system_cfg(store, organization_id)
     cfg = _request_cfg(req, fallback[0] if fallback else None)
     store.set_system_ai_config(cfg, organization_id)
     _audit_ai_config(
         store, admin,
         action="ai.config.system_saved",
         scope=f"system:{organization_id}" if organization_id else "system",
+        organization_id=organization_id,
         reason=(
             f"org:{organization_id} " if organization_id else ""
         ) + f"host:{urlsplit(cfg['base_url']).hostname} model:{cfg['model']}",
@@ -891,6 +869,7 @@ def clear_admin_ai_config(admin: dict = Depends(require_admin),
         store, admin,
         action="ai.config.system_cleared",
         scope=f"system:{organization_id}" if organization_id else "system",
+        organization_id=organization_id,
     )
 
 
@@ -899,7 +878,7 @@ def test_admin_ai_config(req: AiConfigRequest, admin: dict = Depends(require_adm
                          store: Store = Depends(get_store),
                          organization_id: str = "") -> dict:
     """管理员测试准备配置的系统默认模型。"""
-    fallback = _system_cfg(store, organization_id)
+    fallback = None if (req.api_key or "").strip() else _system_cfg(store, organization_id)
     cfg = _request_cfg(req, fallback[0] if fallback else None)
     source = fallback[1] if fallback else "system"
     try:

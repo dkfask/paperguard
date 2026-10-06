@@ -479,6 +479,7 @@
       <div v-if="showAiSettings" class="modal-mask writer-modal-mask" @click.self="showAiSettings = false">
         <div class="modal card">
           <h3 style="margin-top:0">{{ t('writer.aiSettingsTitle') }}</h3>
+          <div v-if="aiDisclosure" class="ai-disclosure" role="note"><p>{{ aiDisclosure.notice }}</p><p>接收方：{{ aiDisclosure.data_recipient_host }}</p><p>{{ aiDisclosure.content_sent }}</p></div>
           <div v-if="isAdmin" class="ai-tab-row">
             <button class="ai-tab-btn" :class="{ active: aiTab === 'user' }" @click="switchAiTab('user')">
               {{ t('writer.personalModel') }}
@@ -644,7 +645,7 @@ import {
   importProjectDocx,
   acknowledgeRequirements, assistRequirement, listRequirementWaivers, listRequirementDisputes, previewRequirementUpgrade,
   requestRequirementWaiver, requestRequirementDispute, upgradeRequirements, decideRequirementWaiver, revokeRequirementWaiver, decideRequirementDispute,
-  aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
+  getAiDisclosure, aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
   getAdminAiConfig, saveAdminAiConfig, clearAdminAiConfig, testAdminAiConfig,
 } from '../api'
 import BlockList from '../components/BlockList.vue'
@@ -954,6 +955,12 @@ const aiBusy = ref(null)          // { index, action } 块级 AI 处理中
 const aiDiff = ref(null)          // { index, action, original, generated, preview } 差异对照选择
 const aiGenerating = ref(false)   // 章节级 AI 生成中
 const showAiSettings = ref(false)
+const aiDisclosure = ref(null)
+async function confirmAiDisclosure() {
+  aiDisclosure.value = await getAiDisclosure()
+  if (!aiDisclosure.value.enabled) throw new Error('AI 未配置，不能发送内容')
+  return window.confirm(`${aiDisclosure.value.notice}\n接收方：${aiDisclosure.value.data_recipient_host}\n发送内容：${aiDisclosure.value.content_sent}`)
+}
 const isAdmin = computed(() => auth.user?.role === 'admin')
 const aiTab = ref('user') // 'user' | 'admin'
 const aiCfgForm = reactive({ base_url: '', api_key: '', model: '' })
@@ -1021,6 +1028,7 @@ async function loadAdminAiCfg() {
 async function openAiSettings() {
   showAiSettings.value = true
   aiTab.value = 'user'
+  try { aiDisclosure.value = await getAiDisclosure() } catch (e) { error.value = e.message }
   await loadUserAiCfg()
   if (isAdmin.value) {
     await loadAdminAiCfg()
@@ -1109,6 +1117,7 @@ async function onBlockAi({ action, index }) {
   aiBusy.value = { index, action }
   error.value = ''
   try {
+    if (!await confirmAiDisclosure()) return
     const result = await aiAssist({
       action, text, section_title: sec.title, section_type: sec.type,
     })
@@ -1175,6 +1184,7 @@ async function aiGenerate() {
   aiGenerating.value = true
   error.value = ''
   try {
+    if (!await confirmAiDisclosure()) return
     const result = await aiAssist({
       action: sec.type === 'english_keywords' ? 'keywords' : sec.type,
       text: body.slice(0, 11000),
@@ -1809,6 +1819,7 @@ async function openAssist(item) {
   error.value = ''
   try {
     await flushPendingSaves()
+    if (!await confirmAiDisclosure()) return
     const result = await assistRequirement(projectId, item.id, item.description)
     const previous = project.value.ai_assist_results || []
     project.value.ai_assist_results = previous.filter((saved) => saved.requirement_item_id !== item.id).concat(result)

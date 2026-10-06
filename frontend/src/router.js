@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { auth } from './auth'
 import { canAccessRoute, homePath } from './shared/auth/permissions'
-import { reportNavigationFailure } from './shared/navigationFailure'
+import { clearNavigationFailure, reportNavigationFailure } from './shared/navigationFailure'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -25,7 +25,7 @@ const router = createRouter({
     { path: '/admin/ai', component: () => import('./views/AiSettings.vue'), meta: { title: 'AI 与系统设置', titleKey: 'route.adminAi', roles: ['admin'] } },
     { path: '/teacher/students', component: () => import('./views/TeacherStudents.vue'), meta: { title: '指导学生', titleKey: 'route.teacherStudents', roles: ['teacher'] } },
     { path: '/workspace', component: () => import('./views/Workspace.vue'), meta: { title: '角色工作台', titleKey: 'route.workspace' } },
-    { path: '/operations', component: () => import('./views/Operations.vue'), meta: { title: '运行状态与数据治理', titleKey: 'route.operations', roles: ['admin', 'college_admin'] } },
+    { path: '/operations', component: () => import('./views/Operations.vue'), meta: { title: '运行状态与数据治理', titleKey: 'route.operations', roles: ['admin'] } },
     { path: '/write/:id', component: () => import('./views/Writer.vue'), meta: { title: '论文写作', titleKey: 'route.writer' } },
     { path: '/:pathMatch(.*)*', component: () => import('./views/NotFound.vue'), meta: { title: '页面不存在', titleKey: 'route.notFound', public: true } },
   ],
@@ -71,7 +71,9 @@ router.beforeEach(async (to) => {
 
 // 标题只在导航真正提交后写。放在 beforeEach 里会在导航失败时留下
 // 「标签标题已切到目标页、实际仍停在原页」的错位状态。
-router.afterEach((to) => {
+router.afterEach((to, _from, failure) => {
+  if (failure) return
+  clearNavigationFailure()
   document.title = to.meta.title ? `${to.meta.title} · PaperGuard` : 'PaperGuard'
 })
 

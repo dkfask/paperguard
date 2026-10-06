@@ -147,6 +147,7 @@ def complete_request(store, request_id: str, result: str, *, expected_membership
         ).fetchone()
         if reservation_row:
             reservation = json.loads(reservation_row["data"])
+            store._validate_ai_reservation_binding(dict(request), reservation)
             if reservation.get("state") != "dispatching":
                 raise ValueError("AI reservation is not dispatching")
             reservation["state"] = "settled"

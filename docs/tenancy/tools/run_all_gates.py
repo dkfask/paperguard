@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -60,6 +61,10 @@ import time
 EXIT_OK = 0
 EXIT_FINDINGS = 1
 EXIT_TOOL_BROKEN = 2
+
+# 下游工具读它以复用已跑结果（INC-122）。**必须与 design_doc_check.RESULT_VAR 同名**——
+# 两处各写一个字符串常量，就是下一个「副本各自腐烂」的入口（INC-78）。
+RESULT_VAR = "PAPERGUARD_GATE_RESULTS"
 
 GREEN, RED, YELLOW, DIM, CYAN, RESET = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[36m", "\033[0m")
@@ -221,11 +226,33 @@ def is_crash(out: str) -> bool:
                           lines[-1]))
 
 
-def run_gate(tool: pathlib.Path, kind: str) -> dict:
+def result_key(name: str, kind: str) -> str:
+    """门禁结果的**唯一编码**。写端与读端必须共用它（INC-117/INC-122）。
+
+    `kind == "plain"` 必须编码成**空 flags**，而 `" ".join([])` 恰好是 `""`，
+    于是 `design_doc_check.py::` 与 `design_doc_check.py --self-test::--self-test`
+    在字符串层面就能区分——`partition("::")` 切回来时不会把两者混成一个键。
+    """
+    flags = "--self-test" if kind == "self-test" else ""
+    return f"{name}::{flags}"
+
+
+def run_gate(tool: pathlib.Path, kind: str, env_extra: dict | None = None) -> dict:
     cmd = [sys.executable, str(tool)] + (["--self-test"] if kind == "self-test" else [])
     t0 = time.monotonic()
+    # ★ INC-122：把**已经跑过**的门禁结果交给下游工具，让它不必重复执行。
+    # 起因是实测：`design_doc_check.py --plain` 要实跑自己的 `--self-test`
+    # 来核对退出码，而套件上一道门禁刚跑过它 ⇒ 本机 192.9s、CI 300.1s
+    # 撞穿单门禁阈值 ⇒ 记「工具不可运行」=2 ⇒ ci 模式报红。
+    # 挡掉那次重复 spawn 后本机只要 **7.9s**。
+    #
+    # ⚠ 这里传的是**刚刚跑出来的真实结果**，不是任何缓存；
+    # 下游拿到的退出码与它自己跑出来的一致，核对强度不变。
+    env = dict(os.environ)
+    if env_extra:
+        env.update(env_extra)
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
         code = p.returncode
         out = (p.stdout or "") + (p.stderr or "")
     except subprocess.TimeoutExpired:
@@ -533,7 +560,15 @@ def main() -> int:
                             "code": EXIT_TOOL_BROKEN, "secs": 0.0,
                             "out": f"工具文件不存在：{tool}"})
             continue
-        r = run_gate(tool, kind)
+        # ★ INC-122：把**到目前为止**已跑过的门禁结果交给本道门禁。
+        # 只有「本道之前跑过」的才传——下游复用的必须是它自己没跑过的，
+        # 否则复用会掩盖「同一道门禁跑两次」这件事。
+        _prior = {result_key(x["name"], x["kind"]): {"code": x["code"],
+                                                    "out": x.get("out", "")}
+                  for x in results if x.get("code") is not None}
+        r = run_gate(tool, kind,
+                     env_extra={RESULT_VAR: json.dumps(_prior, ensure_ascii=False)}
+                     if _prior else None)
         r.update({"name": name, "kind": kind, "desc": desc})
         # ★ INC-94：`--mode ci` 下声明「本模式不适用」的门禁，
         # **照常跑、照常记下真实退出码**，只是不计入三态。

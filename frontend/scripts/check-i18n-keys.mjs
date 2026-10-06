@@ -56,3 +56,4 @@ for (const [k, files] of [...missingUse].sort()) {
   console.log('   ', k, '→', [...files].join(', '))
 }
 if (!missingUse.size) console.log('✅ 视图 t() key 全部有定义')
+if (missingTitle.length || missingUse.size) process.exitCode = 1

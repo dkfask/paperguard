@@ -145,3 +145,88 @@ def test_pre_dispatch_release_is_one_shot_and_unknown_is_frozen(scenario, monkey
     with pytest.raises(HTTPException) as exc:
         dispatch(scenario, key="unknown-key")
     assert exc.value.detail["code"] == "AI_RECONCILIATION_REQUIRED"
+
+
+def _hold(scenario, request_id='hold', day='2026-10-05', minute='2026-10-05T23:59'):
+    store, user, cfg = scenario
+    return store.register_ai_request_with_reservation({
+        'id': request_id, 'request_hash': 'synthetic', 'user_id': 'u',
+        'tenant_id': 'a', 'membership_id': 'm-a', 'action': 'polish',
+        'idempotency_domain': 'tenant', 'idempotency_scope': 'a:m-a', 'auth_version': 1,
+    }, quota_scope='tenant:a:m-a', day_period=day, minute_period=minute,
+        daily_limit=10, burst_limit=10, quota_source='synthetic_policy', quota_config_keys=[])[0]
+
+
+def test_release_uses_persisted_windows_despite_policy_and_day_changes(scenario, monkeypatch):
+    store = scenario[0]
+    old = _hold(scenario)
+    _hold(scenario, 'new', '2026-10-06', '2026-10-06T00:00')
+    monkeypatch.setenv('PAPERGUARD_AI_DAILY_QUOTA', '1')
+    assert store.release_ai_request_reservation(old['id'], reason='proven not sent', proven_not_dispatched=True)
+    assert store.get_ai_quota_used('tenant:a:m-a', '2026-10-05') == 0
+    assert store.get_ai_quota_used('tenant:a:m-a', '2026-10-06') == 1
+
+
+def test_revocation_between_reservation_and_dispatch_never_calls_provider(scenario, monkeypatch):
+    store = scenario[0]
+    original = store.mark_ai_request_dispatching
+    calls = []
+    monkeypatch.setattr(ai, '_chat_completion', lambda *args, **kwargs: calls.append(True))
+    def revoke(request_id):
+        store.save_membership(store.get_membership('m-a') | {'status': 'revoked'})
+        return original(request_id)
+    monkeypatch.setattr(store, 'mark_ai_request_dispatching', revoke)
+    with pytest.raises(HTTPException) as exc:
+        dispatch(scenario)
+    assert exc.value.status_code == 403
+    assert calls == []
+    assert _reservation_for(store)[1]['state'] == 'reserved'
+
+
+@pytest.mark.parametrize('field,value', [('tenant_id', 'b'), ('membership_id', 'm-b'), ('quota_scope', 'tenant:b:m-b')])
+def test_mismatched_sidecar_never_dispatches_or_releases_other_scope(scenario, field, value):
+    import json
+    store = scenario[0]
+    hold = _hold(scenario)
+    with store._connect() as conn:
+        record = store.get_ai_quota_reservation(hold['id'])
+        record[field] = value
+        conn.execute("UPDATE workflow_records SET data=? WHERE kind='ai_quota_reservation' AND id=?", (json.dumps(record), hold['id']))
+    with pytest.raises(ValueError):
+        store.mark_ai_request_dispatching(hold['id'])
+    with pytest.raises(ValueError):
+        store.release_ai_request_reservation(hold['id'], reason='wrong snapshot', proven_not_dispatched=True)
+    assert store.get_ai_quota_used('tenant:a:m-a', '2026-10-05') == 1
+
+
+def test_release_audit_failure_rolls_back_and_concurrent_retry_is_one_shot(scenario, monkeypatch):
+    store = scenario[0]
+    row = _hold(scenario)
+    original = store.save_audit_event_conn
+    def fail(conn, event):
+        if event.get('action') == 'ai.quota.released':
+            raise RuntimeError('synthetic audit failure')
+        return original(conn, event)
+    monkeypatch.setattr(store, 'save_audit_event_conn', fail)
+    with pytest.raises(RuntimeError):
+        store.release_ai_request_reservation(row['id'], reason='not sent', proven_not_dispatched=True)
+    assert store.get_ai_quota_used('tenant:a:m-a', '2026-10-05') == 1
+    assert store.get_ai_quota_reservation(row['id'])['state'] == 'reserved'
+    monkeypatch.setattr(store, 'save_audit_event_conn', original)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert all(pool.map(lambda _: store.release_ai_request_reservation(row['id'], reason='not sent', proven_not_dispatched=True), range(2)))
+    assert store.get_ai_quota_used('tenant:a:m-a', '2026-10-05') == 0
+
+
+def test_restart_does_not_release_or_redispatch_dispatching_or_unknown(scenario):
+    store = scenario[0]
+    row = _hold(scenario)
+    store.mark_ai_request_dispatching(row['id'])
+    reopened = Store(store._db_path)
+    assert not reopened.release_ai_request_reservation(row['id'], reason='restart', proven_not_dispatched=True)
+    with pytest.raises(ValueError):
+        reopened.mark_ai_request_dispatching(row['id'])
+    reopened.mark_ai_request_outcome(row['id'], status='unknown', reservation_status='unknown')
+    with pytest.raises(ValueError):
+        reopened.mark_ai_request_outcome(row['id'], status='failed_final', reservation_status='consumed')
+    assert reopened.get_ai_quota_reservation(row['id'])['state'] == 'unknown'

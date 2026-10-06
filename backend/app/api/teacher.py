@@ -245,7 +245,9 @@ def reset_student_password(
     # 二者都是正式指派的指导关系，教师本就拿得到这些学生的论文全文与进度
     # （敏感度高于初始密码），因此密码重置一并认这两种来源，
     # 避免出现「看得到学生、管不了账号」的不一致。
-    if user["role"] != "admin" and not _is_supervised_student(store, user["id"], student):
+    if user["role"] != "admin" and (
+        student.get("role") != "student" or not _is_supervised_student(store, user["id"], student)
+    ):
         raise HTTPException(status_code=403, detail="无权操作非本人指导的学生账号")
 
     pw_hash, salt = hash_password(req.new_password)

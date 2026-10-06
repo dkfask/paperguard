@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import pytest
+import re
 from fastapi.testclient import TestClient
 
 from app.db import Store
@@ -26,6 +27,7 @@ ANONYMOUS_ALLOWED = {
     "/api/health/live": "存活探针",
     "/api/health/ready": "就绪探针",
     "/api/packs": "公开的国标规则包编号，登录页需要",
+    "/api/packs/{pack_id}": "公开国标规则定义，不含校内数据",
 }
 
 
@@ -39,7 +41,8 @@ def any_template_id() -> str:
 def test_health_and_packs_stay_public() -> None:
     """白名单中的接口必须继续可匿名访问，避免过度收紧打断登录流程。"""
     for path in ANONYMOUS_ALLOWED:
-        assert client.get(path).status_code == 200, f"{path} 应保持匿名可访问"
+        actual = path.replace("{pack_id}", client.get("/api/packs").json()[0])
+        assert client.get(actual).status_code == 200, f"{path} 应保持匿名可访问"
 
 
 def test_template_list_requires_authentication() -> None:
@@ -68,18 +71,19 @@ def test_template_detail_still_hidden_when_missing_for_anonymous() -> None:
     assert client.get("/api/templates/does-not-exist").status_code == 401
 
 
-def test_every_other_get_endpoint_rejects_anonymous() -> None:
-    """兜底：遍历 OpenAPI 里全部 GET 接口，白名单之外必须不是 200。"""
+def test_every_other_get_endpoint_rejects_anonymous(any_template_id: str) -> None:
+    """Missing resources and validation errors must not masquerade as authentication."""
     schema = app.openapi()
     get_paths = sorted(p for p, ops in schema["paths"].items() if "get" in ops)
     assert len(get_paths) > 50, "接口数量异常，检查 OpenAPI 是否正常生成"
 
-    # 带路径参数的端点直接 GET 会得到 422（缺参数），这同样不是 200，
-    # 说明已在校验层之外被挡住；这里只关心「有没有被匿名放行」。
+    # Authenticate before both resource lookup and request validation.
     leaked = []
     for path in get_paths:
         if path in ANONYMOUS_ALLOWED:
             continue
-        if client.get(path).status_code == 200:
-            leaked.append(path)
+        actual = re.sub(r"\{([^}]+)\}", lambda m: any_template_id if m[1] == "template_id" else "anonymous-fixture-id", path)
+        status = client.get(actual).status_code
+        if status not in {401, 403}:
+            leaked.append((path, status))
     assert not leaked, f"以下接口未认证即可访问：{leaked}"

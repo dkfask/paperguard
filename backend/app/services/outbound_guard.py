@@ -30,8 +30,11 @@ from __future__ import annotations
 import ipaddress
 import os
 import socket
+import ssl
 from urllib.parse import urlsplit
 
+import httpcore
+import httpx
 from fastapi import HTTPException
 
 
@@ -79,7 +82,51 @@ def _blocked_ip_reason(addr: ipaddress._BaseAddress) -> str | None:
         return "组播地址"
     if addr.is_reserved:
         return "保留地址"
+    if not addr.is_global:
+        return "非公网地址"
     return None
+
+
+class _ValidatedNetworkBackend(httpcore.NetworkBackend):
+    """Resolve once, validate all addresses, connect to an IP (not the DNS name).
+
+    httpcore still holds the original origin, so HTTP Host and TLS SNI/certificate
+    verification use the provider hostname. No proxy/env resolver can bypass this
+    connection boundary, and there is no retry to a guessed completion endpoint.
+    """
+    def __init__(self) -> None:
+        self.backend = httpcore.SyncBackend()
+
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        host = host.decode('ascii') if isinstance(host, bytes) else host
+        authority = f"[{host}]" if ':' in host else host
+        assert_safe_outbound_url(f"https://{authority}:{port}", resolve_dns=False)
+        literal = _parse_ip_literal(host)
+        addresses = [literal] if literal else _resolve(host)
+        if not _allow_private_network():
+            for address in addresses:
+                if _blocked_ip_reason(address):
+                    raise OutboundBlocked("连接地址不属于允许的公网出口")
+        return self.backend.connect_tcp(
+            str(addresses[0]), port, timeout=timeout, local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    def connect_unix_socket(self, *args, **kwargs):
+        raise OutboundBlocked("AI 出口禁止 Unix socket")
+
+    def sleep(self, seconds):
+        return self.backend.sleep(seconds)
+
+
+class GuardedTransport(httpx.HTTPTransport):
+    def __init__(self) -> None:
+        super().__init__(trust_env=False, retries=0)
+        self._pool.close()
+        self._pool = httpcore.ConnectionPool(
+            ssl_context=ssl.create_default_context(),
+            network_backend=_ValidatedNetworkBackend(), retries=0,
+        )
 
 
 def _looks_like_ip_shorthand(host: str) -> bool:

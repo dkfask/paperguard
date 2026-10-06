@@ -151,11 +151,11 @@ def _cohort_access(store: Store, user: dict, cohort: dict) -> bool:
     if user["role"] == "student":
         return any(
             item.get("cohort_id") == cohort["id"] and item.get("student_id") == user["id"]
-            for item in store.list_workflow_records("supervision")
+            for item in store.list_workflow_records("supervision", limit=None)
         )
     if user["role"] == "teacher" and cohort.get("organization_id") in _visible_org_ids(store, user):
         return True
-    for item in store.list_workflow_records("supervision"):
+    for item in store.list_workflow_records("supervision", limit=None):
         if item.get("cohort_id") != cohort["id"] or item.get("student_id") is None:
             continue
         current = _current_supervision(store, cohort["id"], item["student_id"])
@@ -252,7 +252,7 @@ def _ensure_cohort_access(store: Store, user: dict, cohort_id: str) -> dict:
 
 def _supervisions(store: Store, cohort_id: str, student_id: str | None = None) -> list[dict]:
     records = [
-        item for item in store.list_workflow_records("supervision")
+        item for item in store.list_workflow_records("supervision", limit=None)
         if item.get("cohort_id") == cohort_id
         and (student_id is None or item.get("student_id") == student_id)
     ]
@@ -279,14 +279,15 @@ def supervised_student_ids(store: Store, teacher_id: str) -> dict[str, str]:
     """
     now = datetime.now(timezone.utc)
     result: dict[str, str] = {}
-    for item in store.list_workflow_records("supervision"):
+    for item in store.list_workflow_records("supervision", limit=None):
         if item.get("teacher_id") != teacher_id:
             continue
         cohort_id = item.get("cohort_id", "")
         student_id = item.get("student_id", "")
         if not cohort_id or not student_id or student_id in result:
             continue
-        if _current_supervision(store, cohort_id, student_id, now) is not None:
+        current = _current_supervision(store, cohort_id, student_id, now)
+        if current is not None and current.get("teacher_id") == teacher_id:
             result[student_id] = cohort_id
     return result
 
@@ -2019,8 +2020,9 @@ def download_archive(archive_id: str, store: Store = Depends(get_store), user: d
     assert_resource_read(store, user, "archive", archive)
     if archive.get("status") != "succeeded" or not archive.get("file_path"):
         raise HTTPException(status_code=409, detail="归档尚未生成完成")
-    path = Path(archive["file_path"])
-    if path.parent != _archive_dir() or not path.is_file():
+    path = Path(archive["file_path"]).resolve()
+    legacy_root = (Path(__file__).resolve().parent.parent.parent / "data" / "archives").resolve()
+    if path.parent not in {_archive_dir().resolve(), legacy_root} or not path.is_file():
         raise HTTPException(status_code=404, detail="归档制品不存在")
     return FileResponse(path, filename=f"{archive_id}.zip", media_type="application/zip", headers={"X-PaperGuard-Manifest-Hash": archive.get("manifest_hash", "")})
 

@@ -189,10 +189,10 @@ if [[ -f "$temp_dir/teacher.conf" ]]; then
   assert_json "teacher.students.list" teacher \
     'type == "object" and (.students | type == "array")' "/api/teacher/students"
   assert_json "teacher.students.reset_permission" teacher \
-    '[.students[]? | select(.can_reset_password == true)] | length >= 0' "/api/teacher/students"
+    '(.students | length > 0) and all(.students[]; .can_reset_password == true)' "/api/teacher/students"
   # 解绑仍只认账号绑定
   assert_json "teacher.students.unbind_strict" teacher \
-    '([.students[]? | select(.can_manage_account == true and (.relation_sources | index("cohort") != null))] | length) == 0' \
+    'all(.students[]?; .can_manage_account != true or (.relation_sources | index("account") != null))' \
     "/api/teacher/students"
 fi
 

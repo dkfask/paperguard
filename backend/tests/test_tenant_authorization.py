@@ -167,7 +167,7 @@ def test_invalid_tenant_checked_before_byok(identity, monkeypatch, tenant_id):
     store, user, _ = identity
     user["tenant_id"] = tenant_id
     reads = []
-    monkeypatch.setattr(store, "get_user_ai_config", lambda *args: reads.append(True) or {
+    monkeypatch.setattr(store, "get_user_ai_config", lambda *args, **kwargs: reads.append(True) or {
         "base_url": "https://example.com/v1", "api_key": "synthetic-key", "model": "test"})
     with pytest.raises(HTTPException) as exc:
         ai._resolve_cfg(store, user)
@@ -225,7 +225,7 @@ def test_missing_tenant_does_not_bypass_existing_membership_boundary(identity, m
         other = store.create_tenant({"id": "other", "slug": "other", "name": "Other"})
         _membership(store, user, other, id="other-member")
     reads = []
-    monkeypatch.setattr(store, "get_user_ai_config", lambda *args: reads.append(True))
+    monkeypatch.setattr(store, "get_user_ai_config", lambda *args, **kwargs: reads.append(True))
     with pytest.raises(HTTPException):
         ai._resolve_cfg(store, user)
     assert not reads
@@ -236,7 +236,7 @@ def test_valid_membership_can_resolve_byok(identity, monkeypatch):
     _membership(store, user, tenant)
     user["tenant_id"] = tenant["id"]
     cfg = {"base_url": "https://example.com/v1", "api_key": "synthetic", "model": "test"}
-    monkeypatch.setattr(store, "get_user_ai_config", lambda *args: cfg)
+    monkeypatch.setattr(store, "get_user_ai_config", lambda *args, **kwargs: cfg)
     assert ai._resolve_cfg(store, user) == (cfg, "user")
 
 
@@ -286,7 +286,7 @@ def test_unselected_or_revoked_identity_denied_before_ai_credentials_and_dispatc
         other = store.create_tenant({"id": "other", "slug": "other", "name": "Other"})
         _membership(store, user, other, id="other-member")
     reads, calls = [], []
-    monkeypatch.setattr(store, "get_user_ai_config", lambda *args: reads.append(True))
+    monkeypatch.setattr(store, "get_user_ai_config", lambda *args, **kwargs: reads.append(True))
     monkeypatch.setattr(ai, "_dispatch_completion", lambda *args, **kwargs: calls.append(True))
     client = _client(store, user, monkeypatch)
     response = client.request(method, path, headers=HEADERS, **({"json": payload} if payload else {}))
@@ -303,7 +303,7 @@ def test_verified_legacy_member_keeps_school_config_alias_without_bypassing_auth
     user["tenant_id"] = tenant["id"]
     scopes = []
     cfg = {"base_url": "https://school.example/v1", "api_key": "synthetic", "model": "school-model"}
-    monkeypatch.setattr(store, "get_user_ai_config", lambda *args: None)
+    monkeypatch.setattr(store, "get_user_ai_config", lambda *args, **kwargs: None)
     monkeypatch.setattr(ai, "_system_cfg", lambda s, scope: scopes.append(scope) or (cfg, "system_db"))
     assert ai._resolve_cfg(store, user) == (cfg, "system")
     assert scopes == ["school-test"]

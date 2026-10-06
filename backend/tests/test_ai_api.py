@@ -238,8 +238,8 @@ def test_status_requires_auth():
     assert anon.post("/api/ai/assist", json={"action": "polish", "text": "x"}).status_code == 401
 
 
-def test_base_url_fallback_and_error_parsing(monkeypatch):
-    """测试当 Base URL 未加 /v1 且根路径返回 HTML 时能自动 fallback 并解析错误。"""
+def test_base_url_does_not_redispatch_after_unparseable_result(monkeypatch):
+    """HTTP 200 HTML is ambiguous: no blind second dispatch of the prompt."""
     calls = []
 
     def mock_post(url, json=None, headers=None):
@@ -279,11 +279,8 @@ def test_base_url_fallback_and_error_parsing(monkeypatch):
             0.0
         )
     assert exc.value.status_code == 502
-    assert "Invalid API key provided" in exc.value.detail
-    assert calls == [
-        "https://api.test.com/chat/completions",
-        "https://api.test.com/v1/chat/completions"
-    ]
+    assert "Base URL" in exc.value.detail
+    assert calls == ["https://api.test.com/chat/completions"]
 
 
 def test_minimax_anthropic_base_url_uses_messages_contract(monkeypatch):

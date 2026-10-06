@@ -77,7 +77,20 @@ def provider_mock(monkeypatch,protocol,usage,*,on_response=None,timeout=False):
         if protocol=='openai':data['choices']=[{'message':{'content':'synthetic output'}}]
         else:data['content']=[{'type':'text','text':'synthetic output'}]
         return httpx.Response(200,json=data)
-    monkeypatch.setattr(ai.httpx,'Client',lambda **kwargs:original(transport=httpx.MockTransport(handler),**kwargs))
+    # ★ 生产代码现在显式传 `transport=GuardedTransport()`（出站守卫）。
+    #   **无条件覆盖**它，而不是 `setdefault`：
+    #   若沿用调用方的 `GuardedTransport`，请求会真的去连 `provider.invalid`
+    #   → DNS 解析失败 → `OutboundBlocked(400)`
+    #   ⇒ 被测的不是「上游超时如何记账」，而是「域名解析不了」，
+    #   而 `len(requests)==1` 这类断言**照样可能通过**——
+    #   **测试看起来在跑，实际测的是另一件事**。
+    #   ⚠ 反过来也不能用 `setdefault`：调用方已给 transport 时它不生效，
+    #   而 httpx.Client 收到重复 transport 关键字会直接 TypeError，
+    #   同样让 `requests` 恒空 ⇒ `len(requests)==1` 变成零证明力的假信号。
+    def _client(**kwargs):
+        kwargs['transport'] = httpx.MockTransport(handler)
+        return original(**kwargs)
+    monkeypatch.setattr(ai.httpx, 'Client', _client)
     return requests
 
 
