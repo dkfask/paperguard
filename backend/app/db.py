@@ -20,6 +20,7 @@ from app.models.project import WritingProject
 from app.models.organization import OrganizationUnit
 from app.models.policy import CheckRun, PolicyAuditEvent, RequirementSet
 from app.models.template import PaperTemplate
+from app.services import secret_store
 
 # Keep the default database beside the other persisted runtime assets.  The
 # Docker Compose volume is mounted at /app/data, which corresponds to this
@@ -34,7 +35,26 @@ SCHEMA_MIGRATIONS = (
     "0006_validation_runs",
     "0007_document_scope_indexes",
     "0008_miniprogram_auth",
+    "0009_ai_usage_quota",
+    "0010_tenant_system_settings",
+    "0011_runtime_tenancy",
+    "0012_ai_request_ledger",
+    "0013_saas_approval_pilot",
+    "0014_ai_tenant_idempotency",
 )
+
+
+def data_dir() -> Path:
+    """数据目录：与数据库同源，保证归档/附件等持久化产物与 DB 落在同一备份域。
+
+    优先级与 `_default_db_path` 一致：PAPERGUARD_DB_PATH 的父目录 > PAPERGUARD_DATA_DIR > 仓库默认目录。
+    历史实现里归档目录按 `__file__` 解析为 backend/data/archives，与实际配置的 DB 位置脱钩，
+    导致发布切换代码目录时归档被带走、且不在按数据目录做的备份范围内。
+    """
+    value = os.environ.get("PAPERGUARD_DB_PATH", "").strip()
+    if value:
+        return Path(value).expanduser().resolve().parent
+    return Path(os.environ.get("PAPERGUARD_DATA_DIR", str(_DEFAULT_DB_PATH.parent))).expanduser().resolve()
 
 
 def _default_db_path() -> Path:
@@ -42,7 +62,7 @@ def _default_db_path() -> Path:
     value = os.environ.get("PAPERGUARD_DB_PATH", "")
     if value:
         return Path(value)
-    return Path(os.environ.get("PAPERGUARD_DATA_DIR", str(_DEFAULT_DB_PATH.parent))) / "paperguard.db"
+    return data_dir() / "paperguard.db"
 
 
 def _now() -> str:
@@ -51,6 +71,16 @@ def _now() -> str:
 
 def new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+class AiQuotaExceeded(RuntimeError):
+    """Raised after an atomic AI request/reservation transaction rejects quota."""
+
+    def __init__(self, code: str, message: str, *, request_id: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.request_id = request_id
 
 
 class Store:
@@ -91,6 +121,54 @@ class Store:
                     data TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS tenants (
+                    id TEXT PRIMARY KEY,
+                    slug TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    auth_version INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS platform_role_bindings (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL UNIQUE,
+                    role_code TEXT NOT NULL CHECK (role_code IN ('platform_admin')),
+                    status TEXT NOT NULL CHECK (status IN ('active','revoked')),
+                    auth_version INTEGER NOT NULL CHECK (auth_version > 0),
+                    approval_ref TEXT NOT NULL,
+                    approved_by TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS saas_provisioning (
+                    command_key TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL UNIQUE REFERENCES tenants(id),
+                    actor_id TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    approval TEXT NOT NULL,
+                    first_owner_id TEXT,
+                    owner_request_version INTEGER,
+                    owner_auth_version INTEGER,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS tenant_memberships (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    capabilities TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    auth_version INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (tenant_id, user_id),
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_memberships_user_status
+                    ON tenant_memberships (user_id, status, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_memberships_tenant_status
+                    ON tenant_memberships (tenant_id, status, updated_at DESC);
                 CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
                     username TEXT UNIQUE NOT NULL,
@@ -167,6 +245,64 @@ class Store:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+                -- AI 用量记账。LLM 是按量计费资源，没有这张表就无法回答
+                -- 「谁花了多少」，也无法按租户分摊成本。
+                -- organization_id 在**调用时**从用户的 organization_context
+                -- 落库（而不是查询时再关联）：用户的学校归属之后可能变，
+                -- 变了会让历史用量的归属跟着漂移，计费口径就不成立了。
+                CREATE TABLE IF NOT EXISTS ai_usage (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    organization_id TEXT,
+                    action TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    base_url_host TEXT,
+                    input_chars INTEGER NOT NULL DEFAULT 0,
+                    output_chars INTEGER NOT NULL DEFAULT 0,
+                    result TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created
+                    ON ai_usage (user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_ai_usage_org_created
+                    ON ai_usage (organization_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS ai_requests (
+                    id TEXT PRIMARY KEY,
+                    idempotency_key TEXT,
+                    request_hash TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    tenant_id TEXT,
+                    membership_id TEXT,
+                    action TEXT NOT NULL,
+                    idempotency_domain TEXT NOT NULL DEFAULT 'historical_legacy',
+                    idempotency_scope TEXT,
+                    auth_version INTEGER NOT NULL DEFAULT 0,
+                    provider TEXT NOT NULL DEFAULT '',
+                    base_url_host TEXT,
+                    model TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    reservation_status TEXT NOT NULL DEFAULT 'reserved',
+                    response_text TEXT,
+                    error_code TEXT,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_requests_idempotency_domain
+                    ON ai_requests (idempotency_domain, idempotency_scope, action, idempotency_key)
+                    WHERE idempotency_key IS NOT NULL AND idempotency_key != '';
+                CREATE INDEX IF NOT EXISTS idx_ai_requests_tenant_status
+                    ON ai_requests (tenant_id, status, created_at DESC);
+                -- 每用户每日配额计数。period 用 UTC 日期，避免跨时区当天额度错乱。
+                CREATE TABLE IF NOT EXISTS ai_quota (
+                    user_id TEXT NOT NULL,
+                    period TEXT NOT NULL,
+                    used INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, period)
                 );
                 CREATE TABLE IF NOT EXISTS requirement_sets (
                     id TEXT PRIMARY KEY,
@@ -379,11 +515,139 @@ class Store:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
                 "ON users(email) WHERE email IS NOT NULL AND email != ''"
             )
+            # 0010: system_settings 增加 organization_id 维度。
+            # 修复前该表是全局键值表（key 为主键），意味着**一套部署服务多个
+            # 学校**时，任一学校用的 AI 模型配置是同一个——所有租户的论文正文
+            # 流向同一个外部处理者，而平台无从按租户区分。
+            #
+            # SQLite 无法直接给已有表改主键，只能重建。存量行一律归到
+            # organization_id=''（平台全局默认），因此升级后行为不回退：
+            # 原来生效的配置仍然生效，只是从此可以被单校覆盖。
+            # 0011: materialize tenant and membership runtime storage.
+            # Existing organization_context remains a legacy compatibility view;
+            # no user supplied tenant id is trusted until a membership exists.
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status, id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memberships_capability ON tenant_memberships(tenant_id, status)")
+
+            # 0014: widen AI idempotency from the historical (user, key)
+            # tuple to an explicit authorization domain. Existing rows are
+            # preserved as historical facts and are never guessed into a
+            # tenant/member scope.
+            self._migrate_ai_request_idempotency(conn)
+
+            settings_columns = {row[1] for row in conn.execute("PRAGMA table_info(system_settings)")}
+            if "organization_id" not in settings_columns:
+                conn.execute("ALTER TABLE system_settings RENAME TO system_settings_legacy")
+                conn.execute(
+                    "CREATE TABLE system_settings ("
+                    "  key TEXT NOT NULL,"
+                    "  organization_id TEXT NOT NULL DEFAULT '',"
+                    "  value TEXT NOT NULL,"
+                    "  updated_at TEXT NOT NULL,"
+                    "  PRIMARY KEY (key, organization_id)"
+                    ")"
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO system_settings (key, organization_id, value, updated_at) "
+                    "SELECT key, '', value, updated_at FROM system_settings_legacy"
+                )
+                conn.execute("DROP TABLE system_settings_legacy")
             for version in SCHEMA_MIGRATIONS:
                 conn.execute(
                     "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                     (version, _now()),
                 )
+
+    def _migrate_ai_request_idempotency(self, conn: sqlite3.Connection) -> None:
+        # A prior interrupted/fixture rebuild can leave named indexes attached
+        # to a renamed table. Remove only those stale names so the new table
+        # receives the intended indexes below; data rows remain untouched.
+        for index_name in (
+            "uq_ai_requests_idempotency_domain",
+            "idx_ai_requests_tenant_status",
+            "idx_ai_requests_idempotency_lookup",
+        ):
+            index = conn.execute(
+                "SELECT tbl_name FROM sqlite_master WHERE type='index' AND name=?",
+                (index_name,),
+            ).fetchone()
+            if index and index[0] != "ai_requests":
+                conn.execute(f"DROP INDEX IF EXISTS {index_name}")
+
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(ai_requests)")}
+        table = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='ai_requests'"
+        ).fetchone()
+        table_sql = str(table[0] or "") if table else ""
+        needs_rebuild = (
+            not {"idempotency_domain", "idempotency_scope", "auth_version"}.issubset(columns)
+            or "UNIQUE (user_id, idempotency_key)" in table_sql
+        )
+        if needs_rebuild:
+            conn.execute("ALTER TABLE ai_requests RENAME TO ai_requests_legacy_0014")
+            conn.execute(
+                """CREATE TABLE ai_requests (
+                    id TEXT PRIMARY KEY,
+                    idempotency_key TEXT,
+                    request_hash TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    tenant_id TEXT,
+                    membership_id TEXT,
+                    action TEXT NOT NULL,
+                    idempotency_domain TEXT NOT NULL DEFAULT 'historical_legacy',
+                    idempotency_scope TEXT,
+                    auth_version INTEGER NOT NULL DEFAULT 0,
+                    provider TEXT NOT NULL DEFAULT '',
+                    base_url_host TEXT,
+                    model TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    reservation_status TEXT NOT NULL DEFAULT 'reserved',
+                    response_text TEXT,
+                    error_code TEXT,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )"""
+            )
+            old_columns = {row[1] for row in conn.execute("PRAGMA table_info(ai_requests_legacy_0014)")}
+            required = {
+                "id", "idempotency_key", "request_hash", "user_id", "tenant_id",
+                "membership_id", "action", "provider", "base_url_host", "model",
+                "status", "reservation_status", "response_text", "error_code",
+                "input_tokens", "output_tokens", "created_at", "updated_at",
+            }
+            if not required.issubset(old_columns):
+                raise RuntimeError("ai_requests legacy schema is incomplete")
+            conn.execute(
+                """INSERT INTO ai_requests (
+                    id, idempotency_key, request_hash, user_id, tenant_id,
+                    membership_id, action, idempotency_domain, idempotency_scope,
+                    auth_version, provider, base_url_host, model, status,
+                    reservation_status, response_text, error_code, input_tokens,
+                    output_tokens, created_at, updated_at
+                )
+                SELECT id, idempotency_key, request_hash, user_id, tenant_id,
+                       membership_id, action, 'historical_legacy',
+                       'historical:' || user_id, 0, provider, base_url_host, model,
+                       status, reservation_status, response_text, error_code,
+                       input_tokens, output_tokens, created_at, updated_at
+                  FROM ai_requests_legacy_0014"""
+            )
+            conn.execute("DROP TABLE ai_requests_legacy_0014")
+        conn.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_requests_idempotency_domain
+               ON ai_requests (idempotency_domain, idempotency_scope, action, idempotency_key)
+             WHERE idempotency_key IS NOT NULL AND idempotency_key != ''"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_requests_tenant_status "
+            "ON ai_requests (tenant_id, status, created_at DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_requests_idempotency_lookup "
+            "ON ai_requests (idempotency_domain, idempotency_scope, action, idempotency_key)"
+        )
 
     # ------------------------------ users --------------------------------
 
@@ -448,6 +712,127 @@ class Store:
         if user is None and "@" in identifier:
             user = self.get_user_by_email(identifier)
         return user
+
+    # ------------------------- tenancy runtime -------------------------
+
+    @staticmethod
+    def _membership_row(row: sqlite3.Row | dict | None) -> dict | None:
+        if row is None:
+            return None
+        data = dict(row)
+        try:
+            caps = json.loads(data.get("capabilities") or "[]")
+        except (TypeError, ValueError):
+            caps = []
+        data["capabilities"] = [str(item) for item in caps] if isinstance(caps, list) else []
+        return data
+
+    def create_tenant(self, tenant: dict) -> dict:
+        now = tenant.get("updated_at") or tenant.get("created_at") or _now()
+        payload = {
+            "id": tenant["id"], "slug": tenant["slug"], "name": tenant["name"],
+            "status": tenant.get("status", "active"),
+            "auth_version": int(tenant.get("auth_version", 1)),
+            "created_at": tenant.get("created_at", now), "updated_at": now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO tenants (id, slug, name, status, auth_version, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+                "slug=excluded.slug, name=excluded.name, status=excluded.status, "
+                "auth_version=excluded.auth_version, updated_at=excluded.updated_at",
+                tuple(payload.values()),
+            )
+        return payload
+
+    def get_tenant(self, tenant_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
+        return dict(row) if row else None
+
+    def list_tenants(self, *, status: str | None = "active") -> list[dict]:
+        with self._connect() as conn:
+            if status is None:
+                rows = conn.execute("SELECT * FROM tenants ORDER BY created_at, id").fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM tenants WHERE status = ? ORDER BY created_at, id", (status,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_membership(self, membership: dict) -> dict:
+        now = membership.get("updated_at") or membership.get("created_at") or _now()
+        payload = {
+            "id": membership["id"], "tenant_id": membership["tenant_id"],
+            "user_id": membership["user_id"], "role": membership["role"],
+            "capabilities": json.dumps(sorted({str(x) for x in (membership.get("capabilities") or [])}), ensure_ascii=False),
+            "status": membership.get("status", "active"),
+            "auth_version": int(membership.get("auth_version", 1)),
+            "created_at": membership.get("created_at", now), "updated_at": now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO tenant_memberships (id, tenant_id, user_id, role, capabilities, status, auth_version, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(tenant_id, user_id) DO UPDATE SET "
+                "role=excluded.role, capabilities=excluded.capabilities, status=excluded.status, "
+                "auth_version=tenant_memberships.auth_version + CASE WHEN "
+                "tenant_memberships.role != excluded.role OR "
+                "tenant_memberships.capabilities != excluded.capabilities OR "
+                "tenant_memberships.status != excluded.status THEN 1 ELSE 0 END, "
+                "updated_at=excluded.updated_at",
+                tuple(payload.values()),
+            )
+            row = conn.execute(
+                "SELECT * FROM tenant_memberships WHERE tenant_id = ? AND user_id = ?",
+                (payload["tenant_id"], payload["user_id"]),
+            ).fetchone()
+        return self._membership_row(row)
+
+    def get_membership(self, membership_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM tenant_memberships WHERE id = ?", (membership_id,)).fetchone()
+        return self._membership_row(row)
+
+    def get_membership_for_user(self, user_id: str, tenant_id: str | None = None) -> dict | None:
+        with self._connect() as conn:
+            if tenant_id:
+                row = conn.execute(
+                    "SELECT * FROM tenant_memberships WHERE user_id = ? AND tenant_id = ? AND status = 'active'",
+                    (user_id, tenant_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM tenant_memberships WHERE user_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
+                    (user_id,),
+                ).fetchone()
+        return self._membership_row(row)
+
+    def list_memberships_for_user(self, user_id: str) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tenant_memberships WHERE user_id = ? ORDER BY updated_at DESC, id",
+                (user_id,),
+            ).fetchall()
+        return [self._membership_row(row) for row in rows]
+
+    def list_memberships_for_tenant(self, tenant_id: str, *, active_only: bool = True) -> list[dict]:
+        with self._connect() as conn:
+            query = "SELECT * FROM tenant_memberships WHERE tenant_id = ?"
+            params: list[object] = [tenant_id]
+            if active_only:
+                query += " AND status = 'active'"
+            query += " ORDER BY created_at, id"
+            rows = conn.execute(query, params).fetchall()
+        return [self._membership_row(row) for row in rows]
+
+    def ensure_legacy_tenant_membership(self, user: dict) -> dict | None:
+        """Bridge legacy school context without trusting client input as auth."""
+        context = user.get("organization_context") or {}
+        school_id = str(context.get("school_id") or "").strip()
+        if not school_id:
+            return None
+        # The compatibility helper may inspect an existing row only. A school
+        # hint/global role is not an approved mapping or authority to create it.
+        return next((item for item in self.list_memberships_for_user(user["id"])
+                     if item["tenant_id"] == f"tenant-legacy-{school_id}"), None)
 
     # -------------------------- 邮箱验证码 --------------------------
 
@@ -756,57 +1141,679 @@ class Store:
                 (int(value), user_id),
             )
 
-    def get_user_ai_config(self, user_id: str) -> dict | None:
+    def _member_ai_config_id_conn(
+        self, conn: sqlite3.Connection, user_id: str, tenant_id: str,
+        membership_id: str | None,
+    ) -> str:
+        row = conn.execute(
+            "SELECT m.id, m.capabilities FROM tenant_memberships m "
+            "JOIN tenants t ON t.id=m.tenant_id JOIN users u ON u.id=m.user_id "
+            "WHERE m.user_id=? AND m.tenant_id=? AND m.status='active' "
+            "AND t.status='active' AND u.status='active' AND u.must_change_password=0",
+            (user_id, tenant_id),
+        ).fetchone()
+        if (not row or (membership_id and row['id'] != membership_id)
+                or 'tenant:read' not in json.loads(row['capabilities'] or '[]')):
+            raise PermissionError("AI member configuration scope denied")
+        # JSON tuple is unambiguous even for IDs containing punctuation.
+        return json.dumps([tenant_id, row['id'], user_id], separators=(',', ':'))
+
+    def get_user_ai_config(self, user_id: str, *, tenant_id: str | None = None,
+                           membership_id: str | None = None) -> dict | None:
+        if tenant_id:
+            with self.workflow_transaction() as conn:
+                scope_id = self._member_ai_config_id_conn(conn, user_id, tenant_id, membership_id)
+                row = conn.execute(
+                    "SELECT data FROM workflow_records WHERE kind='ai_member_config' AND id=?",
+                    (scope_id,),
+                ).fetchone()
+                # Native members must never inherit the global user's BYOK.
+                return secret_store.reveal_config(json.loads(row['data'])['config']) if row else None
         user = self.get_user(user_id)
         if not user or not user.get("ai_config"):
             return None
         try:
-            return json.loads(user["ai_config"])
+            data = json.loads(user["ai_config"])
         except (TypeError, ValueError):
             return None
+        # Plaintext/invalid historical credentials fail closed; no implicit migration.
+        return secret_store.reveal_config(data) if isinstance(data, dict) else None
 
-    def set_user_ai_config(self, user_id: str, cfg: dict | None) -> None:
-        payload = json.dumps(cfg, ensure_ascii=False) if cfg else None
+    def set_user_ai_config(self, user_id: str, cfg: dict | None, *,
+                           tenant_id: str | None = None, membership_id: str | None = None) -> None:
+        if tenant_id:
+            with self.workflow_transaction() as conn:
+                scope_id = self._member_ai_config_id_conn(conn, user_id, tenant_id, membership_id)
+                if cfg is None:
+                    conn.execute("DELETE FROM workflow_records WHERE kind='ai_member_config' AND id=?", (scope_id,))
+                else:
+                    now = _now()
+                    record = {'tenant_id': tenant_id, 'user_id': user_id,
+                              'config': secret_store.protect_config(cfg)}
+                    conn.execute(
+                        "INSERT INTO workflow_records(kind,id,data,created_at,updated_at) VALUES(?,?,?,?,?) "
+                        "ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at",
+                        ('ai_member_config', scope_id, self._workflow_payload(record), now, now),
+                    )
+                self.save_audit_event_conn(conn, {
+                    'id': new_id('audit'), 'actor_id': user_id, 'organization_id': tenant_id,
+                    'action': 'ai.config.saved' if cfg else 'ai.config.cleared',
+                    'resource_type': 'ai_config:member', 'resource_id': scope_id,
+                })
+            return
+        payload = json.dumps(secret_store.protect_config(cfg), ensure_ascii=False) if cfg else None
         with self._connect() as conn:
             conn.execute(
                 "UPDATE users SET ai_config = ? WHERE id = ?",
                 (payload, user_id),
             )
 
-    # ----------------------- system settings -----------------------
+    # ----------------------- AI 用量与配额 -----------------------
 
-    def get_system_setting(self, key: str) -> str | None:
+    def record_ai_usage(self, entry: dict) -> None:
+        """记录一次 AI 调用。失败也记——失败同样消耗上游额度与成本。"""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO ai_usage (id, user_id, organization_id, action, source, model,"
+                " base_url_host, input_chars, output_chars, result, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    entry["id"],
+                    entry["user_id"],
+                    entry.get("organization_id"),
+                    entry["action"],
+                    entry["source"],
+                    entry["model"],
+                    entry.get("base_url_host"),
+                    int(entry.get("input_chars") or 0),
+                    int(entry.get("output_chars") or 0),
+                    entry["result"],
+                    entry["created_at"],
+                ),
+            )
+
+    def get_ai_quota_used(self, user_id: str, period: str) -> int:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT value FROM system_settings WHERE key = ?", (key,)
+                "SELECT used FROM ai_quota WHERE user_id = ? AND period = ?",
+                (user_id, period),
+            ).fetchone()
+        return int(row["used"]) if row else 0
+
+    def consume_ai_quota(self, user_id: str, period: str, now: str, limit: int) -> bool:
+        """原子地占用一次配额；超限返回 False 且不占用。
+
+        必须用一条 INSERT ... ON CONFLICT 带条件更新完成，不能「先查后写」——
+        那是经典的并发竞态：两个请求同时读到 used=limit-1，双双通过检查。
+    """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO ai_quota (user_id, period, used, updated_at) VALUES (?, ?, 1, ?)"
+                " ON CONFLICT(user_id, period) DO UPDATE SET"
+                "   used = used + 1, updated_at = excluded.updated_at"
+                " WHERE used < ?",
+                (user_id, period, now, limit),
+            )
+            return cur.rowcount > 0
+
+    @staticmethod
+    def _consume_ai_quota_conn(
+        conn: sqlite3.Connection, quota_scope: str, period: str, now: str, limit: int
+    ) -> bool:
+        cur = conn.execute(
+            "INSERT INTO ai_quota (user_id, period, used, updated_at) VALUES (?, ?, 1, ?)"
+            " ON CONFLICT(user_id, period) DO UPDATE SET"
+            "   used = used + 1, updated_at = excluded.updated_at"
+            " WHERE used < ?",
+            (quota_scope, period, now, limit),
+        )
+        return cur.rowcount > 0
+
+    @staticmethod
+    def _release_ai_quota_conn(
+        conn: sqlite3.Connection, quota_scope: str, period: str, now: str
+    ) -> None:
+        conn.execute(
+            "UPDATE ai_quota SET used = MAX(0, used - 1), updated_at = ?"
+            " WHERE user_id = ? AND period = ?",
+            (now, quota_scope, period),
+        )
+
+    def release_ai_quota(self, user_id: str, period: str, now: str) -> None:
+        """回退一次占用。请求在上游报错**之前**就被拒绝时不该占额度。"""
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE ai_quota SET used = MAX(0, used - 1), updated_at = ?"
+                " WHERE user_id = ? AND period = ?",
+                (now, user_id, period),
+            )
+
+    def ai_usage_summary(self, *, since: str | None = None, limit: int = 100) -> list[dict]:
+        """用量汇总（按用户 + 学校），供管理端查看与成本分摊。"""
+        with self._connect() as conn:
+            if since:
+                rows = conn.execute(
+                    "SELECT user_id, organization_id, COUNT(*) AS calls,"
+                    " SUM(input_chars) AS input_chars, SUM(output_chars) AS output_chars"
+                    " FROM ai_usage WHERE created_at >= ?"
+                    " GROUP BY user_id, organization_id ORDER BY calls DESC LIMIT ?",
+                    (since, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT user_id, organization_id, COUNT(*) AS calls,"
+                    " SUM(input_chars) AS input_chars, SUM(output_chars) AS output_chars"
+                    " FROM ai_usage"
+                    " GROUP BY user_id, organization_id ORDER BY calls DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    # ----------------------- AI request ledger -----------------------
+
+    def get_ai_request_by_idempotency(
+        self, user_id: str, idempotency_key: str, *,
+        idempotency_domain: str | None = None, idempotency_scope: str | None = None,
+        action: str | None = None, include_historical: bool = True,
+    ) -> dict | None:
+        """Read one request without treating legacy rows as tenant evidence.
+
+        The two-argument form is retained for old operational callers/tests, but
+        new dispatch code must provide the explicit domain/scope/action tuple.
+        """
+        if not idempotency_key:
+            return None
+        with self._connect() as conn:
+            if idempotency_domain is not None and idempotency_scope is not None and action is not None:
+                row = conn.execute(
+                    "SELECT * FROM ai_requests WHERE idempotency_domain=? AND idempotency_scope=? "
+                    "AND action=? AND idempotency_key=?",
+                    (idempotency_domain, idempotency_scope, action, idempotency_key),
+                ).fetchone()
+            else:
+                sql = "SELECT * FROM ai_requests WHERE user_id=? AND idempotency_key=?"
+                params: list[object] = [user_id, idempotency_key]
+                if not include_historical:
+                    sql += " AND idempotency_domain != 'historical_legacy'"
+                sql += " ORDER BY created_at DESC, id DESC LIMIT 1"
+                row = conn.execute(sql, params).fetchone()
+        return dict(row) if row else None
+
+    def register_ai_request(self, entry: dict) -> tuple[dict, bool]:
+        """Atomically find-or-register one dispatch request.
+
+        BEGIN IMMEDIATE plus the scoped partial unique index means concurrent
+        callers cannot both become dispatchers. Historical rows are deliberately
+        outside the new domain and do not block a tenant request.
+        """
+        now = entry.get("created_at") or _now()
+        payload = {
+            "id": entry["id"], "idempotency_key": entry.get("idempotency_key") or None,
+            "request_hash": entry["request_hash"], "user_id": entry["user_id"],
+            "tenant_id": entry.get("tenant_id"), "membership_id": entry.get("membership_id"),
+            "action": entry["action"],
+            "idempotency_domain": entry.get("idempotency_domain", "legacy"),
+            "idempotency_scope": entry.get("idempotency_scope") or entry["user_id"],
+            "auth_version": int(entry.get("auth_version") or 0),
+            "provider": entry.get("provider", ""), "base_url_host": entry.get("base_url_host"),
+            "model": entry.get("model", ""), "status": entry.get("status", "reserved"),
+            "reservation_status": entry.get("reservation_status", "reserved"),
+            "response_text": entry.get("response_text"), "error_code": entry.get("error_code"),
+            "input_tokens": int(entry.get("input_tokens") or 0),
+            "output_tokens": int(entry.get("output_tokens") or 0),
+            "created_at": now, "updated_at": entry.get("updated_at") or now,
+        }
+        with self.workflow_transaction() as conn:
+            key = payload["idempotency_key"]
+            if key:
+                existing = conn.execute(
+                    "SELECT * FROM ai_requests WHERE idempotency_domain=? AND idempotency_scope=? "
+                    "AND action=? AND idempotency_key=?",
+                    (payload["idempotency_domain"], payload["idempotency_scope"], payload["action"], key),
+                ).fetchone()
+                if existing:
+                    return dict(existing), False
+            conn.execute(
+                "INSERT INTO ai_requests (id, idempotency_key, request_hash, user_id, tenant_id, membership_id, action, "
+                "idempotency_domain, idempotency_scope, auth_version, provider, base_url_host, model, status, "
+                "reservation_status, response_text, error_code, input_tokens, output_tokens, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(payload.values()),
+            )
+            return payload, True
+
+    def register_ai_request_with_reservation(
+        self,
+        entry: dict,
+        *,
+        quota_scope: str,
+        day_period: str,
+        minute_period: str,
+        daily_limit: int,
+        burst_limit: int,
+        quota_source: str,
+        quota_config_keys: list[str] | tuple[str, ...],
+    ) -> tuple[dict, bool]:
+        """Register one request and reserve both quota windows atomically.
+
+        The request row, both quota counters, reservation sidecar and audit event
+        share one ``BEGIN IMMEDIATE`` transaction. A quota rejection is retained
+        as a durable pre-dispatch fact, but no quota counter or reservation is
+        left behind. The sidecar deliberately reuses ``workflow_records`` so this
+        SQLite/local slice does not introduce a financial-ledger table.
+        """
+        if any(type(value) is not int or value < 1 for value in (daily_limit, burst_limit)):
+            raise ValueError("quota limits must be positive integers")
+        expected_scope = f"tenant:{entry['idempotency_scope']}" if entry.get('idempotency_domain') == 'tenant' else entry['user_id']
+        if quota_scope != expected_scope or day_period == minute_period:
+            raise ValueError("quota snapshot scope/windows do not match request")
+        now = entry.get("created_at") or _now()
+        payload = {
+            "id": entry["id"], "idempotency_key": entry.get("idempotency_key") or None,
+            "request_hash": entry["request_hash"], "user_id": entry["user_id"],
+            "tenant_id": entry.get("tenant_id"), "membership_id": entry.get("membership_id"),
+            "action": entry["action"],
+            "idempotency_domain": entry.get("idempotency_domain", "legacy"),
+            "idempotency_scope": entry.get("idempotency_scope") or entry["user_id"],
+            "auth_version": int(entry.get("auth_version") or 0),
+            "provider": entry.get("provider", ""), "base_url_host": entry.get("base_url_host"),
+            "model": entry.get("model", ""), "status": "reserved",
+            "reservation_status": "reserved", "response_text": None,
+            "error_code": None, "input_tokens": int(entry.get("input_tokens") or 0),
+            "output_tokens": int(entry.get("output_tokens") or 0),
+            "created_at": now, "updated_at": entry.get("updated_at") or now,
+        }
+        quota_error: tuple[str, str] | None = None
+        with self.workflow_transaction() as conn:
+            key = payload["idempotency_key"]
+            if key:
+                existing = conn.execute(
+                    "SELECT * FROM ai_requests WHERE idempotency_domain=? AND idempotency_scope=? "
+                    "AND action=? AND idempotency_key=?",
+                    (payload["idempotency_domain"], payload["idempotency_scope"], payload["action"], key),
+                ).fetchone()
+                if existing:
+                    return dict(existing), False
+            self._validate_ai_request_authorization_conn(conn, payload)
+            conn.execute(
+                "INSERT INTO ai_requests (id, idempotency_key, request_hash, user_id, tenant_id, membership_id, action, "
+                "idempotency_domain, idempotency_scope, auth_version, provider, base_url_host, model, status, "
+                "reservation_status, response_text, error_code, input_tokens, output_tokens, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(payload.values()),
+            )
+            stamp = now
+            if not self._consume_ai_quota_conn(conn, quota_scope, minute_period, stamp, burst_limit):
+                quota_error = (
+                    "AI_RATE_LIMITED",
+                    f"操作过于频繁，请稍后再试（每分钟最多 {burst_limit} 次）",
+                )
+            elif not self._consume_ai_quota_conn(conn, quota_scope, day_period, stamp, daily_limit):
+                self._release_ai_quota_conn(conn, quota_scope, minute_period, stamp)
+                quota_error = (
+                    "AI_DAILY_QUOTA_EXCEEDED",
+                    f"今日 AI 调用次数已达上限（{daily_limit} 次），明日 0 时（UTC）重置",
+                )
+            if quota_error:
+                code, _message = quota_error
+                conn.execute(
+                    "UPDATE ai_requests SET status='failed_final', reservation_status='released', "
+                    "error_code=?, updated_at=? WHERE id=?",
+                    (code, stamp, payload["id"]),
+                )
+                self.save_audit_event_conn(conn, {
+                    "id": new_id("audit"), "actor_id": payload["user_id"],
+                    "action": "ai.quota.rejected", "resource_type": "ai_request",
+                    "resource_id": payload["id"],
+                    "reason": json.dumps({"code": code, "quota_scope": quota_scope}, sort_keys=True),
+                })
+            else:
+                reservation = {
+                    "id": payload["id"], "request_id": payload["id"],
+                    "tenant_id": payload["tenant_id"], "membership_id": payload["membership_id"],
+                    "user_id": payload["user_id"], "idempotency_domain": payload["idempotency_domain"],
+                    "idempotency_scope": payload["idempotency_scope"], "action": payload["action"],
+                    "unit": "request", "quantity": 1, "state": "reserved", "revision": 0,
+                    "auth_version": payload["auth_version"],
+                    "quota_scope": quota_scope, "quota_source": quota_source,
+                    "quota_config_keys": list(quota_config_keys),
+                    "daily_limit": daily_limit, "burst_limit": burst_limit,
+                    "day_period": day_period, "minute_period": minute_period,
+                    "billable": False, "created_at": now, "updated_at": now,
+                }
+                conn.execute(
+                    "INSERT INTO workflow_records (kind,id,data,created_at,updated_at) VALUES (?,?,?,?,?)",
+                    ("ai_quota_reservation", payload["id"], self._workflow_payload(reservation), now, now),
+                )
+                self.save_audit_event_conn(conn, {
+                    "id": new_id("audit"), "actor_id": payload["user_id"],
+                    "action": "ai.quota.reserved", "resource_type": "ai_request",
+                    "resource_id": payload["id"],
+                    "reason": json.dumps({"quota_scope": quota_scope, "billable": False}, sort_keys=True),
+                })
+        if quota_error:
+            code, message = quota_error
+            raise AiQuotaExceeded(code, message, request_id=payload["id"])
+        return payload, True
+
+    def get_ai_quota_reservation(self, request_id: str) -> dict | None:
+        return self.get_workflow_record("ai_quota_reservation", request_id)
+
+    def _validate_ai_request_authorization_conn(self, conn: sqlite3.Connection, request: dict) -> None:
+        user = conn.execute("SELECT status,must_change_password FROM users WHERE id=?", (request['user_id'],)).fetchone()
+        domain = request['idempotency_domain']
+        if (user and (user['status'] != 'active' or (domain in {'tenant', 'platform'} and user['must_change_password']))) or (domain in {'tenant', 'platform'} and not user):
+            raise PermissionError("AI request account authorization changed")
+        if domain == 'tenant':
+            member = conn.execute(
+                "SELECT m.auth_version,m.capabilities FROM tenant_memberships m JOIN tenants t ON t.id=m.tenant_id "
+                "WHERE m.id=? AND m.tenant_id=? AND m.user_id=? AND m.status='active' AND t.status='active'",
+                (request['membership_id'], request['tenant_id'], request['user_id']),
+            ).fetchone()
+            if (not member or member['auth_version'] != request['auth_version']
+                    or 'tenant:read' not in json.loads(member['capabilities'] or '[]')):
+                raise PermissionError("AI request membership authorization changed")
+        elif domain == 'platform':
+            binding = conn.execute(
+                "SELECT auth_version FROM platform_role_bindings WHERE user_id=? AND status='active' AND role_code='platform_admin'",
+                (request['user_id'],),
+            ).fetchone()
+            if not binding or binding['auth_version'] != request['auth_version']:
+                raise PermissionError("AI request platform authorization changed")
+
+    @staticmethod
+    def _validate_ai_reservation_binding(request: dict, reservation: dict) -> None:
+        fields = ('user_id', 'tenant_id', 'membership_id', 'action', 'idempotency_domain', 'idempotency_scope')
+        expected_scope = f"tenant:{request['idempotency_scope']}" if request['idempotency_domain'] == 'tenant' else request['user_id']
+        if (reservation.get('request_id') != request['id']
+                or any(reservation.get(key) != request[key] for key in fields)
+                or reservation.get('quota_scope') != expected_scope
+                or reservation.get('auth_version', request['auth_version']) != request['auth_version']
+                or reservation.get('quantity') != 1 or reservation.get('unit') != 'request'
+                or reservation.get('billable') is not False):
+            raise ValueError("AI reservation scope binding mismatch")
+
+    def _update_ai_quota_reservation_conn(
+        self, conn: sqlite3.Connection, request_id: str, *, state: str,
+        expected_state: str | None = None, **extra: object,
+    ) -> dict | None:
+        row = conn.execute(
+            "SELECT data FROM workflow_records WHERE kind='ai_quota_reservation' AND id=?",
+            (request_id,),
+        ).fetchone()
+        if not row:
+            return None
+        record = json.loads(row["data"])
+        if expected_state is not None and record.get("state") != expected_state:
+            raise ValueError("AI reservation transition conflict")
+        record["state"] = state
+        record["revision"] = int(record.get("revision") or 0) + 1
+        record.update(extra)
+        record["updated_at"] = _now()
+        cur = conn.execute(
+            "UPDATE workflow_records SET data=?, updated_at=? WHERE kind='ai_quota_reservation' AND id=?",
+            (self._workflow_payload(record), record["updated_at"], request_id),
+        )
+        return record if cur.rowcount == 1 else None
+
+    def mark_ai_request_dispatching(self, request_id: str) -> dict | None:
+        with self.workflow_transaction() as conn:
+            row = conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone()
+            if not row:
+                return None
+            if row["status"] != "reserved":
+                raise ValueError("AI request cannot be dispatched twice")
+            self._validate_ai_request_authorization_conn(conn, dict(row))
+            sidecar = conn.execute("SELECT data FROM workflow_records WHERE kind='ai_quota_reservation' AND id=?", (request_id,)).fetchone()
+            if not sidecar:
+                raise ValueError("AI reservation missing")
+            self._validate_ai_reservation_binding(dict(row), json.loads(sidecar['data']))
+            reservation = self._update_ai_quota_reservation_conn(
+                conn, request_id, state="dispatching", expected_state="reserved"
+            )
+            if reservation is None or reservation.get("state") != "dispatching":
+                raise RuntimeError("AI reservation missing or already consumed")
+            conn.execute(
+                "UPDATE ai_requests SET status='dispatching', reservation_status='consumed', updated_at=? WHERE id=?",
+                (_now(), request_id),
+            )
+            return dict(conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone())
+
+    def mark_ai_request_outcome(
+        self, request_id: str, *, status: str, reservation_status: str,
+        error_code: str | None = None, input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> dict | None:
+        with self.workflow_transaction() as conn:
+            row = conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone()
+            if not row:
+                return None
+            if row["status"] == "completed":
+                return dict(row)
+            if status not in {'unknown', 'reconciliation_required', 'failed_final'}:
+                raise ValueError("invalid AI outcome")
+            if row['status'] in {'unknown', 'reconciliation_required'} and status == 'failed_final':
+                raise ValueError("unknown AI outcome must stay frozen")
+            if row['reservation_status'] == 'released':
+                raise ValueError("released AI reservation cannot be consumed")
+            state = "unknown" if status in {"unknown", "reconciliation_required"} else "consumed"
+            reservation = self._update_ai_quota_reservation_conn(
+                conn, request_id, state=state,
+                expected_state="dispatching" if row["status"] == "dispatching" else None,
+                error_code=error_code,
+            )
+            changes = ["status=?", "reservation_status=?", "error_code=?", "updated_at=?"]
+            params: list[object] = [status, reservation_status, error_code, _now()]
+            if input_tokens is not None:
+                changes.append("input_tokens=?"); params.append(input_tokens)
+            if output_tokens is not None:
+                changes.append("output_tokens=?"); params.append(output_tokens)
+            params.append(request_id)
+            conn.execute(f"UPDATE ai_requests SET {', '.join(changes)} WHERE id=?", params)
+            return dict(conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone())
+
+    def release_ai_request_reservation(
+        self, request_id: str, *, reason: str, proven_not_dispatched: bool,
+    ) -> bool:
+        """Release only a still-reserved request; repeat calls are idempotent."""
+        if not proven_not_dispatched:
+            raise ValueError("explicit proof of non-dispatch is required")
+        with self.workflow_transaction() as conn:
+            row = conn.execute("SELECT * FROM ai_requests WHERE id=?", (request_id,)).fetchone()
+            reservation_row = conn.execute(
+                "SELECT data FROM workflow_records WHERE kind='ai_quota_reservation' AND id=?", (request_id,)
+            ).fetchone()
+            if not row or not reservation_row:
+                return False
+            reservation = json.loads(reservation_row["data"])
+            self._validate_ai_reservation_binding(dict(row), reservation)
+            if reservation.get("state") == "released":
+                return True
+            if reservation.get("state") != "reserved" or row["status"] != "reserved":
+                return False
+            self._release_ai_quota_conn(conn, reservation["quota_scope"], reservation["minute_period"], _now())
+            self._release_ai_quota_conn(conn, reservation["quota_scope"], reservation["day_period"], _now())
+            self._update_ai_quota_reservation_conn(
+                conn, request_id, state="released", expected_state="reserved", release_reason=reason,
+            )
+            conn.execute(
+                "UPDATE ai_requests SET status='failed_final', reservation_status='released', "
+                "error_code='AI_PRE_DISPATCH_RELEASED', updated_at=? WHERE id=?",
+                (_now(), request_id),
+            )
+            self.save_audit_event_conn(conn, {
+                "id": new_id("audit"), "actor_id": row["user_id"],
+                "action": "ai.quota.released", "resource_type": "ai_request",
+                "resource_id": request_id, "reason": reason,
+            })
+            return True
+
+    def create_ai_request(self, entry: dict) -> dict:
+        """Compatibility insert for fixtures and offline migration tools."""
+        payload = dict(entry)
+        if payload.get("idempotency_key") and "idempotency_domain" not in payload:
+            payload["idempotency_domain"] = "legacy"
+            payload["idempotency_scope"] = payload.get("user_id")
+        return self.register_ai_request(payload)[0]
+
+    def update_ai_request(self, request_id: str, **changes: object) -> None:
+        allowed = {
+            "status", "reservation_status", "response_text", "error_code",
+            "input_tokens", "output_tokens", "updated_at",
+        }
+        changes = {key: value for key, value in changes.items() if key in allowed}
+        if not changes:
+            return
+        changes.setdefault("updated_at", _now())
+        assignments = ", ".join(f"{key} = ?" for key in changes)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE ai_requests SET {assignments} WHERE id = ?",
+                (*changes.values(), request_id),
+            )
+
+    def list_ai_requests(self, *, tenant_id: str | None = None, limit: int = 100) -> list[dict]:
+        with self._connect() as conn:
+            if tenant_id is None:
+                rows = conn.execute(
+                    "SELECT * FROM ai_requests ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (max(1, min(limit, 1000)),),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM ai_requests WHERE tenant_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (tenant_id, max(1, min(limit, 1000))),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_scoped_ai_request(self, request_id: str, *, tenant_id: str, user_id: str | None, membership_id: str | None) -> dict | None:
+        if not tenant_id:
+            raise ValueError("tenant scope required")
+        sql = "SELECT * FROM ai_requests WHERE id=? AND tenant_id=? AND membership_id IS NOT NULL"
+        params = [request_id, tenant_id]
+        if user_id is not None:
+            sql += " AND user_id=? AND membership_id=?"
+            params.extend([user_id, membership_id])
+        with self._connect() as conn:
+            row = conn.execute(sql, params).fetchone()
+        return dict(row) if row else None
+
+    def list_scoped_ai_requests(self, *, tenant_id: str, user_id: str | None, membership_id: str | None, limit: int = 100) -> list[dict]:
+        if not tenant_id:
+            raise ValueError("tenant scope required")
+        sql = "SELECT * FROM ai_requests WHERE tenant_id=? AND membership_id IS NOT NULL"
+        params = [tenant_id]
+        if user_id is not None:
+            sql += " AND user_id=? AND membership_id=?"
+            params.extend([user_id, membership_id])
+        sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        params.append(max(1, min(limit, 100)))
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_ai_reconciliation(self, request_id: str, *, tenant_id: str, actor_id: str, membership_id: str, auth_version: int, request_correlation_id: str):
+        """CAS unknown -> reconciliation_required + append audit in ONE transaction.
+
+        No refund, dispatch, response text change or final supplier assertion.
+        Audit tenant identity is metadata, NOT the legacy organization_id.
+        """
+        if not tenant_id or not actor_id or not membership_id or auth_version < 1:
+            raise ValueError("resolved member identity required")
+        with self.workflow_transaction() as conn:
+            current = conn.execute(
+                "SELECT m.id FROM tenant_memberships m JOIN users u ON u.id=m.user_id JOIN tenants t ON t.id=m.tenant_id "
+                "WHERE m.id=? AND m.tenant_id=? AND m.user_id=? AND m.auth_version=? "
+                "AND m.status='active' AND u.status='active' AND u.must_change_password=0 AND t.status='active'",
+                (membership_id, tenant_id, actor_id, auth_version),
+            ).fetchone()
+            if current is None:
+                raise PermissionError("authorization snapshot is stale")
+            row = conn.execute("SELECT * FROM ai_requests WHERE id=? AND tenant_id=? AND membership_id IS NOT NULL", (request_id, tenant_id)).fetchone()
+            if row is None:
+                return None
+            row = dict(row)
+            if row["status"] != "unknown":
+                return row, row["status"] == "reconciliation_required"
+            changed = conn.execute("UPDATE ai_requests SET status='reconciliation_required', updated_at=? WHERE id=? AND tenant_id=? AND status='unknown'", (_now(), request_id, tenant_id))
+            if changed.rowcount != 1:
+                raise RuntimeError("AI reconciliation compare-and-swap failed")
+            self.save_audit_event_conn(conn, {
+                "actor_id": actor_id, "action": "ai.request_reconciliation", "resource_type": "ai_request", "resource_id": request_id,
+                "request_id": request_correlation_id, "reason": json.dumps({"tenant_id": tenant_id, "membership_id": membership_id,
+                    "auth_version": auth_version, "before": "unknown", "after": "reconciliation_required", "reason_code": "unknown_external_result"}, sort_keys=True),
+            })
+            updated = conn.execute("SELECT * FROM ai_requests WHERE id=? AND tenant_id=?", (request_id, tenant_id)).fetchone()
+            return dict(updated), False
+
+    # ----------------------- system settings -----------------------
+
+    def get_system_setting(self, key: str, organization_id: str = "") -> str | None:
+        """读取系统设置。
+
+        `organization_id` 非空时只读**该学校自己的**配置，读不到不回退——
+        调用方需要显式决定是否回退到全局（见 `get_tenant_system_setting`）。
+        两者混在一处会让人误以为「A 校读不到就自动用平台配置」，
+        而那正是 S2 要修的跨租户数据外流。
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM system_settings WHERE key = ? AND organization_id = ?",
+                (key, organization_id or ""),
             ).fetchone()
         return row["value"] if row else None
 
-    def set_system_setting(self, key: str, value: str | None) -> None:
+    def get_tenant_system_setting(self, key: str, organization_id: str = "") -> str | None:
+        """先读本租户配置，回退到平台全局默认。"""
+        value = self.get_system_setting(key, organization_id)
+        if value is not None:
+            return value
+        if organization_id:
+            return self.get_system_setting(key, "")
+        return None
+
+    def set_system_setting(self, key: str, value: str | None, organization_id: str = "") -> None:
+        org = organization_id or ""
         with self._connect() as conn:
             if value is None:
-                conn.execute("DELETE FROM system_settings WHERE key = ?", (key,))
+                conn.execute(
+                    "DELETE FROM system_settings WHERE key = ? AND organization_id = ?",
+                    (key, org),
+                )
             else:
                 conn.execute(
-                    "INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)",
-                    (key, value, _now()),
+                    "INSERT OR REPLACE INTO system_settings (key, organization_id, value, updated_at)"
+                    " VALUES (?, ?, ?, ?)",
+                    (key, org, value, _now()),
                 )
 
-    def get_system_ai_config(self) -> dict | None:
-        raw = self.get_system_setting("ai_default_config")
+    def list_system_settings_organizations(self, key: str) -> list[str]:
+        """已单独配置过该设置的组织列表（管理端可见）。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT organization_id FROM system_settings WHERE key = ?"
+                " AND organization_id != '' ORDER BY organization_id",
+                (key,),
+            ).fetchall()
+        return [r["organization_id"] for r in rows]
+
+    def get_system_ai_config(self, organization_id: str = "") -> dict | None:
+        """按学校读取默认模型配置，未单独配置时回退到平台全局默认。"""
+        raw = self.get_tenant_system_setting("ai_default_config", organization_id)
         if not raw:
             return None
         try:
             data = json.loads(raw)
-            if isinstance(data, dict):
-                return data
         except (TypeError, ValueError):
-            pass
-        return None
+            return None
+        # 存量明文原样返回；密文在此解密
+        return secret_store.reveal_config(data) if isinstance(data, dict) else None
 
-    def set_system_ai_config(self, cfg: dict | None) -> None:
-        payload = json.dumps(cfg, ensure_ascii=False) if cfg else None
-        self.set_system_setting("ai_default_config", payload)
+    def set_system_ai_config(self, cfg: dict | None, organization_id: str = "") -> None:
+        payload = (
+            json.dumps(secret_store.protect_config(cfg), ensure_ascii=False) if cfg else None
+        )
+        self.set_system_setting("ai_default_config", payload, organization_id)
 
     # ---------------------------- templates ----------------------------
 
@@ -1179,7 +2186,7 @@ class Store:
         """Write metadata-only audit evidence in its dedicated ledger."""
         payload = self._audit_payload(event)
         conn.execute(
-            "INSERT OR REPLACE INTO audit_events "
+            "INSERT INTO audit_events "
             "(id, actor_id, action, resource_type, resource_id, organization_id, result, reason, request_id, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             payload,
@@ -1282,12 +2289,17 @@ class Store:
             ).fetchone()
         return json.loads(row["data"]) if row else None
 
-    def list_workflow_records(self, kind: str, limit: int = 500) -> list[dict]:
+    def list_workflow_records(self, kind: str, limit: int | None = 500) -> list[dict]:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT data FROM workflow_records WHERE kind = ? ORDER BY updated_at DESC LIMIT ?",
-                (kind, max(1, min(limit, 5000))),
-            ).fetchall()
+            if limit is None:
+                rows = conn.execute(
+                    "SELECT data FROM workflow_records WHERE kind=? ORDER BY updated_at DESC, id", (kind,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT data FROM workflow_records WHERE kind = ? ORDER BY updated_at DESC LIMIT ?",
+                    (kind, max(1, min(limit, 5000))),
+                ).fetchall()
         return [json.loads(row["data"]) for row in rows]
 
     def delete_workflow_record(self, kind: str, record_id: str) -> bool:
@@ -1485,10 +2497,13 @@ class Store:
     def complete_job(self, job_id: str, *, lease_token: str = "") -> dict | None:
         now = _now()
         with self._connect() as conn:
+            # W-09 LE-5/LE-6：**精确匹配** lease_token，不留 `IS NULL OR = ''` 通配。
+            # 旧代码的通配分支不是为「未领取」设计的，是图省事——代价是
+            # 任何人都能提交别人的任务。便利性不应由安全性买单。
             cur = conn.execute(
                 "UPDATE jobs SET state = 'succeeded', lease_until = NULL, lease_token = NULL, leased_by = NULL, "
                 "completed_at = ?, updated_at = ? WHERE id = ? AND state = 'running' "
-                "AND (lease_token IS NULL OR lease_token = '' OR lease_token = ?)",
+                "AND lease_token = ?",
                 (now, now, job_id, lease_token),
             )
             if cur.rowcount != 1:
@@ -1597,13 +2612,18 @@ class Store:
         return self.mark_workflow_event_delivered_with_lease(event_id)
 
     def mark_workflow_event_delivered_with_lease(self, event_id: str, lease_token: str = "") -> bool:
-        """Acknowledge an event, requiring the active lease token when it is leased."""
+        """Acknowledge an event, requiring the active lease token.
+
+        W-09 LE-6：**精确匹配** lease_token，不留 `IS NULL OR = ''` 通配。
+        本处比 `complete_job` 更要紧——它的条件不含「已被领取」，
+        所以修前**任何 `pending` 的事件都能被无令牌 ack 成 delivered**（INC-105 实测）。
+        """
         with self._connect() as conn:
             cur = conn.execute(
                 "UPDATE workflow_events SET delivery_status = 'delivered', delivered_at = COALESCE(delivered_at, ?), "
                 "lease_until = NULL, lease_token = NULL, leased_by = NULL "
                 "WHERE id = ? AND delivery_status != 'delivered' "
-                "AND (lease_token IS NULL OR lease_token = '' OR lease_token = ?)",
+                "AND lease_token = ?",
                 (_now(), event_id, lease_token),
             )
             return cur.rowcount == 1
@@ -1699,8 +2719,15 @@ class Store:
     # ---------------------------- projects -----------------------------
 
     def save_project(self, proj: WritingProject) -> WritingProject:
+        if proj.tenant_id or proj.membership_id:
+            raise PermissionError("tenant projects require scoped repository")
         proj.updated_at = _now()
-        with self._connect() as conn:
+        with self.workflow_transaction() as conn:
+            existing = conn.execute("SELECT data FROM projects WHERE id=?", (proj.id,)).fetchone()
+            if existing:
+                body = json.loads(existing["data"])
+                if body.get("tenant_id") or body.get("membership_id"):
+                    raise PermissionError("legacy project write cannot replace tenant ownership")
             conn.execute(
                 "INSERT OR REPLACE INTO projects (id, template_id, data, updated_at) "
                 "VALUES (?, ?, ?, ?)",
@@ -1714,13 +2741,17 @@ class Store:
         expected_revision: int,
     ) -> WritingProject | None:
         """保存项目的同时检查 revision，避免并发请求静默覆盖。"""
+        if proj.tenant_id or proj.membership_id:
+            raise PermissionError("tenant projects require scoped repository")
         next_revision = expected_revision + 1
         proj.revision = next_revision
         proj.updated_at = _now()
         with self._connect() as conn:
             cur = conn.execute(
                 "UPDATE projects SET template_id = ?, data = ?, updated_at = ? "
-                "WHERE id = ? AND json_extract(data, '$.revision') = ?",
+                "WHERE id = ? AND json_extract(data, '$.revision') = ? "
+                "AND coalesce(json_extract(data, '$.tenant_id'), '') = '' "
+                "AND coalesce(json_extract(data, '$.membership_id'), '') = ''",
                 (
                     proj.template_id,
                     proj.model_dump_json(),
@@ -1748,7 +2779,9 @@ class Store:
         with self._connect() as conn:
             cur = conn.execute(
                 "UPDATE projects SET data = ?, updated_at = ? "
-                "WHERE id = ? AND json_extract(data, '$.revision') = ?",
+                "WHERE id = ? AND json_extract(data, '$.revision') = ? "
+                "AND coalesce(json_extract(data, '$.tenant_id'), '') = '' "
+                "AND coalesce(json_extract(data, '$.membership_id'), '') = ''",
                 (project.model_dump_json(), project.updated_at, project.id, expected_revision),
             )
             if cur.rowcount != 1:
@@ -1758,18 +2791,18 @@ class Store:
     def get_project(self, proj_id: str) -> WritingProject | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT data FROM projects WHERE id = ?", (proj_id,)
+                "SELECT data FROM projects WHERE id = ? AND coalesce(json_extract(data, '$.tenant_id'), '') = '' AND coalesce(json_extract(data, '$.membership_id'), '') = ''", (proj_id,)
             ).fetchone()
         return WritingProject.model_validate_json(row["data"]) if row else None
 
     def list_projects(self) -> list[WritingProject]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT data FROM projects ORDER BY updated_at DESC").fetchall()
+            rows = conn.execute("SELECT data FROM projects WHERE coalesce(json_extract(data, '$.tenant_id'), '') = '' AND coalesce(json_extract(data, '$.membership_id'), '') = '' ORDER BY updated_at DESC").fetchall()
         return [WritingProject.model_validate_json(r["data"]) for r in rows]
 
     def delete_project(self, proj_id: str) -> bool:
         with self._connect() as conn:
-            cur = conn.execute("DELETE FROM projects WHERE id = ?", (proj_id,))
+            cur = conn.execute("DELETE FROM projects WHERE id = ? AND coalesce(json_extract(data, '$.tenant_id'), '') = '' AND coalesce(json_extract(data, '$.membership_id'), '') = ''", (proj_id,))
             return cur.rowcount > 0
 
 

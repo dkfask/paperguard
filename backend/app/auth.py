@@ -16,9 +16,12 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.concurrency import run_in_threadpool
 
 from app.core.context import context_for_user, set_request_context
+from app.services.tenant_access import effective_capabilities, resolve_membership
 from app.db import Store, new_id
 from app.services import emailer
 
@@ -588,6 +591,10 @@ def public_user(user: dict) -> dict:
         "teacher_id": user.get("teacher_id"),
         "must_change_password": bool(user.get("must_change_password", 0)),
         "organization_context": user.get("organization_context") or {},
+        "tenant_id": user.get("tenant_id") or None,
+        "membership_id": user.get("membership_id") or None,
+        "capabilities": sorted({str(item) for item in (user.get("capabilities") or [])}),
+        "auth_version": int(user.get("auth_version") or 0),
         "requested_role": user.get("requested_role"),
         "requested_organization_context": user.get("requested_organization_context") or {},
         "role_application_status": user.get("role_application_status", "unselected"),
@@ -607,22 +614,72 @@ def _onboarding_path_exempt(path: str) -> bool:
     return path in _ONBOARDING_EXEMPT_PATHS or path == "/api/auth/logout" or path == "/api/auth/email/code"
 
 
-def current_user(request: Request, authorization: str | None = Header(default=None),
-                 store: Store = Depends(lambda: Store())) -> dict:
+def get_store() -> Store:
+    """Store 依赖。
+
+    全项目统一用 `Depends(get_store)` 注入，路由里不再写
+    `Depends(lambda: Store())`——两种写法并存时，测试要 monkeypatch
+    的入口就有两个，漏掉一个就会出现「测试全绿但线上走了另一条路径」。
+    """
+    return Store()
+
+
+async def current_user(request: Request, authorization: str | None = Header(default=None),
+                 store: Store = Depends(get_store)) -> dict:
     """从 Authorization 头解析未过期、未撤销的当前用户, 并阻断未完成学生引导的业务请求。"""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="未登录")
     token = authorization.removeprefix("Bearer ").strip()
-    user = store.get_session_user(_token_hash(token), _now(), refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS))
+    user = await run_in_threadpool(
+        store.get_session_user, _token_hash(token), _now(),
+        refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS),
+    )
     if user is None:
         raise HTTPException(status_code=401, detail="登录已失效, 请重新登录")
     if onboarding_required(user) and not _onboarding_path_exempt(request.url.path):
         raise HTTPException(status_code=403, detail={
             "code": "ONBOARDING_REQUIRED", "message": "请先完成邮箱验证和首次登录设置",
         })
-    context = context_for_user(user, request_id=getattr(request.state, "request_id", ""))
+    # Shared members (including revoked members) cannot fall through global-role
+    # legacy resource APIs. Genuine unmapped single-instance users retain their
+    # old flow, but Store also hides tenant-bound project rows from that flow.
+    legacy_resources = ("/api/projects", "/api/workflow", "/api/process-records",
+                        "/api/document", "/api/templates", "/api/policies", "/api/specs",
+                        "/api/teacher", "/api/organizations")
+    if request.url.path.startswith(legacy_resources) and (
+        os.environ.get("PAPERGUARD_TENANCY_MODE", "standalone") == "shared"
+        or user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id")
+        or await run_in_threadpool(store.list_memberships_for_user, user["id"])
+    ):
+        raise HTTPException(status_code=403, detail={
+            "code": "LEGACY_TENANT_PATH_DISABLED", "message": "租户成员必须使用已隔离的业务入口",
+        })
+    # This header is only a selector: resolve_membership checks persisted
+    # ownership and current member/tenant state before exposing credentials.
+    expected_tenant = request.headers.get("X-Expected-Tenant", "").strip() if request.url.path.startswith("/api/ai/") else ""
+    selected_user = user | {"tenant_id": expected_tenant} if expected_tenant else user
+    membership = await run_in_threadpool(resolve_membership, store, selected_user)
+    explicit_tenant = str(selected_user.get("tenant_id") or (user.get("organization_context") or {}).get("tenant_id") or "").strip()
+    unresolved_ai_identity = (
+        membership is None and request.url.path.startswith("/api/ai/")
+        and bool(await run_in_threadpool(store.list_memberships_for_user, user["id"]))
+    )
+    if membership is None and (explicit_tenant or unresolved_ai_identity):
+        raise HTTPException(status_code=403, detail={
+            "code": "TENANT_CONTEXT_INVALID", "message": "租户上下文无效或成员身份已停用",
+        })
+    if membership:
+        user["tenant_id"] = membership.get("tenant_id", "")
+        user["membership_id"] = membership.get("id", "")
+        user["auth_version"] = int(membership.get("auth_version") or 1)
+    user["capabilities"] = sorted(effective_capabilities(user, membership))
+    user.setdefault("auth_version", 1)
+    context = context_for_user(
+        user, request_id=getattr(request.state, "request_id", ""), membership=membership
+    )
     request.state.context = context
-    request.state.actor_id = context.actor_id
+    request.state.actor_id = str(user.get("id") or "")
+    request.state.logging_metadata = {"legacy_role": user.get("role", "")}
     set_request_context(context)
     return user
 
@@ -647,7 +704,7 @@ def require_template_manager(user: dict = Depends(current_user)) -> dict:
 
 def require_admin(user: dict = Depends(current_user)) -> dict:
     """系统级设置权限: 仅限 admin。"""
-    if user["role"] != "admin":
+    if user["role"] != "admin" or user.get("status") != "active":
         raise HTTPException(status_code=403, detail="仅系统管理员可执行此操作")
     return user
 
@@ -658,3 +715,33 @@ def can_manage(user: dict) -> bool:
     if user["role"] in ("teacher", "college_admin") and user.get("status") == "active":
         return True
     return False
+
+
+_saas_bearer = HTTPBearer(auto_error=False, scheme_name="bearerAuth")
+
+
+async def trusted_context(
+    request: Request, credentials: HTTPAuthorizationCredentials | None = Security(_saas_bearer),
+    expected_tenant: str | None = Header(default=None, alias="X-Expected-Tenant"),
+    store: Store = Depends(get_store),
+):
+    """Shared-SaaS boundary; does not reuse permissive legacy user/role guards."""
+    from app.services.tenant_access import resolve_request_context
+
+    user = None
+    if credentials is not None:
+        token = credentials.credentials.strip()
+        user = await run_in_threadpool(
+            store.get_session_user, _token_hash(token), _now(),
+            refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS),
+        )
+    context = await run_in_threadpool(
+        resolve_request_context, store, user, request_id=getattr(request.state, "request_id", ""),
+        expected_tenant=expected_tenant,
+    )
+    if user is not None and onboarding_required(user):
+        raise HTTPException(status_code=403, detail={"code": "AUTH_ACCOUNT_BLOCKED", "message": "请先完成账号设置"})
+    request.state.context = context
+    request.state.actor_id = context.actor_id
+    set_request_context(context)
+    return context

@@ -18,7 +18,7 @@
     </div>
     <div class="form-actions">
       <button class="primary" :disabled="saving || !form.key || !form.name || !form.open_at || !form.deadline_at" @click="$emit('save')">
-        <span class="material-symbols-outlined">add_task</span>{{ t('stageConfig.saveDraft') }}
+        <span class="material-symbols-outlined" aria-hidden="true">add_task</span>{{ t('stageConfig.saveDraft') }}
       </button>
     </div>
   </div>

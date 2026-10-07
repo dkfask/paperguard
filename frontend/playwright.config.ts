@@ -56,6 +56,20 @@ export default defineConfig({
   workers: 1,
   timeout: 60_000,
   retries: process.env.CI ? 1 : 0,
+  // ★ CI 上缺失的视觉基线必须**每一次都失败**，不得被 retry 变成绿灯。
+  //
+  // 为什么不直接用 Playwright 的默认值：Playwright 1.63 实测（隔离最小项目验证）
+  //   · 默认（未设该项）：快照缺失 ⇒ **写下该文件**且本次**失败**
+  //   · 紧接着重跑（= 上面的 retries: 1）⇒ **通过**
+  // ⇒ 在一台**从来没有 linux 基线**的干净 CI 机器上，
+  //    视觉门禁会「先红后绿」，CI 报绿而**什么都没比对过**——
+  //    这正是 INC-70「恒绿而什么都没查」的形态，只是触发得更隐蔽。
+  //
+  // 本仓现有 5 张基线**全是 `-darwin`**，而 CI 跑在 ubuntu ⇒ 一旦把
+  // `test:e2e` 接进 CI，这段链条立刻生效。'none' 下不写文件，
+  // 所以重试多少次都是红，直到**真的提交 linux 基线**为止。
+  // 本机保持 'missing'，不改变开发者现有的便捷默认。
+  updateSnapshots: process.env.CI ? 'none' : 'missing',
   reporter: [['html', { open: 'never' }]],
   use: {
     baseURL: process.env.TEST_BASE_URL ?? `http://127.0.0.1:${frontendPort}`,

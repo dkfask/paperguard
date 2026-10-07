@@ -47,7 +47,7 @@
             class="tiny"
             @click.stop="$emit('download-material', attachment)"
           >
-            <span class="material-symbols-outlined">download</span>{{ attachment.name }}
+            <span class="material-symbols-outlined" aria-hidden="true">download</span>{{ attachment.name }}
           </button>
         </div>
       </div>

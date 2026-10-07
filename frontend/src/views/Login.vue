@@ -4,11 +4,11 @@
     <header class="stitch-auth-header">
       <div class="auth-header-inner">
         <div class="brand-box">
-          <img alt="PaperGuard Logo" class="brand-icon-img" src="/logo.png" />
+          <img alt="" class="brand-icon-img" src="/icon-shield.png" />
           <span class="brand-name">PaperGuard</span>
         </div>
         <button class="auth-lang-btn" type="button" :title="t('shell.switchLanguage')" @click="toggleLang">
-          <span class="material-symbols-outlined text-[16px]">translate</span>
+          <span class="material-symbols-outlined text-[16px]" aria-hidden="true">translate</span>
           <span>{{ lang === 'zh' ? t('shell.switchToEnglish') : t('shell.switchToChinese') }}</span>
         </button>
       </div>
@@ -17,9 +17,6 @@
     <!-- Main Authentication Stage -->
     <main class="stitch-auth-main">
       <div class="auth-heading-box">
-        <div class="login-center-logo">
-          <img alt="PaperGuard Logo" src="/logo.png" />
-        </div>
         <h1 class="auth-title">
           {{ forceChange ? t('auth.setPasswordTitle') : t('auth.welcomeTitle') }}
         </h1>
@@ -31,7 +28,7 @@
       <!-- Stitch Glassmorphic Card -->
       <div class="stitch-auth-card">
         <div v-if="error" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'" style="margin-bottom: 16px">
-          <span class="material-symbols-outlined text-[16px]">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>
+          <span class="material-symbols-outlined text-[16px]" aria-hidden="true">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>
           <span>{{ error }}</span>
         </div>
 
@@ -58,7 +55,7 @@
 
           <button class="primary auth-submit-btn" type="submit" :disabled="loading">
             <span>{{ loading ? t('auth.processing') : t('auth.signIn') }}</span>
-            <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+            <span class="material-symbols-outlined text-[16px]" aria-hidden="true">arrow_forward</span>
           </button>
         </form>
 
@@ -70,7 +67,7 @@
 
       <!-- Stitch Compliance Reassurance Footer -->
       <div class="stitch-compliance-footer">
-        <span class="material-symbols-outlined text-[20px] text-secondary">verified_user</span>
+        <span class="material-symbols-outlined text-[20px] text-secondary" aria-hidden="true">verified_user</span>
         <p class="compliance-text">
           {{ t('auth.compliance') }}
         </p>
@@ -231,18 +228,6 @@ async function submit() {
 .auth-heading-box {
   text-align: center;
   margin-bottom: 20px;
-}
-
-.login-center-logo {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 12px;
-}
-
-.login-center-logo img {
-  height: 44px;
-  width: auto;
-  filter: drop-shadow(0 4px 10px rgba(37, 99, 235, 0.2));
 }
 
 .auth-title {

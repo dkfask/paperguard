@@ -129,7 +129,7 @@
           </div>
           <RouterLink to="/policies"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span>{{ t('templates.writingPolicies') }}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
           <RouterLink to="/organizations"><span class="material-symbols-outlined" aria-hidden="true">account_tree</span>{{ t('templates.organizations') }}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
-          <RouterLink to="/audit"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('templates.audit') }}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
+          <RouterLink v-if="canViewAudit" to="/audit"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('templates.audit') }}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
         </section>
         <section class="panel template-side-note">
           <span class="material-symbols-outlined" aria-hidden="true">info</span>
@@ -161,6 +161,9 @@ import { useI18n } from '../i18n'
 
 const router = useRouter()
 const { lang, t, formatDate } = useI18n()
+// 「相关入口」对所有角色渲染，审计记录后端只允许 admin/college_admin，
+// 不加条件教师点进去只会看到一个 403 空壳页面（同 F-20 在 Policies.vue 的漏网）。
+const canViewAudit = computed(() => ['admin', 'college_admin'].includes(auth.user?.role))
 const canManage = computed(() => auth.user?.role === 'admin'
   || (auth.user?.role === 'teacher' && auth.user?.status === 'active'))
 const templates = ref([])

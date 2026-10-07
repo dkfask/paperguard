@@ -1,0 +1,1187 @@
+# PaperGuard 租户资源登记表（机器可读）
+#
+# 状态：design_ready — 本表是**登记产物**，不是实施结果。未执行任何 DDL/DML。
+# 运行时清单更新：上一阶段 d876798 已推送；本轮归属准入/显式批准/写作切片来源 1154b94，2026-10-04 AST 实测；不表示隔离设计已实现。
+# 上游规格：docs/product/W-01-预检与ADR实施规格_20261001.md（T-01.4）
+# 消费方：docs/product/W-02-存储与Schema实施规格_20261001.md §4（逐表归属判定）
+# 总设计要求：saas-platform-design-20261001.md:438「未登记入口不放行共享 SaaS」
+#
+# ── 字段语义 ──────────────────────────────────────────────────────────────
+# tenant_derivable:
+#   direct      — 资源自身或其直接外键可确定归属，需新增 tenant_id
+#   derived     — 需经父资源链推导（项目→成员、事件→资源）
+#   conditional — 取决于业务语义或数据分区，迁移前必须逐条判定
+#   none        — 按 ADR-03 属全局对象，**不得**加 tenant_id
+# sensitivity: 对应总设计 20.1 节的六类数据分级
+# migration_rule:
+#   expand_sidecar — 加 nullable 侧边列（expand 阶段不动现有约束与写入路径）
+#   new_table      — 建新表，contract 阶段再收缩旧表
+#   unique_extend  — 需扩展现有 UNIQUE 约束（共享库下会跨租户撞键）
+#   pk_extend      — 需扩展现有主键
+#   ledger_replace — 由 W-02 T-02.2 的新迁移账本替代
+#   no_change      — 本阶段不动
+# registry_status:
+#   registered     — 已登记，归属规则明确
+#   registered_gap — 已登记，但**归属存在未解冲突**，见 isolation_quarantine
+#   out_of_scope   — 非客户数据对象（文档/构建产物/测试夹具）
+# ──────────────────────────────────────────────────────────────────────────
+
+meta:
+  source_sha: 6cf37f902b6ff453611c505c17d1a3b929e3cc29
+  branch: fix/ui-review-findings-20260929
+  generated_at: "2026-10-05"
+  store_public_methods: 133        # 实测：ast 解析，排除 _ 前缀
+  store_total_methods: 149         # 实测：含私有方法
+  store_construction_points: 18    # 实测：16 × Store() + 1 × Store(db_path)
+  store_construction_by_phase:
+    request: 15        # Depends(get_store) 12×api/* + auth.py:617 + main.py:178
+    startup: 1         # main.py:77
+    worker: 1          # worker.py:35
+    cli: 1             # cli/migrate.py:19（Store(db_path)）
+  depends_get_store: 219          # 实测：**AST 表达式计数**，口径 = 真实的
+                                  # `Depends(get_store)` 调用，不含文档字符串/注释。
+                                  # INC-85：原写 202，是 grep 行数——`auth.py:613`
+                                  # 的 docstring 里有一句「全项目统一用 `Depends(get_store)` 注入」
+                                  # 被当成了一次注入。**这正是下一行 grep_false_negatives
+                                  # 记录的那个陷阱，只是当时没应用到它自己。**
+  grep_false_negatives: >
+    按表名 grep 会漏（10 张表 0 命中却是热路径）；
+    按 "Store()" 字符串 grep 会把 auth.py:613 的**文档字符串**
+    （`Depends(lambda: Store())` 的说明文字）误计为调用点。
+    **两个数都要用 AST 表达式计数，不要用 grep 行数。**
+    （本行原文写「实测 17 vs 实际 16」，2026-10-01 实测已变为 **18 vs 17**：
+    `Store(` 的 grep 命中 18 行、其中 1 行是上面那句文档字符串。）
+  # ↑ 下方所有数字均由 docs/tenancy/tools/resource_registry_check.py 实跑重算（RR-2）。
+  #   它们此前**没有任何机器核对过**，而 `depends_get_store` 已经因此错了 1（202→201）。
+  tables_registered: 30
+  business_tables: 29
+  # 「哪张表不是业务表」是**人工判断**。此前只写了 24 而没写怎么排除的，
+  # 于是这个数字**不可复算**——RR-2 无从核对。把排除清单显式列出来。
+  # **编一个默认值比留空更危险**：留空时没人知道 24 是怎么来的，
+  # 写死 24 时同样没人知道，所以只能列出**排除谁**这一件事本身。
+  business_tables_excludes: [schema_migrations]   # 迁移账本，非客户业务对象
+  access_surface: Store 方法      # 见 access_surface_note
+  access_surface_note: >
+    访问面是 **Store 的 127 个公开方法**，不是表名。按表名 grep 在 10 张表上
+    返回 0 命中却是真实热路径（例：workflow_records 被 api/workflow.py、
+    services/export_jobs.py、repositories/workflow_repository.py 大量使用，
+    但这些文件都不出现该表名字符串）。**登记表与后续隔离改造一律以方法为入口。**
+
+# ──────────────────────────────────────────────────────────────────────────
+# 一、30 张表逐条登记（25 张存量 + 5 张受限运行时新增）
+# ──────────────────────────────────────────────────────────────────────────
+tables:
+
+  - resource: tenants
+    kind: table
+    location: backend/app/db.py:113
+    store_methods: [create_tenant, get_tenant, list_tenants, ensure_legacy_tenant_membership]
+    external_readers: [auth.py, api/saas.py, api/ai.py, services/saas_identity.py, services/tenant_projects.py]
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: direct
+    tenant_derivable_reason: "租户根身份对象；停用判断已接入，完整生命周期与迁移准入未完成。"
+    migration_rule: new_table
+    validation_case: AT-12
+    registry_status: registered_gap
+
+  - resource: tenant_memberships
+    kind: table
+    location: backend/app/db.py:143
+    store_methods: [save_membership, get_membership, get_membership_for_user, list_memberships_for_user, list_memberships_for_tenant, ensure_legacy_tenant_membership]
+    external_readers: [auth.py, api/saas.py, api/ai.py, services/saas_identity.py, services/tenant_projects.py]
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: direct
+    tenant_derivable_reason: "tenant_id 直接归属；撤权与能力更新递增版本，数据库 RLS 和授权缓存协议未完成。"
+    migration_rule: new_table
+    validation_case: AT-12
+    registry_status: registered_gap
+
+  - resource: ai_requests
+    kind: table
+    location: backend/app/db.py:260
+    store_methods: [register_ai_request, create_ai_request, get_ai_request_by_idempotency, list_ai_requests, update_ai_request, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
+    external_readers: [auth.py, api/saas.py, api/ai.py, services/saas_identity.py, services/tenant_projects.py]
+    background_consumers: []
+    sensitivity: document_content
+    tenant_derivable: direct
+    tenant_derivable_reason: "新派发的 tenant/member 只取真实成员记录，不以 school_id 兜底；幂等域按 tenant/member、platform、legacy 隔离，重放指纹绑定租户/成员/操作/配置与 auth_version；旧 user+key 行保留为 historical_legacy，不自动回填。新增限定范围元数据查询及 unknown 待复核 CAS；最终对账与可信 usage 账务仍未完成。"
+    migration_rule: new_table
+    validation_case: AT-17
+    registry_status: local_mock_only_idempotency_partial
+
+  # ═══ 认证与秘密类（sensitivity: auth_secret）══════════════════════════
+  - resource: users
+    kind: table
+    location: backend/app/db.py:111
+    ddl_shape: "id PK, username UNIQUE, email?, password_hash, salt, role, teacher_id, ai_config, status"
+    store_methods: [save_user, get_user, get_user_by_email, get_user_by_username,
+                    get_user_by_token, list_users, get_session_user,
+                    list_students_by_teacher, unbind_teacher_student,
+                    update_user_status, update_user_role_and_status,
+                    set_must_change_password, get_user_ai_config, set_user_ai_config]
+    external_readers: [auth.py, api/auth.py, api/teacher.py, api/ai.py,
+                       api/organizations.py, api/workflow.py]
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: none
+    tenant_derivable_reason: >
+      全局认证身份（总设计 9.2 行）。访问由 tenant_memberships 决定。
+      users.role 是全局单角色、users.teacher_id 是全局指导关系
+      （db.py:119、db.py:145），正是 ADR-03 要拆分、25.1「旧全局 admin 被滥用」
+      的实际来源。**W-02 不改这两列语义**（属 W-03/W-04）。
+    migration_rule: no_change
+    validation_case: AT-07
+    registry_status: registered
+    risk_flags: [global_role_antipattern, global_teacher_binding]
+
+  - resource: platform_role_bindings
+    kind: table
+    location: backend/app/db.py:122
+    ddl_shape: "id PK, user_id UNIQUE FK users, role_code platform_admin, status active/revoked, auth_version positive, approval_ref, approved_by"
+    store_methods: []
+    external_readers: [services/saas_identity.py, services/tenant_access.py, api/operations.py]
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: none
+    tenant_derivable_reason: "独立的平台授权；仅离线审批入口写入，不从旧admin/login/注册/导入生成。非客户成员身份。"
+    migration_rule: new_table
+    validation_case: AT-07
+    registry_status: registered_gap
+    risk_flags: [sqlite_pilot_only, platform_revocation_protocol_pending]
+
+  - resource: saas_provisioning
+    kind: table
+    location: backend/app/db.py:132
+    ddl_shape: "command_key PK, tenant_id UNIQUE FK tenants, actor_id, fingerprint, approval JSON, first_owner_id, owner_request_version, owner_auth_version"
+    store_methods: []
+    external_readers: [services/saas_identity.py, api/saas.py]
+    background_consumers: []
+    sensitivity: customer_metadata
+    tenant_derivable: direct
+    tenant_derivable_reason: "建户批准/幂等/首位owner记录绑定tenant_id；不代替合同、权益、完整准入或共享库生产DDL。"
+    migration_rule: new_table
+    validation_case: AT-01
+    registry_status: registered_gap
+    risk_flags: [draft_only, activation_blocked, sqlite_pilot_only]
+
+  - resource: sessions
+    kind: table
+    location: backend/app/db.py:157
+    ddl_shape: "id PK, user_id FK→users CASCADE, token_hash UNIQUE, expires_at, revoked_at"
+    store_methods: [create_session, get_session_user, revoke_session, revoke_user_sessions]
+    external_readers: []
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: none
+    tenant_derivable_reason: >
+      全局会话。租户切换不应换会话，但 auth_version 递增后的旧权限缓存失效
+      需在 W-03 实现（总设计 8.1 行第 312 行）。
+    migration_rule: no_change
+    validation_case: AT-12
+    registry_status: registered
+
+  - resource: email_verification_codes
+    kind: table
+    location: backend/app/db.py:149
+    ddl_shape: "email PK, code_hash, purpose, expires_at, attempts"
+    store_methods: [save_email_code, get_email_code, delete_email_code,
+                    bump_email_code_attempts]
+    external_readers: []
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: none
+    tenant_derivable_reason: >
+      PK(email) 全局单键，跨租户共用属预期（邮箱是全局身份）。
+      但需在设计中显式承认：邀请流程（总设计 11.2 行）复用此表时，
+      必须由 tenant_invitations 单独承载租户侧状态，不能靠 email 反推租户。
+    migration_rule: no_change
+    validation_case: AT-08
+    registry_status: registered
+    risk_flags: [global_key_shared_across_tenants]
+
+  - resource: mini_program_bindings
+    kind: table
+    location: backend/app/db.py:122
+    ddl_shape: "user_id UNIQUE, openid_hash UNIQUE, openid_cipher"
+    store_methods: [bind_mini_program, get_mini_program_binding_by_openid,
+                    get_mini_program_binding_by_user, delete_mini_program_binding]
+    external_readers: []
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: none
+    tenant_derivable_reason: >
+      总设计第 10 节允许身份绑定保持全局，但明确要求「业务消息和订阅引用租户成员」。
+      user_id UNIQUE 意味着一个微信身份只能绑一个全局账号，**不支持同账号多租户
+      各自独立绑定**——这在 W-09/W-10 引入租户级订阅时需要显式决策。
+    migration_rule: no_change
+    validation_case: AT-01
+    registry_status: registered
+    risk_flags: [single_binding_blocks_tenant_scoped_subscription]
+
+  - resource: mini_program_bind_tickets
+    kind: table
+    location: backend/app/db.py:177
+    ddl_shape: "ticket_hash UNIQUE, openid_hash, expires_at, used_at"
+    store_methods: [create_mini_program_bind_ticket, get_mini_program_bind_ticket,
+                    bind_mini_program]
+    external_readers: []
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: none
+    migration_rule: no_change
+    validation_case: null
+    registry_status: registered
+    note: "短期票据，生命周期分钟级，不构成租户隔离面"
+
+  # ═══ 客户业务内容类（sensitivity: customer_content）════════════════════
+  - resource: templates
+    kind: table
+    location: backend/app/db.py:100
+    ddl_shape: "id PK, data TEXT, updated_at"
+    store_methods: [save_template, get_template, list_templates, delete_template]
+    external_readers: [api/templates.py, api/projects.py, api/workflow.py,
+                       api/process_records.py, api/operations.py, main.py,
+                       services/template_source.py, services/import_template.py,
+                       services/policy_resolver.py, services/wechat_push.py,
+                       services/generic_docx_renderer.py]
+    background_consumers: []
+    sensitivity: customer_content
+    tenant_derivable: conditional
+    tenant_derivable_reason: >
+      总设计第 10 节：模板是「租户资产或显式发布的公共资产」。**禁止用
+      tenant_id IS NULL 表示「任意人可读写」**（总设计 7.3 行）。
+      list_templates() 当前无任何作用域过滤，是「旧全部模板可见」查询（总设计第 10 节
+      点名项），迁移前必须逐条判定每张模板是公共资产还是租户私有。
+    migration_rule: expand_sidecar
+    validation_case: AT-03
+    registry_status: registered_gap
+    risk_flags: [unscoped_list_query, public_vs_tenant_asset_ambiguous]
+
+  - resource: projects
+    kind: table
+    location: backend/app/db.py:105
+    ddl_shape: "id PK, template_id, data TEXT, updated_at；pilot tenant/member持久化在data JSON，非全表RLS隔离"
+    store_methods: [save_project, get_project, list_projects, delete_project,
+                    update_project_check_runs, update_project_if_revision]
+    external_readers: [api/projects.py, api/templates.py, api/workflow.py,
+                       api/document_projects.py, api/policies.py, api/routes.py,
+                       main.py, domain/documents/schemas.py,
+                       services/resource_access.py, services/policy_resolver.py,
+                       services/export_jobs.py, services/document_project_engine.py,
+                       services/generic_docx_renderer.py,
+                       services/document_validation_engine.py]
+    background_consumers: [services/export_jobs.py]
+    sensitivity: customer_content
+    tenant_derivable: derived
+    tenant_derivable_reason: "经 template_id 或 owner 推导；总设计第 10 节要求创建时冻结租户"
+    migration_rule: expand_sidecar
+    validation_case: AT-03
+    registry_status: registered
+
+  - resource: document_packages
+    kind: table
+    location: backend/app/db.py:244
+    ddl_shape: "id PK, version 四元组, data TEXT, created_at, UNIQUE(template_version_id, spec_version_id, renderer_version, rule_engine_version)"
+    store_methods: [save_document_package, get_document_package,
+                    get_document_package_bundle, list_document_package_bundles]
+    external_readers: [main.py]
+    background_consumers: []
+    sensitivity: customer_content
+    tenant_derivable: conditional
+    tenant_derivable_reason: >
+      通用文档包。UNIQUE 四元组**不含租户**（db.py:252），而模板按设计是租户资产或
+      公共资产 → 两个租户用同一版本四元组会撞唯一键，第二个租户无法创建。
+      **这是共享库下的硬冲突，不是理论风险。**
+    migration_rule: unique_extend
+    validation_case: AT-04
+    registry_status: registered_gap
+    risk_flags: [cross_tenant_unique_collision]
+
+  - resource: document_projects
+    kind: table
+    location: backend/app/db.py:256
+    ddl_shape: "id PK, package_id, owner_id, data TEXT, revision, updated_at"
+    store_methods: [save_document_project, get_document_project,
+                    list_document_projects, update_document_project_if_revision]
+    external_readers: [api/ai.py, main.py]
+    background_consumers: []
+    sensitivity: customer_content
+    tenant_derivable: derived
+    tenant_derivable_reason: >
+      owner_id 指向 users（**全局账号，不是成员**）。迁移需经
+      tenant_memberships 解析，且「个人历史项目无机构归属不能自动分给当前学校」
+      （总设计第 10 节）。update_document_project_if_revision 是 CAS 路径，
+      加 tenant_id 时必须保持 CAS 语义不变。
+    migration_rule: expand_sidecar
+    validation_case: AT-03
+    registry_status: registered_gap
+    risk_flags: [owner_is_global_account_not_membership, cas_path_needs_tenant]
+
+  - resource: requirement_sets
+    kind: table
+    location: backend/app/db.py:239
+    ddl_shape: "id PK, data TEXT, updated_at"
+    store_methods: [save_requirement_set, get_requirement_set,
+                    list_requirement_sets, delete_requirement_set]
+    external_readers: []
+    background_consumers: []
+    sensitivity: customer_content
+    tenant_derivable: conditional
+    tenant_derivable_reason: "规范集合，租户资产或平台公共资产，语义待逐条判定"
+    migration_rule: expand_sidecar
+    validation_case: AT-03
+    registry_status: registered_gap
+
+  - resource: validation_runs
+    kind: table
+    location: backend/app/db.py:266
+    ddl_shape: "id PK, project_id, data TEXT, created_at"
+    store_methods: [save_validation_run, get_validation_run, list_validation_runs]
+    external_readers: []
+    background_consumers: []
+    sensitivity: customer_content
+    tenant_derivable: derived
+    tenant_derivable_reason: "继承 project_id 的租户"
+    migration_rule: expand_sidecar
+    validation_case: AT-03
+    registry_status: registered
+
+  - resource: check_runs
+    kind: table
+    location: backend/app/db.py:281
+    ddl_shape: "id PK, project_id, data TEXT, created_at"
+    store_methods: [save_check_run, get_check_run, list_check_runs]
+    external_readers: []
+    background_consumers: []
+    sensitivity: customer_content
+    tenant_derivable: derived
+    tenant_derivable_reason: "继承 project_id 的租户"
+    migration_rule: expand_sidecar
+    validation_case: AT-03
+    registry_status: registered
+
+  - resource: workflow_records
+    kind: table
+    location: backend/app/db.py:293
+    ddl_shape: "PK(kind, id), data TEXT, created_at, updated_at"
+    store_methods: [save_workflow_record, save_workflow_record_conn,
+                    get_workflow_record, list_workflow_records,
+                    delete_workflow_record]
+    external_readers: [repositories/workflow_repository.py, api/workflow.py,
+                       services/workflow_jobs.py, services/export_jobs.py,
+                       services/document_render_jobs.py, api/document_projects.py, services/ai_usage_facts.py, services/ai_recovery.py, api/ai.py]
+    background_consumers: [services/workflow_jobs.py, services/export_jobs.py,
+                           services/document_render_jobs.py, worker.py]
+    sensitivity: customer_content
+    tenant_derivable: conditional
+    tenant_derivable_reason: >
+      **本表是登记表里最难的一张。** PK(kind, id) 用 kind 区分业务类型，
+      一个 kind 内部混装多种业务对象 → **单一 tenant_id 列无法表达全部归属**。
+      必须先枚举 kind 清单并逐 kind 判定归属路径，再决定是拆表还是加 resource_type。
+      总设计 25.1「JSON 遗漏租户字段」在此表是**已实现状态**，不是潜在风险。
+    migration_rule: expand_sidecar
+    validation_case: AT-04
+    registry_status: registered_gap
+    risk_flags: [kind_multiplexing_resolved_single_column_ok, json_blob_hides_relations,
+                 name_grep_gives_false_negative, projects_organization_context_is_third_json_relation]
+    open_question: >
+      **Q-04 已解决**（2026-10-01）——历史17种 + 2026-10-05本地ai_usage_fact，当前清单 **18 种**，全部有确定归属路径，
+      推导链见 docs/tenancy/workflow-records-kind-inventory.md。
+      结论：维持单表 + 单列 tenant_id，**不需拆表**；但必须同时加 owner_ref 列固化业务父引用。
+      阻塞原因从"无法判定"变为"需 M3 前实测生产字段空值率"（CHK-01～06）。
+      残余缺口：2 种 candidate 作用域不明 → 新增隔离项 Q-07。
+
+  # ═══ 客户身份类（sensitivity: customer_identity）════════════════════════
+  - resource: organization_units
+    kind: table
+    location: backend/app/db.py:276
+    ddl_shape: "id PK, data TEXT, updated_at   ← parent_id/name/type 全在 JSON 内"
+    store_methods: [save_organization_unit, get_organization_unit,
+                    list_organization_units, delete_organization_unit]
+    external_readers: []
+    background_consumers: []
+    sensitivity: customer_identity
+    tenant_derivable: conditional
+    tenant_derivable_reason: >
+      **整棵组织树存在 JSON 列里，无外键、无索引**（models/organization.py:16-24
+      的 parent_id 是 JSON 字段）。总设计第 10 节要求「根组织经人工确认映射租户，
+      子树继承并持久化」——当前 schema **没有任何可查询面支撑该映射**，
+      M1 预检只能全表扫描 + 应用层解析。list_organization_units() 每次
+      全量反序列化（db.py:1308-1313）。
+    migration_rule: new_table
+    validation_case: AT-10
+    registry_status: registered_gap
+    risk_flags: [no_index_for_tenant_mapping, no_fk_integrity, cycle_detection_absent,
+                 full_table_reserialize_on_every_list]
+    target: tenant_organizations
+
+  # ═══ 业务证明类（sensitivity: business_proof）════════════════════════════
+  - resource: audit_events
+    kind: table
+    location: backend/app/db.py:301
+    ddl_shape: "id PK, actor_id, action, resource_type, resource_id, organization_id, result, reason, request_id, created_at"
+    store_methods: [save_audit_event, save_audit_event_conn, list_audit_events]
+    external_readers: [api/workflow.py]
+    background_consumers: []
+    sensitivity: business_proof
+    tenant_derivable: conditional
+    tenant_derivable_reason: >
+      已有 organization_id，**无 tenant_id**。总设计第 10 节：老事件标 legacy，
+      **不伪造 request_id 或操作者**。save_audit_event_conn 是事务内写入路径
+      （总设计 21.2 行要求关键审计与状态变更同事务），加列时必须保持。
+    migration_rule: expand_sidecar
+    validation_case: AT-29
+    registry_status: registered
+    risk_flags: [legacy_events_must_not_be_backfilled_with_fake_request_id]
+
+  - resource: policy_audit_events
+    kind: table
+    location: backend/app/db.py:287
+    ddl_shape: "id PK, policy_id, data TEXT, created_at"
+    store_methods: [save_policy_audit, list_policy_audits]
+    external_readers: []
+    background_consumers: []
+    sensitivity: business_proof
+    tenant_derivable: conditional
+    tenant_derivable_reason: >
+      平台规则审计 vs 租户规则审计需分离（总设计 7.3 行控制面/数据面）。
+      单列 tenant_id 不足以表达平台作用域，需加 scope_type。
+    migration_rule: expand_sidecar
+    validation_case: AT-29
+    registry_status: registered_gap
+
+  # ═══ 运行与安全类（sensitivity: runtime_security）══════════════════════
+  - resource: jobs
+    kind: table
+    location: backend/app/db.py:348
+    ddl_shape: "id PK, job_type, resource_type, resource_id, state, attempt_count, max_attempts, available_at, lease_until, lease_token, leased_by, last_error, ..."
+    store_methods: [create_job_conn, get_job, get_job_conn, list_jobs,
+                    claim_jobs, complete_job, fail_job, cancel_job,
+                    cancel_job_conn, retry_job_conn]
+    external_readers: [repositories/workflow_repository.py, api/workflow.py,
+                       api/document_projects.py, api/projects.py,
+                       services/workflow_jobs.py, services/export_jobs.py,
+                       services/document_render_jobs.py]
+    background_consumers: [worker.py, services/workflow_jobs.py,
+                           services/export_jobs.py, services/document_render_jobs.py]
+    sensitivity: runtime_security
+    tenant_derivable: direct
+    tenant_derivable_reason: >
+      总设计 19.1 行任务契约 11 项要求中，**本表 6 项全缺**：
+      tenant_id、resource_version、payload_schema_version、attempt_generation、
+      lease_epoch、deadline。已有 lease_token 但**无 epoch/栅栏**，
+      对应 25.1「任务租约短于处理」风险（db.py:348-364）。
+      W-02 只加列，**不改领取逻辑**（属 W-09）。
+    migration_rule: expand_sidecar
+    validation_case: AT-25
+    registry_status: registered
+    risk_flags: [missing_lease_epoch_fencing, no_tenant_on_task_row,
+                 worker_must_not_trust_payload_tenant]
+
+  - resource: workflow_events
+    kind: table
+    location: backend/app/db.py:330
+    ddl_shape: "id PK, event_type, recipient_id, resource_type, resource_id, dedupe_key UNIQUE, data TEXT, delivery_status, lease_*, attempt_count"
+    store_methods: [save_workflow_event_conn, claim_workflow_events,
+                    list_pending_workflow_events, list_workflow_events,
+                    mark_workflow_event_read, mark_workflow_event_delivered,
+                    mark_workflow_event_delivered_with_lease,
+                    fail_workflow_event, retry_workflow_event,
+                    list_delivered_push_events]
+    external_readers: []
+    background_consumers: [worker.py, services/wechat_push.py]
+    sensitivity: runtime_security
+    tenant_derivable: direct
+    tenant_derivable_reason: >
+      dedupe_key 是全局 UNIQUE。收件人是全局 user_id，但总设计 8.3 行要求
+      「事件租户和有效成员匹配」——退出一个租户后不能继续收到其正文相关通知
+      （总设计第 10 节）。dedupe_key 构造时**不得只含 user_id**，
+      否则同账号双租户的消息会互相去重掉。
+    migration_rule: expand_sidecar
+    validation_case: AT-26
+    registry_status: registered
+    risk_flags: [dedupe_key_global_unique_may_drop_cross_tenant_messages]
+
+  - resource: ai_usage
+    kind: table
+    location: backend/app/db.py:214
+    ddl_shape: "id PK, user_id, organization_id, action, source, model, base_url_host, input_chars, output_chars, result, created_at"
+    store_methods: [record_ai_usage, ai_usage_summary]
+    external_readers: [services/ai_governance.py, services/secret_store.py]
+    background_consumers: []
+    sensitivity: runtime_security
+    tenant_derivable: none
+    tenant_derivable_reason: >
+      **明确不回填。** 总设计第 434 行：旧 organization_id「不能完整证明合同租户和
+      实际 token」；总设计 15 节禁止把历史字符记录补成财务事实。
+      加 nullable tenant_id 列仅供新请求写入，老行保持 NULL 并在读路径标 legacy。
+      chars ≠ token（总设计 4.6 行）——本表数据**不可用于任何按 token 计费**。
+    migration_rule: expand_sidecar
+    validation_case: AT-23
+    registry_status: registered
+    risk_flags: [legacy_chars_must_not_become_token_billing_fact,
+                 organization_id_insufficient_for_contract_tenant]
+
+  - resource: ai_quota
+    kind: table
+    location: backend/app/db.py:232
+    ddl_shape: "PK(user_id, period), used, updated_at   ← period 为 UTC 日期"
+    store_methods: [consume_ai_quota, get_ai_quota_used, release_ai_quota]
+    external_readers: []
+    background_consumers: []
+    sensitivity: runtime_security
+    tenant_derivable: direct
+    tenant_derivable_reason: >
+      PK(user_id, period) **无租户口径**。总设计 9.3 行要求 quota_periods 按
+      租户+主体+指标建模。共享库下同一账号在两租户会共用一个计数器。
+      consume_ai_quota 是准入路径，扩展 PK 时必须保持原子性。
+    migration_rule: pk_extend
+    validation_case: AT-15
+    registry_status: registered
+    risk_flags: [quota_counter_shared_across_tenants, admission_path_atomicity]
+
+  - resource: mini_program_push_quotas
+    kind: table
+    location: backend/app/db.py:188
+    ddl_shape: "PK(user_id, template_id), remaining, updated_at"
+    store_methods: [grant_push_quota, consume_push_quota, reset_push_quota]
+    external_readers: [services/ai_governance.py, services/wechat_push.py]
+    background_consumers: [services/wechat_push.py]
+    sensitivity: runtime_security
+    tenant_derivable: direct
+    tenant_derivable_reason: "配额主体需从全局用户扩到租户成员"
+    migration_rule: pk_extend
+    validation_case: AT-15
+    registry_status: registered
+
+  - resource: mini_program_push_log
+    kind: table
+    location: backend/app/db.py:195
+    ddl_shape: "id PK, event_id UNIQUE, recipient_id, template_id, status, error_code, created_at"
+    store_methods: [record_mini_program_push, has_mini_program_push,
+                    list_delivered_push_events]
+    external_readers: [services/wechat_push.py]
+    background_consumers: [services/wechat_push.py]
+    sensitivity: runtime_security
+    tenant_derivable: direct
+    tenant_derivable_reason: "业务消息须引用租户成员（总设计第 10 节）"
+    migration_rule: expand_sidecar
+    validation_case: AT-26
+    registry_status: registered
+
+  # ═══ 幂等类 ════════════════════════════════════════════════════════════
+  - resource: workflow_idempotency
+    kind: table
+    location: backend/app/db.py:321
+    ddl_shape: "PK(user_id, action, idem_key), request_hash, response, created_at"
+    store_methods: [save_workflow_idempotency_conn, get_workflow_idempotency]
+    external_readers: [api/workflow.py, repositories/workflow_repository.py]
+    background_consumers: []
+    sensitivity: runtime_security
+    tenant_derivable: direct
+    tenant_derivable_reason: >
+      总设计 9.4 行要求幂等唯一范围为**租户+成员+操作+键**；现 PK 是
+      (user_id, action, idem_key)（db.py:321-329）。同一账号在两租户（AT-01）
+      会**互相顶掉幂等记录**，第二个租户的请求被误判为重复。
+      request_hash 已存在 → 总设计 4.8 行「相同键不同内容必须冲突」的基础已具备。
+    migration_rule: pk_extend
+    validation_case: AT-20
+    registry_status: registered
+    risk_flags: [idempotency_scope_too_narrow_for_multi_tenant]
+
+  # ═══ 配置类 ════════════════════════════════════════════════════════════
+  - resource: system_settings
+    kind: table
+    location: backend/app/db.py:204
+    ddl_shape: "PK(key, organization_id), value, updated_at   ← 0010 迁移后的形态"
+    store_methods: [get_system_setting, get_tenant_system_setting,
+                    get_system_ai_config, set_system_setting,
+                    set_system_ai_config, list_system_settings_organizations]
+    external_readers: [api/ai.py, api/operations.py]
+    background_consumers: []
+    sensitivity: auth_secret
+    tenant_derivable: conditional
+    tenant_derivable_reason: >
+      0010 迁移（db.py:450-474）把全局键值表改为 (key, organization_id) 复合主键，
+      存量行归到 organization_id=''（平台全局默认）。**空串 '' 不得继续承载
+      多语义**（总设计 9.1 行）——需拆为 scope_type + scope_id 显式三态：
+      平台 / 租户 / 成员。AI 配置可能含密钥引用，sensitivity 定为 auth_secret。
+      **实际只有 2 个键**：ai_default_config（组织级）、retention_policy（恒平台级）。
+    migration_rule: expand_sidecar
+    validation_case: AT-16
+    registry_status: registered_gap
+    risk_flags: [empty_string_carries_multiple_semantics, ai_config_scope_ambiguity,
+                 byok_on_global_users_column_no_tenant_dimension,
+                 retention_policy_single_global_value,
+                 users_organization_context_is_fourth_json_relation]
+    open_question: >
+      **Q-05 已解决**（2026-10-01）→ docs/tenancy/system-settings-scope-inventory.md。
+      连带发现 AI 配置解析链 5 个差距（G-1~G-5）。
+      **G-3：users.ai_config 挂在全局 users 行上，get_user_ai_config(user_id) 无组织维度
+      → AT-01（同账号双租户 BYOK 不串）在当前 schema 下无法通过。属 W-07 最高风险项。**
+    remediation: [W-02:T-02.5, W-07:BYOK-provider_credentials]
+
+  # ═══ 平台类 ════════════════════════════════════════════════════════════
+  - resource: schema_migrations
+    kind: table
+    location: backend/app/db.py:369
+    ddl_shape: "version PK, applied_at"
+    store_methods: [list_schema_migrations]
+    external_readers: [cli/migrate.py, backend/tests/test_phase9_security_migration.py]
+    background_consumers: []
+    sensitivity: runtime_security
+    tenant_derivable: none
+    tenant_derivable_reason: >
+      平台迁移账本。当前是**打标而非迁移状态**：SCHEMA_MIGRATIONS 为硬编码
+      字符串元组（db.py:29-40），写入是无条件 INSERT OR IGNORE（db.py:475-479），
+      cli/migrate.py:19-27 只校验版本号齐全。**账本显示「已应用」与 DDL 实际生效
+      之间无对账关系**。W-02 T-02.2 用新账本替代。
+    migration_rule: ledger_replace
+    validation_case: AT-45
+    registry_status: registered
+    risk_flags: [ledger_is_marker_not_migration_state, no_checksum_no_rollback,
+                 no_drift_reconciliation]
+
+# ──────────────────────────────────────────────────────────────────────────
+# 二、访问面登记（不是表，但同样是「入口」）
+# ──────────────────────────────────────────────────────────────────────────
+access_surfaces:
+
+  - id: ai-quota-reservation-pilot
+    description: "request登记、tenant/member限定非货币quota双窗口原子预留；quota拒绝保留pre-dispatch事实；unknown冻结且不自动释放；billable恒false"
+    locations: [backend/app/api/ai.py, backend/app/services/ai_governance.py, backend/app/db.py, backend/app/services/ai_usage_facts.py, backend/app/services/ai_recovery.py]
+    reads_tables: [ai_requests, workflow_records, ai_quota, users, tenants, tenant_memberships]
+    writes_tables: [ai_requests, workflow_records, ai_quota, audit_events]
+    status: local_mock_only_no_billing_no_rls
+
+  - id: provider-usage-fact-pilot
+    description: "协议保留usage→persisted request作用域事实严格INSERT/completed/审计单事务；缺测量为unavailable/null，旧估算独立，billable:false"
+    locations: [backend/app/api/ai.py, backend/app/services/ai_usage_facts.py, backend/app/services/ai_recovery.py]
+    reads_tables: [ai_requests, users, tenants, tenant_memberships, workflow_records]
+    writes_tables: [ai_requests, workflow_records, audit_events]
+    status: local_mock_only_no_billing_no_rls
+
+  - id: explicit-onboarding-pilot
+    description: "显式平台批准→draft→首位owner/成员 create-or-replay；无自动启用/授权upsert/撤权复活"
+    locations: [backend/app/services/saas_identity.py, backend/app/api/saas.py, backend/app/api/operations.py]
+    reads_tables: [users, tenants, tenant_memberships, platform_role_bindings, saas_provisioning, organization_units]
+    writes_tables: [tenants, tenant_memberships, platform_role_bindings, saas_provisioning, audit_events, system_settings]
+    status: local_pilot_only
+
+  - id: tenant-member-writing-pilot
+    description: "可信tenant/member作用域下手写空白项目创建/list/get/CAS update；旧Store隐藏并拒写这些项目，导出/异步显式拒绝"
+    locations: [backend/app/services/tenant_projects.py, backend/app/api/saas.py, backend/app/services/export_jobs.py]
+    reads_tables: [projects, users, tenants, tenant_memberships]
+    writes_tables: [projects, audit_events]
+    status: partial_isolation_no_rls
+
+  - id: offline-ownership-admission
+    description: "immutable只读历史归属预检，全量重算准入绑定；GO_REHEARSAL仅离线演练，production_authorized恒false"
+    locations: [docs/tenancy/tools/ownership_preflight.py, docs/tenancy/tools/backfill_migrate.py]
+    status: offline_rehearsal_only
+
+  - id: store-ctor
+    description: "Store 构造点 —— 每次构造触发 _init_schema() 执行 30 张表 DDL"
+    locations_all_17:
+      - {loc: "backend/app/auth.py:618", form: "Store()",          phase: request, note: "get_store()，Depends 统一入口"}
+      - {loc: "backend/app/api/auth.py:35",                form: "Store()", phase: request}
+      - {loc: "backend/app/api/ai.py:31",                  form: "Store()", phase: request}
+      - {loc: "backend/app/api/audit.py:21",               form: "Store()", phase: request}
+      - {loc: "backend/app/api/document_packages.py:41",   form: "Store()", phase: request}
+      - {loc: "backend/app/api/document_projects.py:71",   form: "Store()", phase: request}
+      - {loc: "backend/app/api/organizations.py:17",       form: "Store()", phase: request}
+      - {loc: "backend/app/api/policies.py:49",            form: "Store()", phase: request}
+      - {loc: "backend/app/api/projects.py:196",           form: "Store()", phase: request}
+      - {loc: "backend/app/api/routes.py:92",              form: "Store()", phase: request}
+      - {loc: "backend/app/api/specs.py:41",               form: "Store()", phase: request}
+      - {loc: "backend/app/api/teacher.py:21",             form: "Store()", phase: request}
+      - {loc: "backend/app/api/templates.py:61",           form: "Store()", phase: request}
+      - {loc: "backend/app/main.py:180",                   form: "Store()", phase: request,
+         note: "**在 download_image 端点内逐请求构造**，见 access-surface: image-download-path"}
+      - {loc: "backend/app/main.py:77",                    form: "Store()", phase: startup,
+         note: "启动函数内；同时调用 recover_pending_archives / recover_pending_exports，见 u09-touchpoint"}
+      - {loc: "backend/app/worker.py:35",                  form: "Store()", phase: worker,
+         note: "run_once 入口"}
+      - {loc: "backend/app/cli/migrate.py:19",             form: "Store(db_path)", phase: cli}
+      - {loc: "backend/app/api/saas.py:24", form: "Store()", phase: request}
+    count_total: 18
+    count_by_phase: {request: 15, startup: 1, worker: 1, cli: 1}
+    severity: blocking
+    finding: >
+      总设计 saas-platform-design-20261001.md:271 假设 DDL 在「启动过程」，
+      实际是**每个请求**——`Depends(get_store)` 的注入点分布见 `meta.depends_get_store`
+      （由 `resource_registry_check` RR-2 实跑重算，**本文不复述这个数**），
+      14 个构造点在请求路径上。
+      在 PostgreSQL 上这是 catalog 锁争用与连接池失效的直接来源。
+      **W-02 T-02.1 必须先移除此路径，否则 RLS/连接池/事务局部租户设置无从谈起。**
+    remediation: W-02:T-02.1
+    registry_status: registered
+
+  - id: image-download-path
+    description: "backend/app/main.py:176-180 GET /media/uploads/{filename}"
+    severity: high
+    finding: >
+      端点内 `store = Store()` 逐请求构造，并调用 **store.list_projects() 拉取全部项目**，
+      再在 Python 里用 `project_image_urls` 过滤决定 permitted。
+      三个问题：(1) 触发上述 per-request DDL；(2) **全表扫描所有租户的项目**，
+      共享库下是跨租户数据面全量读；(3) 文件授权在应用层逐项目比对，
+      不是数据库/目录级授权 —— 对应 AT-13「鉴权前无文件内容、无旧静态旁路」。
+      总设计 20.2 行要求浏览器只传逻辑对象 ID、鉴权后由目录记录授权。
+    registered_as: "projects 表 / image 授权路径"
+    remediation: "W-02:T-02.1（构造点）+ W-04:AT-13（文件授权模型）"
+    registry_status: registered
+    risk_flags: [per_request_ddl, cross_tenant_full_table_read, app_layer_only_file_authz]
+
+  - id: data-root-fragmentation
+    description: "同一数据根的 11 处独立解析点，2 处已对齐、9 处未对齐"
+    severity: blocking
+    count_total: 11
+    count_aligned: 2
+    count_misaligned: 9
+    resolution_points:
+      aligned:
+        - {loc: "backend/app/db.py:44-54", fn: "data_dir", env: "PAPERGUARD_DB_PATH > PAPERGUARD_DATA_DIR", role: "基准"}
+        - {loc: "backend/app/api/workflow.py", fn: "_archive_dir", env: "复用 data_dir", role: "BUG-20261001-02 已修"}
+      misaligned:
+        - {loc: "backend/app/services/backup_restore.py:27-28", fn: "configured_data_dir",
+           env: "仅 PAPERGUARD_DATA_DIR", problem: "不读 DB_PATH —— 备份根可与在线 DB 分裂"}
+        - {loc: "backend/app/services/backup_restore.py:31-35", fn: "configured_db_path",
+           env: "PAPERGUARD_DB_PATH > configured_data_dir()", problem: "与上一条规则不同"}
+        - {loc: "backend/app/main.py:162-167", fn: "_configured_upload_dir",
+           env: "仅 PAPERGUARD_DATA_DIR", problem: "不读 DB_PATH；与 document_assets 重复实现"}
+        - {loc: "backend/app/services/document_assets.py:9,17-18", fn: "document_upload_dir",
+           env: "仅 PAPERGUARD_DATA_DIR", problem: "不读 DB_PATH；与 main.py 重复实现同一目录"}
+        - {loc: "backend/app/api/process_records.py:67-75", fn: "_process_file_dir",
+           env: "PAPERGUARD_PROCESS_FILE_DIR > PAPERGUARD_DATA_DIR", problem: "不读 DB_PATH"}
+        - {loc: "backend/app/services/document_render_jobs.py:35,43-46", fn: "artifact_dir",
+           env: "仅 PAPERGUARD_ARTIFACT_DIR", problem: "独立变量，不随 DATA_DIR 联动"}
+        - {loc: "backend/app/services/template_source.py:21,24-28", fn: "template_source_dir",
+           env: "仅 PAPERGUARD_TEMPLATE_DIR", problem: "独立变量，不随 DATA_DIR 联动"}
+        - {loc: "backend/app/services/export_jobs.py:21,159,163,173", fn: "EXPORT_DIR",
+           env: "无", problem: "模块级常量，完全硬编码，资产无法重定位"}
+        - {loc: "backend/app/api/policies.py:41,538", fn: "_DOCUMENT_DIR",
+           env: "无", problem: "模块级常量，完全硬编码，资产无法重定位"}
+    reproduced_finding: >
+      **DR-02 已本地只读复现**（脚本 /tmp/dr02b.py，不写文件、不触库）：
+      仅设 PAPERGUARD_DB_PATH=/custom/vol/paperguard.db 而不设 PAPERGUARD_DATA_DIR 时，
+      在线 DB=/custom/vol/paperguard.db，而 backup_restore 的备份根
+      = <仓库>/backend/data → **备份根不含在线数据库**。
+      对照：两者同设 → 一致；都不设 → 一致。
+      触发条件因此精确为「DB_PATH 已设而 DATA_DIR 未设或不同值」。
+    impact: >
+      冲击总设计 20.4「数据库和文件必须同一可解释代数」与 U-07。
+      **生产是否踩到未验证**——取决于其 env 中两者是否同值，需 T-01.1 只读核对键名。
+      即便生产当前安全，W-02 T-02.7（PG 隔离演练）与 M7（切换）必然要把数据移到独立卷，
+      届时即进入场景 A。
+    self_correction: >
+      BUG-20261001-02 的修复是**点修**：只改了 api/workflow.py 一处（9 个未对齐点中的 1 个），
+      不构成该缺陷类的解决。
+    remediation: [W-01:T-01.1, W-01:T-01.2, W-02:T-02.1]
+    blocks: "W-02 T-02.7（PostgreSQL 隔离演练）——演练要移动数据根，分裂会污染演练结论"
+    detail: docs/tenancy/data-root-fragmentation.md
+    registry_status: registered
+
+  - id: u09-touchpoint
+    description: "backend/app/main.py:70-82 启动函数调用 recover_pending_archives / recover_pending_exports"
+    severity: high
+    relevance: U-09
+    finding: >
+      生产失败归档任务（archive-7cf822d514c1）的恢复入口在**应用启动路径**上。
+      这意味着任何一次重启都会自动触发归档/导出恢复逻辑 ——
+      U-09 的处置方案必须先确认该路径的幂等性与围栏行为，
+      否则「重启即重试」可能重复产生外部效果。
+      **本轮不执行、不重启生产、不调用该函数。**
+    remediation: "W-01:T-01.3（只读诊断）"
+    registry_status: registered
+    risk_flags: [restart_triggers_recovery, idempotency_unverified]
+
+  - id: store-methods
+    description: "Store 的公开方法 = 真实数据访问面"
+    # ★ INC-85：本条目此前**只有 count: 111，一个方法名都没有**。
+    #   「访问面全集」因此只是文件里的一个**数字**，不是一份**枚举**——
+    #   而「某个新方法没被登记」这种缺口，**差集的两侧没有一方是枚举出来的就永远查不出来**。
+    #   现在把全集显式写下来（顺序 = 首次出现在某张表 store_methods 的次序，
+    #   末尾 3 个只经 delegated-methods 登记），由 RR-1 逐条与 reality 求差集。
+    methods: [save_user, get_user, get_user_by_email, get_user_by_username, get_user_by_token, list_users,
+              get_session_user, list_students_by_teacher, unbind_teacher_student, update_user_status, update_user_role_and_status,
+              set_must_change_password, get_user_ai_config, set_user_ai_config, create_session, revoke_session,
+              revoke_user_sessions, save_email_code, get_email_code, delete_email_code, bump_email_code_attempts,
+              bind_mini_program, get_mini_program_binding_by_openid, get_mini_program_binding_by_user,
+              delete_mini_program_binding, create_mini_program_bind_ticket, get_mini_program_bind_ticket,
+              save_template, get_template, list_templates, delete_template, save_project, get_project,
+              list_projects, delete_project, update_project_check_runs, update_project_if_revision,
+              save_document_package, get_document_package, get_document_package_bundle, list_document_package_bundles,
+              save_document_project, get_document_project, list_document_projects, update_document_project_if_revision,
+              save_requirement_set, get_requirement_set, list_requirement_sets, delete_requirement_set,
+              save_validation_run, get_validation_run, list_validation_runs, save_check_run, get_check_run,
+              list_check_runs, save_workflow_record, save_workflow_record_conn, get_workflow_record,
+              list_workflow_records, delete_workflow_record, save_organization_unit, get_organization_unit,
+              list_organization_units, delete_organization_unit, save_audit_event, save_audit_event_conn,
+              list_audit_events, save_policy_audit, list_policy_audits, create_job_conn, get_job, get_job_conn,
+              list_jobs, claim_jobs, complete_job, fail_job, cancel_job, cancel_job_conn, retry_job_conn,
+              save_workflow_event_conn, claim_workflow_events, list_pending_workflow_events, list_workflow_events,
+              mark_workflow_event_read, mark_workflow_event_delivered, mark_workflow_event_delivered_with_lease,
+              fail_workflow_event, retry_workflow_event, list_delivered_push_events, record_ai_usage,
+              ai_usage_summary, consume_ai_quota, get_ai_quota_used, release_ai_quota, grant_push_quota,
+              consume_push_quota, reset_push_quota, record_mini_program_push, has_mini_program_push,
+              save_workflow_idempotency_conn, get_workflow_idempotency, get_system_setting,
+              get_tenant_system_setting, get_system_ai_config, set_system_setting, set_system_ai_config,
+              list_system_settings_organizations, list_schema_migrations,
+              # ↓ 仅经 delegated-methods 登记（逐表 store_methods 里没有它们）
+              get_user_by_identifier, workflow_transaction, retry_job,
+              register_ai_request, register_ai_request_with_reservation, create_ai_request, create_tenant, ensure_legacy_tenant_membership, get_ai_request_by_idempotency, get_ai_quota_reservation, get_membership, get_membership_for_user, get_tenant, list_ai_requests, list_memberships_for_tenant, list_memberships_for_user, list_tenants, save_membership, update_ai_request, mark_ai_request_dispatching, mark_ai_request_outcome, release_ai_request_reservation, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
+    count: 133
+    # 与 delegated-methods 的关系（INC-85）：**两个集合允许重叠，不要相加**。
+    # 逐表 store_methods 的口径是「这个方法访问哪张表」；
+    # delegated-methods 的口径是「这个方法体内不出现任何表名字符串」。
+    # 两者是**两个不同的问题**，实测重叠 10 个（cancel_job、get_job、get_audit_event 等），
+    # 因此 108 + 13 = 121 ≠ 111。**按加法核对本文件必然得出「写错了」的结论。**
+    overlap_with_delegated: 10
+    severity: high
+    finding: "按表名 grep 会漏（10 张表 0 命中却是热路径）；改造与审计一律以方法为入口"
+    remediation: W-02:T-02.1
+    registry_status: registered
+
+  - id: delegated-methods
+    description: "13 个公开方法不直接命名任何表名（走委托/helper），grep 表名会漏"
+    # 口径（INC-85 补记）：本列表判据是「**方法体内不出现 25 张表里任何一张的表名字符串**」，
+    # **不是**「没有被任何表登记」。这两个口径不同且**允许重叠**——
+    # `cancel_job`/`get_job`/`save_audit_event` 等 10 个方法既在这里、也在逐表 store_methods 里。
+    # 此前本文件没写明口径，读者按「108 + 13 = 121 ≠ 111」核对会判定本文件有错。
+    methods: [cancel_job, get_document_package, get_job, get_system_ai_config,
+              get_tenant_system_setting, get_user_ai_config, get_user_by_identifier,
+              mark_workflow_event_delivered, retry_job, save_audit_event,
+              save_workflow_record, set_system_ai_config, workflow_transaction]
+    count: 13
+    severity: medium
+    registry_status: registered
+
+  - id: workflow-repository
+    description: "backend/app/repositories/workflow_repository.py —— 已存在的门面"
+    count: 1
+    severity: medium
+    finding: >
+      设计文档 23.2 节假设 repositories 层尚不存在、需新建
+      infrastructure/persistence/。实际已有 WorkflowRepository，
+      但其方法签名直接接收 sqlite3.Connection
+      （cancel_job_in_transaction / get_job_in_transaction /
+      create_job_in_transaction / retry_job_in_transaction），
+      且 __init__ 持有的是 **Store** 而非端口接口。
+      **它是 Store 之上的门面，不是设计要求的端口提取**，
+      仍与 SQLite 强耦合。W-02 需明确其改造路径而非重复造层。
+    remediation: W-02:T-02.1
+    registry_status: registered
+    design_doc_deviation: true
+
+authorization_matrix:
+  status: design_ready
+  document: docs/tenancy/permission-matrix.md
+  satisfies: "总设计 2.3 节 U-02 的设计侧交付物；27.3 文档包第 1 项剩余部分"
+  route_inventory:
+    total: 230
+    method: "AST 解析 @router.* 装饰器 + 参数默认值中的 Depends()"
+    # ★ INC-86（2026-10-02）：上面这句方法说明**不完整**，而两种「显而易见的实现」
+    #   都会得到错数。RR-5 按本段口径实算，缺这段说明时门禁无法自证方法未被改窄。
+    method_note: >
+      ① 处理器遍历必须同时包含 `ast.FunctionDef` **与 `ast.AsyncFunctionDef`**——
+      后者**不是**前者的子类（是兄弟类），只判 `isinstance(n, ast.FunctionDef)`
+      会漏掉全部 `async def` 处理器，实测写操作 129 → **116（少 13 条 POST）**。
+      ② **不要用 `app.routes` 作为权威**：fastapi 0.141.1 下 `include_router` 的结果是
+      15 个 `_IncludedRouter` 包装对象、**不展平**，`len(app.routes)` 只有 **20**。
+      权威值须经 `r.original_router.routes` 展平（实测展平后 214，与本文一致）。
+      ③ `Depends()` 有**三种出现位置**：参数默认值、路由级 `dependencies=[...]`、
+      router 级 `APIRouter(dependencies=[...])`；还必须识别 `Annotated[..., Depends(...)]`。只扫参数默认值**看不见**后两种。
+    by_guard:
+      current_user: 157
+      # ↓ 口径：签名带 `require_manager` **且不带** feature flag 依赖的路由。
+      #   **本值原为 25，且原分类只数了「路由级」flag，漏掉 3 个 router 级挂载的 5 条**
+      #   （document_packages / document_projects / specs 的 `APIRouter(dependencies=[...])`），
+      #   于是那 5 条被错标成「纯 manager」。INC-86 实测正确互斥划分为 **20 + 9 = 29**。
+      #   **六项之和仍等于 214**（划分不变量没破），所以原值**看起来完全自洽**。
+      require_manager: 20
+      require_admin: 7
+      trusted_context: 19
+      require_template_manager: 6
+      # ★ 这个名字**不是代码里的标识符**（全仓 grep 0 命中），而是一个**派生分类**。
+      #   真实守卫名是 `require_general_document_platform`（`core/feature_flags.py:22`），
+      #   它是 **feature flag**、**不出现在任何处理器签名里**，只出现在
+      #   `APIRouter(dependencies=[...])`（3 个模块）与路由级 `dependencies=[...]`（4 条）。
+      #   本项口径 = 「签名带 `require_manager` **且** 带该 flag」= 20 之外的 9 条
+      #   （templates 4 + specs 4 + document_packages 1）。
+      #   **按名字 grep 核对会得到 0**——所以必须写明它是派生量、也必须数全两种挂载位置。
+      require_general_document_platform_plus_manager: 9
+      # ↓ 口径：**完全不依赖任何签名级守卫**的路由（实测 12）
+      none_public: 12
+    # ★ `public_routes`（15）与 `by_guard.none_public`（12）是**两个不同口径**，不可互换：
+    #   · `none_public` = 无任何签名级守卫（12 条，含 4 条 /health* 与 2 条 /packs*）
+    #   · `public_routes` = **无需角色守卫**（15 条 = 上面 12 条 + 3 条
+    #     `/mp/bind-email`、`/mp/unbind`、`/mp/subscribe`）
+    #   ★ **那 3 条实测都带 `current_user`**（`api/auth.py` 的小程序端点），
+    #     **它们不是匿名可访问的**。把它们叫「public」只表示「不要求管理员/经理角色」。
+    #     混用会得出「15 ≠ 12，文件写错了」——**原文正是因此看起来自相矛盾**。
+    public_routes_note: "本列表口径 = 无需角色守卫（可能仍需登录）；与 none_public 不同口径，见 method_note ③"
+    public_routes: ["/register","/login","/email/code","/mp/login","/mp/bind",
+                    "/mp/register","/mp/bind-email","/mp/unbind","/mp/subscribe",
+                    "/logout","/health","/health/live","/health/ready","/packs","/packs/{pack_id}"]
+  organization_visibility:
+    admin: "全部组织（access_service.py:27-28）—— 无租户边界"
+    college_admin: "自身作用域根 + 全部后代（access_service.py:30-38）"
+    teacher_student: "仅自身作用域根（access_service.py:29-31）"
+  gaps:
+    - {id: GAP-P-01, sev: high,   desc: "admin 作用域=全部组织，无租户边界", owner: W-03}
+    - {id: GAP-P-02, sev: high,   desc: "BYOK 不绑定租户成员", owner: W-07, ref: "Q-05 G-3"}
+    - {id: GAP-P-03, sev: high,   desc: "无租户外发策略门禁，平台回退隐式", owner: W-07, ref: "Q-05 G-1/G-2"}
+    - {id: GAP-P-04, sev: medium, desc: "机构使用聚合无对外实现（ai_usage_summary 零 API 调用）", owner: W-06/W-08}
+    - {id: GAP-P-05, sev: medium, desc: "审计 CSV 导出无二次确认/水印/审批", owner: W-10}
+    - {id: GAP-P-06, sev: medium, desc: "require_manager 命名与授予面不符（25 路由含全部 active 教师）", owner: W-03}
+    - {id: GAP-P-07, sev: medium, desc: "organization_context 管理员路径无键名白名单/类型校验（自助路径有）", owner: W-03, ref: "Q-05 §7 INC-01"}
+    - {id: GAP-P-08, sev: medium, desc: "160 条 current_user 路由的处理器内判定未逐条核验", owner: W-03}
+    - {id: GAP-P-09, sev: medium, desc: "无 support_grants 实体与流程", owner: W-10}
+    - {id: GAP-P-10, sev: medium, desc: "无租户退出/恢复/删除授权路径", owner: W-10}
+  at_blocked: [AT-01, AT-02, AT-03, AT-07, AT-16, AT-30]
+  u02_state: "设计侧已闭合；实现侧有可信上下文与 AI 元数据切片，但完整资源/成员/组织/支持授权未闭合，不能宣称 AT 全过。"
+  registry_status: registered
+
+command_contracts:
+  status: design_ready
+  document: docs/tenancy/command-contracts.md
+  satisfies: "27.3 文档包第 3 项的第一部分（状态/幂等/事务契约）"
+  scope_note: "OpenAPI 契约与前端类型**尚未产出**，第 3 项未全部完成"
+  write_operations: 138
+  classification:
+    A_idempotent: 2
+    B_transaction_only: 38
+    C_neither: 92
+  method: "AST 解析 @router.* + 处理器函数体 ∪ 其直接调用的 service 函数体（保守下界，未递归全调用图）"
+  legacy_idempotent_command:
+    route: "POST /api/submissions"
+    fn: confirm_submission
+    loc: backend/app/api/workflow.py:1485
+    scope_gap: "PK(user_id, action, idem_key) 不满足总设计 9.4 要求的 租户+成员+操作+键"
+  scoped_reconciliation_command:
+    route: "POST /api/saas/v1/ai/requests/{request_id}/reconciliation"
+    fn: request_reconciliation
+    loc: backend/app/api/saas.py:223
+    scope_note: "unknown 的单调状态 CAS 与同事务审计；重放不新增审计；不是供应商最终结果对账"
+  critical_gap:
+    id: GAP-C-01
+    severity: high
+    # ★★ INC-86（2026-10-02）：**本条已作废，原结论是错的。**
+    #   保留记录是因为「错因」比「错结论」更值得留档，**不删除**。
+    status: RESOLVED_BY_REFACTOR
+    resolved_at: "2026-10-02"
+    superseded_by: "command-contracts.md §4（2026-10-02 全节重写）"
+    invalidation_reason: >
+      原结论用「`begin_call` 的调用点数量」推断「多少条业务路径被计量」——
+      **用一个内部函数的调用点数量去推断有多少条路径经过它**。
+      `begin_call` 位于收敛点 `_metered_chat`（`api/ai.py:358-417`）**内部**，
+      6 条外部 AI 写操作**全部**经它派发，因此调用点**恰好应为 1**。
+      **`begin_call` 调用点为 1 是修复后的正确状态，不是缺陷指标。**
+      实测 6 条命令全部调用 `_metered_chat`（配额门禁与 record_usage 均覆盖）。
+    # ↓ 以下为**当前证据**，**由 RR-6 逐条核对**。
+    #   计量出口现由 `reserve_call` 统一完成 request+quota reservation；
+    #   `begin_call` 仅保留给旧的直接治理调用/兼容测试，不再是生产派发路径。
+    evidence_now:
+      reserve_call_call_sites: 1
+      reserve_call_site: {fn: _metered_chat, loc: "backend/app/api/ai.py:452"}
+      ai_direct_modules: [backend/app/api/ai.py]
+      metered_ai_commands:
+        - {name: test_ai_config,           loc: "backend/app/api/ai.py:772"}
+        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:877"}
+        - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:209"}
+        - {name: assist_requirement_check, loc: "backend/app/api/projects.py:1345"}
+        - {name: parse_spec_candidate,     loc: "backend/app/api/specs.py:64"}
+    # ↓ 以下为**原始（已作废）**记录，逐字保留供追溯；**RR-6 按标记跳过**
+    desc_ORIGINAL_INVALID: "ai_governance.begin_call 全仓仅 1 个调用点（api/ai.py:676，在 ai_assist 内）；6 条外部 AI 写操作中 5 条无配额门禁与用量记录"
+    evidence_ORIGINAL_INVALID:
+      begin_call_call_sites: 1
+      begin_call_site_ORIGINAL_INVALID: "backend/app/api/ai.py:685"   # ★ 该行是 save_admin_ai_config 的参数行
+      ai_direct_modules: [backend/app/api/ai.py]
+      unmetered_ai_commands_ORIGINAL_INVALID:
+        - {name: test_ai_config,           loc: "backend/app/api/ai.py:550"}
+        - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:650"}
+        - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:209"}
+        - {name: assist_requirement_check, loc: "backend/app/api/projects.py:1345"}
+        - {name: parse_spec_candidate,     loc: "backend/app/api/specs.py:64"}
+    # ★ 原证据里 3/5 的 loc 已失效（ai.py:541 / ai.py:641 已不在对应函数体内），
+    #   `begin_call_site` 指向的 ai.py:676 更是**另一个函数的参数行**。
+    #   **数字对了、指向错了、结论反了**——而没有任何机器核对过这些指针。
+    partial_mitigation: "出站守卫 assert_safe_outbound_url + _chat_completion 内 ai_breaker 熔断；熔断非限流，仅失败后打开"
+    design_violation: "总设计 13.1 第 553 行那条要求**已被 _metered_chat 满足**——所声称的违反不存在"
+    evidence_strength: "代码路径级已验证；实际消耗量与调用次数**未验证**（需接口层 UAT 或上游账单对账）"
+    residual_risk: >
+      **单点风险**：`_metered_chat` 是唯一出口，代码里**没有任何机制**阻止新增
+      `_chat_completion(...)` 直调绕过它。**该静态门禁已由 `docs/tenancy/tools/ai_egress_check.py` 落地**（AE-0 防空转 / AE-1 出站原语收敛 / AE-2 分层收敛 / AE-3 配额与异常路径记账 / AE-4 跨模块不得绕过 / AE-5 静态派发点 ↔ 运行时用例的**路径级双向差集**；自检 23/23，**11 条真实代码注入变异全部报红**）——
+      ★ **AE-5 曾经的等基数假绿与它的对照实验**：AE-5 首版只比「静态派发点数 == 场景条数」，而「新增一条派发点 + 复制一条已有场景」与「删掉一条场景 + 新增一条派发点」**都是 6 == 6**，新派发点因此静默失覆盖。现按 `url` 逐条比对，静态侧改用 AST 调用计数。
+      **证明它有权力的做法不是「新版本报红」，而是把实现退回首版跑同一条变异**：退回首版后 V3（条数不变仅改场景 URL）与 V4（调用改名）**两条都假绿**，现实现两条都报红。
+      这是修复后真正的头号待办，且**与原「5 条不计量」是不同的问题**。
+  self_correction: >
+    第一轮仅扫 api/ 层，误判 create_render_job / create_project_export_job 无事务；
+    实际二者委托的 service（document_render_jobs.py:99、export_jobs.py:47）内部使用事务。
+    最终口径已改为「handler ∪ 一层 service」。
+  at_blocked: [AT-20, AT-21, AT-22, AT-24, AT-26]
+  actions: [CC-1, CC-2, CC-3, CC-4, CC-5, CC-6, CC-7]
+  registry_status: registered
+
+account_migration:
+  status: design_ready
+  document: docs/tenancy/account-migration-inventory.md
+  satisfies: "27.3 文档包第 1 项的最后一块（资源登记表 + 权限矩阵 + 账号迁移清单 = 全部交付）"
+  legacy_identity_columns: [role, status, role_application_status, requested_role,
+                            requested_organization_context, organization_context,
+                            teacher_id, ai_config]
+  role_domain: ["user", "student", "teacher", "college_admin", "admin"]
+  application_states: [unselected, pending, approved, rejected]
+  core_difficulties:
+    - id: DIFF-1
+      desc: "users.role 全局单值 → 每租户一份 membership_roles；旧模型无法表达同账号跨租户不同角色"
+    - id: DIFF-2
+      desc: "指导关系双来源异构且判定为 OR；users.teacher_id 与 supervision 可矛盾（Q-08）"
+      evidence: "api/teacher.py:24-33 判定 OR；api/teacher.py:143 解绑只解一套"
+    - id: DIFF-3
+      desc: "organization_context 两条写入路径校验强度不一致（INC-01）"
+  hard_gates:
+    - {id: MIG-02, desc: "旧 admin 无一被自动映射为 platform_role_bindings"}
+    - {id: MIG-03, desc: "teacher_student_bindings 双方同租户（复合外键拒绝）"}
+    - {id: MIG-08, desc: "旧登录凭据仍可用；不改 username/密码哈希、不按邮箱合并"}
+  new_quarantine: [Q-08, Q-09, Q-10, Q-11]
+  local_dev_db_observation:
+    scope: "backend/data/paperguard.db，mode=ro 只读；**非生产数据**"
+    users: 15
+    role_dist: {student: 9, teacher: 3, admin: 2, college_admin: 1}
+    teacher_id_bindings: 1
+    supervision_records: 0
+    email_verified: 0
+    caveat: "本地库无 user 角色、supervision=0、email_verified=0 → 形态样例，**不代表生产规模**；Q-08 冲突场景本地不可复现"
+  registry_status: registered
+
+inc_findings:
+  - {id: INC-01, sev: medium,
+     desc: "organization_context 管理员路径（api/organizations.py:115-133）无键名白名单/类型/父子校验；自助路径（api/auth.py:121-145）三者皆有",
+     correction: "更正 system-settings-scope-inventory.md §7 原表述「校验只覆盖 value，不校验 key」——准确表述为「管理员路径不校验，自助路径校验」",
+     owner: W-03}
+  - {id: INC-02, sev: medium,
+     desc: "指导关系 OR 语义下 unbind_student 只解 users.teacher_id，supervision 侧仍生效",
+     evidence: "api/teacher.py:143 注释明载",
+     owner: "产品（并入 Q-08 裁决）"}
+
+# ──────────────────────────────────────────────────────────────────────────
+# 三、隔离清单：归属未解冲突（不猜测归属）
+# ──────────────────────────────────────────────────────────────────────────
+isolation_quarantine:
+  policy: "无归属历史数据不得猜测归属后直接开放（总设计 4.1 行 / 22.1 行）"
+  items:
+    - id: Q-01
+      resource: organization_units
+      conflict: "多根组织树 / 环 / 断链 / 跨校混在一棵树"
+      action: "人工确认根组织→租户映射；子树继承并持久化；异常项进本清单"
+      owner: 待指定
+    - id: Q-02
+      resource: document_projects
+      conflict: "个人历史项目无机构归属"
+      action: "**不自动分给当前学校**；需客户确认或标记为个人资产"
+      owner: 待指定
+    - id: Q-03
+      resource: templates
+      conflict: "无法区分平台公共资产与租户私有资产"
+      action: "逐条判定 asset_scope；客户未发布模板永不变成公共资源（总设计 8.3 行）"
+      owner: 待指定
+    - id: Q-04
+      resource: workflow_records
+      conflict: "kind 清单未枚举，单列 tenant_id 无法表达多业务混装"
+      action: "枚举 kind → 逐 kind 定归属 → 决定拆表或加 resource_type"
+      owner: 待指定
+      blocks: "W-02 T-02.4 DDL 定稿"
+      status: RESOLVED
+      resolution: >
+        2026-10-01 已枚举 17 种 kind，全部有确定归属路径。
+        结论：维持单表 + 单列 tenant_id，**不需拆表**；加 owner_ref 固化父引用。
+        见 docs/tenancy/workflow-records-kind-inventory.md。
+        残余：CHK-01～06 字段空值率待生产只读实测。
+    - id: Q-05
+      resource: system_settings
+      conflict: "organization_id='' 同时表示平台默认与历史存量"
+      action: "拆为 scope_type + scope_id 三态显式建模"
+      owner: 待指定
+      status: RESOLVED
+      resolution: >
+        2026-10-01 已完成分析 → docs/tenancy/system-settings-scope-inventory.md。
+        实际只有 2 个设置键（ai_default_config / retention_policy）。
+        拆分依据：db.py:471-473 的 0010 迁移是确定性的，可用 schema_migrations
+        中 0010_tenant_system_settings 的 applied_at 作分界，**不可凭值猜测**。
+        连带发现 5 个 AI 配置解析链差距（G-1~G-5），其中
+        **G-3（users.ai_config 无组织维度 → BYOK 不绑定租户成员）属 W-07 最高风险项**。
+        动作 W-05-A/B/C 交 W-02；W-07-A/B/C、D 交 W-07/W-06。
+    - id: Q-06
+      resource: audit_events
+      conflict: "老事件缺 request_id / 操作者"
+      action: "标 legacy；**不伪造**（总设计第 10 节）"
+      owner: 待指定
+    - id: Q-07
+      resource: workflow_records
+      conflict: >
+        document_template_candidate / document_spec_candidate 是
+        manager 级全局解析队列，**不携带 template_id / spec_id**，
+        API（api/templates.py:257、api/specs.py:113）无任何租户参数。
+        无法判定其为平台公共资产候选还是租户资产候选。
+      action: "产品 + D-01/D-08 裁决作用域；裁决前不得猜测归属"
+      owner: 产品
+      added: "2026-10-01（Q-04 处置时发现）"
+    - id: Q-08
+      resource: "users.teacher_id + workflow_records(kind=supervision)"
+      conflict: >
+        指导关系有两套异构来源：users.teacher_id（全局、单值、无批次）与
+        supervision（cohort_id 内、带 state）。api/teacher.py:24-33 用
+        **OR 语义**判定（任一命中即成立），api/teacher.py:143 确认
+        **解绑只解账号绑定**。两者可互相矛盾 → 两位教师同时可访问该学生。
+      action: "产品 + 教师教学负责人裁决迁移取哪个来源、是否保留 OR 语义"
+      owner: "产品 + 教师教学负责人"
+      added: "2026-10-01（账号迁移清单）"
+      note: "本地开发库 supervision=0 条，冲突场景本地不可复现，须生产只读实测"
+    - id: Q-09
+      resource: users
+      conflict: "旧 admin 的平台角色映射未裁决（总设计 22.1 行禁止自动升为平台超管）"
+      action: "产品 + D-01 裁决哪些 admin 成为 platform_role_bindings、哪些成为租户所有者"
+      owner: 产品
+      added: "2026-10-01（账号迁移清单）"
+    - id: Q-10
+      resource: users
+      conflict: "role='user'（已注册未选定学校角色）的账号是否需要个人租户承载"
+      action: "产品裁决（总设计 1.2 行：个人商业租户不在机构试点中自动启用）"
+      owner: 产品
+      added: "2026-10-01（账号迁移清单）"
+    - id: Q-11
+      resource: "users.organization_context"
+      conflict: "role='college_admin' 但无 college_id 时的组织范围如何界定"
+      action: "产品裁决"
+      owner: 产品
+      added: "2026-10-01（账号迁移清单）"
+
+# ──────────────────────────────────────────────────────────────────────────
+# 四、明确排除的非客户数据对象
+# ──────────────────────────────────────────────────────────────────────────
+out_of_scope:
+  - {path: "docs/**", reason: "文档与规格，不是运行数据"}
+  - {path: "frontend/node_modules/**", reason: "构建依赖"}
+  - {path: "miniprogram/node_modules/**", reason: "构建依赖"}
+  - {path: "**/__pycache__/**", reason: "编译缓存"}
+  - {path: "docs/testing/**", reason: "用户文件，本轮保持原状不修改"}
+  - {path: "backend/tests/**", reason: "测试夹具，隔离合成数据，不含客户数据"}
+
+# ──────────────────────────────────────────────────────────────────────────
+# 五、放行判据
+# ──────────────────────────────────────────────────────────────────────────
+release_criteria:
+  - "本表 25 张表 registry_status 全部为 registered（无 registered_gap）"
+  - "isolation_quarantine 未处置项全部有指定 owner 与处置结论（Q-04 已 RESOLVED；Q-01/02/03/05/06/07 待处置）"
+  - "CHK-01～06：17 种 kind 的生产字段空值率已用只读快照实测"
+  - "access_surfaces 全部 blocking/high 项已 remediation"
+  - "未登记入口清单为空（总设计第 438 行）"
+  - "凭据扫描 0 命中：本表不得出现任何密钥、token、密码或真实邮箱"
+current_state: >
+  NOT MET — 8 张表 registered_gap；7 项隔离清单中 Q-04 已 RESOLVED，
+  Q-01/02/03/05/06/07 共 6 项待处置；CHK-01～06 需生产只读授权。
+  W-02 T-02.4 DDL 形态**已可定稿**（见 docs/tenancy/workflow-records-kind-inventory.md），
+  但 T-02.5 扩展列与 T-02.6 回填仍被 registered_gap 阻塞。

@@ -80,7 +80,12 @@ async def parse_spec_candidate(
         cfg, _source = resolved
 
         def completion(messages: list[dict[str, str]]) -> str:
-            return ai_api._chat_completion(cfg, messages, 0.1, max_tokens=8000)
+            # 注入的回调可能被 spec_engine 调用多次（初解析 + 重试），
+            # 每次都是真实上游派发，因此每次都各自计量。
+            return ai_api._metered_chat(
+                store, manager, cfg, messages, 0.1,
+                action="spec_import", source=_source, max_tokens=8000,
+            )
 
     try:
         candidate = parse_spec_document(

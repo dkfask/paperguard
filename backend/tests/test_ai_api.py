@@ -18,6 +18,32 @@ from fastapi.testclient import TestClient
 
 from app.api import ai as ai_module
 from app.db import Store
+
+# --------------------------------------------------------------------------
+# 出站守卫需要真实 DNS 解析（SSRF 防护的安全边界）。本文件的用例都用
+# .local / .example 这类**刻意不可解析**的假供应商域名，不打桩的话守卫会在
+# 解析阶段就 400，测不到本来要验证的逻辑。
+#
+# 注意：这个 autouse fixture 只服务于「本文件里的假域名需要被解析成公网地址」
+# 这一件事。守卫自身的测试（test_outbound_guard.py）**不能**带它——那里要验证
+# 的正是解析结果如何影响判定。
+# --------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _fake_public_dns(monkeypatch):
+    import socket
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    # 解除速率限制。本文件用共享的 `admin` 账号跑 AI 入口，全量套件里多个
+    # 文件都用同一个账号；真实上游派发点现在全部扣突发配额（修复前只有
+    # ai_assist 扣），累积后会撞上默认的每分钟 10 次上限报 429——那是跨文件
+    # 污染，不是本文件要验证的行为。配额语义由 test_ai_governance.py 覆盖。
+    monkeypatch.setenv("PAPERGUARD_AI_BURST_PER_MINUTE", "100000")
+    monkeypatch.setenv("PAPERGUARD_AI_DAILY_QUOTA", "100000")
+
 from app.main import app
 
 client = TestClient(app)
@@ -212,8 +238,8 @@ def test_status_requires_auth():
     assert anon.post("/api/ai/assist", json={"action": "polish", "text": "x"}).status_code == 401
 
 
-def test_base_url_fallback_and_error_parsing(monkeypatch):
-    """测试当 Base URL 未加 /v1 且根路径返回 HTML 时能自动 fallback 并解析错误。"""
+def test_base_url_does_not_redispatch_after_unparseable_result(monkeypatch):
+    """HTTP 200 HTML is ambiguous: no blind second dispatch of the prompt."""
     calls = []
 
     def mock_post(url, json=None, headers=None):
@@ -235,6 +261,16 @@ def test_base_url_fallback_and_error_parsing(monkeypatch):
     client_mock.__enter__.return_value.post = mock_post
     monkeypatch.setattr(httpx, "Client", lambda **kw: client_mock)
 
+    # 出站守卫会在**请求前**解析 DNS 并逐个检查地址（SSRF 防护的安全边界）。
+    # api.test.com 是刻意不可解析的假域名，这里给它一个公网解析结果，
+    # 让测试聚焦在它本来要验证的 /v1 fallback 逻辑上。
+    import socket
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc:
         ai_module._chat_completion(
@@ -243,11 +279,8 @@ def test_base_url_fallback_and_error_parsing(monkeypatch):
             0.0
         )
     assert exc.value.status_code == 502
-    assert "Invalid API key provided" in exc.value.detail
-    assert calls == [
-        "https://api.test.com/chat/completions",
-        "https://api.test.com/v1/chat/completions"
-    ]
+    assert "Base URL" in exc.value.detail
+    assert calls == ["https://api.test.com/chat/completions"]
 
 
 def test_minimax_anthropic_base_url_uses_messages_contract(monkeypatch):
@@ -342,7 +375,9 @@ def test_admin_ai_config_crud_and_permissions(monkeypatch):
         json={"base_url": "https://sys-ai.test.com/v1", "api_key": system_key, "model": "sys-model-pro"},
     )
     assert save_res.status_code == 200
-    assert save_res.json() == {"configured": True, "source": "database"}
+    assert save_res.json() == {
+        "configured": True, "source": "database", "organization_id": "",
+    }
 
     # 4. 管理员再次获取，检查脱敏与来源
     cur = admin_client.get("/api/ai/admin/config").json()
@@ -444,3 +479,56 @@ def test_admin_ai_config_survives_relogin(monkeypatch):
     assert captured["model"] == "persisted-model"
 
     admin_client.delete("/api/ai/admin/config")
+
+
+def test_request_time_guard_blocks_legacy_saved_private_config(monkeypatch):
+    """安全边界在**请求前**，不在保存时。
+
+    场景：修复上线前，用户已经保存过指向内网的 base_url，那条记录还在库里。
+    保存路径现在会拦，但对**存量配置**不起作用——必须由请求前的完整校验兜住。
+    如果只修保存路径，这些老配置会继续被使用，SSRF 依然成立。
+    """
+    import socket
+    import uuid
+
+    import httpx as _httpx
+
+    username = f"legacy_{uuid.uuid4().hex[:8]}"
+    password = "Legacy-aaaaaaaaaa1"
+    reg = client.post(
+        "/api/auth/register",
+        json={"username": username, "password": password, "role": "student"},
+    )
+    assert reg.status_code == 201, reg.text
+    token = client.post(
+        "/api/auth/login", json={"username": username, "password": password}
+    ).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 绕过保存路径的检查，直接往库里写一条「修复前就已存在」的私网配置，
+    # 精确模拟存量数据，而不是假设保存接口一定会拦住。
+    from app.db import Store
+
+    store = Store()
+    user = store.get_user_by_username(username)
+    store.set_user_ai_config(
+        user["id"],
+        # 端口取允许列表内的 8080：否则端口检查会先触发，
+        # 测到的就不是「私网地址被请求前校验拦下」这一条。
+        {"base_url": "http://127.0.0.1:8080/v1", "api_key": "sk-legacy", "model": "m"},
+    )
+
+    # 确保请求确实会尝试外发（若没被拦住，这里就会走到 httpx）
+    def _boom(*a, **kw):
+        raise AssertionError("请求前的出站校验没有拦住私网地址，请求被放行了")
+
+    monkeypatch.setattr(_httpx, "Client", _boom)
+
+    resp = client.post(
+        "/api/ai/assist",
+        headers=headers,
+        json={"action": "polish", "text": "论文正文"},
+    )
+    assert resp.status_code == 400, f"应被出站校验 400 拦下，实际 {resp.status_code}: {resp.text}"
+    detail = resp.text
+    assert "回环" in detail or "内网" in detail, detail

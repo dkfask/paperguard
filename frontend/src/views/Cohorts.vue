@@ -6,7 +6,7 @@
         <h1>{{ t('cohorts.title') }}</h1>
         <p>{{ t('cohorts.description') }}</p>
       </div>
-      <div class="workspace-identity"><span class="material-symbols-outlined" aria-hidden="true">calendar_month</span><div><strong>{{ auth.user?.display_name || auth.user?.username }}</strong><span>{{ auth.user?.role === 'admin' ? t('role.admin') : t('role.college_admin') }}</span></div></div>
+      <div class="workspace-identity"><span class="material-symbols-outlined" aria-hidden="true">calendar_month</span><div><strong>{{ auth.user?.display_name || auth.user?.username }}</strong><span>{{ roleLabel(auth.user?.role) }}</span></div></div>
     </section>
 
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
@@ -23,25 +23,25 @@
               <label>{{ t('cohorts.name') }}<input v-model="cohortForm.name" required maxlength="120" :placeholder="t('cohorts.namePlaceholder')" /></label>
               <label>{{ t('cohorts.organization') }}<select v-model="cohortForm.organization_id" required><option value="">{{ t('cohorts.selectOrganization') }}</option><option v-for="unit in organizations" :key="unit.id" :value="unit.id">{{ unit.name }}</option></select></label>
               <label>{{ t('cohorts.academicYear') }}<input v-model="cohortForm.academic_year" maxlength="20" placeholder="2027" /></label>
-              <button class="small primary" type="submit" :disabled="saving || !cohortForm.name || !cohortForm.organization_id"><span class="material-symbols-outlined">add</span>{{ t('cohorts.createButton') }}</button>
+              <button class="small primary" type="submit" :disabled="saving || !cohortForm.name || !cohortForm.organization_id"><span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('cohorts.createButton') }}</button>
             </form>
           </section>
 
           <section class="panel">
-            <div class="panel-heading"><div><p class="workspace-kicker">{{ t('cohorts.listKicker') }}</p><h2>{{ t('cohorts.list') }}</h2></div><button class="icon-button" type="button" :title="t('cohorts.refresh')" :aria-label="t('cohorts.refresh')" :disabled="loading" @click="load"><span class="material-symbols-outlined">refresh</span></button></div>
+            <div class="panel-heading"><div><p class="workspace-kicker">{{ t('cohorts.listKicker') }}</p><h2>{{ t('cohorts.list') }}</h2></div><button class="icon-button" type="button" :title="t('cohorts.refresh')" :aria-label="t('cohorts.refresh')" :disabled="loading" @click="load"><span class="material-symbols-outlined" aria-hidden="true">refresh</span></button></div>
             <AsyncState v-if="!cohorts.length" state="empty" :title="t('cohorts.empty')" :detail="t('cohorts.emptyDetail')" />
             <div v-else class="cohort-list">
               <button v-for="cohort in cohorts" :key="cohort.id" type="button" class="cohort-row" :class="{ selected: selectedCohort?.id === cohort.id }" @click="select(cohort)">
-                <span class="status-dot" :class="cohort.status"></span><span class="cohort-row-copy"><strong>{{ cohort.name }}</strong><small>{{ cohort.academic_year || t('cohorts.academicYearMissing') }} · {{ cohort.member_ids?.length || 0 }} {{ t('cohorts.students') }}</small></span><StatusBadge :status="cohort.status" :label="cohortLabel(cohort.status)" /><span class="material-symbols-outlined">arrow_forward</span>
+                <span class="status-dot" :class="cohort.status"></span><span class="cohort-row-copy"><strong>{{ cohort.name }}</strong><small>{{ cohort.academic_year || t('cohorts.academicYearMissing') }} · {{ cohort.member_ids?.length || 0 }} {{ t('cohorts.students') }}</small></span><StatusBadge :status="cohort.status" :label="cohortLabel(cohort.status)" /><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
               </button>
             </div>
           </section>
 
           <section v-if="selectedCohort" class="panel cohort-config-panel">
-            <div class="panel-heading"><div><p class="workspace-kicker">{{ selectedCohort.name }}</p><h2>{{ t('cohorts.stageDraft') }}</h2><p>{{ t('cohorts.stageDraftDetail') }}</p></div><button class="icon-button" type="button" :title="t('cohorts.closeConfig')" :aria-label="t('cohorts.closeConfig')" @click="selectedCohort = null"><span class="material-symbols-outlined">close</span></button></div>
+            <div class="panel-heading"><div><p class="workspace-kicker">{{ selectedCohort.name }}</p><h2>{{ t('cohorts.stageDraft') }}</h2><p>{{ t('cohorts.stageDraftDetail') }}</p></div><button class="icon-button" type="button" :title="t('cohorts.closeConfig')" :aria-label="t('cohorts.closeConfig')" @click="selectedCohort = null"><span class="material-symbols-outlined" aria-hidden="true">close</span></button></div>
             <StageConfigForm :form="stageForm" :templates="templates" :saving="saving" @save="createStage" />
-            <div class="configured-stages"><h3>{{ t('cohorts.existingStages') }}</h3><div v-if="!selectedCohort.stages?.length" class="muted-row">{{ t('cohorts.noStages') }}</div><div v-for="stage in selectedCohort.stages || []" :key="stage.id" class="configured-stage-row"><div><strong>{{ stage.name }}</strong><span>{{ stage.key }} · v{{ stage.config?.version || 1 }} · {{ stage.config?.deadline_at ? formatDate(stage.config.deadline_at) : t('cohorts.noDeadline') }}</span></div><div class="stage-actions"><StatusBadge :status="stage.status" :label="stage.status === 'published' ? t('cohorts.publishedStatus') : t('cohorts.draftStatus')" /><button v-if="stage.status === 'draft'" class="tiny primary" type="button" :disabled="saving" @click="previewAndPublish(stage)"><span class="material-symbols-outlined">publish</span>{{ t('cohorts.previewPublish') }}</button></div></div></div>
-            <div v-if="stagePreview" class="preview-box"><div class="preview-heading"><strong>{{ t('cohorts.publishImpact') }}</strong><span :class="stagePreview.ok ? 'preview-ok' : 'preview-error'">{{ stagePreview.ok ? t('cohorts.publishable') : t('cohorts.blocked') }}</span></div><p v-for="item in stagePreview.errors || []" :key="item" class="preview-error">{{ item }}</p><p v-for="item in stagePreview.warnings || []" :key="item" class="preview-warning">{{ item }}</p><p v-if="stagePreview.ok">{{ t('cohorts.memberTasksNotice', { count: stagePreview.member_snapshot?.length || 0 }) }}</p><div class="form-actions"><button class="small primary" type="button" :disabled="saving || !stagePreview.ok" @click="publishStage"><span class="material-symbols-outlined">verified</span>{{ t('cohorts.confirmPublish') }}</button></div></div>
+            <div class="configured-stages"><h3>{{ t('cohorts.existingStages') }}</h3><div v-if="!selectedCohort.stages?.length" class="muted-row">{{ t('cohorts.noStages') }}</div><div v-for="stage in selectedCohort.stages || []" :key="stage.id" class="configured-stage-row"><div><strong>{{ stage.name }}</strong><span>{{ stage.key }} · v{{ stage.config?.version || 1 }} · {{ stage.config?.deadline_at ? formatDate(stage.config.deadline_at) : t('cohorts.noDeadline') }}</span></div><div class="stage-actions"><StatusBadge :status="stage.status" :label="stage.status === 'published' ? t('cohorts.publishedStatus') : t('cohorts.draftStatus')" /><button v-if="stage.status === 'draft'" class="tiny primary" type="button" :disabled="saving" @click="previewAndPublish(stage)"><span class="material-symbols-outlined" aria-hidden="true">publish</span>{{ t('cohorts.previewPublish') }}</button></div></div></div>
+            <div v-if="stagePreview" class="preview-box"><div class="preview-heading"><strong>{{ t('cohorts.publishImpact') }}</strong><span :class="stagePreview.ok ? 'preview-ok' : 'preview-error'">{{ stagePreview.ok ? t('cohorts.publishable') : t('cohorts.blocked') }}</span></div><p v-for="item in stagePreview.errors || []" :key="item" class="preview-error">{{ item }}</p><p v-for="item in stagePreview.warnings || []" :key="item" class="preview-warning">{{ item }}</p><p v-if="stagePreview.ok">{{ t('cohorts.memberTasksNotice', { count: stagePreview.member_snapshot?.length || 0 }) }}</p><div class="form-actions"><button class="small primary" type="button" :disabled="saving || !stagePreview.ok" @click="publishStage"><span class="material-symbols-outlined" aria-hidden="true">verified</span>{{ t('cohorts.confirmPublish') }}</button></div></div>
           </section>
 
           <MemberImportWizard v-if="selectedCohort" v-model="memberImportText" :rows="memberImportRows" :result="memberImportResult" :busy="saving" @preview="previewMembers" @commit="commitMembers" />
@@ -63,7 +63,7 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import MemberImportWizard from '../components/MemberImportWizard.vue'
 import StageConfigForm from '../components/StageConfigForm.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { useI18n } from '../i18n'
+import { roleLabel, useI18n } from '../i18n'
 
 const { t, formatDate: formatLocaleDate } = useI18n()
 const loading = ref(true); const saving = ref(false); const error = ref(''); const notice = ref('')

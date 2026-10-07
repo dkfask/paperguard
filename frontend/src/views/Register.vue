@@ -3,11 +3,11 @@
     <header class="stitch-auth-header">
       <div class="auth-header-inner">
         <div class="brand-box">
-          <img alt="PaperGuard Logo" class="brand-icon-img" src="/logo.png" />
+          <img alt="" class="brand-icon-img" src="/icon-shield.png" />
           <span class="brand-name">PaperGuard</span>
         </div>
         <button class="auth-lang-btn" type="button" :title="t('shell.switchLanguage')" @click="toggleLang">
-          <span class="material-symbols-outlined text-[16px]">translate</span>
+          <span class="material-symbols-outlined text-[16px]" aria-hidden="true">translate</span>
           <span>{{ lang === 'zh' ? t('shell.switchToEnglish') : t('shell.switchToChinese') }}</span>
         </button>
       </div>
@@ -18,14 +18,13 @@
         <!-- 左栏:注册表单 -->
         <section class="register-card">
           <div class="brand-row">
-            <img alt="PaperGuard Logo" class="card-logo" src="/logo.png" />
             <span class="card-brand">论文卫士Pro</span>
           </div>
           <h1 class="card-title">{{ t('auth.registerTitle') }}</h1>
           <p class="card-sub">{{ t('auth.registerSub') }}</p>
 
           <div v-if="error" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'">
-            <span class="material-symbols-outlined text-[16px]">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>
+            <span class="material-symbols-outlined text-[16px]" aria-hidden="true">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>
             <span>{{ error }}<template v-if="requestId"> (request_id: {{ requestId }})</template></span>
           </div>
 
@@ -71,14 +70,14 @@
 
               <button class="submit-button" type="submit" :disabled="loading">
                 <span>{{ loading ? t('auth.processing') : t('auth.registerAccount') }}</span>
-                <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+                <span class="material-symbols-outlined text-[16px]" aria-hidden="true">arrow_forward</span>
               </button>
             </form>
           </template>
 
           <template v-else>
             <div class="success-box">
-              <span class="material-symbols-outlined success-icon">check_circle</span>
+              <span class="material-symbols-outlined success-icon" aria-hidden="true">check_circle</span>
               <p class="success-title">{{ t('auth.registrationSuccess') }}</p>
               <p v-if="registeredRole === 'teacher'" class="success-sub">{{ t('auth.teacherRegistered') }}</p>
               <button class="submit-button" type="button" @click="goLogin">{{ t('auth.backToLogin') }}</button>
@@ -96,21 +95,21 @@
           <p class="brand-statement">{{ t('register.statement') }}</p>
           <p class="brand-sub">{{ t('register.statementSub') }}</p>
           <div class="feature-card">
-            <span class="material-symbols-outlined feature-icon">auto_stories</span>
+            <span class="material-symbols-outlined feature-icon" aria-hidden="true">auto_stories</span>
             <div>
               <p class="feature-title">{{ t('register.featureTemplateTitle') }}</p>
               <p class="feature-text">{{ t('register.featureTemplateText') }}</p>
             </div>
           </div>
           <div class="feature-card">
-            <span class="material-symbols-outlined feature-icon">description</span>
+            <span class="material-symbols-outlined feature-icon" aria-hidden="true">description</span>
             <div>
               <p class="feature-title">{{ t('register.featureExportTitle') }}</p>
               <p class="feature-text">{{ t('register.featureExportText') }}</p>
             </div>
           </div>
           <div class="feature-card">
-            <span class="material-symbols-outlined feature-icon">history_edu</span>
+            <span class="material-symbols-outlined feature-icon" aria-hidden="true">history_edu</span>
             <div>
               <p class="feature-title">{{ t('register.featureAuditTitle') }}</p>
               <p class="feature-text">{{ t('register.featureAuditText') }}</p>

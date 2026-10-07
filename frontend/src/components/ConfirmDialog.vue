@@ -14,14 +14,14 @@
           <h3 :id="titleId">{{ title }}</h3>
         </div>
         <button type="button" class="icon-button" :title="t('dialog.close')" :aria-label="t('dialog.close')" @click="cancel">
-          <span class="material-symbols-outlined">close</span>
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
       </div>
       <p v-if="description" :id="descriptionId" class="hint">{{ description }}</p>
       <div class="form-actions">
         <button type="button" class="small" :disabled="busy" @click="cancel">{{ t('dialog.cancel') }}</button>
         <button ref="confirmButton" type="button" class="small" :class="danger ? 'danger' : 'primary'" :disabled="busy" @click="confirm">
-          <span class="material-symbols-outlined">{{ danger ? 'delete' : 'check' }}</span>
+          <span class="material-symbols-outlined" aria-hidden="true">{{ danger ? 'delete' : 'check' }}</span>
           {{ busy ? t('dialog.processing') : displayConfirmLabel }}
         </button>
       </div>

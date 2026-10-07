@@ -1,0 +1,477 @@
+{
+  "schema_version": "pr34-strict-gate-incremental-attribution.v1",
+  "generated_on": "2026-10-05",
+  "branch": "fix/ui-review-findings-20260929",
+  "pull_request": 34,
+  "source_commit": "91355ad",
+  "historical": {
+    "source_commit": "d87679896285a5b61302a98181f03621adffb38d",
+    "command": "env -u DESIGN_DOC_CHECK_DEPTH .venv/bin/python docs/tenancy/tools/run_all_gates.py --mode strict --json",
+    "process_exit_code": 1,
+    "summary": {
+      "total": 42,
+      "passed": 37,
+      "gaps": 5,
+      "broken": 0,
+      "input_drift": []
+    },
+    "gates": {
+      "backfill_validate.py::self-test": 0,
+      "backfill_migrate.py::self-test": 0,
+      "tenant_map_candidates.py::self-test": 0,
+      "account_path_check.py::self-test": 0,
+      "ddl_static_check.py::self-test": 0,
+      "ddl_static_check.py::plain": 0,
+      "rls_policy_check.py::self-test": 0,
+      "rls_policy_check.py::plain": 0,
+      "contract_readiness_check.py::self-test": 0,
+      "contract_readiness_check.py::plain": 1,
+      "context_resolution_check.py::self-test": 0,
+      "context_resolution_check.py::plain": 1,
+      "spec_citation_check.py::self-test": 0,
+      "spec_citation_check.py::plain": 0,
+      "schema_disposition_check.py::self-test": 0,
+      "schema_disposition_check.py::plain": 0,
+      "design_doc_check.py::self-test": 0,
+      "design_doc_check.py::plain": 0,
+      "api_contract_check.py::plain": 1,
+      "api_contract_check.py::self-test": 0,
+      "at_traceability_check.py::self-test": 0,
+      "at_traceability_check.py::plain": 0,
+      "resource_registry_check.py::self-test": 0,
+      "resource_registry_check.py::plain": 0,
+      "ai_egress_check.py::self-test": 0,
+      "ai_egress_check.py::plain": 0,
+      "error_codes_check.py::self-test": 0,
+      "error_codes_check.py::plain": 0,
+      "lease_guard_check.py::self-test": 0,
+      "lease_guard_check.py::plain": 0,
+      "spec_rule_id_check.py::self-test": 0,
+      "spec_rule_id_check.py::plain": 0,
+      "spec_xref_check.py::self-test": 0,
+      "spec_xref_check.py::plain": 0,
+      "secret_scan_check.py::self-test": 0,
+      "secret_scan_check.py::plain": 0,
+      "whitespace_check.py::self-test": 0,
+      "whitespace_check.py::plain": 0,
+      "synthetic_data.py::plain": 1,
+      "synthetic_data.py::self-test": 0,
+      "account_path_check.py::plain": 1,
+      "run_all_gates.py::self-test": 0
+    },
+    "report": "docs/releases/2026-10-04-pr34-context-recovery-gates.json"
+  },
+  "initial_current": {
+    "source_commit": "a2b828f772c0eb41fa759bf80545f931cd4426f6",
+    "command": "env -u DESIGN_DOC_CHECK_DEPTH .venv/bin/python docs/tenancy/tools/run_all_gates.py --mode strict --json",
+    "process_exit_code": 1,
+    "summary": {
+      "total": 43,
+      "passed": 34,
+      "gaps": 9,
+      "broken": 0,
+      "input_drift": []
+    },
+    "gaps": [
+      "contract_readiness_check.py::plain",
+      "context_resolution_check.py::plain",
+      "spec_citation_check.py::plain",
+      "schema_disposition_check.py::plain",
+      "design_doc_check.py::self-test",
+      "design_doc_check.py::plain",
+      "api_contract_check.py::plain",
+      "synthetic_data.py::plain",
+      "account_path_check.py::plain"
+    ],
+    "broken": []
+  },
+  "final_current": {
+    "source_commit": "91355ad",
+    "command": "env -u DESIGN_DOC_CHECK_DEPTH .venv/bin/python docs/tenancy/tools/run_all_gates.py --mode strict --json",
+    "process_exit_code": 1,
+    "summary": {
+      "total": 43,
+      "passed": 38,
+      "gaps": 5,
+      "broken": 0,
+      "input_drift": []
+    },
+    "gaps": [
+      "contract_readiness_check.py::plain",
+      "context_resolution_check.py::plain",
+      "api_contract_check.py::plain",
+      "synthetic_data.py::plain",
+      "account_path_check.py::plain"
+    ],
+    "broken": []
+  },
+  "gate_set_diff": {
+    "added": [
+      "ownership_preflight.py::self-test"
+    ],
+    "removed": [],
+    "changed_initial_vs_historical": [
+      "design_doc_check.py::plain",
+      "design_doc_check.py::self-test",
+      "schema_disposition_check.py::plain",
+      "spec_citation_check.py::plain"
+    ],
+    "changed_final_vs_initial": [
+      "design_doc_check.py::plain",
+      "design_doc_check.py::self-test",
+      "schema_disposition_check.py::plain",
+      "spec_citation_check.py::plain"
+    ]
+  },
+  "gate_results": [
+    {
+      "id": "account_path_check.py::plain",
+      "historical": 1,
+      "initial": 1,
+      "final": 1,
+      "classification": "真正未实现目标"
+    },
+    {
+      "id": "account_path_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "ai_egress_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "ai_egress_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "api_contract_check.py::plain",
+      "historical": 1,
+      "initial": 1,
+      "final": 1,
+      "classification": "真正未实现目标"
+    },
+    {
+      "id": "api_contract_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "at_traceability_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "at_traceability_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "backfill_migrate.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "backfill_validate.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "context_resolution_check.py::plain",
+      "historical": 1,
+      "initial": 1,
+      "final": 1,
+      "classification": "真正未实现目标"
+    },
+    {
+      "id": "context_resolution_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "contract_readiness_check.py::plain",
+      "historical": 1,
+      "initial": 1,
+      "final": 1,
+      "classification": "真正未实现目标"
+    },
+    {
+      "id": "contract_readiness_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "ddl_static_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "ddl_static_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "design_doc_check.py::plain",
+      "historical": 0,
+      "initial": 1,
+      "final": 0,
+      "classification": "TEST-DEFECT"
+    },
+    {
+      "id": "design_doc_check.py::self-test",
+      "historical": 0,
+      "initial": 1,
+      "final": 0,
+      "classification": "TEST-DEFECT"
+    },
+    {
+      "id": "error_codes_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "error_codes_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "lease_guard_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "lease_guard_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "ownership_preflight.py::self-test",
+      "historical": null,
+      "initial": 0,
+      "final": 0,
+      "classification": "GATE_SET_CHANGE"
+    },
+    {
+      "id": "resource_registry_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "resource_registry_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "rls_policy_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "rls_policy_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "run_all_gates.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "schema_disposition_check.py::plain",
+      "historical": 0,
+      "initial": 1,
+      "final": 0,
+      "classification": "DATA-PRECONDITION"
+    },
+    {
+      "id": "schema_disposition_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "secret_scan_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "secret_scan_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "spec_citation_check.py::plain",
+      "historical": 0,
+      "initial": 1,
+      "final": 0,
+      "classification": "CONTRACT-DRIFT"
+    },
+    {
+      "id": "spec_citation_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "spec_rule_id_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "spec_rule_id_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "spec_xref_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "spec_xref_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "synthetic_data.py::plain",
+      "historical": 1,
+      "initial": 1,
+      "final": 1,
+      "classification": "DATA-PRECONDITION"
+    },
+    {
+      "id": "synthetic_data.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "tenant_map_candidates.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "whitespace_check.py::plain",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    },
+    {
+      "id": "whitespace_check.py::self-test",
+      "historical": 0,
+      "initial": 0,
+      "final": 0,
+      "classification": "UNCHANGED"
+    }
+  ],
+  "attribution": [
+    {
+      "gate": "ownership_preflight.py::self-test",
+      "classification": "GATE_SET_CHANGE",
+      "finding": "门禁集合新增；自检通过，total 42→43。",
+      "minimal_repro": "当前命令；对比历史 gate_exit_codes 键集合。"
+    },
+    {
+      "gate": "spec_citation_check.py::plain",
+      "classification": "CONTRACT-DRIFT",
+      "finding": "既有源码移动导致 W-02/W-06/W-07/W-08/W-09/W-10/W-12 的 25 条 file:line 引用失效；回绑到当前符号行后恢复。",
+      "minimal_repro": ".venv/bin/python docs/tenancy/tools/spec_citation_check.py"
+    },
+    {
+      "gate": "schema_disposition_check.py::plain",
+      "classification": "DATA-PRECONDITION",
+      "finding": "当前 SQLite 30 张表中有 5 张受限运行时表未列入 W-02 §4；补充迁移处置并与资源登记对齐。",
+      "minimal_repro": ".venv/bin/python docs/tenancy/tools/schema_disposition_check.py"
+    },
+    {
+      "gate": "design_doc_check.py::self-test/plain",
+      "classification": "TEST-DEFECT",
+      "finding": "简报行数/事实标记过期导致 baseline self-test 和 plain 同时报红；更新可机器校验事实后恢复。",
+      "minimal_repro": ".venv/bin/python docs/tenancy/tools/design_doc_check.py --self-test; .venv/bin/python docs/tenancy/tools/design_doc_check.py"
+    },
+    {
+      "gate": "original_five_gaps",
+      "classification": "UNCHANGED",
+      "finding": "五项 GAP 在历史、初始、最终结果中保持不变；未用放宽判定消除。",
+      "minimal_repro": "final strict command above"
+    }
+  ],
+  "source_input_sha256": {
+    "backend/app/db.py": "96cc68ab3e12d88b12e1d0d67b60d8d45d3bdb6379128dee02de40ad5db46de5",
+    "backend/app/api/ai.py": "356bdb859eb95d7d59fe45f2250fbf8ff4d1193db85978418643612e1b88a4db",
+    "docs/tenancy/tools/run_all_gates.py": "31a941feebd5525104999287f07a7d876715820d43f43e2641ee56f385e1342e",
+    "docs/tenancy/tools/spec_citation_check.py": "669f08617ebefe0e16c246f7d556a7fd0859b5b0a654e84bea925497f64d7d87",
+    "docs/tenancy/tools/schema_disposition_check.py": "6eec8985ae225a66baa998fd0b23596ec52ea04a84230d2c99f93753a65a2fa7",
+    "docs/tenancy/tools/design_doc_check.py": "00abc892c85252153067b1cbc4e0cc836c8eb225d1d0e064b950bcdc11a86f8f",
+    "docs/product/W-02-存储与Schema实施规格_20261001.md": "c846fb99fd561ef7ca326987a9b15a8c80db4c2470561a85dd91445f9c5cfd5d",
+    "docs/tenancy/设计阶段收口简报_20261001.md": "9cd2c68b8cd7abcf2998f5fe71cb60453cd7cc10cf4aa2b4b196be65a73ab50d",
+    "docs/tenancy/resource-registry.yaml": "5cf83692d05560983903c43d0df29f76ebda3c5f40eef4e6882ad803998df213",
+    "docs/tenancy/implementation-status-20261004.md": "cb3d735caada35369f35f897c3eded335baeb930b5dc91760b7af026da3d2760"
+  },
+  "evidence_boundary": [
+    "本报告不证明 PostgreSQL/RLS、真实供应商幂等、真实收费、财务账务、生产迁移、部署、合并或 UAT。",
+    "严格退出码 1 仍表示存在真实 GAP；38 passed 不等于 release approved。"
+  ]
+}

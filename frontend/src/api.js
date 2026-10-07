@@ -29,6 +29,11 @@ function detailMessage(payload, fallback) {
   if (value && typeof value === 'object') {
     if (typeof value.message === 'string') return value.message
     if (typeof value.detail === 'string') return value.detail
+    // 空对象/空数组表示「没解析出任何错误信息」（例如后端 500 或反代返回
+    // 非 JSON 文本，resp.json() 解析失败后回退成 {}），不是错误内容本身。
+    // 此前会走到 JSON.stringify，把字面量 "{}" 当成错误信息显示给用户。
+    const isEmpty = Array.isArray(value) ? value.length === 0 : Object.keys(value).length === 0
+    if (isEmpty) return fallback
     try { return JSON.stringify(value) } catch { return fallback }
   }
   return fallback
@@ -1066,16 +1071,23 @@ export async function testAiConfig(config) {
   return resp.json()
 }
 
+// 数据出境与委托处理披露（S6）：接收方由服务端算出，前端不自行推断
+export async function getAiDisclosure() {
+  const resp = await api(`${API_BASE}/ai/disclosure`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '获取数据出境披露失败'))
+  return resp.json()
+}
+
 // ---------- 管理员设置系统默认模型 ----------
 
-export async function getAdminAiConfig() {
-  const resp = await api(`${API_BASE}/ai/admin/config`)
+export async function getAdminAiConfig(organizationId = '') {
+  const resp = await api(`${API_BASE}/ai/admin/config?organization_id=${encodeURIComponent(organizationId)}`)
   if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '获取系统 AI 配置失败'))
   return resp.json()
 }
 
-export async function saveAdminAiConfig(config) {
-  const resp = await api(`${API_BASE}/ai/admin/config`, {
+export async function saveAdminAiConfig(config, organizationId = '') {
+  const resp = await api(`${API_BASE}/ai/admin/config?organization_id=${encodeURIComponent(organizationId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -1087,13 +1099,13 @@ export async function saveAdminAiConfig(config) {
   return resp.json()
 }
 
-export async function clearAdminAiConfig() {
-  const resp = await api(`${API_BASE}/ai/admin/config`, { method: 'DELETE' })
+export async function clearAdminAiConfig(organizationId = '') {
+  const resp = await api(`${API_BASE}/ai/admin/config?organization_id=${encodeURIComponent(organizationId)}`, { method: 'DELETE' })
   if (!resp.ok && resp.status !== 204) throw new Error('清除系统默认 AI 配置失败')
 }
 
-export async function testAdminAiConfig(config) {
-  const resp = await api(`${API_BASE}/ai/admin/config/test`, {
+export async function testAdminAiConfig(config, organizationId = '') {
+  const resp = await api(`${API_BASE}/ai/admin/config/test?organization_id=${encodeURIComponent(organizationId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),

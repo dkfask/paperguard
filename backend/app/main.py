@@ -36,6 +36,7 @@ from app.api.document_packages import router as document_packages_router
 from app.api.document_projects import router as document_projects_router
 from app.api.organizations import router as organizations_router
 from app.api.operations import router as operations_router
+from app.api.saas import router as saas_router
 from app.api.process_records import router as process_records_router
 from app.api.audit import router as audit_router
 from app.api.workflow import recover_pending_archives, router as workflow_router
@@ -121,7 +122,9 @@ async def add_request_context(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     context = getattr(request.state, "context", None) or RequestContext(request_id=request_id)
     log_event(
-        LOGGER, "http.request.completed", context=context,
+        LOGGER, "http.request.completed", context=context, actor_id=getattr(request.state, "actor_id", ""),
+        role=context.role or (getattr(request.state, "logging_metadata", {}) or {}).get("legacy_role", ""),
+        authorization_kind=context.actor_kind,
         status_code=response.status_code, method=request.method,
         path=request.url.path,
         duration_ms=round((time.perf_counter() - started) * 1000, 2),
@@ -137,7 +140,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Expected-Tenant", "Idempotency-Key"],
 )
 
 app.include_router(router)
@@ -154,6 +157,7 @@ app.include_router(organizations_router)
 app.include_router(workflow_router)
 app.include_router(process_records_router)
 app.include_router(operations_router)
+app.include_router(saas_router)
 app.include_router(audit_router)
 
 # 通过 API 鉴权读取项目图片, 不再公开挂载整个 uploads 目录。

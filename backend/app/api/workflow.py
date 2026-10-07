@@ -24,7 +24,7 @@ from app.auth import can_manage, current_user
 from app.contracts.common import JobResponse
 from app.core.context import get_request_context
 from app.core.export.docx_exporter import export_project_to_docx
-from app.db import Store, new_id
+from app.db import Store, data_dir, new_id
 from app.models.project import WritingProject
 from app.models.process_record import catalog_item
 from app.models.template import PaperTemplate
@@ -68,7 +68,17 @@ router = APIRouter(prefix="/api", tags=["workflow"])
 _MANAGER_ROLES = {"admin", "college_admin"}
 _WORKFLOW_MANAGER_ROLES = _MANAGER_ROLES | {"teacher"}
 _ACTIVE_STUDENT_STATES = set(ACTIVE_PARTICIPANT_STATES)
-_ARCHIVE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "archives"
+
+
+def _archive_dir() -> Path:
+    """归档落盘目录：跟随数据目录（与数据库同源），不再硬编码到代码目录。
+
+    历史实现为 `_ARCHIVE_DIR = Path(__file__).parent.parent.parent / "data" / "archives"`，
+    与 `PAPERGUARD_DB_PATH` 脱钩：发布切换代码目录会带走旧归档，按数据目录做的备份也覆盖不到。
+    改为函数式，避免在 import 期把环境变量固化，测试与运维切换后即时生效。
+    """
+    return data_dir() / "archives"
+
 _OUTBOX_MAX_ATTEMPTS = 5
 
 
@@ -141,11 +151,11 @@ def _cohort_access(store: Store, user: dict, cohort: dict) -> bool:
     if user["role"] == "student":
         return any(
             item.get("cohort_id") == cohort["id"] and item.get("student_id") == user["id"]
-            for item in store.list_workflow_records("supervision")
+            for item in store.list_workflow_records("supervision", limit=None)
         )
     if user["role"] == "teacher" and cohort.get("organization_id") in _visible_org_ids(store, user):
         return True
-    for item in store.list_workflow_records("supervision"):
+    for item in store.list_workflow_records("supervision", limit=None):
         if item.get("cohort_id") != cohort["id"] or item.get("student_id") is None:
             continue
         current = _current_supervision(store, cohort["id"], item["student_id"])
@@ -242,7 +252,7 @@ def _ensure_cohort_access(store: Store, user: dict, cohort_id: str) -> dict:
 
 def _supervisions(store: Store, cohort_id: str, student_id: str | None = None) -> list[dict]:
     records = [
-        item for item in store.list_workflow_records("supervision")
+        item for item in store.list_workflow_records("supervision", limit=None)
         if item.get("cohort_id") == cohort_id
         and (student_id is None or item.get("student_id") == student_id)
     ]
@@ -257,6 +267,29 @@ def _current_supervision(store: Store, cohort_id: str, student_id: str, now: dat
         if item.get("active", True) and start <= now and (end is None or now < end):
             return item
     return None
+
+
+def supervised_student_ids(store: Store, teacher_id: str) -> dict[str, str]:
+    """当前生效的「批次指导」关系：student_id -> cohort_id。
+
+    批次级指导关系存在 supervision 记录里，与账号级的 users.teacher_id 是两套独立机制。
+    教师工作台按前者取学生，「指导学生」页按后者取学生，两者长期不一致：
+    批次里指派给某教师的学生不会出现在其指导学生列表里，页面静默显示「暂无关联学生」。
+    这里对外暴露只读查询，供指导学生列表补全批次来源的学生。
+    """
+    now = datetime.now(timezone.utc)
+    result: dict[str, str] = {}
+    for item in store.list_workflow_records("supervision", limit=None):
+        if item.get("teacher_id") != teacher_id:
+            continue
+        cohort_id = item.get("cohort_id", "")
+        student_id = item.get("student_id", "")
+        if not cohort_id or not student_id or student_id in result:
+            continue
+        current = _current_supervision(store, cohort_id, student_id, now)
+        if current is not None and current.get("teacher_id") == teacher_id:
+            result[student_id] = cohort_id
+    return result
 
 
 def _stage_config(store: Store, stage: dict) -> dict:
@@ -1809,8 +1842,9 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
         project = WritingProject.model_validate(version["content_snapshot"])
         attachment_refs = version.get("attachment_refs") or project_attachment_refs(project)
         template = PaperTemplate.model_validate(project.template_snapshot or project.template_source_snapshot)
-        _ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"{archive_id}-", dir=str(_ARCHIVE_DIR)))
+        archive_dir = _archive_dir()
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"{archive_id}-", dir=str(archive_dir)))
         docx_path = temp_dir / "final.docx"
         source_path = resolve_template_source(template.source_docx) if template.source_docx else None
         export_project_to_docx(project, template, str(docx_path), template_path=source_path)
@@ -1901,7 +1935,7 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
         }
         manifest_path = temp_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-        output = _ARCHIVE_DIR / f"{archive_id}.zip"
+        output = archive_dir / f"{archive_id}.zip"
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
             for path, archive_name in (*bundle_entries, (manifest_path, "manifest.json")):
                 bundle.write(path, archive_name)
@@ -1986,8 +2020,9 @@ def download_archive(archive_id: str, store: Store = Depends(get_store), user: d
     assert_resource_read(store, user, "archive", archive)
     if archive.get("status") != "succeeded" or not archive.get("file_path"):
         raise HTTPException(status_code=409, detail="归档尚未生成完成")
-    path = Path(archive["file_path"])
-    if path.parent != _ARCHIVE_DIR or not path.is_file():
+    path = Path(archive["file_path"]).resolve()
+    legacy_root = (Path(__file__).resolve().parent.parent.parent / "data" / "archives").resolve()
+    if path.parent not in {_archive_dir().resolve(), legacy_root} or not path.is_file():
         raise HTTPException(status_code=404, detail="归档制品不存在")
     return FileResponse(path, filename=f"{archive_id}.zip", media_type="application/zip", headers={"X-PaperGuard-Manifest-Hash": archive.get("manifest_hash", "")})
 

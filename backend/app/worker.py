@@ -60,7 +60,7 @@ def main() -> None:
             result = run_once()
             log_event(
                 LOGGER, "worker.iteration.completed",
-                context=RequestContext(actor_id="system", role="system", request_id=f"worker-{consumer_id}"),
+                context=RequestContext(request_id=f"worker-{consumer_id}"), actor_id="system", role="system",
                 consumer_id=consumer_id,
                 reminders_created=len(result["reminders"]["created"]),
                 archives_claimed=result["archives"]["claimed"],
@@ -75,7 +75,7 @@ def main() -> None:
         except Exception:
             log_event(
                 LOGGER, "worker.iteration.failed",
-                context=RequestContext(actor_id="system", role="system", request_id=f"worker-{consumer_id}"),
+                context=RequestContext(request_id=f"worker-{consumer_id}"), actor_id="system", role="system",
                 consumer_id=consumer_id,
             )
             LOGGER.exception("workflow worker iteration failed")

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
-from app.auth import require_manager, require_template_manager
+from app.auth import current_user, require_manager, require_template_manager
 from app.core.feature_flags import require_general_document_platform
 
 from app.db import Store, new_id
@@ -64,8 +64,18 @@ def get_store() -> Store:
 
 
 @router.get("")
-def list_templates(store: Store = Depends(get_store)) -> list[dict]:
-    """模板列表(不含章节树细节)。"""
+def list_templates(
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> list[dict]:
+    """模板列表(不含章节树细节)。
+
+    模板是学校内部论文资料，此前这里连 Depends(current_user) 都没有，
+    未登录即可枚举全部模板；/api/templates/{id} 同理，且会返回完整章节树、
+    排版样式、封面块与源 Word 文档元数据。
+    前端四个调用点(Templates/Writer/Cohorts/Workflow)全部在登录后，
+    登录与注册页不使用模板，因此补认证不影响任何功能。
+    """
     return [
         {
             "id": t.id,
@@ -82,7 +92,11 @@ def list_templates(store: Store = Depends(get_store)) -> list[dict]:
 
 
 @router.get("/{tpl_id}")
-def get_template(tpl_id: str, store: Store = Depends(get_store)) -> PaperTemplate:
+def get_template(
+    tpl_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> PaperTemplate:
     tpl = store.get_template(tpl_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")
@@ -281,7 +295,7 @@ def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
         )
         save_confirmed_candidate(store, TEMPLATE_CANDIDATE_KIND, confirmed, record)
         store.save_audit_event({
-            "id": f"audit-{candidate.candidate_id}-confirmed",
+            "id": new_id("audit"),
             "actor_id": str(manager.get("id") or ""),
             "action": "template.candidate.confirmed",
             "resource_type": "template_candidate",
@@ -295,7 +309,7 @@ def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
         raise HTTPException(status_code=404, detail="模板候选不存在或无权访问") from exc
     except TemplateCandidateError as exc:
         store.save_audit_event({
-            "id": f"audit-{candidate.candidate_id}-confirmation-failed",
+            "id": new_id("audit"),
             "actor_id": str(manager.get("id") or ""),
             "action": "template.candidate.confirmation_failed",
             "resource_type": "template_candidate",

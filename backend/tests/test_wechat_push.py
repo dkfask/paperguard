@@ -71,7 +71,14 @@ def _insert_delivered_event(
         ).fetchone()
     actual_id = row["id"] if row else None
     assert actual_id, "事件未写入"
-    assert store.mark_workflow_event_delivered_with_lease(actual_id)
+    # W-09 LE-6：ack **必须**持有效租约令牌（2026-10-03 INC-105 修正）。
+    # 本夹具原先直接 `mark_workflow_event_delivered_with_lease(actual_id)`——
+    # 那依赖「无租约也能 ack」的通配分支，正是 INC-105 修掉的越权面。
+    # 改成走真实的「领取 → 持令牌 ack」，顺带让本夹具与生产路径一致。
+    claimed = store.claim_workflow_events([actual_id], consumer_id="test-push-helper")
+    assert len(claimed) == 1, "未能领取事件"
+    assert store.mark_workflow_event_delivered_with_lease(
+        actual_id, lease_token=claimed[0]["lease_token"]), "持令牌 ack 失败"
     return actual_id
 
 

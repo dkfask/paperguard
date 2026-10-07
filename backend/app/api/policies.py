@@ -226,20 +226,23 @@ async def import_policy_with_ai(
     cfg, _source = resolved
     import_retried = False
     try:
-        raw_result = ai_api._chat_completion(
-            cfg,
+        # 每次真实派发都计量；重试是第二次上游请求，必须单独计一次。
+        raw_result = ai_api._metered_chat(
+            store, user, cfg,
             build_policy_import_messages(filename, extracted_text),
             0.1,
+            action="policy_import", source=_source,
             max_tokens=_IMPORT_MAX_TOKENS,
         )
         normalized, analysis = normalize_ai_policy(raw_result, filename, extracted_text)
     except ValueError:
         import_retried = True
         try:
-            raw_result = ai_api._chat_completion(
-                cfg,
+            raw_result = ai_api._metered_chat(
+                store, user, cfg,
                 build_policy_import_retry_messages(filename, extracted_text),
                 0.1,
+                action="policy_import", source=_source,
                 max_tokens=_IMPORT_MAX_TOKENS,
             )
             normalized, analysis = normalize_ai_policy(raw_result, filename, extracted_text)

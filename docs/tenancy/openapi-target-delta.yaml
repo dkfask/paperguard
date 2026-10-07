@@ -1,0 +1,349 @@
+# 目标 OpenAPI 增量定义（AC 契约补丁）
+#
+# 配套文档：api-contract-delta.md §3 / §4
+# 校验器：tools/api_contract_check.py
+#
+# 这是一份**叠加补丁**，不是完整 spec。它只描述"目标态相对现状要增加什么"，
+# 因此可以与 `app.openapi()` 的真实输出做机器比对，而不必重写 184 条路径。
+#
+# 使用方式：
+#   1. 用 FastAPI 的自定义 openapi() 合并本补丁
+#   2. 或人工按 §4 的四组变更改造后端
+#   3. 运行 tools/api_contract_check.py 验证是否达标
+
+openapi: 3.1.0
+info:
+  title: PaperGuard API — 目标契约补丁
+  version: 0.2.0-contract-delta
+  description: |
+    本文件描述多租户 API 契约的**增量**。它叠加在 FastAPI 自动生成的
+    spec 之上，不是替代品。
+
+    核心不变量（由 AC-06 机器校验）：
+      **tenant_id 永远不出现在任何请求体中。**
+    租户归属由服务端从认证主体派生，只在响应中回显。客户端不得声明归属。
+
+x-contract-metadata:
+  applies-to: 184 paths / 215 operations / 133 schemas
+  baseline: HEAD e166f97, FastAPI OpenAPI 3.1.0
+  authored: 2026-10-01
+
+# ---------------------------------------------------------------------------
+# 组 1：安全方案
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        用户或管理员令牌。所有需要登录的接口都接受该头。
+
+        声明这一项的直接原因：当前 spec 的 components 只有 ['schemas']，
+        215 个操作中声明 security 的有 0 个 —— 任何 OpenAPI 代码生成器
+        产出的客户端都会认为全部接口匿名可调。
+
+x-security-tiers:
+  description: |
+    按处理器实际依赖划分的三档。**不留空**是硬要求：既没有 security
+    也没有 x-anonymous 的操作，视为契约缺口。
+  anonymous:
+    description: 无鉴权依赖
+    marker: "不声明 security，但必须显式 x-anonymous: true"
+    known-paths:
+      - /api/auth/register
+      - /api/auth/login
+      - /api/auth/mp/login
+      - /api/auth/mp/register
+      - /api/auth/mp/bind
+      - /api/auth/mp/bind-email
+      - /api/auth/mp/unbind
+      - /api/check
+      - /api/check-template
+  authenticated:
+    description: Depends(current_user) 或更强
+    marker: "security: [{bearerAuth: []}]"
+    marker_exempt-paths:
+      - /api/auth/register
+      - /api/auth/login
+      - /api/auth/mp/login
+      - /api/auth/mp/register
+      - /api/auth/mp/bind
+      - /api/auth/mp/bind-email
+      - /api/auth/mp/unbind
+      - /api/check
+      - /api/check-template
+
+# ---------------------------------------------------------------------------
+# 组 2：跨切面 schema
+# ---------------------------------------------------------------------------
+x-schemas:
+
+  Error:
+    type: object
+    required: [code, message, request_id]
+    additionalProperties: false
+    properties:
+      code:
+        type: string
+        pattern: '^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$'
+        description: |
+          机器可判定的稳定错误码。命名 `<域>_<原因>`，全大写下划线。
+          一旦发布即不可改语义；废弃时保留 code、变更 message。
+        examples: [AI_RATE_LIMITED, TENANT_CONTEXT_MISSING, REVISION_CONFLICT]
+      message:
+        type: string
+        description: |
+          人类可读文案，可被前端本地化覆盖。
+          **禁止**放入内部异常信息、SQL、文件路径。
+      request_id:
+        type: string
+        description: 必带。对齐后端结构化日志的 request_id，供排障关联。
+      details:
+        type: array
+        description: 可选，字段级错误明细
+        items:
+          type: object
+          properties:
+            field: { type: string }
+            message: { type: string }
+            code: { type: string }
+
+  ErrorBody:
+    type: object
+    required: [error]
+    additionalProperties: false
+    properties:
+      error: { $ref: '#/components/schemas/Error' }
+    description: |
+      统一错误响应体。**替换**现有的三种不兼容形态：
+        A. {"detail": {"code","message"}}   仅 5 处
+        B. {"detail": "字符串"}             367 处
+        C. {"detail": [FastAPI 校验数组]}   211 处
+
+  CommandStatus:
+    type: string
+    enum: [accepted, running, succeeded, failed, unknown]
+    description: |
+      unknown 是为总设计第 5 项「AI 未知结果 runbook」预留的：
+      上游已受理但结果不可判定时，**不要伪造失败**，返回 unknown
+      并给出可查询的命令 ID。
+
+  CommandMeta:
+    type: object
+    required: [action, status]
+    properties:
+      action:
+        type: string
+        description: 点分命名，如 project.create
+      status: { $ref: '#/components/schemas/CommandStatus' }
+      idempotent_replay:
+        type: boolean
+        default: false
+        description: true 表示本次返回的是首次结果的缓存，未产生新副作用
+      command_id:
+        type: string
+        description: status 为 unknown 时的排障入口
+      revision:
+        type: integer
+        description: 资源当前版本号，供下一次 If-Match 使用
+
+  ApiMeta:
+    type: object
+    required: [request_id]
+    properties:
+      request_id: { type: string }
+      command: { $ref: '#/components/schemas/CommandMeta' }
+      quota:
+        type: object
+        description: 本次消耗的额度，供前端提前预警
+        properties:
+          burst_used: { type: integer }
+          burst_limit: { type: integer }
+          daily_used: { type: integer }
+          daily_limit: { type: integer }
+
+  ApiEnvelope:
+    description: 写操作的统一成功响应
+    type: object
+    required: [data, meta]
+    properties:
+      data: { type: object }
+      meta: { $ref: '#/components/schemas/ApiMeta' }
+
+  OrganizationContext:
+    type: object
+    additionalProperties: false
+    description: |
+      组织上下文。键名与 resource-registry.yaml 中的组织节点类型一一对应，
+      不允许出现登记表外的键。
+
+      相比现状 `dict[str, str]` 的三项收紧：
+        1. additionalProperties: false —— 未知键直接 422，而非静默存下
+        2. 键名固定为 4 个，不再是任意字符串
+        3. 写入期校验父子关系（见下方 x-context-rules）
+    properties:
+      school_id:
+        type: string
+        description: 学校（机构）节点
+      college_id:
+        type: string
+        description: 学院节点。必须挂在 school_id 之下
+      major_id:
+        type: string
+        description: 专业节点。必须挂在 college_id 之下
+      batch_id:
+        type: string
+        description: 批次节点。必须属于当前调用者可见的组织
+
+  TenantScoped:
+    description: |
+      所有租户级实体的公共字段。**只读**。
+    type: object
+    required: [tenant_id]
+    properties:
+      tenant_id:
+        type: string
+        readOnly: true
+        description: |
+          租户标识。**只出现在响应中。**
+
+          客户端不得在请求体指定租户——归属由服务端从认证主体的成员关系
+          派生。理由：客户端声明意图 = 越权写入的攻击面，即便再加一层
+          校验，攻击面仍在客户端。
+
+x-context-rules:
+  description: 写入期校验规则。现状是**读取时**才校验（projects.py:110-135），
+    导致管理者可写入指向不可见组织的 batch_id，项目创建成功后才在读路径报错，
+    且错误信息会泄漏「该 ID 存在」。
+  rules:
+    - "college_id 存在时，school_id 必须存在且 college 的 parent_id == school_id"
+    - "major_id 存在时，college_id 必须存在且 major 的 parent_id == college_id"
+    - "batch_id 存在时，其 cohort.organization_id 必须落在可见组织集合内"
+    - "任一节点不存在或不可见 → 422 TENANT_CONTEXT_INVALID（不是 404）"
+
+# ---------------------------------------------------------------------------
+# 组 3：实体 schema 增加 tenant_id（只读）
+# ---------------------------------------------------------------------------
+x-tenant-scoped-schemas:
+  description: |
+    下列 schema 需增加 readOnly 的 tenant_id 字段。
+    对应 resource-registry.yaml 中已登记的租户级资源。
+    验收由 AC-05 检查。
+  schemas:
+    WritingProject:
+      tenant_scope: institution
+    DocumentProject:
+      tenant_scope: institution
+    PaperTemplate-Input: {}
+    PaperTemplate-Output: {}
+    TemplateDefinition-Input: {}
+    TemplateDefinition-Output: {}
+    RequirementSet:
+      tenant_scope: institution
+    SpecParseCandidate: {}
+    TemplateParseCandidate: {}
+    OrganizationUnit: {}
+    AuditEventResponse:
+      existing_organization_id: true
+      note: |
+        该 schema 已有 organization_id。迁移时保留两者：
+        organization_id 表达"事件发生的组织"，tenant_id 表达"事件所属租户"，
+        二者不是同一维度，不可互相替代。
+
+x-tenant-field-shape:
+  tenant_id:
+    type: string
+    readOnly: true
+    required: true
+    description: 服务端派生，客户端只读
+
+# ---------------------------------------------------------------------------
+# 组 4：复用错误响应
+# ---------------------------------------------------------------------------
+x-reusable-responses:
+  BadRequest:
+    description: 参数或业务前置条件不满足
+    content:
+      application/json:
+        schema: { $ref: '#/components/schemas/ErrorBody' }
+  Unauthorized:
+    description: 未认证或令牌失效
+    content:
+      application/json:
+        schema: { $ref: '#/components/schemas/ErrorBody' }
+  Forbidden:
+    description: 已认证但无权访问该资源或租户
+    content:
+      application/json:
+        schema: { $ref: '#/components/schemas/ErrorBody' }
+  NotFound:
+    description: 资源不存在
+    content:
+      application/json:
+        schema: { $ref: '#/components/schemas/ErrorBody' }
+  Conflict:
+    description: 幂等键复用冲突或版本冲突
+    content:
+      application/json:
+        schema: { $ref: '#/components/schemas/ErrorBody' }
+  RateLimited:
+    description: 超出突发限制或日配额
+    content:
+      application/json:
+        schema: { $ref: '#/components/schemas/ErrorBody' }
+  UnprocessableEntity:
+    description: |
+      字段级校验失败。**保留 FastAPI 原生 detail 数组形态**，
+      不并入 ErrorBody —— 它的 details 字段已能承载同样信息，
+      且改动会破坏所有现有前端校验提示。
+    content:
+      application/json:
+        schema: { $ref: '#/components/schemas/HTTPValidationError' }
+
+# ---------------------------------------------------------------------------
+# 组 5：命令请求头
+# ---------------------------------------------------------------------------
+x-command-headers:
+  Idempotency-Key:
+    in: header
+    required: false
+    schema: { type: string, maxLength: 128 }
+    description: |
+      同一 key 重放返回首次结果，不产生新副作用。
+      key 相同但请求体不同 → 409 IDEMPOTENCY_KEY_REUSED。
+    applies-to-tags: [workflow, policies, process-records, document-projects]
+
+  If-Match:
+    in: header
+    required: false
+    schema: { type: string }
+    description: |
+      携带资源 revision（与既有 base_revision 语义一致）。
+      不匹配 → 409 REVISION_CONFLICT。
+
+  X-Expected-Tenant:
+    in: header
+    required: false
+    schema: { type: string }
+    description: |
+      **仅** require_platform_admin 路径接受，用于显式跨租户操作。
+      普通路径出现该头 → 400 TENANT_OVERRIDE_FORBIDDEN。
+    security: platform_admin_only
+
+# ---------------------------------------------------------------------------
+# 验收判据（tools/api_contract_check.py 实现）
+# ---------------------------------------------------------------------------
+x-acceptance:
+  # 值一律加引号：判据文本里含 `x-anonymous: true` 这类带冒号的片段，
+  # 不加引号会被 YAML 解析成嵌套 mapping（mapping values are not allowed here）。
+  AC-01: "components.securitySchemes.bearerAuth 存在"
+  AC-02: "每个操作都声明 security 或显式 x-anonymous: true，无留空"
+  AC-03: "所有 4xx/5xx 响应引用 ErrorBody（UnprocessableEntity 除外）"
+  AC-04: "所有 4xx/5xx 响应带 request_id"
+  AC-05: "每个租户级实体 schema 含 readOnly 的 tenant_id"
+  AC-06: "没有任何请求体 schema 含 tenant_id —— 最重要的一条"
+  AC-07: "organization_context 全部为 OrganizationContext 引用，无内联 dict"
+  AC-08: "声明了幂等的操作上存在 Idempotency-Key 头"
+  AC-09: "写操作响应含 meta.command.status"

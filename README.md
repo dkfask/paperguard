@@ -52,45 +52,79 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
 
 ## AI 写作助手
 
-两级模型配置,用户配置优先于系统默认,均走 OpenAI 兼容 `/chat/completions` 协议:
+配置优先级为：**用户自带配置 → 所属学校配置 → 平台全局默认 → 环境变量默认**。
+管理员接口可用 `organization_id` 指定学校；不传时操作平台全局默认。当前管理页面
+仍配置全局默认，学校覆盖通过受控管理接口配置。OpenAI 兼容端点使用
+`/chat/completions`，以 `/anthropic` 结尾的端点使用 Anthropic Messages 协议。
 
-- **系统默认**(管理员配置,全体用户可用):
-
-  ```bash
-  export PAPERGUARD_AI_BASE_URL='https://api.openai.com/v1'  # OpenAI/智谱/DeepSeek/中转站均可
-  export PAPERGUARD_AI_API_KEY='sk-xxx'
-  export PAPERGUARD_AI_MODEL='gpt-4o-mini'
-  # 可选: PAPERGUARD_AI_TIMEOUT(秒, 默认 60)
-  ```
-
-  本地开发也可以把这三行写进仓库根目录的 `.env`(参考 `.env.example`, 已被 gitignore), 后端与 docker-compose 会自动加载; 已显式设置的环境变量优先于 `.env`。
-
-- **邮箱注册验证码**(Resend 推荐, 或任意 SMTP):
+- **环境变量默认模型**：
 
   ```bash
-  export PAPERGUARD_RESEND_API_KEY='re_xxx'
-  export PAPERGUARD_RESEND_FROM='noreply@your-domain.com'   # 需在 Resend 验证域名
-  # 备选 SMTP: PAPERGUARD_SMTP_HOST/PORT/USER/PASSWORD/FROM(+PAPERGUARD_SMTP_SSL=1 走 465)
+  export PAPERGUARD_AI_BASE_URL='https://api.openai.com/v1'
+  export PAPERGUARD_AI_API_KEY='<由受控环境注入，不写入仓库>'
+  export PAPERGUARD_AI_MODEL='<供应商实际支持的模型>'
+  # PAPERGUARD_AI_TIMEOUT 默认 60 秒
   ```
 
-  两者都未配置时, 邮箱注册降级为免验证(账号标记「未验证」), 微信注册的绑定邮箱流程不强制验证码。
+  本地 `.env` 已被 gitignore；显式环境变量优先。生产凭据由受控环境注入，
+  不在报告、日志或页面中回传明文。
 
-- **用户自带**:写作页左上角「✨AI」→ 填自己的 Base URL / API Key / 模型,可先「测试连接」再保存。仅对本账号生效,优先于系统默认。
+- **离线幂等切片（SQLite/local mock）**：AI 请求按 `tenant/member + action + Idempotency-Key` 隔离；同域同载荷只派发一次，unknown 不自动重发。历史 `(user_id,key)` 记录不自动回填租户；这不是收费、生产迁移或最终对账能力。
+- **用户自带模型（BYOK）**：仅本账号生效。保存、清除、管理员修改均记录审计元数据；
+  密钥和论文正文不进入审计。系统已有密钥时，管理员保存配置可留空 API Key 以保留原值。
+- **邮件验证**：配置 Resend 的 `PAPERGUARD_RESEND_API_KEY` / `PAPERGUARD_RESEND_FROM`，
+  或 SMTP 的 `PAPERGUARD_SMTP_HOST` / `PORT` / `USER` / `PASSWORD` / `FROM`。
+  **未配置邮件服务时，邮箱注册、验证码发送和邮箱绑定明确返回 `EMAIL_NOT_CONFIGURED`，
+  不降级为免验证成功**。无邮箱的兼容账号注册与学校统一注册是独立路径。
+- **静态密钥保护**：配置 `PAPERGUARD_SECRET_KEY` 后，新写入供应商密钥以 AES-GCM
+  `pgsec1$...` 格式加密并校验完整性，页面仅显示脱敏摘要。主密钥使用至少 32 字节随机值，
+  通过受控环境保存，和数据库备份分开保管，恢复时使用原主密钥，**不得直接换新值**。
+  缺少主密钥、发现明文存量凭据或解密失败均 fail-closed，不会静默回退到其他供应商；
+  存量明文迁移必须在受控维护窗口完成。
+- **运行治理**：SSRF 防护、数据接收方披露、每日调用次数配额、突发限流、用量记录和
+  上游熔断已实现。默认每用户每 UTC 日 200 次、每分钟 10 次，可用
+  `PAPERGUARD_AI_DAILY_QUOTA` / `PAPERGUARD_AI_BURST_PER_MINUTE` 调整；
+  熔断默认连续 5 次失败后打开，30 秒后允许恢复探针，可用
+  `PAPERGUARD_AI_BREAKER_THRESHOLD` / `PAPERGUARD_AI_BREAKER_RESET_SEC` 调整。
+  新的 W-08/C1 前置切片把请求登记、分钟/日非付费 quota 预留、审计和 reservation 状态放进同一 SQLite 事务；`unknown` 持有不自动释放或重发，仍不代表余额、收费或财务账务。
 
-说明:用户 API Key 以明文存储在本机 SQLite(与服务器环境变量同信任域,请勿把数据库文件外传);两者都未配置时 AI 按钮自动隐藏。
+### 商业化边界：已有运行用量，尚无收费账务
 
-### AI 计费（后续实现，当前未启用）
+`ai_usage` 与次数配额用于运行控制，**不是余额、token 成本或财务账本**。
+当前熔断拒绝也计入请求次数；这不代表供应商已收费，不能直接据此对用户扣款。
+当前没有充值、订阅、套餐、支付、发票、余额扣减和资金对账能力。
 
-AI 计费需求已记录在本地设计文档 `docs/product/需求模型.md`（未纳入仓库），当前版本**不包含计费、余额扣减、充值、订阅或支付功能**，现有 AI 调用行为保持不变。
+商业化按 [商业化范围与放行条件](docs/product/商业化范围与放行条件_20260930.md)
+推进：先完成非付费试点运营与权益设计，再在计费主体、BYOK、免费额度、失败结算、
+价格和数据退出规则明确后实现账务与支付。该范围文档是设计与验收边界，不是上线声明。
 
-后续实现顺序建议为：
+### 发布身份与验收证据
 
-1. 平台积分账户、不可变账务流水和 AI 用量记录。
-2. 系统默认模型的请求预留、成功结算、失败退款和幂等重试。
-3. 用户余额/用量查询与管理员价格、赠送额度、冲正接口。
-4. 在完成商业规则裁决后，再接入充值、套餐、支付回调和教师/机构账户。
+代码提交、PR/CI、部署版本、运行探针与真实业务验收分别记录，不能互相替代。
+生产文本标记 `current-release` 与 JSON 标记 `current-release.json` 通过
+`ops/sync-release-markers.py` 核验后同步；脚本默认只读，后端源码及前端产物
+任一摘要不匹配即失败关闭，只有显式 `--write` 才备份旧 JSON 并原子更新元数据。
+它**不部署代码、不重启服务，也不会把较新的测试提交伪装成生产版本**。
 
-实现前必须先处理需求模型中的未裁决项，尤其是计费主体、免费额度、BYOK 是否收费、token 计费策略和超时对账规则。
+```bash
+python3 ops/sync-release-markers.py source-manifest \
+  --repo /absolute/path/to/paperguard --revision <实际部署的完整提交> \
+  > /secure/operator/path/source-checksums.json
+
+# 在目标服务器上，先只读核验；确认后才加 --write
+python3 ops/sync-release-markers.py sync \
+  --root /home/ubuntu/paperguard --webroot /var/www/paperguard \
+  --expected-release <current-release 中的实际版本> \
+  --source-manifest /secure/operator/path/source-checksums.json
+```
+
+前端发布时可传入 `PAPERGUARD_RELEASE_SOURCE_MANIFEST` 接入同一核验；未提供源码清单
+时不声称 JSON 标记已同步。元数据校正的时间记录为 `marker_updated_at`，不捏造部署时间。
+最新收口记录见 [CI、审计与异常恢复报告](docs/reports/CI审计与异常恢复收口_20260930.md)，
+尚未放行项见 [未决项](docs/evidence/未决项_20260913.md)。
+2026-09-30 已复核追加验收提交 `0740f8f` 的四组 workflow、七项检查全部通过；
+后续提交仍须重新读取 PR 最新 head 的 CI。生产管理员审计已通过生产浏览器核验；生产恢复演练、
+失败归档任务处置、其他角色完整 UAT 仍是未决项，商业化仅完成范围设计。
 
 ## Docker 部署(服务器)
 
@@ -116,7 +150,7 @@ docker compose up -d --build
 - 小程序提交详情展示教师退回理由与修订截止；预检/确认提交对逾期、已有待审、正文过期返回稳定错误码，并给出「联系教师 / 查看待审核提交 / 重新预检」下一步。仍不是真机 UAT。
 - 小程序学生可撤回待审核提交（教师不能代撤）；提交历史展示修改说明与上轮未解决阻断；我的任务把已通过/归档阶段折叠为历史。由 `check:structure`、`test:flow` 与工作流 happy path 覆盖，不是真机 UAT。
 - 小程序登录页用户可见名称为「论文卫士Pro」；任务、提交详情与提交确认页展示截止倒计时/逾期时长；提交确认页、提交详情与教师审阅检查页签逐条展示必交材料绑定结果，检查未完成/失败给出重新预检；提交详情时间线按提交、撤回、退回、通过事件展示；教师「其他任务」打开已有决定的只读审阅记录，审阅页在已退回/已通过后不再显示退回、通过、新增批注或人工确认。`GET /api/my-tasks` 在撤回/重开后仍用 `last_submission_id` 回填只读 `current_submission`，不把撤回提交重新排进待审队列。仍不是真机 UAT。
-- 当前产品定位是**单学校/单学院试点**，不是共享多租户 SaaS。仓库没有 `tenant` 实体、没有计费/余额/支付代码路径；AI 计费需求仍未启用。不要把组织层级或学院作用域宣传成多租户 SaaS。
+- 当前 PR 已落地租户/成员运行时基础、可信上下文与类型化 SaaS API 切片、限定租户 AI 元数据查询/待复核 CAS 和密钥 fail-closed；这**不等于完整多租户 SaaS**。现有业务资源全量 tenant_id/RLS、租户级恢复、对账、支付和商业放行仍未完成。不要把本地测试或 CI 绿灯宣传成 SaaS 已上线。详见 `docs/tenancy/implementation-status-20261004.md`。
 - 上传检查和自动修复需要登录; 项目与图片按用户权限隔离
 - 上传检查文件只在处理期间使用; 写作项目和图片会持久化到 Docker volume, 删除项目后按引用回收图片
 - 导出和自动修复生成的临时文件在响应完成后清理
@@ -191,6 +225,9 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 | GET/POST | `/api/outbox`、`/api/outbox/claim` | 查看范围内待发送事件、原子领取租约 |
 | POST | `/api/outbox/{id}/ack`、`/fail`、`/retry` | 消费确认、失败回退/封顶和人工重试 |
 | GET/PUT/POST | `/api/operations/retention`、`/api/operations/backup` | 保留期限配置与管理员一致性备份下载 |
+| GET | `/api/saas/v1/context` | 返回服务端解析的租户、成员、能力和授权版本上下文 |
+| GET/POST | `/api/saas/v1/tenants` | 平台管理员创建租户；成员可读取被授权租户列表 |
+| GET/POST | `/api/saas/v1/tenants/{tenant_id}/memberships` | 成员范围读取与平台管理员成员绑定 |
 | POST | `/api/projects/{id}/export-preview` | 正式下载前只读预览版本、规范门禁、缺失项、章节/表格/图片/公式摘要 |
 | POST | `/api/auth/mp/login` | 微信 code 换取已绑定会话或一次性绑定票据 |
 | POST | `/api/auth/mp/bind` | 用校内账号密码绑定当前微信身份 |
@@ -224,3 +261,13 @@ pytest -q        # 当前 657 passed, 2 skipped: 引擎 / docx 读写 / 模板/�
 - **模板**(`/api/templates`):章节树 + 每类元素样式 + 封面字段,在线配置
 - **检查规则包**(`backend/app/core/rules/packs/*.yaml`):GB/T 7713、GB/T 7714、SIM-UNIV 通用规则,每条含 `scope`(JMESPath)、`when`(JSONLogic)、`message` 和可选 `fix`; 规范项可按规则 ID 冻结受控覆盖 `when/scope/severity/message/fix`
 - **写作规范**:学校/学院/专业/课程/批次/教师要求独立建模,支持 Markdown frontmatter、自动/人工/文档要求、组织绑定、版本生效时间、项目快照、统一报告、豁免和申诉留痕
+
+### 2026-10-04 SaaS 安全基础续作（受限本地切片）
+
+PR #34 已有只读历史归属准入、显式平台批准下的draft/首位owner与安全成员创建，以及tenant/member限定的空白手写项目create/list/get/CAS update。导出、文件、异步及完整启用尚未隔离的入口拒绝，不代表共享SaaS上线。
+
+- [实施状态与证据边界](docs/tenancy/implementation-status-20261004.md)
+- [待裁决的客户映射/平台身份/指导关系/DB选择](docs/tenancy/conditional-tenancy-decision-packet.md)
+- [本轮交付记录](docs/releases/2026-10-04-pr34-ownership-pilot.md)
+
+本地真实历史归属预检仍BLOCKED；无生产迁移、部署、合并或真实UAT授权。

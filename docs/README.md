@@ -16,3 +16,16 @@
 | [miniprogram-mockups/](./miniprogram-mockups/) | 小程序界面视觉稿 |
 
 仓库根目录的 `README.md` 保留为开发入口；本地生成的 `architecture/CODEGRAPH.md` 不入库。测试夹具、用户上传文档、缓存和构建产物继续放在各自的运行目录中。
+
+## SaaS 平台后续设计入口
+
+- [PaperGuard SaaS 平台产品与技术设计（2026-10-01）](./product/saas-platform-design-20261001.md)：租户与身份、资源隔离、权益、AI 计量、账务、运营、恢复迁移、开发工作包和验收矩阵的完整目标设计；目标设计不等于全部实现。
+- [SaaS 运行时基础实施状态（2026-10-04）](./tenancy/implementation-status-20261004.md)：PR #34 当前已实现边界、验证状态和未决项。
+- [商业化范围与放行条件（2026-09-30）](./product/商业化范围与放行条件_20260930.md)：C0/C1/C2 阶段边界。
+- [未决项与验收证据](./evidence/未决项_20260913.md)：保持历史验证状态与生产残余风险。
+
+## 本轮安全基础交付
+
+- [历史归属准入与写作pilot交付记录（2026-10-04）](./releases/2026-10-04-pr34-ownership-pilot.md)：源码/离线验证/真实差距/推送/原生CI分别记录，不表示共享SaaS启用。
+
+- [2026-10-05 离线 AI usage、tenant/member 幂等与 quota reservation 切片](./releases/2026-10-04-pr34-idempotency-offline.md)：SQLite/local mock 完成 provider token 事实与估算分离、租户域幂等和并发派发保护；不是收费、生产部署或供应商 UAT。

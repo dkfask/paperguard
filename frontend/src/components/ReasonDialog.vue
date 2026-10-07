@@ -7,7 +7,7 @@
           <h3 :id="titleId">{{ title }}</h3>
         </div>
         <button type="button" class="icon-button" :title="t('dialog.close')" :aria-label="t('dialog.close')" @click="cancel">
-          <span class="material-symbols-outlined">close</span>
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
       </div>
       <p v-if="description" class="hint">{{ description }}</p>
@@ -18,7 +18,7 @@
       <div class="form-actions">
         <button type="button" class="small" @click="cancel">{{ t('dialog.cancel') }}</button>
         <button type="button" class="small primary" :disabled="busy || !draft.trim()" @click="confirm">
-          <span class="material-symbols-outlined">check</span>
+          <span class="material-symbols-outlined" aria-hidden="true">check</span>
           {{ busy ? t('dialog.processing') : confirmText }}
         </button>
       </div>

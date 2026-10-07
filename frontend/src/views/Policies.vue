@@ -56,7 +56,7 @@
 
       <section class="panel policy-editor-panel">
         <div v-if="!editing" class="empty-editor">
-          <span class="material-symbols-outlined">fact_check</span>
+          <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
           <h2>{{ t('policies.selectTitle') }}</h2>
           <p>{{ t('policies.selectDetail') }}</p>
         </div>
@@ -232,8 +232,8 @@
     </div>
 
     <div class="policy-related-links">
-      <RouterLink to="/templates" class="policy-related-link"><span class="material-symbols-outlined" aria-hidden="true">description</span><span><strong>{{ t('templates.title') }}</strong><small>{{ t('policies.templatesRelated') }}</small></span><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
-      <RouterLink to="/audit" class="policy-related-link"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span><span><strong>{{ t('templates.audit') }}</strong><small>{{ t('policies.auditRelated') }}</small></span><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
+      <RouterLink v-if="canUseTemplates" to="/templates" class="policy-related-link"><span class="material-symbols-outlined" aria-hidden="true">description</span><span><strong>{{ t('templates.title') }}</strong><small>{{ t('policies.templatesRelated') }}</small></span><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
+      <RouterLink v-if="canViewAudit" to="/audit" class="policy-related-link"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span><span><strong>{{ t('templates.audit') }}</strong><small>{{ t('policies.auditRelated') }}</small></span><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
     </div>
 
     <div v-if="cloneModal" class="modal-mask" @click.self="cloneModal = false">
@@ -290,6 +290,10 @@ const cloneVersionInput = ref('')
 const confirmBusy = ref(false)
 const confirmDialog = ref({ open: false, title: '', description: '', confirmLabel: t('common.confirm'), danger: false, action: null })
 const canManage = computed(() => isManager() && (auth.user?.role === 'admin' || auth.user?.status === 'active'))
+// 底部「论文模板 / 审计记录」入口必须与后端门槛一致，否则点了只会看到 403 死路。
+const canUseTemplates = computed(() => auth.user?.role === 'admin'
+  || (auth.user?.role === 'teacher' && auth.user?.status === 'active'))
+const canViewAudit = computed(() => ['admin', 'college_admin'].includes(auth.user?.role))
 const readOnly = computed(() => !canManage.value || draft.value.status === 'published')
 
 function emptyPolicy() {

@@ -64,7 +64,8 @@ def test_authenticated_request_logs_correlated_context_without_sensitive_content
     events = [json.loads(record.getMessage()) for record in caplog.records if record.name == "paperguard.http"]
     completed = next(item for item in events if item["event"] == "http.request.completed" and item["request_id"] == request_id)
     assert completed["actor_id"] == "user-admin"
-    assert completed["role"] == "admin"
+    assert completed["role"] == "admin"  # legacy logging metadata, not a platform grant
+    assert completed["authorization_kind"] == "unresolved"
     assert completed["path"] == "/api/auth/me"
     serialized = " ".join(record.getMessage() for record in caplog.records)
     assert "Bearer " not in serialized and "TestAdminPassword123" not in serialized

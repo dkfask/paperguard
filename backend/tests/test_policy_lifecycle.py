@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api import ai as ai_module
@@ -12,6 +13,30 @@ from app.main import app
 
 
 client = TestClient(app)
+
+
+# 需求 AI 辅助现在走 _metered_chat（真实上游调用的唯一计量出口），其第一步是
+# 出站 SSRF 守卫，会在**发请求前**解析 DNS 并逐个检查地址。本文件用
+# `test.invalid` 这个刻意不可解析的假域名，不给公网解析结果就会在守卫阶段
+# 直接 400，测不到本来要验证的「辅助结论写回需求项」逻辑。
+#
+# 只解决「假域名需要被解析成公网地址」这一件事；守卫自身的判定测试在
+# test_outbound_guard.py，那里不能带这个 fixture。
+@pytest.fixture(autouse=True)
+def _fake_public_dns(monkeypatch):
+    import socket
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    # 解除本文件的速率限制。需求 AI 辅助现在走 _metered_chat，会扣突发配额
+    # （修复前这条路径完全不计量）。本文件用共享的 `admin` 账号，全量套件里
+    # 多个文件都用它跑 AI，累积后会撞上默认的每分钟 10 次上限，报
+    # 429/AI_RATE_LIMITED——那是跨文件污染，不是本文件要验证的行为。
+    # 速率/配额语义本身由 test_ai_governance.py 专门覆盖。
+    monkeypatch.setenv("PAPERGUARD_AI_BURST_PER_MINUTE", "100000")
+    monkeypatch.setenv("PAPERGUARD_AI_DAILY_QUOTA", "100000")
 
 
 def _random_password(prefix: str) -> str:

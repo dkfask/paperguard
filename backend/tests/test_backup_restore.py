@@ -108,7 +108,10 @@ def test_migrate_cli_is_repeatable_and_reports_schema_ledger(tmp_path, monkeypat
     assert first_payload["status"] == second_payload["status"] == "ok"
     assert [item["version"] for item in first_payload["migrations"]] == [
         "0001_runtime_schema", "0002_durable_jobs", "0003_audit_ledger", "0004_document_packages", "0005_document_projects", "0006_validation_runs",
-        "0007_document_scope_indexes", "0008_miniprogram_auth",
+        "0007_document_scope_indexes", "0008_miniprogram_auth", "0009_ai_usage_quota",
+        "0010_tenant_system_settings", "0011_runtime_tenancy",
+        "0012_ai_request_ledger",
+        "0013_saas_approval_pilot", "0014_ai_tenant_idempotency",
     ]
     assert [item["version"] for item in first_payload["migrations"]] == [
         item["version"] for item in second_payload["migrations"]
@@ -129,15 +132,25 @@ def test_migrate_package_entrypoint_executes_the_cli(tmp_path):
     assert result.returncode == 0, result.stderr or result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
-    assert payload["migrations"][-1]["version"] == "0008_miniprogram_auth"
+    assert payload["migrations"][-1]["version"] == "0014_ai_tenant_idempotency"
 
 
 def test_operations_api_configures_retention_and_downloads_backup(tmp_path, monkeypatch):
-    monkeypatch.setenv("PAPERGUARD_DATA_DIR", str(tmp_path / "data"))
-    client = TestClient(app)
-    login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
-    assert login.status_code == 200
-    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    from fastapi import FastAPI
+    from app import auth
+    from app.api import operations
+    from app.services.saas_identity import approve_platform_role
+    store = Store(tmp_path / "operations.db")
+    store.save_user({"id": "operator-fixture", "username": "operator-fixture", "display_name": "Operator fixture", "role": "user", "status": "active", "must_change_password": 0, "password_hash": "fixture", "salt": "fixture", "created_at": "2026-10-04T00:00:00+00:00"})
+    approve_platform_role(store, "operator-fixture", approval_ref="LOCAL-BACKUP-FIXTURE", approved_by="offline-fixture")
+    probe = FastAPI()
+    probe.include_router(operations.router)
+    probe.dependency_overrides[auth.get_store] = lambda: store
+    probe.dependency_overrides[operations.get_store] = lambda: store
+    monkeypatch.setattr(store, "get_session_user", lambda *args, **kwargs: store.get_user("operator-fixture"))
+    monkeypatch.setenv("PAPERGUARD_DB_PATH", str(store._db_path))
+    client = TestClient(probe)
+    headers = {"Authorization": "Bearer synthetic-operations-fixture"}
     current = client.get("/api/operations/retention", headers=headers)
     assert current.status_code == 200 and current.json()["configured"] is False
     configured = client.put("/api/operations/retention", headers=headers, json={

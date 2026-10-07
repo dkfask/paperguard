@@ -62,3 +62,104 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run loopback contract test
         run: bash ops/test-online-verify.sh
+
+  # 门禁套件（42 道，权威口径见总设计 §27.5 的 fact 标记；片段与说明见
+  # docs/tenancy/ci-gates-job.yml）。
+  # --mode ci 只拦退出码 2（门禁自己坏了）；按设计常红的 exit=1 是
+  # 「差距真实且已登记」，拿它们拦 CI 只会让流水线天天红，
+  # 很快就没人再看红绿——那才是真正把门禁废掉的方式。
+  design-gates:
+    name: Design gates (tenancy toolchain)
+    runs-on: ubuntu-latest
+    # 这里**不写实测秒数**：那个数字每次加工具都会变，写下来必然腐烂
+    # （本文件曾经写「本机实跑 195s」，装 pglast 后实际已超 400s，
+    #  而它在 CI 上直接导致 job 超时被杀——见 INC-118）。
+    # 真正的约束是下面两个，**改门禁时按它们判断，而不是按某个秒数**：
+    #   ① `run_all_gates.py` 的单门禁阈值 300s：撞穿即记为「工具不可运行」(=2)，
+    #      而 ci 模式恰好只拦 2 ⇒ 表现为「CI 红了」，但真因是**某道门禁变慢了**。
+    #   ② 本 job 的 `timeout-minutes`：套件只跑**一遍**（INC-118 修掉了原来的两遍），
+    #      所以它只约束单次套件的耗时。
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # whitespace_check 要用 `origin/<base>..HEAD` 核对本次 PR 的变更。
+          # checkout 默认 fetch-depth: 1（浅克隆），取不到 origin/main；
+          # 而该工具对「不可核对」是**报红**而不是放行——所以必须拉全历史。
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          # `cache: pip` 默认只匹配 **/requirements.txt；本仓只有
+          # requirements-dev.txt，不显式指定会发「no file matched」警告。
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt      # 含 pglast，ddl_static_check 需要
+      - name: Build schema-only SQLite DB
+        # `schema_disposition_check` 只读 backend/data/paperguard.db 的**表名**
+        # （SELECT name FROM sqlite_master），而 `backend/data/` 在 .gitignore:75
+        # 被刻意排除 ⇒ CI 的干净检出里没有它 ⇒ 工具返回 exit=2（工具不可运行），
+        # 而 `--mode ci` 只拦 2 ⇒ **流水线第一次跑就红**（2026-10-03 干净克隆实测）。
+        #
+        # 这里用**应用自己的建表语句**建一个只含表、无数据的库：
+        # 不是伪造数据，而是把 db.py 里已经写好的 schema 落成文件。
+        # 实测：补库前 exit=2，补库后 exit=0。
+        #
+        # ⚠ `contract_readiness_check` 同样要读这个库，但它核对的是**隔离清单**
+        # （需要对有数据的源库做 dry-run），空库给不出清单——
+        # 那一道由 run_all_gates 的 `CI_INAPPLICABLE` 显式登记为「本模式不适用」。
+        run: |
+          mkdir -p data
+          python -c "
+          import sys; sys.path.insert(0, '.')
+          from app.db import Store
+          Store('data/paperguard.db')._init_schema()
+          print('schema-only DB ready')
+          "
+      # ★ INC-118：**只跑一遍**。
+      # 原先是两个步骤各跑一遍全套：`--mode ci` 一遍、`--mode report --json` 一遍。
+      # 而 `--mode report` **只改退出码、不跳过任何门禁**（run_all_gates.py 的
+      # `--mode report` 说明），所以那是货真价实的第二遍全量执行。
+      # 实测：单遍 489s，两遍 ⇒ 16 分 45 秒 > `timeout-minutes: 15`
+      # ⇒ GitHub 直接把 job 杀掉，run 结论是 `cancelled`，
+      # **连是哪道门禁红了都看不到**。
+      #
+      # `--json` 与退出码可以共存：本地实测 `--mode ci --json` 在
+      # 「37 通过 / 5 差距」时输出的是**合法 JSON**、退出码仍是 0。
+      # 所以一次调用既能判定又能出报告，不需要第二遍。
+      - name: Run gate suite (ci mode) and emit report
+        run: python ../docs/tenancy/tools/run_all_gates.py --mode ci --json > gate-report.json
+      # ★ 合并成一次之后，**人读摘要被 `--json` 一起吃进了文件**，
+      #   门禁步骤在 CI 日志里变成**完全静默**。而「红了该看哪一行」
+      #   恰恰是日志的价值——修复前 `--mode ci` 那一步会把摘要打进日志。
+      #   所以补一步**只读**摘要：`always()` 执行、不参与判定、不重跑套件。
+      - name: Show gate summary
+        if: always()
+        run: |
+          python -c "
+          import json, pathlib
+          p = pathlib.Path('gate-report.json')
+          t = p.read_text(encoding='utf-8') if p.is_file() else ''
+          if not t.strip():
+              print('!! gate-report.json 缺失或为空 —— 套件没有产出报告')
+          else:
+              d = json.loads(t)
+              print('门禁套件 mode=%s 共 %d 道' % (d['mode'], d['total']))
+              print('  通过 %d / 差距 %d / 不可运行 %d / 不适用 %d' % (len(d['passed']), len(d['gaps']), len(d['broken']), len(d.get('na') or [])))
+              for g in d['broken']: print('  [BROKEN] ' + g)
+              for g in d['gaps']: print('  [GAP] ' + g)
+              if d.get('input_drift'): print('  [DRIFT] ' + str(d['input_drift']))
+          "
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-gate-report
+          path: backend/gate-report.json

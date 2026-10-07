@@ -8,11 +8,29 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.workflow import supervised_student_ids
 from app.auth import current_user, hash_password, require_manager
 from app.db import Store
 
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
+
+
+def get_store() -> Store:
+    """Store 依赖（与项目其余路由一致的注入方式）。"""
+    return Store()
+
+
+def _is_supervised_student(store: Store, teacher_id: str, student: dict) -> bool:
+    """当前教师是否指导该学生：账号绑定或批次指导任一成立即可。
+
+    账号绑定是教师在「指导学生」页批量导入时写入 users.teacher_id；
+    批次指导是建批配置成员时写入的 supervision 记录。
+    两者都是正式指派的指导关系，权限判定统一认这两种来源。
+    """
+    if student.get("teacher_id") == teacher_id:
+        return True
+    return student["id"] in supervised_student_ids(store, teacher_id)
 
 
 def _now() -> str:
@@ -25,6 +43,7 @@ class StudentImportItem(BaseModel):
 
 
 class BulkImportStudentsRequest(BaseModel):
+    model_config = {"extra": "forbid"}
     students: list[StudentImportItem] = Field(..., min_length=1, max_length=200)
     default_password: str = Field(
         default="Student123456",
@@ -54,15 +73,38 @@ class ResetStudentPasswordRequest(BaseModel):
 @router.get("/students")
 def list_my_students(
     user: dict = Depends(require_manager),
-    store: Store = Depends(lambda: Store()),
+    store: Store = Depends(get_store),
 ):
-    """获取当前教师指导的学生列表，同时附带学生论文项目的简要进度统计。"""
-    students = store.list_students_by_teacher(user["id"])
+    """获取当前教师指导的学生列表，同时附带学生论文项目的简要进度统计。
+
+    学生集合来自两个互相独立的绑定机制，这里合并返回并标注来源：
+      - account：users.teacher_id，教师在「指导学生」页批量导入时写入，
+        这是账号级绑定，也是重置密码/解绑所校验的依据；
+      - cohort：批次级 supervision 记录，建批配置成员时写入，
+        教师工作台的「学生进度」按它取数。
+
+    两者不一致时教师会在同一系统里看到两套学生集合，页面还会静默显示
+    「暂无关联学生」。因此这里把批次来源的学生一并列出。
+
+    权限随来源区分：重置密码认两种指导关系（can_reset_password），
+    解绑只解账号绑定（can_manage_account）——批次指导挂在 supervision 上，
+    不是账号绑定端点能解除的东西。
+    """
+    account_students = {s["id"]: s for s in store.list_students_by_teacher(user["id"])}
+    cohort_student_ids = supervised_student_ids(store, user["id"])
     all_projects = store.list_projects()
 
+    ordered_ids = list(account_students)
+    ordered_ids += [sid for sid in cohort_student_ids if sid not in account_students]
+
     result = []
-    for s in students:
-        s_projects = [p for p in all_projects if p.owner_id == s["id"]]
+    for student_id in ordered_ids:
+        s = account_students.get(student_id) or store.get_user(student_id)
+        if not s:
+            # 指导关系指向了已删除的账号，跳过而不是渲染空行
+            continue
+        has_account_binding = student_id in account_students
+        s_projects = [p for p in all_projects if p.owner_id == student_id]
         # 统计字数和最新更新时间
         total_words = 0
         latest_title = ""
@@ -74,9 +116,16 @@ def list_my_students(
             latest_title = latest_p.title
             last_updated = latest_p.updated_at
             for p in s_projects:
-                for b in p.blocks:
-                    total_words += len(b.content.strip()) if b.content else 0
+                # 内容块是 p.sections[].paragraphs[]，字段名是 text。
+                # 这里曾写成 p.blocks（WritingProject 上不存在该属性），
+                # 在批次来源的学生首次进入循环前从未暴露，生产因此 500。
+                for section in p.sections:
+                    for para in section.paragraphs:
+                        total_words += len(para.text.strip()) if para.text else 0
 
+        sources = ["cohort"] if student_id in cohort_student_ids else []
+        if has_account_binding:
+            sources.insert(0, "account")
         result.append({
             "id": s["id"],
             "username": s["username"],
@@ -87,6 +136,14 @@ def list_my_students(
             "latest_project_title": latest_title,
             "total_words": total_words,
             "last_updated": last_updated,
+            "relation_sources": sources,
+            "cohort_id": cohort_student_ids.get(student_id, ""),
+            # 重置密码认两种指导来源：教师本就拿得到该生的论文全文与进度，
+            # 却没有初始密码管理权会形成「看得到、管不了」的不一致。
+            "can_reset_password": has_account_binding or student_id in cohort_student_ids,
+            # 解绑只解账号绑定(users.teacher_id)。批次指导关系挂在 supervision 上，
+            # 不是这个端点能解除的东西，因此对纯批次来源不提供解绑。
+            "can_manage_account": has_account_binding,
         })
 
     return {"students": result, "total": len(result)}
@@ -96,7 +153,7 @@ def list_my_students(
 def bulk_import_students(
     req: BulkImportStudentsRequest,
     user: dict = Depends(require_manager),
-    store: Store = Depends(lambda: Store()),
+    store: Store = Depends(get_store),
 ):
     """批量导入并生成学生账号。"""
     created_list = []
@@ -176,15 +233,21 @@ def reset_student_password(
     student_id: str,
     req: ResetStudentPasswordRequest,
     user: dict = Depends(require_manager),
-    store: Store = Depends(lambda: Store()),
+    store: Store = Depends(get_store),
 ):
     """指导教师为学生重置密码。"""
     student = store.get_user(student_id)
     if not student:
         raise HTTPException(status_code=404, detail="学生账号不存在")
 
-    # 权限校验：管理员可以重置任何学生；教师只能重置自己绑定的学生
-    if user["role"] != "admin" and student.get("teacher_id") != user["id"]:
+    # 权限校验：管理员可以重置任何学生；教师可以重置自己指导的学生。
+    # 「指导」有两套来源——账号绑定(users.teacher_id)与批次指导(supervision)。
+    # 二者都是正式指派的指导关系，教师本就拿得到这些学生的论文全文与进度
+    # （敏感度高于初始密码），因此密码重置一并认这两种来源，
+    # 避免出现「看得到学生、管不了账号」的不一致。
+    if user["role"] != "admin" and (
+        student.get("role") != "student" or not _is_supervised_student(store, user["id"], student)
+    ):
         raise HTTPException(status_code=403, detail="无权操作非本人指导的学生账号")
 
     pw_hash, salt = hash_password(req.new_password)
@@ -206,7 +269,7 @@ def reset_student_password(
 def unbind_student(
     student_id: str,
     user: dict = Depends(require_manager),
-    store: Store = Depends(lambda: Store()),
+    store: Store = Depends(get_store),
 ):
     """解除教师与学生的指导关系。"""
     student = store.get_user(student_id)
