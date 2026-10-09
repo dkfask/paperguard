@@ -2312,8 +2312,7 @@ button.tiny.danger { color: var(--error); }
   width: auto;
   min-height: calc(100vh - 120px);
   max-height: calc(100vh - 120px);
-  position: sticky;
-  top: 120px;
+  position: static;
   border: 0;
   border-right: 1px solid var(--border);
   border-radius: 0;
@@ -2349,8 +2348,7 @@ button.tiny.danger { color: var(--error); }
   min-height: calc(100vh - 120px);
   max-height: calc(100vh - 120px);
   overflow-y: auto;
-  position: sticky;
-  top: 120px;
+  position: static;
   padding: 20px 14px 28px;
   border-left: 1px solid var(--border);
   background: var(--surface-container-lowest);
@@ -2382,7 +2380,6 @@ button.tiny.danger { color: var(--error); }
   .writer-command-bar { flex-wrap: wrap; gap: 10px 18px; }
   .writer-command-leading { flex: 1; }
   .writer-command-actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
-  .writer-columns > .sidebar, .writer-context { position: static; }
 }
 
 @media (max-width: 1180px) {

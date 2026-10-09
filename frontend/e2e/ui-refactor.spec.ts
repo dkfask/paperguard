@@ -106,10 +106,10 @@ test('writer keeps its draft, editor instance and selection when panels and view
   if (info.project.name === 'chromium') {
     // A resized textarea gives the page enough content to exercise scrolling.
     await editor.evaluate(el => { el.style.height = '1000px' })
-    for (const width of [1280, 840]) {
+    for (const width of [1920, 1440, 1280, 840]) {
       await page.setViewportSize({ width, height: 500 })
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
-      const panes = width === 1280 ? ['.writer-columns > .sidebar', '.writer-context'] : ['.writer-columns > .sidebar']
+      const panes = width >= 1280 ? ['.writer-columns > .sidebar', '.writer-context'] : ['.writer-columns > .sidebar']
       const before = await Promise.all(panes.map(selector => page.locator(selector).evaluate(el => el.getBoundingClientRect().top)))
       await page.evaluate(() => window.scrollTo({ top: 260, behavior: 'instant' }))
       const scroll = await page.evaluate(() => window.scrollY)
