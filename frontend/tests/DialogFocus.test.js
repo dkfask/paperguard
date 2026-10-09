@@ -3,9 +3,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 import ConfirmDialog from '../src/components/ConfirmDialog.vue'
 import ReasonDialog from '../src/components/ReasonDialog.vue'
 import BaseModal from '../src/components/base/BaseModal.vue'
+import CreateProjectModal from '../src/components/home/CreateProjectModal.vue'
+import { translate, useI18n } from '../src/i18n'
 
 let wrapper
-afterEach(() => { wrapper?.unmount(); document.body.innerHTML = '' })
+afterEach(() => { wrapper?.unmount(); document.body.innerHTML = ''; useI18n().setLang('zh') })
 const key = (value, shiftKey = false) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: value, shiftKey, bubbles: true, cancelable: true }))
 
 describe('dialog keyboard and draft contracts', () => {
@@ -36,8 +38,13 @@ describe('dialog keyboard and draft contracts', () => {
     await wrapper.setProps({ busy: true })
     key('Escape')
     expect(wrapper.emitted('cancel')).toBeUndefined()
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true })
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', metaKey: true })
+    expect(wrapper.emitted('confirm')).toBeUndefined()
     await wrapper.setProps({ busy: false })
     expect(wrapper.get('textarea').element.value).toBe('请补充实验依据')
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true })
+    expect(wrapper.emitted('confirm')).toEqual([['请补充实验依据']])
     key('Escape')
     expect(wrapper.emitted('cancel')).toHaveLength(1)
   })
@@ -51,5 +58,16 @@ describe('dialog keyboard and draft contracts', () => {
     expect(dialog.contains(document.activeElement)).toBe(true)
     key('Escape')
     expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('announces the create-thesis title in the active language', async () => {
+    wrapper = mount(CreateProjectModal, { attachTo: document.body, props: { open: false } })
+    await wrapper.setProps({ open: true })
+    await flushPromises()
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog.getAttribute('aria-label')).toBe(translate('homeComponents.createTitle', {}, 'zh'))
+    useI18n().setLang('en')
+    await flushPromises()
+    expect(dialog.getAttribute('aria-label')).toBe(translate('homeComponents.createTitle', {}, 'en'))
   })
 })

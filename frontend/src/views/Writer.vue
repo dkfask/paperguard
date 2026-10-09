@@ -2382,6 +2382,7 @@ button.tiny.danger { color: var(--error); }
   .writer-command-bar { flex-wrap: wrap; gap: 10px 18px; }
   .writer-command-leading { flex: 1; }
   .writer-command-actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .writer-columns > .sidebar, .writer-context { position: static; }
 }
 
 @media (max-width: 1180px) {

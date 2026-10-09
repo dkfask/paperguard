@@ -64,6 +64,7 @@ watch(() => props.open, async (open) => {
 
 function cancel() { if (!props.busy) emit('cancel') }
 function confirm() {
+  if (props.busy) return
   const value = draft.value.trim()
   if (value) emit('confirm', value)
 }
