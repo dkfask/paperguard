@@ -20,7 +20,7 @@
         <div><span>{{ t('operations.webService') }}</span><strong>{{ statusText(live) }}</strong><small>{{ t('operations.processProbe') }}</small></div>
         <div><span>{{ t('operations.businessStorage') }}</span><strong>{{ statusText(ready) }}</strong><small>{{ t('operations.databaseProbe') }}</small></div>
         <div><span>{{ t('operations.backgroundJobs') }}</span><strong>{{ jobs.length }}</strong><small>{{ t('operations.visibleJobs') }}</small></div>
-        <div><span>{{ t('operations.policyStatus') }}</span><strong>{{ retentionError ? t('operations.unavailable') : retention.configured ? t('operations.configured') : t('operations.notConfigured') }}</strong><small>{{ t('operations.retentionPolicy') }}</small></div>
+        <div><span>{{ t('operations.policyStatus') }}</span><strong>{{ retentionError ? t('operations.unavailable') : !retentionLoaded ? t('common.loading') : retention.configured ? t('operations.configured') : t('operations.notConfigured') }}</strong><small>{{ t('operations.retentionPolicy') }}</small></div>
       </section>
 
       <div class="workspace-layout">
@@ -94,7 +94,8 @@ const retentionFields = [
 ]
 
 async function load() {
-  if (!loading.value) refreshing.value = true
+  if (loadError.value) loading.value = true
+  else if (!loading.value) refreshing.value = true
   error.value = ''
   loadError.value = ''
   saveNotice.value = ''
