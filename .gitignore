@@ -1,4 +1,5 @@
 # Python
+backend/app/_build_info.json
 __pycache__/
 *.py[cod]
 *$py.class

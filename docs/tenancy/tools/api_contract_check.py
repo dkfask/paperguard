@@ -31,6 +31,7 @@ BACKEND = REPO_ROOT / "backend"
 # 匿名接口白名单：这些处理器没有鉴权依赖，按约定不声明 security。
 # 判据是**代码里的 Depends**，不是路径名猜测。
 ANONYMOUS_PATHS = {
+    "/api/version",
     "/api/auth/register",
     "/api/auth/login",
     "/api/auth/mp/login",
