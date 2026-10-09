@@ -4,6 +4,7 @@ set -euo pipefail
 
 umask 077
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 base_url="${PAPERGUARD_ONLINE_BASE_URL:-}"
 admin_username="${PAPERGUARD_ONLINE_ADMIN_USERNAME:-}"
 admin_password="${PAPERGUARD_ONLINE_ADMIN_PASSWORD:-}"
@@ -138,19 +139,8 @@ request_json "health.ready" "/api/health/ready" \
   "$temp_dir/ready.json"
 
 request_body "version.backend" "/api/version" "$temp_dir/version.json"
-if ! jq -e '
-  . as $identity |
-  type == "object" and
-  keys == ["build_id", "built_at", "component", "identity_status", "product_version", "release_id", "source_revision"] and
-  .component == "backend" and .identity_status == "declared" and
-  (.source_revision | type == "string" and test("^[0-9a-f]{40}$")) and
-  (.build_id | type == "string" and test("^[0-9]{8}T[0-9]{6}Z$")) and
-  (.built_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
-  (.product_version == null or (.product_version | type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"))) and
-  (.release_id | type == "string" and length <= 160 and test("^[0-9a-f]{7,40}-[A-Za-z0-9._-]+$")) and
-  (.source_revision | startswith($identity.release_id | split("-")[0])) and
-  (.release_id | endswith("-b" + $identity.build_id))
-' "$temp_dir/version.json" >/dev/null 2>&1; then
+if ! PYTHONPATH="$repo_root/backend" python3 -m app.build_identity \
+  --validate-public "$temp_dir/version.json" >/dev/null 2>&1; then
   fail_now "version.backend" "backend build identity was missing, invalid, or inconsistent"
 fi
 deployed_backend="$(jq -c '.' "$temp_dir/version.json")"

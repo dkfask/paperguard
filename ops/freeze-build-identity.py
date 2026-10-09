@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -21,6 +22,29 @@ _markers = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_markers)
 
 
+def verify_build_inputs(repo: Path, revision: str) -> None:
+    """Bind the Dockerfile, its COPY dependency input and both ignore rules."""
+    # Keep this list aligned with COPY inputs outside app/ in backend/Dockerfile.
+    names = ("backend/Dockerfile", "backend/requirements.txt", "backend/.dockerignore",
+             "backend/Dockerfile.dockerignore")
+    committed = set(filter(None, subprocess.check_output(
+        ["git", "-C", str(repo), "ls-tree", "-rz", "--name-only", revision, "--", *names]
+    ).decode().split("\0")))
+    if not {"backend/Dockerfile", "backend/requirements.txt"} <= committed:
+        raise ValueError("commit lacks required backend build inputs")
+    for name in names:
+        path = repo / name
+        if name not in committed:
+            if path.exists() or path.is_symlink():
+                raise ValueError("uncommitted backend build input")
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("missing or unsafe backend build input")
+        expected = subprocess.check_output(["git", "-C", str(repo), "show", f"{revision}:{name}"])
+        if path.read_bytes() != expected:
+            raise ValueError("backend build input does not match the frozen commit")
+
+
 def freeze(repo: Path, revision: str, app_dir: Path, build_id: str,
            *, release_label: str = "p0-1", product_version: str | None = None) -> dict:
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
@@ -30,6 +54,7 @@ def freeze(repo: Path, revision: str, app_dir: Path, build_id: str,
     manifest = _markers.source_manifest(repo, revision)
     if manifest["source_revision"] != revision:
         raise ValueError("revision must identify the commit itself")
+    verify_build_inputs(repo, revision)
     expected = {name.removeprefix("backend/app/"): digest for name, digest in manifest["files"].items()}
     actual = source_files(app_dir)
     if actual != expected:

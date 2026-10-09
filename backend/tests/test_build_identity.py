@@ -126,6 +126,33 @@ def test_missing_identity_and_short_revision_are_not_invented(committed_source):
     assert not (directory / BUILD_INFO_NAME).exists()
 
 
+@pytest.mark.parametrize("name,change", [
+    ("requirements.txt", "modified"), ("Dockerfile", "modified"),
+    (".dockerignore", "modified"), ("requirements.txt", "deleted"),
+    ("Dockerfile.dockerignore", "extra"), ("requirements.txt", "symlink"),
+])
+def test_dirty_backend_build_inputs_cannot_borrow_commit_identity(committed_source, tmp_path, name, change):
+    revision, _source = committed_source
+    repository = tmp_path / "repository"
+    subprocess.run(["git", "clone", "--quiet", "--shared", "--no-checkout", str(REPO), str(repository)], check=True)
+    subprocess.run(["git", "-C", str(repository), "checkout", revision, "--", "backend"], check=True)
+    path = repository / "backend" / name
+    if change == "modified":
+        path.write_bytes(path.read_bytes() + b"\n# uncommitted build input\n")
+    elif change == "deleted":
+        path.unlink()
+    elif change == "extra":
+        path.write_text("app/\n")
+    else:
+        copy = repository / "requirements-copy.txt"
+        path.rename(copy)
+        path.symlink_to(copy)
+    directory = repository / "backend/app"
+    with pytest.raises(ValueError, match="build input"):
+        freeze_module.freeze(repository, revision, directory, BUILD)
+    assert not (directory / BUILD_INFO_NAME).exists()
+
+
 def test_explicit_product_version_is_semver(declaration):
     directory, record = declaration
     updated = freeze_module.freeze(REPO, record["source_revision"], directory, BUILD,

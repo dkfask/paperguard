@@ -14,6 +14,8 @@ BUILD_INFO_NAME = "_build_info.json"
 _MAX_INFO_BYTES = 16 * 1024
 _FIELDS = {"format", "format_version", "component", "product_version", "source_revision",
            "release_id", "build_id", "built_at", "source_tree_sha256"}
+_PUBLIC_FIELDS = {"component", "product_version", "source_revision", "release_id",
+                  "build_id", "built_at", "identity_status"}
 
 
 @dataclass(frozen=True)
@@ -63,11 +65,7 @@ def source_tree_digest(files: dict[str, str]) -> str:
     return hashlib.sha256(json.dumps(files, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def validate_declaration(data: dict) -> None:
-    if not isinstance(data, dict) or set(data) != _FIELDS:
-        raise ValueError("invalid build identity fields")
-    if data["format"] != "paperguard-build-identity" or type(data["format_version"]) is not int or data["format_version"] != 1:
-        raise ValueError("unsupported build identity")
+def _validate_identity_values(data: dict) -> None:
     if data["component"] != "backend":
         raise ValueError("wrong component")
     revision = data["source_revision"]
@@ -94,9 +92,24 @@ def validate_declaration(data: dict) -> None:
     if not isinstance(stamp, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp, flags=re.ASCII):
         raise ValueError("UTC build timestamp required")
     datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+
+def validate_declaration(data: dict) -> None:
+    if not isinstance(data, dict) or set(data) != _FIELDS:
+        raise ValueError("invalid build identity fields")
+    if data["format"] != "paperguard-build-identity" or type(data["format_version"]) is not int or data["format_version"] != 1:
+        raise ValueError("unsupported build identity")
+    _validate_identity_values(data)
     digest = data["source_tree_sha256"]
     if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise ValueError("invalid source digest")
+
+
+def validate_public_identity(data: dict) -> None:
+    """Use the declaration's date/SemVer rules for release acceptance as well."""
+    if not isinstance(data, dict) or set(data) != _PUBLIC_FIELDS or data["identity_status"] != "declared":
+        raise ValueError("invalid public build identity fields")
+    _validate_identity_values(data)
 
 
 def _unique_fields(pairs):
@@ -138,7 +151,18 @@ def main() -> int:
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--require", choices=("0", "1"), default="0")
+    parser.add_argument("--validate-public", type=Path, help="Validate a version API response without loading local identity")
     args = parser.parse_args()
+    if args.validate_public is not None:
+        try:
+            with args.validate_public.open("rb") as stream:
+                raw = stream.read(_MAX_INFO_BYTES + 1)
+            if len(raw) > _MAX_INFO_BYTES:
+                raise ValueError("identity document too large")
+            validate_public_identity(json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_fields))
+        except (OSError, ValueError, TypeError, UnicodeError):
+            return 1
+        return 0
     identity = load_build_identity()
     print(json.dumps(identity.public_dict()))
     return int(identity.identity_status == "invalid" or

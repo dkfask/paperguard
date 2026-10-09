@@ -67,6 +67,18 @@ class Handler(BaseHTTPRequestHandler):
                 identity["release_id"] = "fffffff-p0-1-b20261009T010000Z"
             elif mode == "extra":
                 identity["unexpected_config"] = "must-not-enter-evidence"
+            elif mode == "invalid-build-date":
+                identity["build_id"] = "20260230T010000Z"
+                identity["release_id"] = "abcdef1-p0-1-b20260230T010000Z"
+            elif mode == "invalid-built-at":
+                identity["built_at"] = "2026-02-30T01:00:00Z"
+            elif mode == "numeric-prerelease":
+                identity["product_version"] = "1.2.3-01"
+            elif mode == "empty-prerelease":
+                identity["product_version"] = "1.2.3-.."
+            elif mode == "valid-semver-leap-date":
+                identity.update(product_version="1.2.3-0.alpha+build.7", build_id="20240229T010000Z",
+                                release_id="abcdef1-p0-1-b20240229T010000Z", built_at="2024-02-29T01:00:00Z")
             self._send(503 if mode == "missing" else 200, identity, "application/json")
         elif self.path == "/api/auth/me":
             self._send(200, {"username": "contract-admin"}, "application/json")
@@ -127,8 +139,18 @@ jq -e --arg revision "$contract_revision" '
   all(.checks[]; .status == "passed")
 ' "$evidence_path" >/dev/null
 
+# Valid prerelease/build identifiers and leap dates remain accepted.
+printf 'valid-semver-leap-date' > "$version_mode_file"
+PAPERGUARD_ONLINE_BASE_URL="http://127.0.0.1:$port" \
+PAPERGUARD_ONLINE_ADMIN_USERNAME="contract-admin" \
+PAPERGUARD_ONLINE_EVIDENCE_PATH="$temp_dir/valid-semver.json" \
+PAPERGUARD_ONLINE_EXPECTED_BACKEND_REVISION="$contract_revision" \
+bash "$repo_root/ops/online-verify.sh" >"$temp_dir/valid-semver.stdout"
+jq -e '.result == "passed" and .deployed_backend.product_version == "1.2.3-0.alpha+build.7"' \
+  "$temp_dir/valid-semver.json" >/dev/null
+
 # A verifier commit is independently recorded, never substituted for deployed identity.
-for mode in missing conflict extra wrong-revision; do
+for mode in missing conflict extra wrong-revision invalid-build-date invalid-built-at numeric-prerelease empty-prerelease; do
   printf '%s' "$mode" > "$version_mode_file"
   expected_revision="$contract_revision"
   expected_check="version.backend"

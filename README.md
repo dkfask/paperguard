@@ -152,7 +152,10 @@ PAPERGUARD_REQUIRE_BUILD_IDENTITY=1 docker compose build
 ```
 
 生成的 `backend/app/_build_info.json` 不提交 Git，必须随相同后端源码一起打包。
-冻结器逐文件比对所指定提交；修改、缺失或额外源码均拒绝生成身份。Docker 构建遇到
+冻结器逐文件比对所指定提交的应用源码，并核验 `--repo/backend` 中的 Dockerfile、
+requirements.txt、.dockerignore 及可选的 Dockerfile.dockerignore；修改、缺失或额外源码、
+未提交的上述构建输入均拒绝生成身份。`--app-dir` 只指定封装的应用源码，不改变 Docker
+上下文；Docker 构建仍须使用已核验的 `--repo/backend`。Docker 构建遇到
 无效声明始终失败；本地开发允许缺失声明，但 `/api/version` 保持 503。
 release-preflight 会冻结当前检出 SHA，严格构建三个镜像，并比对容器版本接口与发布 ID。
 未提交修改不能借旧提交 SHA 获得新的发布身份或最新提交 CI 证据。
@@ -169,6 +172,7 @@ main 每次发布必须完成以下闭环，失败时停止推进并使用已核
    手动触发 online-verification，输入部署记录中的完整 `expected_backend_revision`。
    workflow 绿色且 evidence artifact 的后端 SHA 匹配后，才结束发布。
 
+线上验证脚本需要 Python >=3.10、curl 和 jq，复用后端的日期 / SemVer 身份校验。
 受控本地配置注入环境后，等价验证命令为：
 
 ```bash
