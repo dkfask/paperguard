@@ -3,6 +3,7 @@
     <section class="workspace-hero"><div><p class="workspace-kicker">{{ auth.user?.role === 'admin' ? t('workspace.schoolKicker') : t('workspace.collegeKicker') }}</p><h1>{{ auth.user?.role === 'admin' ? t('workspace.schoolTitle') : t('workspace.collegeTitle') }}</h1><p>{{ t('workspace.adminDescription') }}</p></div><div class="workspace-identity"><span class="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span><div><strong>{{ auth.user?.display_name || auth.user?.username }}</strong><span>{{ roleLabel(auth.user?.role) }}</span></div></div></section>
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
     <AsyncState v-if="loading" state="loading" :title="t('workspace.syncingOperations')" :detail="t('workspace.adminLoading')" />
+    <AsyncState v-else-if="loadError" state="error" :title="t('workspace.loadFailed')" :detail="loadError" :action-label="t('common.retry')" @action="load" />
     <template v-else>
       <section class="workspace-stats" :aria-label="t('workspace.operationsSummary')"><div><span>{{ t('workspace.managedCohorts') }}</span><strong>{{ cohorts.length }}</strong><small>{{ t('workspace.currentScope') }}</small></div><div><span>{{ t('workspace.activeCohorts') }}</span><strong>{{ activeCohorts.length }}</strong><small>{{ t('workspace.canContinue') }}</small></div><div><span>{{ t('workspace.pendingArchive') }}</span><strong>{{ pendingArchives.length }}</strong><small>{{ t('workspace.needsArtifacts') }}</small></div><div><span>{{ t('workspace.unreadMessages') }}</span><strong>{{ notifications.unread || 0 }}</strong><small>{{ t('workspace.inboxReminder') }}</small></div></section>
       <div class="workspace-layout">
@@ -33,6 +34,7 @@ const { t } = useI18n()
 
 const loading = ref(true)
 const error = ref('')
+const loadError = ref('')
 const cohorts = ref([])
 const archives = ref([])
 const report = ref(null)
@@ -41,12 +43,12 @@ const activeCohorts = computed(() => cohorts.value.filter((item) => item.status 
 const pendingArchives = computed(() => archives.value.filter((item) => ['queued', 'running', 'failed'].includes(item.status)))
 
 async function load() {
-  loading.value = true; error.value = ''
+  loading.value = true; error.value = ''; loadError.value = ''
   try {
     const [cohortData, archiveData, notificationData] = await Promise.all([fetchCohorts(), fetchArchives(), fetchWorkflowNotifications()])
     cohorts.value = cohortData; archives.value = archiveData; notifications.value = notificationData
     if (cohortData[0]?.id) report.value = await fetchWorkflowReport(cohortData[0].id)
-  } catch (exception) { error.value = exception.message } finally { loading.value = false }
+  } catch (exception) { loadError.value = exception.message } finally { loading.value = false }
 }
 
 async function readNotification(item) {

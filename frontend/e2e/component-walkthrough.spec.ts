@@ -140,6 +140,11 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
       await page.waitForLoadState('networkidle').catch(() => {})
       await expect(page, `${label} 被路由守卫重定向`).toHaveURL(new RegExp(`${route.replace(/\//g, '\\/')}$`))
       const info = await assertPageUsable(page, `[admin] ${label}`)
+      if (route === '/operations') {
+        await expect(page.getByText('平台操作受限', { exact: true })).toBeVisible()
+        await expect(page.getByRole('button', { name: '生成备份' })).toBeDisabled()
+        await expect(page.locator('.operations-retention-form')).toHaveCount(0)
+      }
       console.log(`  [admin] ${route} → 标题「${info.heading}」，可交互控件 ${info.controls} 个`)
     }
   })
@@ -207,7 +212,6 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
       const caPages: Array<[string, string]> = [
         ['/cohorts', '批次与阶段配置'],
         ['/audit', '审计记录'],
-        ['/operations', '运行状态与数据治理'],
         ['/organizations', '组织与作用域'],
       ]
       for (const [route, label] of caPages) {
@@ -218,8 +222,8 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
         console.log(`  [college_admin] ${route} → 标题「${info.heading}」，可交互控件 ${info.controls} 个`)
       }
 
-      // 越权边界：college_admin 不得进入仅 admin 可见的用户认证与 AI 设置
-      for (const route of ['/admin/users', '/admin/ai']) {
+      // 平台运维也遵循当前管理员路由边界，不为沿用旧用例而放宽权限。
+      for (const route of ['/admin/users', '/admin/ai', '/operations']) {
         await caPage.goto(route)
         await caPage.waitForLoadState('networkidle').catch(() => {})
         await expect(caPage, `college_admin 越权进入 ${route}`).not.toHaveURL(new RegExp(`${route.replace(/\//g, '\\/')}$`))
