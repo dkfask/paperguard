@@ -26,6 +26,7 @@ ANONYMOUS_ALLOWED = {
     "/api/health": "健康检查，供容器与负载均衡探针使用",
     "/api/health/live": "存活探针",
     "/api/health/ready": "就绪探针",
+    "/api/version": "后端构建身份，不含账号、配置或业务数据",
     "/api/packs": "公开的国标规则包编号，登录页需要",
     "/api/packs/{pack_id}": "公开国标规则定义，不含校内数据",
 }
@@ -41,6 +42,11 @@ def any_template_id() -> str:
 def test_health_and_packs_stay_public() -> None:
     """白名单中的接口必须继续可匿名访问，避免过度收紧打断登录流程。"""
     for path in ANONYMOUS_ALLOWED:
+        if path == "/api/version":
+            response = client.get(path)
+            assert response.status_code in {200, 503}
+            assert response.json()["identity_status"] in {"declared", "missing", "invalid"}
+            continue
         actual = path.replace("{pack_id}", client.get("/api/packs").json()[0])
         assert client.get(actual).status_code == 200, f"{path} 应保持匿名可访问"
 

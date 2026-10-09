@@ -9,6 +9,9 @@ admin_username="${PAPERGUARD_ONLINE_ADMIN_USERNAME:-}"
 admin_password="${PAPERGUARD_ONLINE_ADMIN_PASSWORD:-}"
 timeout_seconds="${PAPERGUARD_ONLINE_TIMEOUT_SECONDS:-15}"
 evidence_path="${PAPERGUARD_ONLINE_EVIDENCE_PATH:-online-verification-evidence.json}"
+expected_backend_revision="${PAPERGUARD_ONLINE_EXPECTED_BACKEND_REVISION:-}"
+deployed_backend='null'
+session_metadata_written=false
 checks='[]'
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/paperguard-online-verify.XXXXXX")"
 
@@ -30,9 +33,12 @@ write_evidence() {
       --arg result "$result" \
       --arg target_base_url "$base_url" \
       --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      --arg source_revision "${PAPERGUARD_ONLINE_SOURCE_REVISION:-unknown}" \
+      --arg verifier_source_revision "${PAPERGUARD_ONLINE_SOURCE_REVISION:-unknown}" \
+      --arg expected_backend_revision "$expected_backend_revision" \
+      --argjson deployed_backend "$deployed_backend" \
+      --argjson session_metadata_written "$session_metadata_written" \
       --argjson checks "$checks" \
-      '{format:"paperguard-online-verification", format_version:2, result:$result, non_destructive:true, session_metadata_written:true, target_base_url:$target_base_url, completed_at:$completed_at, source_revision:$source_revision, checks:$checks}' \
+      '{format:"paperguard-online-verification", format_version:3, result:$result, non_destructive:true, session_metadata_written:$session_metadata_written, target_base_url:$target_base_url, completed_at:$completed_at, verifier_source_revision:$verifier_source_revision, expected_backend_revision:(if $expected_backend_revision == "" then null else $expected_backend_revision end), deployed_backend:$deployed_backend, checks:$checks}' \
       > "$evidence_path"; then
     printf 'unable to write verification evidence to %s\n' "$evidence_path" >&2
   fi
@@ -53,13 +59,14 @@ fi
 
 base_url="${base_url%/}"
 if [[ "$base_url" == *"@"* || "$base_url" == *"?"* || "$base_url" == *"#"* ]]; then
+  base_url=""
   fail_now "input.base_url" "the base URL must not contain credentials, a query, or a fragment"
 fi
 
 case "$base_url" in
   https://*) ;;
   http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*) ;;
-  *) fail_now "input.base_url" "the target must use HTTPS, except for a local loopback rehearsal" ;;
+  *) base_url=""; fail_now "input.base_url" "the target must use HTTPS, except for a local loopback rehearsal" ;;
 esac
 
 if ! [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
@@ -68,6 +75,10 @@ fi
 
 if [[ -z "$admin_username" || -z "$admin_password" ]]; then
   fail_now "input.credentials" "online admin credentials are required"
+fi
+if [[ -n "$expected_backend_revision" && ! "$expected_backend_revision" =~ ^[0-9a-f]{40}$ ]]; then
+  expected_backend_revision=""
+  fail_now "input.expected_backend_revision" "the expected backend revision must be a full lowercase SHA"
 fi
 
 request_body() {
@@ -126,9 +137,35 @@ request_json "health.ready" "/api/health/ready" \
   'type == "object" and .status == "ok" and .service == "paperguard" and .probe == "ready"' \
   "$temp_dir/ready.json"
 
+request_body "version.backend" "/api/version" "$temp_dir/version.json"
+if ! jq -e '
+  . as $identity |
+  type == "object" and
+  keys == ["build_id", "built_at", "component", "identity_status", "product_version", "release_id", "source_revision"] and
+  .component == "backend" and .identity_status == "declared" and
+  (.source_revision | type == "string" and test("^[0-9a-f]{40}$")) and
+  (.build_id | type == "string" and test("^[0-9]{8}T[0-9]{6}Z$")) and
+  (.built_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
+  (.product_version == null or (.product_version | type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"))) and
+  (.release_id | type == "string" and length <= 160 and test("^[0-9a-f]{7,40}-[A-Za-z0-9._-]+$")) and
+  (.source_revision | startswith($identity.release_id | split("-")[0])) and
+  (.release_id | endswith("-b" + $identity.build_id))
+' "$temp_dir/version.json" >/dev/null 2>&1; then
+  fail_now "version.backend" "backend build identity was missing, invalid, or inconsistent"
+fi
+deployed_backend="$(jq -c '.' "$temp_dir/version.json")"
+record_check "version.backend" "passed"
+if [[ -n "$expected_backend_revision" ]]; then
+  if [[ "$(jq -r '.source_revision' "$temp_dir/version.json")" != "$expected_backend_revision" ]]; then
+    fail_now "version.expected_revision" "deployed backend differs from the deployment record"
+  fi
+  record_check "version.expected_revision" "passed"
+fi
+
 login_payload="$(PAPERGUARD_ONLINE_ADMIN_PASSWORD="$admin_password" jq -nc \
   --arg username "$admin_username" \
   '{username:$username,password:$ENV.PAPERGUARD_ONLINE_ADMIN_PASSWORD}')"
+session_metadata_written=true
 if ! printf '%s' "$login_payload" | curl --fail --silent --show-error --max-time "$timeout_seconds" \
   -H 'Accept: application/json' \
   -H 'Content-Type: application/json' \

@@ -126,12 +126,71 @@ python3 ops/sync-release-markers.py sync \
 后续提交仍须重新读取 PR 最新 head 的 CI。生产管理员审计已通过生产浏览器核验；生产恢复演练、
 失败归档任务处置、其他角色完整 UAT 仍是未决项，商业化仅完成范围设计。
 
+### 后端构建身份与发布闭环
+
+匿名 `GET /api/version` 返回 `component=backend`、完整 `source_revision`、
+`release_id`、`build_id`、UTC `built_at`、可空的 `product_version` 与
+`identity_status`，响应带 `Cache-Control: no-store`。接口不访问数据库、Git 或运行时
+环境变量；进程创建时从已安装模块旁的 `_build_info.json` 读取一次，并核对后端源码摘要。
+有效声明返回 200 / `declared`；元数据缺失返回 503 / `missing`，字段冲突、源码漂移或
+不安全文件返回 503 / `invalid`，所有身份字段置空。`declared` 是构建身份声明，不能
+单独证明前端、worker、小程序、数据库或整个部署已验证。
+503 同时使用现有 `ErrorBody` 错误字段与关联 `request_id`，保持错误契约和身份空值一致。
+
+发布 ID 采用 `<SHA前7位>-<发布标签>-b<UTC构建ID>`，例如
+`00ee4c9-p0-1-b20261008T145019Z`；完整 SHA 始终单独保留。构建 ID 格式为
+`YYYYMMDDTHHMMSSZ`。产品版本只接受显式 SemVer（如 `0.3.0-rc.1`），尚未统一产品版本时
+保持 `null`，不能从不同组件的包版本猜测或自动分配产品版本。
+
+在明确提交的干净源码/制品目录中冻结身份（只读取 Git，不创建提交）：
+
+```bash
+python3 ops/freeze-build-identity.py --repo /absolute/path/to/paperguard \
+  --revision <已批准发布的40位完整SHA> --build-id <UTC构建ID> --release-label p0-1
+# 可选：--app-dir <实际打包的backend/app目录> --product-version <已批准产品版本>
+PAPERGUARD_REQUIRE_BUILD_IDENTITY=1 docker compose build
+```
+
+生成的 `backend/app/_build_info.json` 不提交 Git，必须随相同后端源码一起打包。
+冻结器逐文件比对所指定提交；修改、缺失或额外源码均拒绝生成身份。Docker 构建遇到
+无效声明始终失败；本地开发允许缺失声明，但 `/api/version` 保持 503。
+release-preflight 会冻结当前检出 SHA，严格构建三个镜像，并比对容器版本接口与发布 ID。
+未提交修改不能借旧提交 SHA 获得新的发布身份或最新提交 CI 证据。
+
+main 每次发布必须完成以下闭环，失败时停止推进并使用已核验的恢复方案：
+
+1. 固定完整 SHA，确认该 SHA 的测试和 release-preflight 全绿；记录目标、窗口、
+   回滚负责人及可恢复的上一版本（非 Docker 服务器使用源码/前端/依赖快照）。
+2. 明确数据库与资产路径，完成一致备份、副本迁移演练和恢复核验；按授权执行部署，
+   记录实际部署 SHA、发布 ID、时间与制品摘要。
+3. 逐项核验 live / ready 200、版本声明与部署 SHA 一致、所需 OpenAPI 路由、前端；
+   小程序品牌需实际客户端验收。暂停或未执行项必须明确保留。
+4. 使用 GitHub Environment `paperguard-online-verification` 中用户提供的三项秘密值，
+   手动触发 online-verification，输入部署记录中的完整 `expected_backend_revision`。
+   workflow 绿色且 evidence artifact 的后端 SHA 匹配后，才结束发布。
+
+受控本地配置注入环境后，等价验证命令为：
+
+```bash
+PAPERGUARD_ONLINE_EXPECTED_BACKEND_REVISION=<部署记录中的完整SHA> bash ops/online-verify.sh
+bash ops/test-online-verify.sh  # 回环 mock 契约，不访问生产
+```
+
+新版 evidence（format_version=3）分别记录 `verifier_source_revision` 和
+`deployed_backend.source_revision`；前者绝不能替代后者。未提供期望 SHA 的本地检查只
+检查身份声明，不能作为一次发布的 SHA 对账验收。旧制品没有版本接口，须先部署包含
+该功能且已冻结身份的提交，不能对旧制品跳过版本检查以制造新门禁绿灯。
+
 ## Docker 部署(服务器)
 
 ```bash
 # 1. 服务器安装 Docker + Docker Compose 后:
 git clone https://github.com/dkfask/paperguard.git
 cd paperguard
+# 完成上节授权/备份闭环，检出已通过 CI 的发布 SHA，注入受控配置后:
+python3 ops/freeze-build-identity.py --repo "$PWD" \
+  --revision <已批准的完整SHA> --build-id <UTC构建ID> --release-label p0-1
+export PAPERGUARD_REQUIRE_BUILD_IDENTITY=1
 docker compose up -d --build
 
 # 2. 访问

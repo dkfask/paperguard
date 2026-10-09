@@ -10,6 +10,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+ARG PAPERGUARD_REQUIRE_BUILD_IDENTITY=0
+RUN python -m app.build_identity --require "$PAPERGUARD_REQUIRE_BUILD_IDENTITY"
 
 RUN addgroup --system paperguard && adduser --system --ingroup paperguard paperguard
 RUN mkdir -p /app/data/uploads && chown -R paperguard:paperguard /app
