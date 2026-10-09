@@ -12,6 +12,27 @@ import { LoginPage, PaperGuardPage } from './pages/paperguard.page'
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? ''
 const ADMIN_REPLACEMENT = `${ADMIN_PASSWORD}-walkthrough`
 
+async function assertReadableSecondaryActions(page: Page) {
+  const actions = page.locator('.resource-hero-actions button:not(.primary)')
+  expect(await actions.count()).toBeGreaterThan(0)
+  for (const action of await actions.all()) {
+    await expect(action).toBeVisible()
+    const contrast = await action.evaluate(el => {
+      const rgb = (value: string) => value.match(/[\d.]+/g)!.map(Number)
+      const luminance = (channels: number[]) => channels.slice(0, 3).map(value => {
+        const fraction = value / 255
+        return fraction <= .04045 ? fraction / 12.92 : ((fraction + .055) / 1.055) ** 2.4
+      }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0)
+      let surface: Element | null = el
+      while (surface && getComputedStyle(surface).backgroundColor === 'rgba(0, 0, 0, 0)') surface = surface.parentElement
+      const foreground = luminance(rgb(getComputedStyle(el).color))
+      const background = luminance(rgb(getComputedStyle(surface || document.body).backgroundColor))
+      return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05)
+    })
+    expect(contrast, `次要操作「${await action.innerText()}」文字对比度`).toBeGreaterThanOrEqual(4.5)
+  }
+}
+
 const stamp = () => `wt${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`
 const fixturePassword = () => `Pwd-${stamp()}-9a`
 
@@ -140,8 +161,19 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
       await page.waitForLoadState('networkidle').catch(() => {})
       await expect(page, `${label} 被路由守卫重定向`).toHaveURL(new RegExp(`${route.replace(/\//g, '\\/')}$`))
       const info = await assertPageUsable(page, `[admin] ${label}`)
+      if (route === '/operations') {
+        await expect(page.getByText('平台操作受限', { exact: true })).toBeVisible()
+        await expect(page.getByRole('button', { name: '生成备份' })).toBeDisabled()
+        await expect(page.locator('.operations-retention-form')).toHaveCount(0)
+      }
+      if (route === '/policies') await assertReadableSecondaryActions(page)
       console.log(`  [admin] ${route} → 标题「${info.heading}」，可交互控件 ${info.controls} 个`)
     }
+    await page.goto('/templates/new/edit')
+    await expect(page.locator('h1')).toBeVisible()
+    await assertReadableSecondaryActions(page)
+    await page.locator('.resource-hero-actions button:not(.primary)').click()
+    await expect(page).toHaveURL(/\/templates$/)
   })
 
   test('未登录视角：公开入口可渲染，受保护入口被正确拦截', async ({ page }) => {
@@ -207,7 +239,6 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
       const caPages: Array<[string, string]> = [
         ['/cohorts', '批次与阶段配置'],
         ['/audit', '审计记录'],
-        ['/operations', '运行状态与数据治理'],
         ['/organizations', '组织与作用域'],
       ]
       for (const [route, label] of caPages) {
@@ -218,8 +249,8 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
         console.log(`  [college_admin] ${route} → 标题「${info.heading}」，可交互控件 ${info.controls} 个`)
       }
 
-      // 越权边界：college_admin 不得进入仅 admin 可见的用户认证与 AI 设置
-      for (const route of ['/admin/users', '/admin/ai']) {
+      // 平台运维也遵循当前管理员路由边界，不为沿用旧用例而放宽权限。
+      for (const route of ['/admin/users', '/admin/ai', '/operations']) {
         await caPage.goto(route)
         await caPage.waitForLoadState('networkidle').catch(() => {})
         await expect(caPage, `college_admin 越权进入 ${route}`).not.toHaveURL(new RegExp(`${route.replace(/\//g, '\\/')}$`))

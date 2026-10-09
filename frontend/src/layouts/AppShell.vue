@@ -17,6 +17,7 @@
   </div>
 
   <div v-if="authenticated" class="app-shell-root" @keydown.esc="closeSidebar">
+    <a class="skip-content" href="#workspace-content">{{ t('shell.skipContent') }}</a>
     <header class="app-shell-header">
       <div class="header-inner">
         <div class="brand-section">
@@ -36,6 +37,12 @@
             <span class="brand-title">PaperGuard</span>
           </RouterLink>
         </div>
+
+        <nav class="app-breadcrumbs" :aria-label="t('common.pageLocation')">
+          <RouterLink to="/workspace">{{ roleLabel(user?.role) }}</RouterLink>
+          <span aria-hidden="true">/</span>
+          <strong>{{ routeTitle }}</strong>
+        </nav>
 
         <div class="user-tray">
           <span class="scope-context">{{ roleLabel(user?.role) }}</span>
@@ -76,12 +83,7 @@
         :open="sidebarOpen"
         @close-mobile="closeSidebar"
       />
-      <main class="app-shell-main" @click="closeSidebar">
-        <nav v-if="route.path !== '/'" class="app-breadcrumbs" :aria-label="t('common.pageLocation')">
-          <RouterLink to="/">{{ t('shell.home') }}</RouterLink>
-          <span aria-hidden="true">/</span>
-          <span>{{ routeTitle }}</span>
-        </nav>
+      <main id="workspace-content" class="app-shell-main" tabindex="-1" @click="closeSidebar">
         <slot />
       </main>
     </div>
@@ -99,6 +101,7 @@ import RoleSidebar from '../components/RoleSidebar.vue'
 import IconMaterialSymbolsMenu from '~icons/material-symbols/menu'
 import IconMaterialSymbolsTranslate from '~icons/material-symbols/translate'
 import { clearNavigationFailure, navigationFailure } from '../shared/navigationFailure'
+import { pageTitle } from '../shared/pageTitles'
 
 const props = defineProps({
   authenticated: { type: Boolean, default: false },
@@ -112,7 +115,7 @@ const menuButtonRef = ref(null)
 const route = useRoute()
 const { lang, setLang, t } = useI18n()
 
-const routeTitle = computed(() => route.meta.titleKey ? t(route.meta.titleKey) : (route.meta.title || t('shell.currentPage')))
+const routeTitle = computed(() => pageTitle(route, props.user, t))
 
 const isPending = computed(() => props.user?.role === 'teacher' && props.user?.status === 'pending')
 
@@ -198,7 +201,7 @@ function resetDrawerForViewport() {
 }
 onMounted(() => {
   window.addEventListener('keydown', trapSidebarFocus)
-  desktopViewport = window.matchMedia('(min-width: 900px)')
+  desktopViewport = window.matchMedia('(min-width: 901px)')
   desktopViewport.addEventListener('change', resetDrawerForViewport)
   resetDrawerForViewport()
 })
@@ -214,6 +217,8 @@ watchEffect(() => {
 
 <style scoped>
 .app-shell-root { min-height: 100vh; }
+.skip-content { position: fixed; left: 16px; top: -80px; z-index: 220; padding: 10px 16px; border-radius: var(--radius-sm); background: var(--primary); color: var(--on-primary); }
+.skip-content:focus { top: 12px; }
 .shell-user-name {
   color: var(--on-surface);
   font-size: 13px;
@@ -226,7 +231,8 @@ watchEffect(() => {
 }
 .shell-pending-label { color: var(--tertiary); font-size: 11px; margin-left: 4px; }
 .public-shell { min-height: 100vh; max-width: none; padding: 0; }
-.app-breadcrumbs { display: flex; align-items: center; gap: 7px; min-height: 34px; padding-top: 10px; color: var(--outline); font-size: 11px; }
+.app-breadcrumbs { display: flex; flex: 1; align-items: center; gap: 7px; color: var(--on-surface-variant); font-size: 12px; }
+.app-breadcrumbs strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--on-surface); font-weight: 600; }
 
 /* 顶栏三段的伸缩职责要分清：右侧操作区（角色徽章 / 切换语言 / 头像 / 用户名 /
    退出登录）不允许被压扁——它们的内部项几乎都是 nowrap 且 flex:0 0 auto，
@@ -298,5 +304,11 @@ watchEffect(() => {
   display: flex;
   gap: 8px;
   flex: 0 0 auto;
+}
+@media (max-width: 560px) {
+  .app-breadcrumbs { display: none; }
+  .user-tray :deep(.scope-context) { display: none; }
+  .nav-failure { flex-wrap: wrap; }
+  .nav-failure-actions { margin-left: 28px; }
 }
 </style>

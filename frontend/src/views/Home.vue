@@ -1059,7 +1059,7 @@ function projectProgress(project) {
 /* Stitch writing-first dashboard */
 .writing-home {
   width: 100%;
-  max-width: 1280px;
+  max-width: 1540px;
   margin: 0 auto;
 }
 
@@ -1068,7 +1068,7 @@ function projectProgress(project) {
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
-  padding: 34px 0 26px;
+  padding: 26px 0 22px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1082,7 +1082,7 @@ function projectProgress(project) {
 }
 
 .writing-home-head h1 {
-  font-size: 28px;
+  font-size: 25px;
   line-height: 1.25;
   font-weight: 650;
   margin-bottom: 6px;
@@ -1148,11 +1148,11 @@ function projectProgress(project) {
   gap: 24px;
   padding: 22px 24px;
   border: 1px solid var(--outline-variant);
-  border-left: 3px solid var(--primary);
-  border-radius: var(--radius-sm);
+
+  border-radius: var(--radius-lg);
   background: var(--surface-container-lowest);
   box-shadow: var(--shadow-card);
-  margin-bottom: 30px;
+  margin-bottom: 22px;
 }
 
 .continue-writing-copy { min-width: 0; }
@@ -1197,17 +1197,17 @@ function projectProgress(project) {
 .writing-empty-state h3 { color: var(--on-surface); font-size: 16px; margin-bottom: 4px; }
 .writing-empty-state p { font-size: 13px; }
 
-.theses-list { border-top: 1px solid var(--border); }
+.theses-list { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-container-lowest); box-shadow: var(--shadow-card); overflow: hidden; }
 .thesis-row {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr) 200px 90px auto;
   align-items: center;
   gap: 14px;
   min-height: 76px;
-  padding: 12px 4px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--border);
 }
-.thesis-row:hover { background: rgba(239, 244, 255, .45); }
+.thesis-row:hover { background: var(--surface-container-low); }
 .thesis-row-icon { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--primary-fixed); border-radius: var(--radius-xs); background: var(--surface-container-low); color: var(--primary); }
 .thesis-row-icon .material-symbols-outlined { font-size: 17px; }
 .thesis-row-main { min-width: 0; }

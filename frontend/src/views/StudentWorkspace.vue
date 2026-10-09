@@ -14,6 +14,7 @@
 
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
     <AsyncState v-if="loading" state="loading" :title="t('workspace.syncing')" :detail="t('workspace.studentLoading')" />
+    <AsyncState v-else-if="loadError" state="error" :title="t('workspace.loadFailed')" :detail="loadError" :action-label="t('common.retry')" @action="load" />
     <template v-else>
       <section class="workspace-stats" :aria-label="t('workspace.summary')">
         <div><span>{{ t('workspace.openStages') }}</span><strong>{{ openTasks.length }}</strong><small>{{ t('workspace.incompleteTasks') }}</small></div>
@@ -24,11 +25,13 @@
 
       <div class="workspace-layout">
         <main class="workspace-main">
-          <section class="panel workspace-focus-panel">
-            <div class="panel-heading">
+          <details class="panel workspace-focus-panel workspace-drawer" :class="{ 'workspace-task-focus': nextTask }">
+            <summary class="workspace-drawer-summary">
               <div><p class="workspace-kicker">{{ t('workspace.nextActionKicker') }}</p><h2>{{ t('workspace.nextAction') }}</h2></div>
-              <span class="material-symbols-outlined panel-icon" aria-hidden="true">flag</span>
-            </div>
+              <span class="workspace-drawer-count">{{ t('workspace.taskCount', { count: nextTask ? 1 : 0 }) }}</span>
+              <IconExpandMore class="workspace-drawer-chevron" aria-hidden="true" />
+            </summary>
+            <div class="workspace-drawer-body">
             <div v-if="nextTask" class="workspace-focus-content">
               <div class="workspace-focus-copy">
                 <span class="workspace-overline">{{ nextTask.cohort_name }} · {{ nextTask.stage_name }}</span>
@@ -42,23 +45,38 @@
               </RouterLink>
             </div>
             <AsyncState v-else state="empty" :title="t('workspace.noPendingStage')" :detail="t('workspace.noPendingStageDetail')" />
-          </section>
+            </div>
+          </details>
 
-          <section class="panel">
-            <div class="panel-heading"><div><p class="workspace-kicker">{{ t('workspace.myTasksKicker') }}</p><h2>{{ t('workspace.stageTasks') }}</h2></div><RouterLink class="workspace-text-link" :to="{ path: '/workflow', query: { panel: 'progress' } }">{{ t('workspace.viewDetails') }} <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink></div>
+          <details class="panel workspace-drawer">
+            <summary class="workspace-drawer-summary">
+              <div><p class="workspace-kicker">{{ t('workspace.myTasksKicker') }}</p><h2>{{ t('workspace.stageTasks') }}</h2></div>
+              <span class="workspace-drawer-count">{{ t('workspace.taskCount', { count: tasks.length }) }}</span>
+              <IconExpandMore class="workspace-drawer-chevron" aria-hidden="true" />
+            </summary>
+            <div class="workspace-drawer-body">
+            <div class="workspace-drawer-actions"><RouterLink class="workspace-text-link" :to="{ path: '/workflow', query: { panel: 'progress' } }">{{ t('workspace.viewDetails') }} <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink></div>
             <div v-if="tasks.length" class="workspace-task-list">
               <TaskCard v-for="task in tasks" :key="task.id" :task="task" :to="task.project_id ? `/write/${task.project_id}` : { path: '/workflow', query: { panel: 'progress' } }" :action-label="task.project_id ? t('workspace.openThesis') : t('workspace.viewStageTask')" />
             </div>
             <AsyncState v-else state="empty" :title="t('workspace.noStageTasks')" :detail="t('workspace.noStageTasksDetail')" />
-          </section>
+            </div>
+          </details>
 
-          <section class="panel">
-            <div class="panel-heading"><div><p class="workspace-kicker">{{ t('workspace.submissionHistoryKicker') }}</p><h2>{{ t('workspace.recentSubmissions') }}</h2></div><RouterLink class="workspace-text-link" :to="{ path: '/workflow', query: { panel: 'submissions' } }">{{ t('workspace.allRecords') }} <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink></div>
+          <details class="panel workspace-drawer">
+            <summary class="workspace-drawer-summary">
+              <div><p class="workspace-kicker">{{ t('workspace.submissionHistoryKicker') }}</p><h2>{{ t('workspace.recentSubmissions') }}</h2></div>
+              <span class="workspace-drawer-count">{{ t('workspace.submissionCount', { count: submissions.length }) }}</span>
+              <IconExpandMore class="workspace-drawer-chevron" aria-hidden="true" />
+            </summary>
+            <div class="workspace-drawer-body">
+            <div class="workspace-drawer-actions"><RouterLink class="workspace-text-link" :to="{ path: '/workflow', query: { panel: 'submissions' } }">{{ t('workspace.allRecords') }} <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink></div>
             <div v-if="submissions.length" class="workspace-history-list">
               <div v-for="submission in submissions.slice(0, 5)" :key="submission.id" class="workspace-history-row"><div><strong>{{ submission.submission_number }}</strong><span>{{ formatDate(submission.submitted_at) }}</span></div><StatusBadge :status="submission.state" :label="submissionStateLabel(submission.state)" /></div>
             </div>
             <AsyncState v-else state="empty" :title="t('workspace.noSubmissions')" :detail="t('workspace.noSubmissionsDetail')" />
-          </section>
+            </div>
+          </details>
         </main>
         <aside class="workspace-side"><NotificationInbox :items="notifications.items" :unread="notifications.unread" @read="readNotification" /><section class="panel workspace-shortcuts"><div class="panel-heading"><div><p class="workspace-kicker">{{ t('workspace.shortcuts') }}</p><h3>{{ t('workspace.commonEntries') }}</h3></div></div><RouterLink :to="{ path: '/workflow', query: { panel: 'materials' } }"><span class="material-symbols-outlined" aria-hidden="true">folder_managed</span>{{ t('sidebar.materials') }}</RouterLink><RouterLink to="/policies"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span>{{ t('sidebar.policies') }}</RouterLink></section></aside>
       </div>
@@ -75,11 +93,13 @@ import { fetchMyTasks, fetchSubmissions, fetchWorkflowNotifications, markWorkflo
 import AsyncState from '../components/AsyncState.vue'
 import NotificationInbox from '../components/NotificationInbox.vue'
 import TaskCard from '../components/TaskCard.vue'
+import IconExpandMore from '~icons/material-symbols/expand-more'
 
 const { t, formatDate: formatLocaleDate } = useI18n()
 
 const loading = ref(true)
 const error = ref('')
+const loadError = ref('')
 const tasks = ref([])
 const submissions = ref([])
 const notifications = ref({ items: [], unread: 0 })
@@ -88,11 +108,11 @@ const actionTasks = computed(() => openTasks.value.filter((item) => ['not_starte
 const nextTask = computed(() => [...actionTasks.value].sort((a, b) => new Date(deadlineFor(a) || 0) - new Date(deadlineFor(b) || 0))[0] || openTasks.value[0])
 
 async function load() {
-  loading.value = true; error.value = ''
+  loading.value = true; error.value = ''; loadError.value = ''
   try {
     const [taskData, submissionData, notificationData] = await Promise.all([fetchMyTasks(), fetchSubmissions(), fetchWorkflowNotifications()])
     tasks.value = taskData; submissions.value = submissionData; notifications.value = notificationData
-  } catch (exception) { error.value = exception.message } finally { loading.value = false }
+  } catch (exception) { loadError.value = exception.message } finally { loading.value = false }
 }
 
 async function readNotification(item) {
@@ -107,3 +127,26 @@ function formatDate(value) { return value ? formatLocaleDate(value, { month: '2-
 
 onMounted(load)
 </script>
+
+<style scoped>
+.workspace-page .workspace-drawer { padding: 0; overflow: hidden; }
+.workspace-drawer-summary { display: flex; align-items: center; gap: 12px; padding: 18px; cursor: pointer; list-style: none; }
+.workspace-drawer-summary::-webkit-details-marker { display: none; }
+.workspace-drawer-summary > div { min-width: 0; flex: 1; }
+.workspace-drawer-summary h2 { font-size: 15px; }
+.workspace-drawer-summary .workspace-kicker { margin-bottom: 5px; }
+.workspace-drawer-summary:hover { background: var(--surface-container-low); }
+.workspace-drawer-summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px; border-radius: var(--radius-lg); }
+.workspace-drawer-count { flex-shrink: 0; font-size: 12px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+.workspace-drawer-chevron { width: 20px; height: 20px; flex-shrink: 0; color: var(--on-surface-variant); transition: transform .15s ease; }
+.workspace-drawer[open] .workspace-drawer-chevron { transform: rotate(180deg); }
+.workspace-drawer-body { padding: 0 18px 18px; border-top: 1px solid var(--border); }
+.workspace-drawer-body > .async-state { margin-top: 16px; }
+.workspace-drawer-actions { display: flex; justify-content: flex-end; padding-top: 14px; }
+.workspace-task-focus .workspace-drawer-summary:hover { background: rgba(255, 255, 255, .05); }
+.workspace-task-focus .workspace-drawer-count, .workspace-task-focus .workspace-drawer-chevron { color: #c0cada; }
+.workspace-task-focus .workspace-drawer-body { border-color: rgba(255, 255, 255, .15); }
+.workspace-task-focus .workspace-drawer-summary:focus-visible { outline-color: var(--primary-fixed-dim); }
+@media (max-width: 560px) { .workspace-drawer-summary { padding: 16px; gap: 8px; } .workspace-drawer-body { padding: 0 16px 16px; } }
+@media (prefers-reduced-motion: reduce) { .workspace-drawer-chevron { transition: none; } }
+</style>

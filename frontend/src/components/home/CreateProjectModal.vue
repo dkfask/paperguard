@@ -1,5 +1,5 @@
 <template>
-  <BaseModal :open="open" size="default" @close="$emit('close')">
+  <BaseModal :open="open" :title="t('homeComponents.createTitle')" size="default" @close="$emit('close')">
     <h2 style="margin-top: 0">✨ {{ t('homeComponents.createTitle') }}</h2>
 
     <div class="field">

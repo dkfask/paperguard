@@ -2,6 +2,8 @@
   <div v-if="open" class="modal-mask" role="presentation" @click.self="cancel">
     <section
       class="modal card confirm-dialog"
+      ref="dialog"
+      tabindex="-1"
       role="dialog"
       aria-modal="true"
       :aria-labelledby="titleId"
@@ -30,8 +32,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import { useI18n } from '../i18n'
+import { useDialogFocus } from '../shared/useDialogFocus'
 
 const { t } = useI18n()
 
@@ -46,17 +49,14 @@ const props = defineProps({
 
 const emit = defineEmits(['confirm', 'cancel'])
 const confirmButton = ref(null)
+const dialog = ref(null)
 const titleId = `confirm-dialog-title-${Math.random().toString(36).slice(2)}`
 const descriptionId = `confirm-dialog-description-${Math.random().toString(36).slice(2)}`
 const displayConfirmLabel = computed(() => props.confirmLabel || t('dialog.confirm'))
 
-watch(() => props.open, async (open) => {
-  if (!open) return
-  await nextTick()
-  confirmButton.value?.focus()
-})
+useDialogFocus(toRef(props, 'open'), dialog, cancel, confirmButton)
 
-function cancel() { emit('cancel') }
+function cancel() { if (!props.busy) emit('cancel') }
 function confirm() { emit('confirm') }
 </script>
 

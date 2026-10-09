@@ -14,18 +14,19 @@
 
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
     <AsyncState v-if="loading" state="loading" :title="t('operations.loading')" :detail="t('operations.loadingDetail')" />
+    <AsyncState v-else-if="loadError" state="error" :title="t('operations.loadingFailed')" :detail="loadError" :action-label="t('common.retry')" @action="load" />
     <template v-else>
       <section class="workspace-stats" :aria-label="t('operations.summary')">
         <div><span>{{ t('operations.webService') }}</span><strong>{{ statusText(live) }}</strong><small>{{ t('operations.processProbe') }}</small></div>
         <div><span>{{ t('operations.businessStorage') }}</span><strong>{{ statusText(ready) }}</strong><small>{{ t('operations.databaseProbe') }}</small></div>
         <div><span>{{ t('operations.backgroundJobs') }}</span><strong>{{ jobs.length }}</strong><small>{{ t('operations.visibleJobs') }}</small></div>
-        <div><span>{{ t('operations.policyStatus') }}</span><strong>{{ retention.configured ? t('operations.configured') : t('operations.notConfigured') }}</strong><small>{{ t('operations.retentionPolicy') }}</small></div>
+        <div><span>{{ t('operations.policyStatus') }}</span><strong>{{ retentionError ? t('operations.unavailable') : !retentionLoaded ? t('common.loading') : retention.configured ? t('operations.configured') : t('operations.notConfigured') }}</strong><small>{{ t('operations.retentionPolicy') }}</small></div>
       </section>
 
       <div class="workspace-layout">
         <main class="workspace-main">
           <section class="panel">
-            <div class="panel-heading"><div><p class="workspace-kicker">{{ t('operations.probesKicker') }}</p><h2>{{ t('operations.probes') }}</h2><p>{{ t('operations.probesDetail') }}</p></div><div class="operations-heading-actions"><button class="small" type="button" :title="t('operations.backupTitle')" :disabled="backingUp" @click="backup"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ backingUp ? t('operations.generating') : t('operations.generateBackup') }}</button><button class="icon-button" type="button" :title="t('operations.refresh')" :aria-label="t('operations.refresh')" :disabled="refreshing" @click="load"><span class="material-symbols-outlined" aria-hidden="true">refresh</span></button></div></div>
+            <div class="panel-heading"><div><p class="workspace-kicker">{{ t('operations.probesKicker') }}</p><h2>{{ t('operations.probes') }}</h2><p>{{ t('operations.probesDetail') }}</p></div><div class="operations-heading-actions"><button class="small" type="button" :title="retentionError ? retentionError.message : t('operations.backupTitle')" :disabled="backingUp || !retentionLoaded" @click="backup"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ backingUp ? t('operations.generating') : t('operations.generateBackup') }}</button><button class="icon-button" type="button" :title="t('operations.refresh')" :aria-label="t('operations.refresh')" :disabled="refreshing" @click="load"><span class="material-symbols-outlined" aria-hidden="true">refresh</span></button></div></div>
             <div class="operations-status-list">
               <div class="operations-status-row"><span class="status-dot" :class="live ? 'ok' : 'error'"></span><div><strong>Web API</strong><span>/api/health/live · {{ statusText(live) }}</span></div></div>
               <div class="operations-status-row"><span class="status-dot" :class="ready ? 'ok' : 'error'"></span><div><strong>{{ t('operations.businessStorage') }}</strong><span>/api/health/ready · {{ statusText(ready) }}</span></div></div>
@@ -45,12 +46,14 @@
         <aside class="workspace-side">
           <section class="panel">
             <div class="panel-heading"><div><p class="workspace-kicker">{{ t('operations.retentionKicker') }}</p><h2>{{ t('operations.retentionTitle') }}</h2><p>{{ t('operations.retentionDetail') }}</p></div></div>
-            <form class="operations-retention-form" @submit.prevent="saveRetention">
+            <AsyncState v-if="retentionError" :state="retentionError.denied ? 'denied' : 'error'" :title="t(retentionError.denied ? 'operations.restricted' : 'operations.loadingFailed')" :detail="retentionError.message" :action-label="t('common.retry')" @action="load" />
+            <form v-else-if="retentionLoaded" class="operations-retention-form" @submit.prevent="saveRetention">
               <label v-for="field in retentionFields" :key="field.key">{{ t(field.labelKey) }}<input v-model.number="retentionForm[field.key]" type="number" min="1" max="36500" required /></label>
               <label>{{ t('operations.timezone') }}<input v-model="retentionForm.timezone" maxlength="80" required /></label>
               <p v-if="saveNotice" class="ok-banner" role="status">{{ saveNotice }}</p>
               <button class="small primary" type="submit" :disabled="saving"><span class="material-symbols-outlined" aria-hidden="true">save</span>{{ saving ? t('common.saving') : t('operations.savePolicy') }}</button>
             </form>
+            <AsyncState v-else state="loading" :title="t('operations.loading')" />
           </section>
           <section class="panel workspace-shortcuts"><div class="panel-heading"><div><p class="workspace-kicker">{{ t('workspace.governanceEntries') }}</p><h3>{{ t('operations.related') }}</h3></div></div><RouterLink to="/organizations"><span class="material-symbols-outlined" aria-hidden="true">groups</span>{{ t('templates.organizations') }}</RouterLink><RouterLink to="/audit"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('route.audit') }}</RouterLink></section>
         </aside>
@@ -75,11 +78,14 @@ const refreshing = ref(false)
 const saving = ref(false)
 const backingUp = ref(false)
 const error = ref('')
+const loadError = ref('')
 const saveNotice = ref('')
 const live = ref(null)
 const ready = ref(null)
 const jobs = ref([])
 const retention = ref({ configured: false, policy: null })
+const retentionLoaded = ref(false)
+const retentionError = ref(null)
 const retentionForm = reactive({ draft_days: 30, attachment_days: 365, submission_days: 730, archive_days: 3650, audit_days: 3650, local_cache_days: 7, timezone: 'Asia/Shanghai' })
 const retentionFields = [
   { key: 'draft_days', labelKey: 'operations.draftDays' }, { key: 'attachment_days', labelKey: 'operations.attachmentDays' },
@@ -88,24 +94,38 @@ const retentionFields = [
 ]
 
 async function load() {
-  if (loading.value) loading.value = true
-  else refreshing.value = true
+  if (loadError.value) loading.value = true
+  else if (!loading.value) refreshing.value = true
   error.value = ''
+  loadError.value = ''
+  saveNotice.value = ''
+  retentionLoaded.value = false
+  retentionError.value = null
   try {
-    const [liveData, readyData, jobData, retentionData] = await Promise.all([
+    const [liveResult, readyResult, jobResult, retentionResult] = await Promise.allSettled([
       fetchHealth('live'), fetchHealth('ready'), fetchWorkflowJobs(), fetchRetentionPolicy(),
     ])
-    live.value = liveData; ready.value = readyData; jobs.value = jobData; retention.value = retentionData
-    if (retentionData.policy) Object.assign(retentionForm, retentionData.policy)
-  } catch (exception) { error.value = exception.message } finally { loading.value = false; refreshing.value = false }
+    const failedProbe = [liveResult, readyResult, jobResult].find(result => result.status === 'rejected')
+    if (failedProbe) throw failedProbe.reason
+    live.value = liveResult.value; ready.value = readyResult.value; jobs.value = jobResult.value
+    if (retentionResult.status === 'fulfilled') {
+      retention.value = retentionResult.value
+      retentionLoaded.value = true
+      if (retentionResult.value.policy) Object.assign(retentionForm, retentionResult.value.policy)
+    } else {
+      retentionError.value = { denied: retentionResult.reason.status === 403, message: retentionResult.reason.message }
+    }
+  } catch (exception) { loadError.value = exception.message } finally { loading.value = false; refreshing.value = false }
 }
 
 async function saveRetention() {
+  if (!retentionLoaded.value || saving.value) return
   saving.value = true; saveNotice.value = ''; error.value = ''
   try { const result = await updateRetentionPolicy({ ...retentionForm }); retention.value = result; saveNotice.value = t('operations.saved') } catch (exception) { error.value = exception.message } finally { saving.value = false }
 }
 
 async function backup() {
+  if (!retentionLoaded.value || backingUp.value) return
   backingUp.value = true; saveNotice.value = ''; error.value = ''
   try { await downloadOperationsBackup(); saveNotice.value = t('operations.backupStarted') } catch (exception) { error.value = exception.message } finally { backingUp.value = false }
 }

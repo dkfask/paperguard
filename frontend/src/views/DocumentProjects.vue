@@ -121,7 +121,7 @@ onMounted(load)
 <style scoped>
 .document-page { max-width: 1180px; margin: 0 auto; padding: 28px 20px 56px; }
 .document-hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 24px 0 32px; border-bottom: 1px solid var(--border); }
-.document-hero h1 { margin: 4px 0 8px; font-size: clamp(28px, 4vw, 42px); }
+.document-hero h1 { margin: 4px 0 8px; font-size: 25px; }
 .document-hero p:not(.workspace-kicker) { max-width: 680px; margin: 0; color: var(--on-surface-variant); line-height: 1.7; }
 .hero-icon { color: var(--primary); font-size: 48px; }
 .document-section { padding: 28px 0; border-bottom: 1px solid var(--border); }

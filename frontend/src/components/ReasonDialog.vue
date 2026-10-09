@@ -1,6 +1,6 @@
 <template>
   <div v-if="open" class="modal-mask" role="presentation" @click.self="cancel">
-    <section class="modal card reason-dialog" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+    <section ref="dialog" class="modal card reason-dialog" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1">
       <div class="modal-head">
         <div>
           <p class="workflow-kicker">{{ t('dialog.confirmation') }}</p>
@@ -27,8 +27,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, toRef, watch } from 'vue'
 import { useI18n } from '../i18n'
+import { useDialogFocus } from '../shared/useDialogFocus'
 
 const { t } = useI18n()
 
@@ -46,11 +47,13 @@ const props = defineProps({
 const emit = defineEmits(['confirm', 'cancel'])
 const draft = ref('')
 const input = ref(null)
+const dialog = ref(null)
 const titleId = `reason-dialog-${Math.random().toString(36).slice(2)}`
 
 const label = computed(() => props.label || t('reason.label'))
 const placeholder = computed(() => props.placeholder || t('reason.placeholder'))
 const confirmText = computed(() => props.confirmLabel || t('common.confirm'))
+useDialogFocus(toRef(props, 'open'), dialog, cancel, input)
 
 watch(() => props.open, async (open) => {
   if (!open) return
@@ -59,8 +62,9 @@ watch(() => props.open, async (open) => {
   input.value?.focus()
 })
 
-function cancel() { emit('cancel') }
+function cancel() { if (!props.busy) emit('cancel') }
 function confirm() {
+  if (props.busy) return
   const value = draft.value.trim()
   if (value) emit('confirm', value)
 }
