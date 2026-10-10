@@ -1,0 +1,90 @@
+{
+  "verified_at": "2026-10-10T02:53:56.346037+00:00",
+  "environment": "local",
+  "data_mode": "mock fixtures for administrator geometry; isolated real backend for existing student/writer regression",
+  "production_deployment": false,
+  "frontend_checks": [
+    {
+      "command": "npm run typecheck",
+      "started_at": "2026-10-10T02:52:06.837Z",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run build",
+      "started_at": "2026-10-10T02:52:09.598Z",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run test",
+      "started_at": "2026-10-10T02:52:10.850Z",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run check:college-admin",
+      "started_at": "2026-10-10T02:52:16.316Z",
+      "exit_code": 0
+    },
+    {
+      "command": "npm run test:paragraphs",
+      "started_at": "2026-10-10T02:52:17.992Z",
+      "exit_code": 0
+    }
+  ],
+  "frontend_unit_tests": {
+    "files_passed": 23,
+    "tests_passed": 99
+  },
+  "college_admin_gate_tests": {
+    "files_passed": 4,
+    "tests_passed": 5
+  },
+  "backend_tests": {
+    "command": "project Python 3.12 venv: python -m pytest -q",
+    "passed": 1098,
+    "warnings": 2,
+    "duration_seconds": 141.96
+  },
+  "existing_ui_e2e": {
+    "command": "npm run test:e2e -- e2e/ui-refactor.spec.ts --project=chromium",
+    "passed": 3,
+    "duration_seconds": 19.6
+  },
+  "viewport_e2e": {
+    "command": "npm run test:e2e -- e2e/admin-workspace-viewport.spec.ts --project=chromium",
+    "stats": {
+      "startTime": "2026-10-10T02:50:48.172Z",
+      "duration": 16737.572,
+      "expected": 5,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "cases": [
+      {
+        "title": "manager dashboard and every panel fit one desktop viewport",
+        "status": "passed",
+        "duration_ms": 4419
+      },
+      {
+        "title": "long lists stay keyboard accessible inside cards and English labels fit",
+        "status": "passed",
+        "duration_ms": 3370
+      },
+      {
+        "title": "empty and retry states fit a desktop screen for college administrators",
+        "status": "passed",
+        "duration_ms": 2947
+      },
+      {
+        "title": "narrow screens keep all content reachable with the mobile navigation",
+        "status": "passed",
+        "duration_ms": 2712
+      },
+      {
+        "title": "loading reserves the viewport until dashboard data arrives",
+        "status": "passed",
+        "duration_ms": 2781
+      }
+    ]
+  }
+}
