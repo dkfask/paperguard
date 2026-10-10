@@ -16,7 +16,7 @@
     </div>
   </div>
 
-  <div v-if="authenticated" class="app-shell-root" @keydown.esc="closeSidebar">
+  <div v-if="authenticated" class="app-shell-root" :class="{ 'app-shell-viewport': viewportWorkspace }" @keydown.esc="closeSidebar">
     <a class="skip-content" href="#workspace-content">{{ t('shell.skipContent') }}</a>
     <header class="app-shell-header">
       <div class="header-inner">
@@ -118,6 +118,7 @@ const { lang, setLang, t } = useI18n()
 const routeTitle = computed(() => pageTitle(route, props.user, t))
 
 const isPending = computed(() => props.user?.role === 'teacher' && props.user?.status === 'pending')
+const viewportWorkspace = computed(() => route.path === '/workspace' && ['admin', 'college_admin'].includes(props.user?.role))
 
 // avatar.png 是一张 512×512 的整版品牌图，缩到 28px 圆头像里完全不可辨认，
 // 所以直接改用姓名首字母，不再显示那张图。
@@ -310,5 +311,20 @@ watchEffect(() => {
   .user-tray :deep(.scope-context) { display: none; }
   .nav-failure { flex-wrap: wrap; }
   .nav-failure-actions { margin-left: 28px; }
+}
+
+/* Only manager dashboards allocate the shell to one desktop viewport. */
+@media (min-width: 1101px) {
+  .app-shell-viewport {
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell-viewport > .app-shell-header { flex: 0 0 60px; }
+  .app-shell-viewport > .app-shell { flex: 1; min-height: 0; }
+  .app-shell-viewport .app-shell-main { min-height: 0; padding-bottom: 0; }
+  .app-shell-viewport :deep(.role-sidebar) { min-height: 0; height: 100%; }
+  .app-shell-viewport :deep(.role-sidebar > *) { flex-shrink: 0; }
 }
 </style>
