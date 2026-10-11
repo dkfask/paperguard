@@ -1,0 +1,80 @@
+{
+  "date": "2026-10-11",
+  "environment": "local isolated backend, worker, SQLite and Chromium; no production access",
+  "checks": [
+    {
+      "name": "build",
+      "command": "npm run build",
+      "cwd": "frontend",
+      "exit_code": 0,
+      "summary": [
+        "✓ built in 2.33s"
+      ]
+    },
+    {
+      "name": "typecheck",
+      "command": "npm run typecheck",
+      "cwd": "frontend",
+      "exit_code": 0,
+      "summary": [
+        "> paperguard-frontend@0.1.0 typecheck",
+        "> vue-tsc --noEmit"
+      ]
+    },
+    {
+      "name": "college-admin",
+      "command": "npm run check:college-admin",
+      "cwd": "frontend",
+      "exit_code": 0,
+      "summary": [
+        " Test Files  4 passed (4)",
+        "      Tests  5 passed (5)"
+      ]
+    },
+    {
+      "name": "paragraphs",
+      "command": "npm run test:paragraphs",
+      "cwd": "frontend",
+      "exit_code": 0,
+      "summary": [
+        "paragraph splitter tests passed"
+      ]
+    },
+    {
+      "name": "frontend tests",
+      "command": "npm test -- --run",
+      "cwd": "frontend",
+      "exit_code": 0,
+      "summary": [
+        " Test Files  23 passed (23)",
+        "      Tests  99 passed (99)"
+      ]
+    },
+    {
+      "name": "backend tests",
+      "command": "python -m pytest -q (project Python 3.12 venv)",
+      "cwd": "backend",
+      "exit_code": 0,
+      "summary": [
+        "1098 passed, 2 warnings in 124.19s (0:02:04)"
+      ]
+    }
+  ],
+  "browser": {
+    "command": "npm run test:e2e -- e2e/all-pages-viewport.spec.ts e2e/admin-workspace-viewport.spec.ts e2e/ui-refactor.spec.ts --reporter=line",
+    "passed": 21,
+    "failed": 0,
+    "skipped": 5,
+    "skip_reason": "desktop-only all-pages matrix is inapplicable to mobile; admin and UI regression suites ran both projects",
+    "projects": [
+      "chromium",
+      "mobile-chrome"
+    ],
+    "all_page_geometry_samples": 42
+  },
+  "warnings": [
+    "Existing DeadlineLabel/StatusBadge resolution warnings",
+    "Two backend dependency deprecation warnings"
+  ],
+  "release_state": "PR 38 remains unmerged; this change has not been deployed"
+}
