@@ -84,7 +84,9 @@
         @close-mobile="closeSidebar"
       />
       <main id="workspace-content" class="app-shell-main" tabindex="-1" @click="closeSidebar">
-        <slot />
+        <div class="app-shell-page">
+          <slot />
+        </div>
       </main>
     </div>
   </div>
@@ -118,7 +120,7 @@ const { lang, setLang, t } = useI18n()
 const routeTitle = computed(() => pageTitle(route, props.user, t))
 
 const isPending = computed(() => props.user?.role === 'teacher' && props.user?.status === 'pending')
-const viewportWorkspace = computed(() => route.path === '/workspace' && ['admin', 'college_admin'].includes(props.user?.role))
+const viewportWorkspace = computed(() => Boolean(props.authenticated))
 
 // avatar.png 是一张 512×512 的整版品牌图，缩到 28px 圆头像里完全不可辨认，
 // 所以直接改用姓名首字母，不再显示那张图。
@@ -313,7 +315,8 @@ watchEffect(() => {
   .nav-failure-actions { margin-left: 28px; }
 }
 
-/* Only manager dashboards allocate the shell to one desktop viewport. */
+/* Every authenticated desktop page uses the same one-viewport application shell. */
+.app-shell-page { min-width: 0; width: 100%; }
 @media (min-width: 1101px) {
   .app-shell-viewport {
     height: 100vh;
@@ -323,8 +326,41 @@ watchEffect(() => {
   }
   .app-shell-viewport > .app-shell-header { flex: 0 0 60px; }
   .app-shell-viewport > .app-shell { flex: 1; min-height: 0; }
-  .app-shell-viewport .app-shell-main { min-height: 0; padding-bottom: 0; }
+  .app-shell-viewport .app-shell-main {
+    min-height: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell-viewport .app-shell-page {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell-viewport .app-shell-page > :deep(*) {
+    min-height: 0;
+  }
   .app-shell-viewport :deep(.role-sidebar) { min-height: 0; height: 100%; }
   .app-shell-viewport :deep(.role-sidebar > *) { flex-shrink: 0; }
+}
+@media (min-width: 1101px) {
+  .public-shell {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .public-shell > :deep(*) {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
 }
 </style>

@@ -1197,3 +1197,225 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 @media (max-width: 900px) {
   .role-sidebar:not(.open) { visibility: hidden; }
 }
+
+/* --------------------------------------------------------------------------
+   One viewport application surfaces
+   --------------------------------------------------------------------------
+   The shell owns the desktop viewport. Page roots keep the homepage's compact
+   surface language while long lists and editors scroll inside their work area.
+   Mobile keeps the existing document flow below 1101px.
+*/
+@media (min-width: 1101px) {
+  .app-shell-page > .workspace-page,
+  .app-shell-page > .writing-home,
+  .app-shell-page > .workflow-page,
+  .app-shell-page > .org-page,
+  .app-shell-page > .document-page,
+  .app-shell-page > .publisher-page,
+  .app-shell-page > .editor-page,
+  .app-shell-page > .writer-shell,
+  .app-shell-page > .route-state-page,
+  .app-shell-page > .card {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .app-shell-page > .workspace-page,
+  .app-shell-page > .writing-home,
+  .app-shell-page > .workflow-page,
+  .app-shell-page > .org-page,
+  .app-shell-page > .document-page,
+  .app-shell-page > .publisher-page,
+  .app-shell-page > .editor-page {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .app-shell-page > .workspace-page {
+    gap: 12px;
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
+  .app-shell-page > .workspace-page > .workspace-hero,
+  .app-shell-page > .workspace-page > .workspace-stats,
+  .app-shell-page > .workspace-page > .error-banner,
+  .app-shell-page > .workspace-page > .ok-banner,
+  .app-shell-page > .workspace-page > .saved-banner {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+  }
+
+  .app-shell-page > .workspace-page > .workspace-layout,
+  .app-shell-page > .workspace-page > .template-layout,
+  .app-shell-page > .workspace-page > .policy-layout,
+  .app-shell-page > .workspace-page > .org-layout,
+  .app-shell-page > .workspace-page > .workflow-layout {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-shell-page .workspace-main,
+  .app-shell-page .workspace-side,
+  .app-shell-page .workflow-main,
+  .app-shell-page .workflow-side,
+  .app-shell-page .org-layout > *,
+  .app-shell-page .template-layout > *,
+  .app-shell-page .policy-layout > * {
+    min-height: 0;
+  }
+
+  .app-shell-page .workspace-main,
+  .app-shell-page .workspace-side,
+  .app-shell-page .workflow-main,
+  .app-shell-page .workflow-side {
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell-page .workspace-main > .panel,
+  .app-shell-page .workspace-side > .panel,
+  .app-shell-page .workflow-main > .panel,
+  .app-shell-page .workflow-side > .panel,
+  .app-shell-page .template-layout > .panel,
+  .app-shell-page .policy-layout > .panel,
+  .app-shell-page .org-layout > .card {
+    min-height: 0;
+  }
+
+  .app-shell-page > .workspace-page > .panel:last-of-type,
+  .app-shell-page > .workspace-page > .async-state {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell-page .workspace-page > .panel:only-of-type,
+  .app-shell-page .workspace-page > .panel.certification-panel,
+  .app-shell-page .workspace-page > .panel.template-editor-panel {
+    flex: 1;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell-page .workspace-page .table-scroll,
+  .app-shell-page .workspace-page .data-table-wrap,
+  .app-shell-page .workspace-page .user-table-wrap,
+  .app-shell-page .template-list,
+  .app-shell-page .policy-list,
+  .app-shell-page .style-table-wrap,
+  .app-shell-page .editor-main,
+  .app-shell-page .editor-aside,
+  .app-shell-page .unit-list,
+  .app-shell-page .members {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell-page > .writing-home {
+    gap: 0;
+  }
+
+  .app-shell-page > .writing-home > .writing-home-head,
+  .app-shell-page > .writing-home > .workspace-switcher,
+  .app-shell-page > .writing-home > .error-banner {
+    flex: 0 0 auto;
+  }
+
+  .app-shell-page > .writing-home > .writing-projects,
+  .app-shell-page > .writing-home > .inspection-section {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell-page > .workflow-page {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
+  .app-shell-page > .workflow-page > .workflow-hero,
+  .app-shell-page > .workflow-page > .workflow-summary,
+  .app-shell-page > .workflow-page > .workflow-tabs,
+  .app-shell-page > .workflow-page > .workflow-sync-state,
+  .app-shell-page > .workflow-page > .error-banner,
+  .app-shell-page > .workflow-page > .ok-banner {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+  }
+
+  .app-shell-page > .workflow-page > .workflow-layout {
+    display: grid;
+  }
+
+  .app-shell-page > .org-page,
+  .app-shell-page > .document-page,
+  .app-shell-page > .publisher-page,
+  .app-shell-page > .editor-page {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
+  .app-shell-page > .org-page > .page-head,
+  .app-shell-page > .document-page > .document-hero,
+  .app-shell-page > .publisher-page > .publisher-header,
+  .app-shell-page > .editor-page > .editor-header {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+  }
+
+  .app-shell-page > .org-page > .org-layout,
+  .app-shell-page > .document-page > .document-section,
+  .app-shell-page > .publisher-page > .publisher-steps,
+  .app-shell-page > .editor-page > .editor-layout {
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .app-shell-page > .org-page .unit-list,
+  .app-shell-page > .org-page .editor,
+  .app-shell-page > .org-page .members,
+  .app-shell-page > .document-page .document-section,
+  .app-shell-page > .publisher-page .step-panel,
+  .app-shell-page > .editor-page .editor-aside,
+  .app-shell-page > .editor-page .editor-main {
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell-page > .org-page > .members {
+    flex: 0 1 30%;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell-page > .writer-shell {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .app-shell-page > .writer-shell > .writer-command-bar {
+    flex: 0 0 auto;
+  }
+
+  .app-shell-page > .writer-shell > .writer-columns {
+    flex: 1;
+    min-height: 0;
+  }
+}

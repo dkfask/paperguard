@@ -2415,4 +2415,31 @@ button.tiny.danger { color: var(--error); }
   .writer-export-action span:last-child { display: none; }
   .writer-command-actions > button { min-width: 34px; min-height: 34px; padding: 6px 8px; justify-content: center; }
 }
+/* Desktop keeps the command bar above three independently scrollable panes. */
+@media (min-width: 1101px) {
+  .writer-command-bar { position: static; margin: 0; }
+  .writer-columns {
+    margin: 0;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+    overflow: hidden;
+  }
+  .writer-columns > .sidebar,
+  .writer-columns > .editor-pane,
+  .writer-columns > .writer-context {
+    min-height: 0;
+    height: 100%;
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  .writer-columns > .writer-context { grid-column: auto; }
+}
+@media (min-width: 1101px) and (max-width: 1360px) {
+  .writer-columns { grid-template-columns: 180px minmax(0, 1fr) 240px; }
+  .editor-pane { padding: 22px 24px 40px; }
+  .writer-context { border-left: 1px solid var(--border); border-top: 0; padding: 18px 12px 24px; }
+}
+
 </style>

@@ -113,7 +113,15 @@ test('writer keeps its draft, editor instance and selection when panels and view
       const before = await Promise.all(panes.map(selector => page.locator(selector).evaluate(el => el.getBoundingClientRect().top)))
       await page.evaluate(() => window.scrollTo({ top: 260, behavior: 'instant' }))
       const scroll = await page.evaluate(() => window.scrollY)
-      expect(scroll).toBeGreaterThan(200)
+      if (width >= 1101) {
+        expect(scroll).toBe(0)
+        const pane = page.locator('.editor-pane')
+        expect(await pane.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+        await pane.evaluate(el => { el.scrollTop = 260 })
+        expect(await pane.evaluate(el => el.scrollTop)).toBeGreaterThan(200)
+      } else {
+        expect(scroll).toBeGreaterThan(200)
+      }
       for (const [index, selector] of panes.entries()) {
         const after = await page.locator(selector).evaluate(el => el.getBoundingClientRect().top)
         expect(after).toBeCloseTo(before[index] - scroll, 0)
