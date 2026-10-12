@@ -62,6 +62,17 @@ def can_access_document_project(store: Store, user: dict[str, Any], project: Any
     )
 
 
+def document_package_visible(store: Store, user: dict[str, Any], package: Any) -> bool:
+    """Personal writing templates belong to their server-recorded publisher.
+
+    Earlier explicitly published packages retain their shared organization scope.
+    Project access continues to use the project's own frozen ownership policy.
+    """
+    if package.metadata.get("usage") == "personal":
+        return bool(package.published_by) and package.published_by == user.get("id")
+    return document_context_visible(store, user, package.metadata.get("organization_context"))
+
+
 def audit_document_access_denied(
     store: Store,
     user: dict[str, Any],
@@ -107,6 +118,7 @@ __all__ = [
     "audit_document_access_denied",
     "can_access_document_project",
     "document_context_visible",
+    "document_package_visible",
     "organization_id_for_context",
     "public_document_bundle",
 ]

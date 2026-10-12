@@ -1,0 +1,66 @@
+[
+  {
+    "project": "chromium",
+    "suite": "full-lifecycle.spec.ts",
+    "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+    "status": "passed",
+    "seconds": 106.358,
+    "run": "repair-pagination-final"
+  },
+  {
+    "project": "chromium",
+    "suite": "full-lifecycle.spec.ts",
+    "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+    "status": "skipped",
+    "seconds": 0.0,
+    "run": "repair-pagination-final"
+  },
+  {
+    "project": "chromium",
+    "suite": "usage-audit.spec.ts",
+    "name": "TC-04-07: collect accessibility and UI evidence for three roles and a short form",
+    "status": "passed",
+    "seconds": 13.098,
+    "run": "repair-pagination-final"
+  },
+  {
+    "project": "chromium",
+    "suite": "usage-audit.spec.ts",
+    "name": "TC-01-02: certification dialog reflects the completed decision",
+    "status": "passed",
+    "seconds": 4.439,
+    "run": "repair-pagination-final"
+  },
+  {
+    "project": "mobile-chrome",
+    "suite": "full-lifecycle.spec.ts",
+    "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+    "status": "skipped",
+    "seconds": 0.0,
+    "run": "repair-pagination-final"
+  },
+  {
+    "project": "mobile-chrome",
+    "suite": "full-lifecycle.spec.ts",
+    "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+    "status": "passed",
+    "seconds": 2.712,
+    "run": "repair-pagination-final"
+  },
+  {
+    "project": "mobile-chrome",
+    "suite": "usage-audit.spec.ts",
+    "name": "TC-04-07: collect accessibility and UI evidence for three roles and a short form",
+    "status": "skipped",
+    "seconds": 0.0,
+    "run": "repair-pagination-final"
+  },
+  {
+    "project": "mobile-chrome",
+    "suite": "usage-audit.spec.ts",
+    "name": "TC-01-02: certification dialog reflects the completed decision",
+    "status": "skipped",
+    "seconds": 0.0,
+    "run": "repair-pagination-final"
+  }
+]

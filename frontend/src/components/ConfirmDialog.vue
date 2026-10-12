@@ -1,5 +1,6 @@
 <template>
-  <div v-if="open" class="modal-mask" role="presentation" @click.self="cancel">
+  <Teleport to="body">
+  <div v-if="open" class="modal-mask" :style="{ zIndex: layer }" role="presentation" @click.self="cancel">
     <section
       class="modal card confirm-dialog"
       ref="dialog"
@@ -8,7 +9,6 @@
       aria-modal="true"
       :aria-labelledby="titleId"
       :aria-describedby="description ? descriptionId : undefined"
-      @keydown.esc="cancel"
     >
       <div class="modal-head">
         <div>
@@ -29,6 +29,7 @@
       </div>
     </section>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -54,10 +55,10 @@ const titleId = `confirm-dialog-title-${Math.random().toString(36).slice(2)}`
 const descriptionId = `confirm-dialog-description-${Math.random().toString(36).slice(2)}`
 const displayConfirmLabel = computed(() => props.confirmLabel || t('dialog.confirm'))
 
-useDialogFocus(toRef(props, 'open'), dialog, cancel, confirmButton)
+const { layer } = useDialogFocus(toRef(props, 'open'), dialog, cancel, confirmButton)
 
 function cancel() { if (!props.busy) emit('cancel') }
-function confirm() { emit('confirm') }
+function confirm() { if (!props.busy) emit('confirm') }
 </script>
 
 <style scoped>

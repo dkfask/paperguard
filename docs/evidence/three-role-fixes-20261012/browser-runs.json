@@ -1,0 +1,35 @@
+[
+  {
+    "run": "repair-all-final",
+    "counts": {
+      "passed": 64,
+      "failed": 1,
+      "skipped": 9
+    },
+    "failed_cases": [
+      {
+        "project": "chromium",
+        "suite": "component-walkthrough.spec.ts",
+        "name": "2026-10-01 界面走查与 BUG-01 回归 › BUG-20261001-01 回归：管理员可在界面把 pending 教师认证为 active"
+      }
+    ]
+  },
+  {
+    "run": "repair-lifecycle-final",
+    "counts": {
+      "passed": 4,
+      "failed": 0,
+      "skipped": 4
+    },
+    "failed_cases": []
+  },
+  {
+    "run": "repair-pagination-final",
+    "counts": {
+      "passed": 14,
+      "failed": 0,
+      "skipped": 4
+    },
+    "failed_cases": []
+  }
+]

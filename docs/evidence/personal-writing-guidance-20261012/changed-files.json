@@ -1,0 +1,17 @@
+[
+  "backend/app/api/document_packages.py",
+  "backend/app/api/document_projects.py",
+  "backend/app/services/document_access.py",
+  "backend/app/services/document_candidates.py",
+  "backend/tests/test_personal_document_templates.py",
+  "frontend/e2e/document-platform.spec.ts",
+  "frontend/e2e/pages/document-projects.page.ts",
+  "frontend/src/components/RoleSidebar.vue",
+  "frontend/src/i18n.js",
+  "frontend/src/shared/pageTitles.js",
+  "frontend/src/views/DocumentPackagePublisher.vue",
+  "frontend/src/views/DocumentProjects.vue",
+  "frontend/src/views/Templates.vue",
+  "frontend/tests/DocumentPackagePublisher.test.js",
+  "frontend/tests/PersonalWritingNavigation.test.js"
+]

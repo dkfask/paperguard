@@ -16,7 +16,7 @@
       <section class="workspace-stats" :aria-label="t('cohorts.summary')"><div><span>{{ t('cohorts.managed') }}</span><strong>{{ cohorts.length }}</strong><small>{{ t('workspace.currentScope') }}</small></div><div><span>{{ t('cohorts.published') }}</span><strong>{{ publishedCount }}</strong><small>{{ t('cohorts.running') }}</small></div><div><span>{{ t('cohorts.memberTotal') }}</span><strong>{{ memberCount }}</strong><small>{{ t('cohorts.included') }}</small></div><div><span>{{ t('cohorts.currentConfig') }}</span><strong>{{ selectedCohort?.stages?.length || 0 }}</strong><small>{{ t('cohorts.selectedStages') }}</small></div></section>
 
       <div class="workspace-layout">
-        <main class="workspace-main">
+        <ScreenDeck v-model="cohortPane" class="workspace-main">
           <section class="panel">
             <div class="panel-heading"><div><p class="workspace-kicker">{{ t('cohorts.createKicker') }}</p><h2>{{ t('cohorts.create') }}</h2><p>{{ t('cohorts.createDetail') }}</p></div><span class="material-symbols-outlined panel-icon" aria-hidden="true">add_box</span></div>
             <form class="cohort-create-form" @submit.prevent="createNewCohort">
@@ -31,22 +31,22 @@
             <div class="panel-heading"><div><p class="workspace-kicker">{{ t('cohorts.listKicker') }}</p><h2>{{ t('cohorts.list') }}</h2></div><button class="icon-button" type="button" :title="t('cohorts.refresh')" :aria-label="t('cohorts.refresh')" :disabled="loading" @click="load"><span class="material-symbols-outlined" aria-hidden="true">refresh</span></button></div>
             <AsyncState v-if="!cohorts.length" state="empty" :title="t('cohorts.empty')" :detail="t('cohorts.emptyDetail')" />
             <div v-else class="cohort-list">
-              <button v-for="cohort in cohorts" :key="cohort.id" type="button" class="cohort-row" :class="{ selected: selectedCohort?.id === cohort.id }" @click="select(cohort)">
+              <ScreenCollection :items="cohorts" :row-height="64" v-slot="{ items: visibleItems }"><button v-for="cohort in visibleItems" :key="cohort.id" type="button" class="cohort-row" :class="{ selected: selectedCohort?.id === cohort.id }" @click="select(cohort)">
                 <span class="status-dot" :class="cohort.status"></span><span class="cohort-row-copy"><strong>{{ cohort.name }}</strong><small>{{ cohort.academic_year || t('cohorts.academicYearMissing') }} · {{ cohort.member_ids?.length || 0 }} {{ t('cohorts.students') }}</small></span><StatusBadge :status="cohort.status" :label="cohortLabel(cohort.status)" /><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
-              </button>
+              </button></ScreenCollection>
             </div>
           </section>
 
-          <section v-if="selectedCohort" class="panel cohort-config-panel">
+          <BaseModal presentation="drawer" :open="Boolean(selectedCohort)" :title="selectedCohort?.name" @close="selectedCohort = null"><ScreenDeck :labels="[t('cohorts.stageDraft'), t('screen.members')]"><section v-if="selectedCohort" class="panel cohort-config-panel">
             <div class="panel-heading"><div><p class="workspace-kicker">{{ selectedCohort.name }}</p><h2>{{ t('cohorts.stageDraft') }}</h2><p>{{ t('cohorts.stageDraftDetail') }}</p></div><button class="icon-button" type="button" :title="t('cohorts.closeConfig')" :aria-label="t('cohorts.closeConfig')" @click="selectedCohort = null"><span class="material-symbols-outlined" aria-hidden="true">close</span></button></div>
             <StageConfigForm :form="stageForm" :templates="templates" :saving="saving" @save="createStage" />
             <div class="configured-stages"><h3>{{ t('cohorts.existingStages') }}</h3><div v-if="!selectedCohort.stages?.length" class="muted-row">{{ t('cohorts.noStages') }}</div><div v-for="stage in selectedCohort.stages || []" :key="stage.id" class="configured-stage-row"><div><strong>{{ stage.name }}</strong><span>{{ stage.key }} · v{{ stage.config?.version || 1 }} · {{ stage.config?.deadline_at ? formatDate(stage.config.deadline_at) : t('cohorts.noDeadline') }}</span></div><div class="stage-actions"><StatusBadge :status="stage.status" :label="stage.status === 'published' ? t('cohorts.publishedStatus') : t('cohorts.draftStatus')" /><button v-if="stage.status === 'draft'" class="tiny primary" type="button" :disabled="saving" @click="previewAndPublish(stage)"><span class="material-symbols-outlined" aria-hidden="true">publish</span>{{ t('cohorts.previewPublish') }}</button></div></div></div>
             <div v-if="stagePreview" class="preview-box"><div class="preview-heading"><strong>{{ t('cohorts.publishImpact') }}</strong><span :class="stagePreview.ok ? 'preview-ok' : 'preview-error'">{{ stagePreview.ok ? t('cohorts.publishable') : t('cohorts.blocked') }}</span></div><p v-for="item in stagePreview.errors || []" :key="item" class="preview-error">{{ item }}</p><p v-for="item in stagePreview.warnings || []" :key="item" class="preview-warning">{{ item }}</p><p v-if="stagePreview.ok">{{ t('cohorts.memberTasksNotice', { count: stagePreview.member_snapshot?.length || 0 }) }}</p><div class="form-actions"><button class="small primary" type="button" :disabled="saving || !stagePreview.ok" @click="publishStage"><span class="material-symbols-outlined" aria-hidden="true">verified</span>{{ t('cohorts.confirmPublish') }}</button></div></div>
-          </section>
+          </section><MemberImportWizard v-if="selectedCohort" v-model="memberImportText" :rows="memberImportRows" :result="memberImportResult" :busy="saving" @preview="previewMembers" @commit="commitMembers" /></ScreenDeck></BaseModal>
 
-          <MemberImportWizard v-if="selectedCohort" v-model="memberImportText" :rows="memberImportRows" :result="memberImportResult" :busy="saving" @preview="previewMembers" @commit="commitMembers" />
-        </main>
-        <aside class="workspace-side"><section class="panel workspace-shortcuts"><div class="panel-heading"><div><p class="workspace-kicker">{{ t('cohorts.relatedKicker') }}</p><h3>{{ t('cohorts.related') }}</h3></div></div><RouterLink to="/organizations"><span class="material-symbols-outlined" aria-hidden="true">account_tree</span>{{ t('route.organizations') }}</RouterLink><RouterLink to="/audit"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('route.audit') }}</RouterLink><RouterLink to="/operations"><span class="material-symbols-outlined" aria-hidden="true">monitor_heart</span>{{ t('route.operations') }}</RouterLink></section></aside>
+
+        </ScreenDeck>
+        <ScreenDeck class="workspace-side"><section class="panel workspace-shortcuts"><div class="panel-heading"><div><p class="workspace-kicker">{{ t('cohorts.relatedKicker') }}</p><h3>{{ t('cohorts.related') }}</h3></div></div><RouterLink to="/organizations"><span class="material-symbols-outlined" aria-hidden="true">account_tree</span>{{ t('route.organizations') }}</RouterLink><RouterLink to="/audit"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('route.audit') }}</RouterLink><RouterLink to="/operations"><span class="material-symbols-outlined" aria-hidden="true">monitor_heart</span>{{ t('route.operations') }}</RouterLink></section></ScreenDeck>
       </div>
     </template>
     <ConfirmDialog :open="confirmDialog.open" :title="confirmDialog.title" :description="confirmDialog.description" :confirm-label="confirmDialog.confirmLabel" :busy="confirmBusy" @confirm="confirmPublish" @cancel="closeConfirm" />
@@ -54,6 +54,9 @@
 </template>
 
 <script setup>
+import BaseModal from '../components/base/BaseModal.vue'
+import ScreenCollection from '../components/ScreenCollection.vue'
+import ScreenDeck from '../components/ScreenDeck.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { auth } from '../auth'
@@ -65,6 +68,7 @@ import StageConfigForm from '../components/StageConfigForm.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { roleLabel, useI18n } from '../i18n'
 
+const cohortPane = ref(1)
 const { t, formatDate: formatLocaleDate } = useI18n()
 const loading = ref(true); const saving = ref(false); const error = ref(''); const notice = ref('')
 const cohorts = ref([]); const organizations = ref([]); const templates = ref([]); const selectedCohort = ref(null)

@@ -1,0 +1,19 @@
+{
+  "engine": {
+    "name": "axe-core",
+    "version": "4.14.0"
+  },
+  "violations": [],
+  "incomplete": [
+    {
+      "id": "label-content-name-mismatch",
+      "impact": "serious",
+      "targets": [
+        [
+          ".base-modal-close"
+        ]
+      ]
+    }
+  ],
+  "passedRules": 16
+}

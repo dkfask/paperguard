@@ -26,7 +26,7 @@
         <span><b>{{ totalChars }}</b> {{ t('writer.characters') }}</span>
         <span><b>{{ doneCount }}/{{ requiredCount }}</b> {{ t('writer.sectionsDone') }}</span>
       </div>
-      <div class="writer-command-actions">
+      <div class="writer-command-actions"><button class="small" type="button" aria-controls="writer-outline-panel" @click="focusOutline"><span class="material-symbols-outlined" aria-hidden="true">format_list_bulleted</span>{{ t('writer.outline') }}</button><button class="small" type="button" @click="contextOpen = true"><span class="material-symbols-outlined" aria-hidden="true">tune</span>{{ t('writer.writingAssistant') }}</button>
         <button class="small" @click="openAiSettings" :title="t('writer.aiSettings')" :aria-label="t('writer.aiAssistant')">
           <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
           <span>{{ t('writer.aiAssistant') }}</span>
@@ -36,7 +36,7 @@
           <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
           <span>{{ t('writer.switchTemplate') }}</span>
         </button>
-        <button class="writer-review-action" :title="t('writer.check')" :aria-label="t('writer.check')" @click="checkOpen = !checkOpen">
+        <button class="writer-review-action" :title="t('writer.check')" :aria-label="t('writer.check')" @click="contextOpen = true; checkOpen = true">
           <span class="material-symbols-outlined" aria-hidden="true">rule</span>
           <span>{{ t('writer.check') }}</span>
         </button>
@@ -64,8 +64,8 @@
     </header>
 
     <div class="writer-columns">
-    <!-- 左侧章节导航 -->
-    <aside class="sidebar">
+    <!-- 左侧章节导航：写作时持续可见，避免反复打开抽屉遮住正文。 -->
+    <aside id="writer-outline-panel" ref="outlinePanelRef" class="sidebar" tabindex="-1" :aria-label="t('writer.outline')" data-test="writer-outline">
       <div class="tree-nav-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
         <span style="font-size: 12px; font-weight: 600; color: var(--muted)">{{ t('writer.outline') }}</span>
         <button v-if="canEditStructure" class="tiny" @click="openAddSectionModal" :title="t('writer.addSection')">
@@ -297,7 +297,7 @@
     </section>
 
     <!-- Writing context and live checks -->
-    <aside class="writer-context">
+    <BaseModal presentation="drawer" :open="contextOpen" :title="t('writer.writingAssistant')" @close="contextOpen = false"><aside class="writer-context">
       <div class="context-header">
         <div>
           <p class="writing-eyebrow">{{ t('writer.writingContextKicker') }}</p>
@@ -432,7 +432,7 @@
           </div>
         </div>
       </div>
-    </aside>
+    </aside></BaseModal>
 
       <Teleport to="body">
       <!-- AI result comparison -->
@@ -636,6 +636,7 @@
 </template>
 
 <script setup>
+import BaseModal from '../components/base/BaseModal.vue'
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth, isManager } from '../auth'
@@ -662,6 +663,7 @@ const projectId = route.params.id
 
 const project = ref(null)
 const template = ref(null)
+const outlinePanelRef = ref(null), contextOpen = ref(false)
 const current = ref('cover')
 const error = ref('')
 const loadError = ref('')
@@ -1411,6 +1413,13 @@ async function select(node) {
     await flushPendingSaves()
     current.value = node.key
   } catch { /* 保存错误已显示, 保留当前章节 */ }
+}
+
+function focusOutline() {
+  const panel = outlinePanelRef.value
+  if (!panel) return
+  panel.scrollIntoView({ block: 'nearest' })
+  panel.focus({ preventScroll: true })
 }
 
 // ---------- 保存队列 ----------
@@ -2301,7 +2310,7 @@ button.tiny.danger { color: var(--error); }
 
 .writer-columns {
   display: grid;
-  grid-template-columns: 225px minmax(0, 1fr) 300px;
+  grid-template-columns: 225px minmax(0, 1fr);
   align-items: start;
   gap: 0;
   margin: 0 calc(-1 * var(--page-gutter)) -40px;
@@ -2415,8 +2424,8 @@ button.tiny.danger { color: var(--error); }
   .writer-export-action span:last-child { display: none; }
   .writer-command-actions > button { min-width: 34px; min-height: 34px; padding: 6px 8px; justify-content: center; }
 }
-/* Desktop keeps the command bar above three independently scrollable panes. */
-@media (min-width: 1101px) {
+/* Desktop keeps the command bar above the outline and editor panes. */
+@media (min-width: 769px) {
   .writer-command-bar { position: static; margin: 0; }
   .writer-columns {
     margin: 0;
@@ -2432,14 +2441,27 @@ button.tiny.danger { color: var(--error); }
     max-height: none;
     overflow-y: auto;
     overscroll-behavior: contain;
+    scroll-padding-block: 8px;
     scrollbar-gutter: stable;
   }
   .writer-columns > .writer-context { grid-column: auto; }
+  .writer-columns :is(input, textarea, select, button, a[href]) { scroll-margin-block: 8px; }
 }
-@media (min-width: 1101px) and (max-width: 1360px) {
-  .writer-columns { grid-template-columns: 180px minmax(0, 1fr) 240px; }
+@media (min-width: 769px) and (max-width: 1360px) {
+  .writer-columns { grid-template-columns: 180px minmax(0, 1fr); }
   .editor-pane { padding: 22px 24px 40px; }
   .writer-context { border-left: 1px solid var(--border); border-top: 0; padding: 18px 12px 24px; }
+}
+
+/* Keep the text pane usable beside the application rail in narrow windows. */
+@media (min-width: 769px) and (max-width: 1100px) {
+  .writer-columns {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+  .writer-columns > .editor-pane { padding: 18px 16px 32px; }
+  .meta-row { align-items: stretch; flex-direction: column; gap: 4px; }
+  .meta-row label { width: auto; }
+  .meta-row input { min-width: 0; width: 100%; }
 }
 
 </style>

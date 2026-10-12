@@ -12,7 +12,7 @@ beforeEach(() => {
   fetchWorkflowJobs.mockResolvedValue([])
   fetchRetentionPolicy.mockResolvedValue({ configured: false, policy: null })
 })
-const render = () => mount(Operations, { global: { stubs: { RouterLink: true } } })
+const render = () => mount(Operations, { global: { stubs: { RouterLink: true, Teleport: true } } })
 
 describe('operations states preserve server authorization', () => {
   it('shows denied policy scope while keeping successful probes and disabling writes', async () => {
@@ -36,6 +36,8 @@ describe('operations states preserve server authorization', () => {
     await wrapper.get('.async-state.error button').trigger('click')
     await flushPromises()
     expect(fetchRetentionPolicy).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.operations-retention-form').exists()).toBe(false)
+    await wrapper.get('.operations-policy-summary > button').trigger('click')
     expect(wrapper.find('.operations-retention-form').exists()).toBe(true)
     wrapper.unmount()
   })
@@ -84,7 +86,11 @@ describe('operations states preserve server authorization', () => {
     updateRetentionPolicy.mockResolvedValueOnce({ configured: true, policy: { draft_days: 42 } })
     const wrapper = render()
     await flushPromises()
+    await wrapper.get('.operations-policy-summary > button').trigger('click')
     await wrapper.get('.operations-retention-form input').setValue('42')
+    await wrapper.get('.screen-drawer .base-modal-close').trigger('click')
+    await wrapper.get('.operations-policy-summary > button').trigger('click')
+    expect(wrapper.get('.operations-retention-form input').element.value).toBe('42')
     await wrapper.get('.operations-retention-form').trigger('submit')
     await flushPromises()
     expect(wrapper.get('.error-banner').text()).toContain('保存失败')

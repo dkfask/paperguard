@@ -62,23 +62,27 @@
           <h2>{{ t('home.recentTheses') }}</h2>
         </div>
         <span class="section-heading-note">{{ t('home.sortedByRecent') }}</span>
-      </div>
+      <button class="small primary" type="button" @click="newProjectOpen = true"><span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('home.startNewThesis') }}</button></div>
 
-      <div class="create-thesis-bar">
-        <span class="material-symbols-outlined create-thesis-icon" aria-hidden="true">add_circle</span>
-        <div class="create-thesis-label">
-          <strong>{{ t('home.startNewThesis') }}</strong>
-          <span>{{ t('home.startNewThesisDetail') }}</span>
-        </div>
-        <select id="tpl" v-model="newProjectTemplate" :aria-label="t('home.chooseTemplate')">
+      <BaseModal size="small" :open="newProjectOpen" :title="t('home.startNewThesis')" @close="!creating && (newProjectOpen = false)">
+        <form class="create-thesis-form" @submit.prevent="createProject">
+          <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+          <label for="tpl">{{ t('home.chooseTemplate') }}
+        <select id="tpl" v-model="newProjectTemplate" :disabled="creating || initializing">
           <option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option>
-        </select>
-        <input v-model="newProjectTitle" :placeholder="t('thesisTitlePlaceholder')" :aria-label="t('home.thesisTitle')" />
-        <button class="primary" :disabled="creating || initializing || !newProjectTemplate" @click="createProject">
+        </select></label>
+          <label for="new-thesis-title">{{ t('home.thesisTitle') }}
+            <input id="new-thesis-title" v-model="newProjectTitle" :disabled="creating" :placeholder="t('thesisTitlePlaceholder')" />
+          </label>
+          <div class="create-thesis-actions">
+            <button type="button" :disabled="creating" @click="newProjectOpen = false">{{ t('common.cancel') }}</button>
+        <button type="submit" class="primary" :disabled="creating || initializing || !newProjectTemplate">
           <span class="material-symbols-outlined" aria-hidden="true">add</span>
           <span>{{ creating ? t('creating') : t('newThesisBtn') }}</span>
         </button>
-      </div>
+          </div>
+        </form>
+      </BaseModal>
 
       <div v-if="initializing" class="hint-center">{{ t('loadingEnv') }}</div>
 
@@ -89,7 +93,7 @@
       </div>
 
       <div v-else class="theses-list" :aria-label="t('home.thesisList')">
-        <div v-for="p in projects" :key="p.id" class="thesis-row">
+        <ScreenCollection :items="projects" :row-height="80" v-slot="{ items: visibleItems }"><div v-for="p in visibleItems" :key="p.id" class="thesis-row">
           <div class="thesis-row-icon"><span class="material-symbols-outlined" aria-hidden="true">description</span></div>
           <div class="thesis-row-main">
             <h3 :title="p.title || p.template_name">{{ p.title || t('home.untitledThesis') }}</h3>
@@ -112,13 +116,13 @@
               <span class="material-symbols-outlined" aria-hidden="true">delete</span>
             </button>
           </div>
-        </div>
+        </div></ScreenCollection>
       </div>
 
-      <section v-if="trashProjects.length" class="writing-trash">
+      <button v-if="trashProjects.length" class="small" type="button" @click="trashOpen = true">{{ t('home.recycleBin') }} · {{ trashProjects.length }}</button><BaseModal presentation="drawer" :open="trashOpen" :title="t('home.recycleBin')" @close="trashOpen = false"><section v-if="trashProjects.length" class="writing-trash">
         <div class="section-heading-row"><div><p class="writing-eyebrow">{{ t('home.recycleBin') }}</p><h2>{{ t('home.recycleBin') }}</h2></div><span class="section-heading-note">{{ t('home.recycleBinDetail') }}</span></div>
-        <div v-for="p in trashProjects" :key="p.id" class="trash-row"><div><strong>{{ p.title || t('home.untitledThesis') }}</strong><span>{{ p.template_name || t('home.defaultTemplate') }} · {{ t('home.deletedAt', { date: shortDate(p.deleted_at) }) }}</span></div><button class="small" @click="restoreProject(p)"><span class="material-symbols-outlined" aria-hidden="true">restore_from_trash</span>{{ t('home.restoreThesis') }}</button></div>
-      </section>
+        <ScreenCollection :items="trashProjects" :row-height="64" v-slot="{ items: visibleItems }"><div v-for="p in visibleItems" :key="p.id" class="trash-row"><div><strong>{{ p.title || t('home.untitledThesis') }}</strong><span>{{ p.template_name || t('home.defaultTemplate') }} · {{ t('home.deletedAt', { date: shortDate(p.deleted_at) }) }}</span></div><button class="small" @click="restoreProject(p)"><span class="material-symbols-outlined" aria-hidden="true">restore_from_trash</span>{{ t('home.restoreThesis') }}</button></div></ScreenCollection>
+      </section></BaseModal>
 
       <div class="writing-utilities">
         <RouterLink to="/policies" class="writing-utility-link">
@@ -197,7 +201,7 @@
         <div v-if="initializing" class="hint-center">{{ t('loadingEnv') }}</div>
 
         <!-- 1:1 Stitch Metrics Row & Detailed Findings -->
-        <section v-if="report" class="report-container">
+        <button v-if="report" class="small primary" type="button" @click="inspectionDetails = true">{{ t('screen.details') }}</button><BaseModal presentation="drawer" :open="Boolean(report) && inspectionDetails" :title="t('checkTab')" @close="inspectionDetails = false"><section v-if="report" class="report-container">
           <!-- 4张指标卡片 -->
           <div class="stitch-metrics-grid">
             <div class="stitch-metric-card">
@@ -284,7 +288,7 @@
               </div>
             </div>
           </div>
-        </section>
+        </section></BaseModal>
       </section>
 
   </div>
@@ -301,6 +305,8 @@
 </template>
 
 <script setup>
+import BaseModal from '../components/base/BaseModal.vue'
+import ScreenCollection from '../components/ScreenCollection.vue'
 import { ref, reactive, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from '../i18n'
@@ -331,6 +337,8 @@ const templateFile = ref(null)
 const dragging = ref(false)
 const checking = ref(false)
 const fixing = ref(false)
+const newProjectOpen = ref(false)
+const trashOpen = ref(false), inspectionDetails = ref(false)
 const report = ref(null)
 const lastFixRemaining = ref(null)
 const error = ref("")
@@ -377,6 +385,7 @@ async function refreshWorkspace() {
 function switchCheckMode(mode) {
   checkMode.value = mode
   report.value = null
+  inspectionDetails.value = false
   lastFixRemaining.value = null
   error.value = ""
 }
@@ -403,6 +412,7 @@ async function runCheck() {
   checking.value = true
   error.value = ""
   report.value = null
+  inspectionDetails.value = false
   lastFixRemaining.value = null
   try {
     if (checkMode.value === 'template') {
@@ -410,6 +420,7 @@ async function runCheck() {
     } else {
       report.value = await checkDocx(file.value, pack.value)
     }
+    inspectionDetails.value = true
   } catch (e) {
     error.value = e.message
   } finally {
@@ -438,13 +449,14 @@ async function runFix() {
 }
 
 async function createProject() {
-  if (!newProjectTemplate.value) return
+  if (!newProjectTemplate.value || creating.value || initializing.value) return
   creating.value = true
   error.value = ""
   try {
     const p = await projectsApi.create(newProjectTemplate.value, newProjectTitle.value || t('home.untitledThesis'))
     await refreshWorkspace()
     newProjectTitle.value = ""
+    newProjectOpen.value = false
     router.push('/write/' + p.id)
   } catch (e) { error.value = e.message }
   finally { creating.value = false }
@@ -496,6 +508,11 @@ function projectProgress(project) {
 </script>
 
 <style scoped>
+.create-thesis-form { display: grid; gap: 18px; min-width: 0; }
+.create-thesis-form label { display: grid; gap: 8px; font-size: 13px; font-weight: 600; }
+.create-thesis-form input, .create-thesis-form select { box-sizing: border-box; width: 100%; min-width: 0; font-weight: 400; }
+.create-thesis-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+.create-thesis-actions button { flex-shrink: 0; white-space: nowrap; }
 .stitch-dashboard {
   display: flex;
   flex-direction: column;
@@ -638,6 +655,8 @@ function projectProgress(project) {
 }
 
 /* 检查选项 */
+.file-input-hidden { display: none; }
+
 .check-options-bar {
   display: flex;
   justify-content: space-between;

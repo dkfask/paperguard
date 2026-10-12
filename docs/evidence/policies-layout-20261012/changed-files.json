@@ -1,0 +1,22 @@
+[
+  {
+    "path": "frontend/e2e/policies-layout.spec.ts",
+    "before": null,
+    "after": "1b6c215f43ad227c3a3bc69436c97df8379e930519e4dd4cbccbe99303d4f8de"
+  },
+  {
+    "path": "frontend/src/i18n.js",
+    "before": "e2c650e52beb71ea5fced40193dabe4377e1b70daf15d94002e1df0ffe3502d9",
+    "after": "ecc25dcf29f4723322bb92f0f1ebb1ec0cf51d41d3d1b650ee25728cf1c773c7"
+  },
+  {
+    "path": "frontend/src/views/Policies.vue",
+    "before": "015b2b2056185c3af6b7229244354ac074c51d444e5c3766455756f5914f5bd3",
+    "after": "d4d5e9832c5d87e3fa43daba6d2eb8c6026da00915f173def131bddbfd04ac52"
+  },
+  {
+    "path": "frontend/tests/Policies.bindings.test.js",
+    "before": "d1c1fa3b0bd93de3dee29aca0e83b1e755a4d4f06e176a3f0c67a0b148a5eea9",
+    "after": "6ce098d0fb82f9a94d298d07761906aa42e7baa23fc16b6ce690307d1feeb6af"
+  }
+]

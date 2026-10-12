@@ -10,7 +10,7 @@
         <div class="brand-row"><span>论文卫士Pro</span></div>
         <h1>{{ t('auth.firstLoginTitle') }}</h1>
         <p class="sub">{{ t('auth.firstLoginSub') }}</p>
-        <div v-if="message" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'" role="alert">{{ message }}</div>
+        <InlineNotice v-if="message" :message="message" :type="noticeType" />
         <form @submit.prevent="submit">
           <label>{{ t('auth.emailLabel') }}<input v-model="email" type="email" autocomplete="email" :placeholder="t('auth.emailPlaceholder')" required /></label>
           <div class="code-row">
@@ -28,6 +28,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import InlineNotice from '../components/InlineNotice.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth, setAuth } from '../auth'
 import { authApi } from '../features/auth/api'

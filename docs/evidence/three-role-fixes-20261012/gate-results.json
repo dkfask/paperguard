@@ -1,0 +1,55 @@
+[
+  {
+    "gate": "backend",
+    "command": "项目 venv 的 python -m pytest -q（backend）",
+    "status": "passed",
+    "tests": 1098,
+    "warnings": 2
+  },
+  {
+    "gate": "frontend-unit",
+    "command": "npm run test（frontend）",
+    "status": "passed",
+    "files": 29,
+    "tests": 113
+  },
+  {
+    "gate": "typecheck",
+    "command": "npm run typecheck（frontend）",
+    "status": "passed"
+  },
+  {
+    "gate": "build",
+    "command": "npm run build（frontend）",
+    "status": "passed"
+  },
+  {
+    "gate": "check:college-admin",
+    "command": "npm run check:college-admin（frontend）",
+    "status": "passed"
+  },
+  {
+    "gate": "browser",
+    "command": "npm run test:e2e（frontend；隔离环境）",
+    "status": "passed",
+    "counts": {
+      "total": 82,
+      "passed": 69,
+      "failed": 0,
+      "skipped": 13
+    },
+    "method": "最近有效运行合并，原失败保留于 browser-runs.json"
+  },
+  {
+    "gate": "accessibility",
+    "status": "passed",
+    "scenes": 10,
+    "violations": 0,
+    "note": "自动扫描及指定键盘操作，不是全面 WCAG 认证"
+  },
+  {
+    "gate": "diff",
+    "command": "git diff --check",
+    "status": "passed"
+  }
+]

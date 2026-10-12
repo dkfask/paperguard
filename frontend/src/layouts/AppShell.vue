@@ -320,7 +320,7 @@ watchEffect(() => {
 
 /* Every authenticated desktop page uses the same one-viewport application shell. */
 .app-shell-page { min-width: 0; width: 100%; }
-@media (min-width: 1101px) {
+@media (min-width: 769px) {
   .app-shell-host {
     height: 100vh;
     height: 100dvh;
@@ -344,7 +344,7 @@ watchEffect(() => {
     flex-direction: column;
   }
   .app-shell-viewport > .app-shell-header { flex: 0 0 60px; }
-  .app-shell-viewport > .app-shell { flex: 1; min-height: 0; }
+  .app-shell-viewport > .app-shell { display: flex; flex: 1; min-height: 0; }
   .app-shell-viewport .app-shell-main {
     min-height: 0;
     padding-bottom: 0;
@@ -367,14 +367,13 @@ watchEffect(() => {
     flex: 1;
     min-height: 0;
     height: 100%;
-    overflow: auto;
-    overscroll-behavior: contain;
-    scroll-padding-block: 8px;
+    overflow: hidden;
   }
-  .app-shell-viewport :deep(.role-sidebar) { min-height: 0; height: 100%; }
-  .app-shell-viewport :deep(.role-sidebar > *) { flex-shrink: 0; }
+  .app-shell-viewport :deep(.role-sidebar) { min-height: 0; }
+  .app-shell-viewport :deep(.role-sidebar > :not(.sidebar-nav)) { flex-shrink: 0; }
+  .app-shell-viewport :deep(.role-sidebar > .sidebar-nav) { flex: 1; min-height: 0; }
 }
-@media (min-width: 1101px) {
+@media (min-width: 769px) {
   .public-shell {
     height: 100%;
     min-height: 0;
@@ -386,9 +385,10 @@ watchEffect(() => {
     flex: 1;
     min-height: 0;
     height: 100%;
-    overflow: auto;
-    overscroll-behavior: contain;
-    scroll-padding-block: 8px;
+    overflow: hidden;
   }
+}
+@media (min-width: 901px) {
+  .app-shell-viewport :deep(.role-sidebar) { height: 100%; }
 }
 </style>

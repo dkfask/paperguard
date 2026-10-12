@@ -14,7 +14,7 @@
     </header>
 
     <main class="register-main">
-      <div class="register-columns">
+      <ScreenDeck class="register-columns" :labels="[t('auth.registerAccount'), t('screen.about')]">
         <!-- 左栏:注册表单 -->
         <section class="register-card">
           <div class="brand-row">
@@ -23,14 +23,11 @@
           <h1 class="card-title">{{ t('auth.registerTitle') }}</h1>
           <p class="card-sub">{{ t('auth.registerSub') }}</p>
 
-          <div v-if="error" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'">
-            <span class="material-symbols-outlined text-[16px]" aria-hidden="true">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>
-            <span>{{ error }}<template v-if="requestId"> (request_id: {{ requestId }})</template></span>
-          </div>
+          <InlineNotice v-if="error" :message="requestId ? `${error} (request_id: ${requestId})` : error" :type="noticeType" />
 
           <template v-if="!registered">
             <form class="register-form" @submit.prevent="submit">
-              <div class="form-field">
+              <div class="form-field register-email-field">
                 <label for="reg-email">{{ t('auth.emailLabel') }}</label>
                 <div class="email-row">
                   <input id="reg-email" v-model="email" type="email" autocomplete="email" :placeholder="t('auth.emailPlaceholder')" required />
@@ -38,7 +35,7 @@
                     {{ codeCooldown > 0 ? `${codeCooldown}s` : t('auth.sendCode') }}
                   </button>
                 </div>
-                <input v-model="emailCode" class="mt8" inputmode="numeric" maxlength="6" :placeholder="t('auth.emailCodePlaceholder')" required />
+                <input v-model="emailCode" class="mt8" :aria-label="t('auth.emailCodePlaceholder')" inputmode="numeric" maxlength="6" :placeholder="t('auth.emailCodePlaceholder')" required />
               </div>
 
               <div class="form-field">
@@ -117,7 +114,7 @@
           </div>
           <p class="compliance-line">🔒 {{ t('auth.compliance') }}</p>
         </aside>
-      </div>
+      </ScreenDeck>
     </main>
 
     <footer class="stitch-auth-bottom-footer">
@@ -133,6 +130,8 @@
 
 <script setup>
 import { ref } from 'vue'
+import InlineNotice from '../components/InlineNotice.vue'
+import ScreenDeck from '../components/ScreenDeck.vue'
 import { useRouter } from 'vue-router'
 import { authApi } from '../features/auth/api'
 import { useI18n } from '../i18n'

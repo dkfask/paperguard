@@ -1,0 +1,6 @@
+[
+  "frontend/e2e/document-platform.spec.ts",
+  "frontend/src/i18n.js",
+  "frontend/src/views/DocumentProjectEditor.vue",
+  "frontend/tests/DocumentProjectEditor.test.js"
+]

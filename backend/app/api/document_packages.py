@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ from app.services.document_candidates import (
 )
 from app.services.template_engine import TemplateParseCandidate
 from app.services.spec_engine import SpecParseCandidate
-from app.services.document_access import document_context_visible, public_document_bundle
+from app.services.document_access import document_package_visible, public_document_bundle
 
 router = APIRouter(
     prefix="/api/document-packages",
@@ -35,6 +35,7 @@ class PublishPackageRequest(BaseModel):
     renderer_version: str = Field(default="generic-docx-v1", min_length=1, max_length=120)
     rule_engine_version: str = Field(default="generic-check-v1", min_length=1, max_length=120)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    usage: Literal["personal", "shared"] = "shared"
 
 
 def get_store() -> Store:
@@ -60,8 +61,7 @@ def _audit(store: Store, manager: dict, *, action: str, package_id: str, result:
 
 
 def _visible(store: Store, bundle: dict[str, Any], user: dict) -> bool:
-    context = bundle["package"].metadata.get("organization_context") or {}
-    return document_context_visible(store, user, context)
+    return document_package_visible(store, user, bundle["package"])
 
 
 @router.get("")
@@ -119,6 +119,9 @@ def publish_document_package(
             metadata={
                 **request.metadata,
                 "organization_context": template_context,
+                # Teacher document configuration is personal writing; student
+                # thesis templates use the separate thesis-template workflow.
+                "usage": "personal" if manager.get("role") == "teacher" else request.usage,
             },
         )
         store.save_document_package(

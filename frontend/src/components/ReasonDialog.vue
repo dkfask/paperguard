@@ -1,5 +1,6 @@
 <template>
-  <div v-if="open" class="modal-mask" role="presentation" @click.self="cancel">
+  <Teleport to="body">
+  <div v-if="open" class="modal-mask" :style="{ zIndex: layer }" role="presentation" @click.self="cancel">
     <section ref="dialog" class="modal card reason-dialog" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1">
       <div class="modal-head">
         <div>
@@ -24,6 +25,7 @@
       </div>
     </section>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -53,7 +55,7 @@ const titleId = `reason-dialog-${Math.random().toString(36).slice(2)}`
 const label = computed(() => props.label || t('reason.label'))
 const placeholder = computed(() => props.placeholder || t('reason.placeholder'))
 const confirmText = computed(() => props.confirmLabel || t('common.confirm'))
-useDialogFocus(toRef(props, 'open'), dialog, cancel, input)
+const { layer } = useDialogFocus(toRef(props, 'open'), dialog, cancel, input)
 
 watch(() => props.open, async (open) => {
   if (!open) return

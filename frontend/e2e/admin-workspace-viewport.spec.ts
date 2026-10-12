@@ -1,4 +1,4 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 
 type FixtureOptions = { crowded?: boolean; empty?: boolean; role?: string; failLoad?: boolean; pauseLoad?: boolean }
 
@@ -54,6 +54,7 @@ async function assertSingleScreen(page: Page) {
   expect(geometry.document.height).toBeLessThanOrEqual(geometry.viewport.height + 1)
   expect(geometry.scrollY).toBe(0)
   for (const panel of await page.locator('.admin-workspace .panel').all()) {
+    if (!await panel.isVisible()) continue
     const bounds = await panel.boundingBox()
     expect(bounds).not.toBeNull()
     expect(bounds!.height).toBeGreaterThan(45)
@@ -61,6 +62,14 @@ async function assertSingleScreen(page: Page) {
     await expect(panel.locator('.panel-heading')).toBeInViewport({ ratio: 1 })
   }
   return geometry
+}
+
+async function assertCollectionRowsFit(collection: Locator) {
+  // Pagination measures the available area after the pane opens. Wait for its
+  // short row transition before taking a list of locators at fixed positions.
+  await expect.poll(() => collection.evaluate(el => el.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length)).toBe(0)
+  await expect.poll(() => collection.locator('.screen-collection-body').evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
+  for (const row of await collection.locator('.screen-collection-body > *').all()) await expect(row).toBeInViewport({ ratio: 1 })
 }
 
 async function capture(page: Page, info: TestInfo, name: string) {
@@ -73,22 +82,30 @@ test('manager dashboard and every panel fit one desktop viewport', async ({ page
   const fixture = await dashboardFixture(page)
   await page.setViewportSize({ width: 1384, height: 817 })
   await page.goto('/workspace')
-  await expect(page.locator('.workspace-report-grid')).toBeVisible()
+  await expect(page.locator('.workspace-stats')).toBeVisible()
   const geometries = []
   for (const viewport of [{ width: 1384, height: 817 }, { width: 1280, height: 720 }, { width: 1440, height: 900 }, { width: 1920, height: 1080 }]) {
     await page.setViewportSize(viewport)
     geometries.push(await assertSingleScreen(page))
-    await expect(page.locator('.workspace-main > .panel')).toHaveCount(4)
+    await expect(page.locator('.workspace-main > .screen-deck-tabs > button')).toHaveCount(4)
+    for (const tab of await page.locator('.workspace-main > .screen-deck-tabs > button').all()) {
+      await tab.click()
+      await assertSingleScreen(page)
+      for (const collection of await page.locator('.workspace-main .screen-deck-pane:not([hidden]) .screen-collection').all()) await assertCollectionRowsFit(collection)
+    }
     await page.locator('.workspace-hero').hover()
     await page.mouse.wheel(0, 1000)
     expect(await page.evaluate(() => scrollY)).toBe(0)
+    await page.locator('.workspace-main > .screen-deck-tabs > button').nth(2).click()
     for (const metric of await page.locator('.workspace-report-grid > div').all()) await expect(metric).toBeInViewport({ ratio: 1 })
     await expect(page.locator('.workspace-report-note')).toBeInViewport({ ratio: 1 })
+    await page.locator('.workspace-main > .screen-deck-tabs > button').nth(3).click()
     await expect(page.locator('.workspace-archive-row').first()).toBeInViewport({ ratio: 1 })
     if (viewport.width === 1384 || viewport.width === 1440 || viewport.width === 1280) {
       await capture(page, info, `admin-workspace-${viewport.width}x${viewport.height}`)
     }
   }
+  await page.locator('.role-sidebar').getByRole('tab', { name: '管理工具', exact: true }).click()
   await page.locator('.sidebar-tool').last().focus()
   await expect(page.locator('.sidebar-tool').last()).toBeInViewport({ ratio: 1 })
   expect(await page.evaluate(() => scrollY)).toBe(0)
@@ -101,20 +118,22 @@ test('long lists stay keyboard accessible inside cards and English labels fit', 
   const fixture = await dashboardFixture(page, { crowded: true })
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.goto('/workspace')
-  await expect(page.locator('.workspace-cohort-row')).toHaveCount(8)
   await assertSingleScreen(page)
-  for (const selector of ['.workspace-cohorts-panel .workspace-panel-body', '.workspace-archives-panel .workspace-panel-body']) {
-    const body = page.locator(selector)
-    expect(await body.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
-    await body.focus()
-    await page.keyboard.press('End')
-    await expect.poll(() => body.evaluate(el => el.scrollTop)).toBeGreaterThan(0)
-    expect(await page.evaluate(() => scrollY)).toBe(0)
+  for (const index of [1, 3]) {
+    await page.locator('.workspace-main > .screen-deck-tabs > button').nth(index).click()
+    const collection = page.locator('.workspace-main .screen-deck-pane:not([hidden]) .screen-collection')
+    const next = collection.getByRole('button', { name: '下一页', exact: true })
+    expect(await next.isEnabled()).toBe(true)
+    do {
+      await assertCollectionRowsFit(collection)
+      await assertSingleScreen(page)
+      if (!await next.isEnabled()) break
+      await next.click()
+    } while (true)
   }
   const inbox = page.locator('.workspace-notification-panel')
   await inbox.locator('.workspace-text-link').focus()
   await expect(inbox.locator('.workspace-text-link')).toBeInViewport({ ratio: 1 })
-  expect(await inbox.evaluate(el => el.scrollTop)).toBeGreaterThan(0)
   await inbox.locator('.notification-row').first().click()
   await expect(page.locator('.error-banner')).toContainText('消息标记失败')
   await assertSingleScreen(page)
@@ -136,7 +155,9 @@ test('empty and retry states fit a desktop screen for college administrators', a
   await page.getByRole('button', { name: '重试', exact: true }).click()
   await expect(page.locator('.workspace-stats')).toBeVisible()
   await expect(page.locator('.workspace-report-panel')).toHaveCount(0)
+  await page.locator('.workspace-main > .screen-deck-tabs > button').nth(1).click()
   await expect(page.locator('.workspace-cohorts-panel .async-state.empty')).toBeVisible()
+  await page.locator('.workspace-main > .screen-deck-tabs > button').nth(2).click()
   await expect(page.locator('.workspace-archives-panel .async-state.empty')).toBeVisible()
   await assertSingleScreen(page)
   expect(fixture.unexpected).toEqual([])
@@ -147,9 +168,10 @@ test('narrow screens keep all content reachable with the mobile navigation', asy
   const fixture = await dashboardFixture(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/workspace')
-  await expect(page.locator('.workspace-report-grid')).toBeVisible()
+  await expect(page.locator('.workspace-stats')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(844)
+  await page.locator('.workspace-main > .screen-deck-tabs > button').nth(3).click()
   await page.locator('.workspace-archives-panel').scrollIntoViewIfNeeded()
   await expect(page.locator('.workspace-archives-panel .panel-heading')).toBeInViewport({ ratio: 1 })
   await page.getByRole('button', { name: '打开导航', exact: true }).click()
@@ -169,7 +191,7 @@ test('loading reserves the viewport until dashboard data arrives', async ({ page
   await expect(page.locator('.workspace-stats')).toHaveCount(0)
   await assertSingleScreen(page)
   fixture.resumeLoad()
-  await expect(page.locator('.workspace-report-grid')).toBeVisible()
+  await expect(page.locator('.workspace-stats')).toBeVisible()
   await assertSingleScreen(page)
   expect(fixture.unexpected).toEqual([])
   expect(fixture.runtimeErrors).toEqual([])

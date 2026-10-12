@@ -1,0 +1,38 @@
+{
+  "scene": "administrator route geometry",
+  "samples": 110,
+  "routes": [
+    "/",
+    "/admin/ai",
+    "/admin/users",
+    "/audit",
+    "/cohorts",
+    "/document-packages/publish",
+    "/document-projects",
+    "/document-projects/docproj-cafabd7e494f",
+    "/layout-missing-page",
+    "/operations",
+    "/organizations",
+    "/policies",
+    "/templates",
+    "/templates/default-gb7713/edit",
+    "/workflow",
+    "/workflow?panel=archives",
+    "/workflow?panel=messages",
+    "/workflow?panel=reports",
+    "/workspace",
+    "/write/proj-905efc3fba07"
+  ],
+  "viewports": [
+    "1100x640",
+    "1280x720",
+    "1384x817",
+    "775x804",
+    "916x804"
+  ],
+  "max_document_extra_width": 0,
+  "max_document_extra_height": 0,
+  "max_scroll_y": 0,
+  "max_work_area_scroll": 0,
+  "note": "教师、学生、断点、分页、英语和手机另按浏览器用例逐项检查，不混入此管理员几何样本统计。"
+}

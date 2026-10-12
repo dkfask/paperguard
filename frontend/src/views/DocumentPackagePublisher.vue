@@ -4,27 +4,26 @@
       <div>
         <RouterLink to="/document-projects" class="back-link">
           <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
-          {{ t('documentPackagePublisher.back') }}
+          {{ publisherText('back') }}
         </RouterLink>
-        <p class="workspace-kicker">{{ t('documentPackagePublisher.kicker') }}</p>
-        <h1>{{ t('documentPackagePublisher.title') }}</h1>
-        <p>{{ t('documentPackagePublisher.description') }}</p>
+        <p class="workspace-kicker">{{ publisherText('kicker') }}</p>
+        <h1>{{ publisherText('title') }}</h1>
+        <p>{{ publisherText('description') }}</p>
       </div>
-      <span class="material-symbols-outlined publisher-icon" aria-hidden="true">publish</span>
+      <span class="material-symbols-outlined publisher-icon" aria-hidden="true">{{ personalWriting ? 'settings' : 'publish' }}</span>
     </header>
 
     <section v-if="!canManage" class="access-state" role="alert">
       <span class="material-symbols-outlined" aria-hidden="true">lock</span>
       <h2>{{ t('documentPackagePublisher.accessTitle') }}</h2>
       <p>{{ t('documentPackagePublisher.accessDetail') }}</p>
-      <RouterLink to="/document-projects" class="small primary">{{ t('documentPackagePublisher.backToDocuments') }}</RouterLink>
+      <RouterLink to="/document-projects" class="small primary">{{ publisherText('backToDocuments') }}</RouterLink>
     </section>
 
     <template v-else>
-      <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+      <div v-if="error && !templateReviewOpen && !specReviewOpen" class="error-banner" role="alert">{{ error }}</div>
 
-      <section class="publisher-steps" aria-label="Document package publishing steps">
-        <article class="step-panel">
+      <ScreenDeck class="publisher-deck"><article class="step-panel">
           <div class="step-heading">
             <span class="step-number">1</span>
             <div>
@@ -34,16 +33,19 @@
             </div>
           </div>
 
+          <div class="parser-upload">
           <label class="file-picker">
             <span>{{ t('documentPackagePublisher.templateFile') }}</span>
             <input data-test="template-file" type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" :disabled="templateBusy || publishBusy" @change="selectTemplate" />
             <small>{{ templateFile?.name || t('documentPackagePublisher.noFile') }}</small>
           </label>
-
           <button data-test="template-parse" class="small primary" type="button" :disabled="!templateFile || templateBusy || publishBusy" @click="parseTemplate">
             <span class="material-symbols-outlined" aria-hidden="true">document_scanner</span>
             {{ templateBusy ? t('documentPackagePublisher.parsing') : t('documentPackagePublisher.parse') }}
           </button>
+          </div>
+
+
 
           <label v-if="templateCandidates.length" class="saved-picker">
             <span>{{ t('documentPackagePublisher.savedCandidates') }}</span>
@@ -55,7 +57,97 @@
             </select>
           </label>
 
-          <div v-if="templateCandidate" class="candidate-review">
+          <div v-if="templateCandidate" class="candidate-review candidate-summary">
+            <div class="review-heading"><strong>{{ templateCandidate.name }}</strong><span class="status-pill" :class="templateCandidate.status">{{ statusLabel(templateCandidate.status) }}</span></div>
+            <div class="review-summary"><span>{{ t('documentPackagePublisher.sections') }}: {{ templateSections.length }}</span><span>{{ t('documentPackagePublisher.fields') }}: {{ templateCandidate.definition.fields.length }}</span></div>
+            <button data-test="template-review" type="button" class="small" @click="templateReviewOpen = true">{{ t('screen.reviewResults') }}</button>
+          </div>
+        </article><article class="step-panel">
+          <div class="step-heading">
+            <span class="step-number">2</span>
+            <div>
+              <p class="workspace-kicker">{{ t('documentPackagePublisher.specEyebrow') }}</p>
+              <h2>{{ t('documentPackagePublisher.specTitle') }}</h2>
+              <p>{{ t('documentPackagePublisher.specDetail') }}</p>
+            </div>
+          </div>
+
+          <div class="parser-upload">
+          <label class="file-picker">
+            <span>{{ t('documentPackagePublisher.specFile') }}</span>
+            <input ref="specFileInput" data-test="spec-file" type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.md,.markdown,.txt" :disabled="specBusy || publishBusy" @change="selectSpec" />
+            <small>{{ specFile?.name || t('documentPackagePublisher.noFile') }}</small>
+          </label>
+          <button data-test="spec-parse" class="small primary" type="button" :disabled="!specIncluded || !specFile || specBusy || publishBusy" @click="parseSpec">
+            <span class="material-symbols-outlined" aria-hidden="true">rule_folder</span>
+            {{ specBusy ? t('documentPackagePublisher.parsing') : t('documentPackagePublisher.parse') }}
+          </button>
+          </div>
+
+          <label class="check-editor optional-toggle">
+            <input data-test="spec-enabled" v-model="specIncluded" type="checkbox" :disabled="specBusy || publishBusy" @change="toggleSpec" />
+            {{ t('documentPackagePublisher.specUseSeparate') }}
+          </label>
+          <p v-if="!specIncluded" class="optional-note">
+            <span class="material-symbols-outlined" aria-hidden="true">info</span>
+            {{ publisherText('specOptional') }}
+          </p>
+
+
+
+          <label v-if="specCandidates.length" class="saved-picker">
+            <span>{{ t('documentPackagePublisher.savedCandidates') }}</span>
+            <select data-test="spec-saved" v-model="specCandidateId" @change="restoreSpec">
+              <option value="">{{ t('documentPackagePublisher.selectSaved') }}</option>
+              <option v-for="candidate in specCandidates" :key="candidate.candidate_id" :value="candidate.candidate_id">
+                {{ candidate.name }} · {{ candidate.version }} · {{ statusLabel(candidate.status) }}
+              </option>
+            </select>
+          </label>
+
+          <div v-if="specCandidate" class="candidate-review candidate-summary">
+            <div class="review-heading"><strong>{{ specCandidate.name }}</strong><span class="status-pill" :class="specCandidate.status">{{ statusLabel(specCandidate.status) }}</span></div>
+            <div class="review-summary"><span>{{ t('documentPackagePublisher.rules') }}: {{ specCandidate.rules.length }}</span></div>
+            <button data-test="spec-review" type="button" class="small" @click="specReviewOpen = true">{{ t('screen.reviewResults') }}</button>
+          </div>
+        </article><section class="publish-panel">
+        <div class="section-heading">
+          <div>
+            <p class="workspace-kicker">{{ publisherText('publishEyebrow') }}</p>
+            <h2>{{ publisherText('publishTitle') }}</h2>
+            <p>{{ publisherText('publishDetail') }}</p>
+          </div>
+          <span class="material-symbols-outlined panel-icon" aria-hidden="true">inventory_2</span>
+        </div>
+
+        <div class="publish-form">
+          <label>{{ publisherText('documentType') }}
+            <select v-if="personalWriting" v-model="documentTypeId" :aria-label="publisherText('documentType')"><option value="generic">{{ t('personalTemplates.otherDocument') }}</option><option value="research-paper">{{ t('personalTemplates.researchPaper') }}</option><option value="grant-application">{{ t('personalTemplates.grantApplication') }}</option></select>
+            <input v-else v-model="documentTypeId" maxlength="80" :placeholder="publisherText('documentTypePlaceholder')" />
+          </label>
+          <div class="readiness" role="status" aria-live="polite">
+            <span :class="{ ready: templateReady }"><span class="material-symbols-outlined" aria-hidden="true">{{ templateReady ? 'check_circle' : 'radio_button_unchecked' }}</span>{{ t('documentPackagePublisher.templateStatus') }}</span>
+            <span :class="{ ready: specReady }"><span class="material-symbols-outlined" aria-hidden="true">{{ specReady ? 'check_circle' : 'radio_button_unchecked' }}</span>{{ t('documentPackagePublisher.specStatus') }}</span>
+          </div>
+          <button data-test="publish" class="primary" type="button" :disabled="!readyToPublish || publishBusy" @click="publish">
+            <span class="material-symbols-outlined" aria-hidden="true">{{ personalWriting ? 'save' : 'publish' }}</span>
+            {{ publishBusy ? publisherText('publishing') : publisherText('publish') }}
+          </button>
+        </div>
+
+        <div v-if="packageResult" class="success-panel" role="status">
+          <span class="material-symbols-outlined" aria-hidden="true">task_alt</span>
+          <div>
+            <strong>{{ publisherText('published') }}</strong>
+            <p>{{ packageResult.template.name }} · {{ packageResult.spec_set.name }}</p>
+            <small v-if="!personalWriting">{{ packageResult.package.id }}</small>
+          </div>
+          <RouterLink to="/document-projects" class="small primary">{{ publisherText('openDocuments') }}</RouterLink>
+        </div>
+      </section></ScreenDeck>
+      <BaseModal presentation="drawer" :open="templateReviewOpen" :title="t('documentPackagePublisher.templateTitle')" @close="templateReviewOpen = false">
+        <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+<div v-if="templateCandidate" class="candidate-review candidate-review-drawer">
             <div class="review-heading">
               <strong>{{ templateCandidate.name }}</strong>
               <span class="status-pill" :class="templateCandidate.status">{{ statusLabel(templateCandidate.status) }}</span>
@@ -68,22 +160,9 @@
                 <input data-test="template-candidate-version" v-model.trim="templateCandidate.version" maxlength="40" :disabled="templateCandidate.status === 'confirmed'" />
               </label>
             </div>
-            <div class="review-editor review-editor-wide">
-              <label>{{ t('documentPackagePublisher.documentMode') }}
-                <select data-test="template-document-mode" v-model="templateCandidate.definition.mode" :disabled="templateCandidate.status === 'confirmed'">
-                  <option v-for="mode in documentModes" :key="mode" :value="mode">{{ mode }}</option>
-                </select>
-              </label>
-              <label>{{ t('documentPackagePublisher.exportStrategy') }}
-                <select data-test="template-export-strategy" v-model="templateCandidate.definition.export_strategy" :disabled="templateCandidate.status === 'confirmed'">
-                  <option v-for="strategy in exportStrategies" :key="strategy" :value="strategy">{{ strategy }}</option>
-                </select>
-              </label>
-            </div>
             <div class="review-summary">
               <span>{{ t('documentPackagePublisher.sections') }}: {{ templateSections.length }}</span>
               <span>{{ t('documentPackagePublisher.fields') }}: {{ templateCandidate.definition.fields.length }}</span>
-              <span>{{ t('documentPackagePublisher.styles') }}: {{ Object.keys(templateCandidate.definition.styles || {}).length }}</span>
             </div>
             <ul v-if="templateCandidate.issues.length" class="issue-list">
               <li v-for="issue in templateCandidate.issues" :key="`${issue.code}:${issue.path}`" :class="issue.severity">
@@ -95,45 +174,9 @@
             <p v-else class="clean-note"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span>{{ t('documentPackagePublisher.noIssues') }}</p>
             <div v-if="templateSections.length" class="detected-list">
               <h3>{{ t('documentPackagePublisher.detectedSections') }}</h3>
-              <div v-for="section in templateSections" :key="section.node.key" class="detected-row section-editor" :data-test="`template-section-${section.node.key}`" :style="{ paddingLeft: `${10 + section.depth * 16}px` }">
-                <span class="material-symbols-outlined" aria-hidden="true">account_tree</span>
-                <label class="inline-editor section-title-editor">
-                  <input data-test="template-section-title" v-model.trim="section.node.title" :aria-label="t('documentPackagePublisher.sectionTitle')" :disabled="templateCandidate.status === 'confirmed'" />
-                  <small>{{ section.node.key }}</small>
-                </label>
-                <label class="section-setting">
-                  <span>{{ t('documentPackagePublisher.sectionType') }}</span>
-                  <select data-test="template-section-kind" v-model="section.node.kind" :aria-label="t('documentPackagePublisher.sectionType')" :disabled="templateCandidate.status === 'confirmed'">
-                    <option v-for="kind in sectionKindOptions(section.node)" :key="kind" :value="kind">{{ kind }}</option>
-                  </select>
-                </label>
-                <label class="section-setting section-order">
-                  <span>{{ t('documentPackagePublisher.sectionOrder') }}</span>
-                  <input data-test="template-section-order" v-model.number="section.node.order" type="number" min="0" :aria-label="t('documentPackagePublisher.sectionOrder')" :disabled="templateCandidate.status === 'confirmed'" />
-                </label>
-                <label class="section-setting">
-                  <span>{{ t('documentPackagePublisher.styleMapping') }}</span>
-                  <select data-test="template-section-style" v-model="section.node.style_ref" :aria-label="t('documentPackagePublisher.styleMapping')" :disabled="templateCandidate.status === 'confirmed'">
-                    <option value="">{{ t('documentPackagePublisher.noStyleMapping') }}</option>
-                    <option v-for="style in styleOptions(section.node)" :key="style" :value="style">{{ style }}</option>
-                  </select>
-                </label>
-                <label class="check-editor">
-                  <input v-model="section.node.required" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
-                  {{ t('documentPackagePublisher.required') }}
-                </label>
-                <label class="check-editor">
-                  <input data-test="template-section-repeatable" v-model="section.node.repeatable" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
-                  {{ t('documentPackagePublisher.repeatable') }}
-                </label>
-                <label class="check-editor">
-                  <input data-test="template-section-allow-add" v-model="section.node.allow_user_add" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
-                  {{ t('documentPackagePublisher.allowUserAdd') }}
-                </label>
-                <label class="check-editor">
-                  <input data-test="template-section-allow-delete" v-model="section.node.allow_user_delete" type="checkbox" :disabled="templateCandidate.status === 'confirmed'" />
-                  {{ t('documentPackagePublisher.allowUserDelete') }}
-                </label>
+              <div v-for="section in templateSections" :key="section.node.key" class="section-preview-row" :data-test="`template-section-${section.node.key}`" :style="{ paddingLeft: `${10 + Math.min(section.depth, 3) * 16}px` }">
+                <textarea data-test="template-section-title" v-model.trim="section.node.title" rows="1" :aria-label="t('documentPackagePublisher.sectionTitle')" :disabled="templateCandidate.status === 'confirmed'" />
+                <span class="section-level">{{ sectionLevelLabel(section) }}</span>
               </div>
             </div>
             <div v-if="templateTables.length" class="detected-list" data-test="template-table-summary">
@@ -148,8 +191,8 @@
                 </small>
               </div>
             </div>
-            <div v-if="templateCandidate.definition.fields.length" class="detected-list">
-              <h3>{{ t('documentPackagePublisher.reviewFields') }}</h3>
+            <details v-if="templateCandidate.definition.fields.length" class="detected-list template-fields">
+              <summary>{{ t('documentPackagePublisher.reviewFields') }}</summary>
               <div v-for="field in templateCandidate.definition.fields" :key="field.key" class="field-editor" :data-test="`template-field-${field.key}`">
                 <input :value="field.key" :aria-label="`${t('documentPackagePublisher.fieldKey')}: ${field.key}`" readonly />
                 <input data-test="template-field-label" v-model.trim="field.label" :aria-label="t('documentPackagePublisher.fieldLabel')" :disabled="templateCandidate.status === 'confirmed'" />
@@ -179,63 +222,17 @@
                   {{ t('documentPackagePublisher.required') }}
                 </label>
               </div>
-            </div>
-            <div v-if="templateCandidate.definition.anchors?.length" class="detected-list">
-              <h3>{{ t('documentPackagePublisher.stableAnchors') }}</h3>
-              <div v-for="anchor in templateCandidate.definition.anchors" :key="`${anchor.part}:${anchor.selector}:${anchor.occurrence}`" class="detected-row anchor-row">
-                <span class="material-symbols-outlined" aria-hidden="true">link</span>
-                <span>{{ anchor.key }}</span>
-                <small>{{ anchor.kind }} · {{ anchor.part }} · {{ anchor.selector }}</small>
-              </div>
-            </div>
+            </details>
             <button data-test="template-confirm" class="small" type="button" :disabled="templateBusy || templateCandidate.status === 'confirmed'" @click="confirmTemplate">
               <span class="material-symbols-outlined" aria-hidden="true">verified</span>
               {{ templateCandidate.status === 'confirmed' ? t('documentPackagePublisher.confirmed') : t('documentPackagePublisher.confirmTemplate') }}
             </button>
           </div>
-        </article>
+      </BaseModal>
 
-        <article class="step-panel">
-          <div class="step-heading">
-            <span class="step-number">2</span>
-            <div>
-              <p class="workspace-kicker">{{ t('documentPackagePublisher.specEyebrow') }}</p>
-              <h2>{{ t('documentPackagePublisher.specTitle') }}</h2>
-              <p>{{ t('documentPackagePublisher.specDetail') }}</p>
-            </div>
-          </div>
-
-          <label class="file-picker">
-            <span>{{ t('documentPackagePublisher.specFile') }}</span>
-            <input ref="specFileInput" data-test="spec-file" type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.md,.markdown,.txt" :disabled="specBusy || publishBusy" @change="selectSpec" />
-            <small>{{ specFile?.name || t('documentPackagePublisher.noFile') }}</small>
-          </label>
-
-          <label class="check-editor optional-toggle">
-            <input data-test="spec-enabled" v-model="specIncluded" type="checkbox" :disabled="specBusy || publishBusy" @change="toggleSpec" />
-            {{ t('documentPackagePublisher.specUseSeparate') }}
-          </label>
-          <p v-if="!specIncluded" class="optional-note">
-            <span class="material-symbols-outlined" aria-hidden="true">info</span>
-            {{ t('documentPackagePublisher.specOptional') }}
-          </p>
-
-          <button data-test="spec-parse" class="small primary" type="button" :disabled="!specIncluded || !specFile || specBusy || publishBusy" @click="parseSpec">
-            <span class="material-symbols-outlined" aria-hidden="true">rule_folder</span>
-            {{ specBusy ? t('documentPackagePublisher.parsing') : t('documentPackagePublisher.parse') }}
-          </button>
-
-          <label v-if="specCandidates.length" class="saved-picker">
-            <span>{{ t('documentPackagePublisher.savedCandidates') }}</span>
-            <select data-test="spec-saved" v-model="specCandidateId" @change="restoreSpec">
-              <option value="">{{ t('documentPackagePublisher.selectSaved') }}</option>
-              <option v-for="candidate in specCandidates" :key="candidate.candidate_id" :value="candidate.candidate_id">
-                {{ candidate.name }} · {{ candidate.version }} · {{ statusLabel(candidate.status) }}
-              </option>
-            </select>
-          </label>
-
-          <div v-if="specCandidate" class="candidate-review">
+      <BaseModal presentation="drawer" :open="specReviewOpen" :title="t('documentPackagePublisher.specTitle')" @close="specReviewOpen = false">
+        <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+<div v-if="specCandidate" class="candidate-review candidate-review-drawer">
             <div class="review-heading">
               <strong>{{ specCandidate.name }}</strong>
               <span class="status-pill" :class="specCandidate.status">{{ statusLabel(specCandidate.status) }}</span>
@@ -295,48 +292,14 @@
               {{ specCandidate.status === 'confirmed' ? t('documentPackagePublisher.confirmed') : t('documentPackagePublisher.confirmSpec') }}
             </button>
           </div>
-        </article>
-      </section>
-
-      <section class="publish-panel">
-        <div class="section-heading">
-          <div>
-            <p class="workspace-kicker">{{ t('documentPackagePublisher.publishEyebrow') }}</p>
-            <h2>{{ t('documentPackagePublisher.publishTitle') }}</h2>
-            <p>{{ t('documentPackagePublisher.publishDetail') }}</p>
-          </div>
-          <span class="material-symbols-outlined panel-icon" aria-hidden="true">inventory_2</span>
-        </div>
-
-        <div class="publish-form">
-          <label>{{ t('documentPackagePublisher.documentType') }}
-            <input v-model="documentTypeId" maxlength="80" :placeholder="t('documentPackagePublisher.documentTypePlaceholder')" />
-          </label>
-          <div class="readiness" role="status" aria-live="polite">
-            <span :class="{ ready: templateReady }"><span class="material-symbols-outlined" aria-hidden="true">{{ templateReady ? 'check_circle' : 'radio_button_unchecked' }}</span>{{ t('documentPackagePublisher.templateStatus') }}</span>
-            <span :class="{ ready: specReady }"><span class="material-symbols-outlined" aria-hidden="true">{{ specReady ? 'check_circle' : 'radio_button_unchecked' }}</span>{{ t('documentPackagePublisher.specStatus') }}</span>
-          </div>
-          <button data-test="publish" class="primary" type="button" :disabled="!readyToPublish || publishBusy" @click="publish">
-            <span class="material-symbols-outlined" aria-hidden="true">publish</span>
-            {{ publishBusy ? t('documentPackagePublisher.publishing') : t('documentPackagePublisher.publish') }}
-          </button>
-        </div>
-
-        <div v-if="packageResult" class="success-panel" role="status">
-          <span class="material-symbols-outlined" aria-hidden="true">task_alt</span>
-          <div>
-            <strong>{{ t('documentPackagePublisher.published') }}</strong>
-            <p>{{ packageResult.template.name }} · {{ packageResult.spec_set.name }}</p>
-            <small>{{ packageResult.package.id }}</small>
-          </div>
-          <RouterLink to="/document-projects" class="small primary">{{ t('documentPackagePublisher.openDocuments') }}</RouterLink>
-        </div>
-      </section>
+      </BaseModal>
     </template>
   </div>
 </template>
 
 <script setup>
+import ScreenDeck from '../components/ScreenDeck.vue'
+import BaseModal from '../components/base/BaseModal.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../i18n'
 import { auth } from '../auth'
@@ -352,6 +315,8 @@ import {
 
 const { t } = useI18n()
 const canManage = computed(() => auth.canManage())
+const personalWriting = computed(() => auth.user?.role === 'teacher')
+function publisherText(key) { return t(`${personalWriting.value ? 'personalTemplates' : 'documentPackagePublisher'}.${key}`) }
 const templateFile = ref(null)
 const specFile = ref(null)
 const specFileInput = ref(null)
@@ -369,10 +334,9 @@ const specBusy = ref(false)
 const publishBusy = ref(false)
 const packageResult = ref(null)
 const error = ref('')
+const templateReviewOpen = ref(false)
+const specReviewOpen = ref(false)
 
-const documentModes = ['fixed_form', 'structured_document', 'hybrid']
-const exportStrategies = ['auto', 'source_template', 'legacy_adapter']
-const baseSectionKinds = ['content', 'heading1', 'heading2', 'heading3', 'cover', 'toc', 'abstract', 'keywords', 'references', 'appendix']
 
 const templateReady = computed(() => templateCandidate.value?.status === 'confirmed')
 const specReady = computed(() => !specIncluded.value || specCandidate.value?.status === 'confirmed')
@@ -430,12 +394,15 @@ function choiceOptions(field) {
   return Array.isArray(field.constraints?.options) ? field.constraints.options : []
 }
 
-function sectionKindOptions(section) {
-  return [...new Set([...baseSectionKinds, section.kind].filter(Boolean))]
-}
-
-function styleOptions(section) {
-  return [...new Set([...(Object.keys(templateCandidate.value?.definition?.styles || {})), section.style_ref].filter(Boolean))]
+function sectionLevelLabel({ node, depth }) {
+  const labels = {
+    content: 'newBody', body: 'newBody', cover: 'cover', toc: 'toc',
+    abstract: 'abstract', english_abstract: 'englishAbstract',
+    keywords: 'keywords', english_keywords: 'englishKeywords',
+    references: 'references', appendix: 'appendix', acknowledgement: 'acknowledgement',
+    heading1: 'heading1', heading2: 'heading2', heading3: 'heading3',
+  }
+  return t(`section.${labels[node.kind] || `heading${Math.min(depth + 1, 3)}`}`)
 }
 
 function setChoiceOptions(field, event) {
@@ -483,6 +450,7 @@ async function parseTemplate() {
     templateCandidate.value = await parseDocumentTemplate(templateFile.value)
     templateCandidateId.value = templateCandidate.value.candidate_id
     upsertCandidate(templateCandidates, templateCandidate.value)
+    templateReviewOpen.value = true
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -498,6 +466,7 @@ async function confirmTemplate() {
     templateCandidate.value = await confirmDocumentTemplateCandidate(templateCandidate.value)
     templateCandidateId.value = templateCandidate.value.candidate_id
     upsertCandidate(templateCandidates, templateCandidate.value)
+    templateReviewOpen.value = false
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -514,6 +483,7 @@ async function parseSpec() {
     specCandidateId.value = specCandidate.value.candidate_id
     syncSpecParams(specCandidate.value)
     upsertCandidate(specCandidates, specCandidate.value)
+    specReviewOpen.value = true
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -535,6 +505,7 @@ async function confirmSpec() {
     specCandidateId.value = specCandidate.value.candidate_id
     syncSpecParams(specCandidate.value)
     upsertCandidate(specCandidates, specCandidate.value)
+    specReviewOpen.value = false
   } catch (exception) {
     error.value = exception instanceof SyntaxError
       ? t('documentPackagePublisher.invalidRuleParams')
@@ -572,6 +543,7 @@ async function publish() {
       template_candidate: templateCandidate.value,
       document_type_id: documentTypeId.value.trim(),
     }
+    if (personalWriting.value) payload.usage = 'personal'
     if (specIncluded.value) payload.spec_candidate = specCandidate.value
     packageResult.value = await publishDocumentPackage(payload)
   } catch (exception) {
@@ -585,6 +557,7 @@ onMounted(loadSavedCandidates)
 </script>
 
 <style scoped>
+.candidate-summary .review-heading strong { overflow-wrap: anywhere; }
 .publisher-page { max-width: 1240px; margin: 0 auto; padding: 22px 20px 56px; }
 /* This is an in-page heading, not the sticky 60px application header from style.css. */
 .publisher-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; min-height: 0; height: auto; position: static; z-index: auto; padding: 10px 0 28px; border-bottom: 1px solid var(--border); background: transparent; box-shadow: none; backdrop-filter: none; }
@@ -607,6 +580,8 @@ onMounted(loadSavedCandidates)
 .saved-picker select, .review-editor input, .full-editor textarea, .field-editor input, .field-editor select, .rule-editor input, .rule-editor select, .rule-editor textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--on-surface); font: inherit; font-size: 12px; }
 .saved-picker select:focus, .review-editor input:focus, .full-editor textarea:focus, .field-editor input:focus, .field-editor select:focus, .rule-editor input:focus, .rule-editor select:focus, .rule-editor textarea:focus { outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent); outline-offset: 1px; }
 .candidate-review { display: grid; gap: 13px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.candidate-review-drawer { border-top: 0; margin-top: 0; padding-top: 0; }
+.parser-upload { display: grid; gap: 8px; }
 .review-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .review-heading strong { min-width: 0; overflow-wrap: anywhere; }
 .review-editor { display: grid; grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr); gap: 10px; }
@@ -631,11 +606,12 @@ onMounted(loadSavedCandidates)
 .detected-row > span:nth-child(2) { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .detected-row .material-symbols-outlined { color: var(--primary); font-size: 17px; }
 .detected-row small { color: var(--on-surface-variant); font-size: 10px; overflow-wrap: anywhere; }
-.section-editor { align-items: flex-start; flex-wrap: wrap; }
-.section-title-editor { min-width: 180px; }
-.section-setting { display: grid; gap: 4px; flex: 0 1 120px; color: var(--on-surface-variant); font-size: 10px; font-weight: 600; }
-.section-setting select, .section-setting input { box-sizing: border-box; min-width: 0; width: 100%; padding: 5px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--on-surface); font: inherit; font-size: 11px; font-weight: 400; }
-.section-order { flex-basis: 76px; }
+.section-preview-row { display: flex; align-items: flex-start; gap: 14px; min-width: 0; padding: 12px 10px; border-bottom: 1px solid var(--border); }
+.section-preview-row textarea { box-sizing: border-box; field-sizing: content; flex: 1; min-width: 0; min-height: 32px; width: 100%; padding: 5px 0; border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: transparent; color: var(--on-surface); font: inherit; font-size: 14px; line-height: 22px; resize: none; overflow: hidden; }
+.section-preview-row textarea:focus { outline: none; border-bottom-color: var(--primary); }
+.section-preview-row textarea:disabled { opacity: 1; -webkit-text-fill-color: var(--on-surface); }
+.section-level { flex-shrink: 0; padding-top: 7px; color: var(--on-surface-variant); font-size: 12px; line-height: 20px; }
+.template-fields summary { padding: 10px 0; cursor: pointer; color: var(--on-surface-variant); font-size: 13px; }
 .inline-editor { display: flex; align-items: center; flex: 1; min-width: 0; gap: 7px; }
 .inline-editor input { flex: 1; min-width: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--on-surface); font: inherit; padding: 4px 2px; }
 .inline-editor input:focus { outline: none; border-bottom-color: var(--primary); }
@@ -676,5 +652,19 @@ onMounted(loadSavedCandidates)
 .access-state > .material-symbols-outlined { color: var(--on-surface-variant); font-size: 36px; }
 .access-state h2 { margin: 0; font-size: 20px; }
 .access-state p { margin: 0 0 8px; color: var(--on-surface-variant); }
-@media (max-width: 800px) { .publisher-page { padding: 14px 14px 42px; } .publisher-header { padding-top: 6px; } .publisher-icon { display: none; } .publisher-steps { grid-template-columns: 1fr; } .publish-form { grid-template-columns: 1fr; align-items: stretch; } .publish-form button { width: 100%; } .success-panel { align-items: flex-start; flex-wrap: wrap; } .success-panel a { width: 100%; text-align: center; } .review-editor, .review-editor-wide { grid-template-columns: 1fr; } .field-editor { grid-template-columns: 1fr 1fr; } .field-editor input[readonly] { grid-column: 1 / -1; } .field-editor .check-editor { justify-self: start; } .rule-editor-grid { grid-template-columns: 1fr 1fr; } .rule-editor-grid input:first-child { grid-column: 1 / -1; } .section-setting, .section-order { flex-basis: calc(50% - 8px); } .section-title-editor { flex-basis: 100%; } .anchor-row { flex-wrap: wrap; } .anchor-row small { width: 100%; margin-left: 24px; text-align: left; } }
+@media (min-width: 769px) {
+  .publisher-page .publisher-header { padding: 0 0 12px; border-bottom: 0; }
+  .publisher-page .publisher-header .workspace-kicker { margin-top: 6px; }
+  .publisher-deck .step-panel { padding: 14px; }
+  .publisher-deck .step-heading { margin-bottom: 10px; }
+  .publisher-deck .parser-upload { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .publisher-deck .file-picker { gap: 4px; margin: 0; }
+  .publisher-deck .file-picker input { padding: 6px; }
+  .publisher-deck .saved-picker { margin-top: 10px; gap: 4px; }
+  .publisher-deck .candidate-summary { grid-template-columns: minmax(0, 1fr) auto; margin-top: 10px; padding-top: 10px; gap: 6px 12px; }
+  .publisher-deck .candidate-summary > :is(.review-heading, .review-summary) { grid-column: 1; }
+  .publisher-deck .candidate-summary > button { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+}
+@media (max-width: 800px) { .publisher-page { padding: 14px 14px 42px; } .publisher-header { padding-top: 6px; } .publisher-icon { display: none; } .publisher-steps { grid-template-columns: 1fr; } .publish-form { grid-template-columns: 1fr; align-items: stretch; } .publish-form button { width: 100%; } .success-panel { align-items: flex-start; flex-wrap: wrap; } .success-panel a { width: 100%; text-align: center; } .review-editor, .review-editor-wide { grid-template-columns: 1fr; } .field-editor { grid-template-columns: 1fr 1fr; } .field-editor input[readonly] { grid-column: 1 / -1; } .field-editor .check-editor { justify-self: start; } .rule-editor-grid { grid-template-columns: 1fr 1fr; } .rule-editor-grid input:first-child { grid-column: 1 / -1; } .anchor-row { flex-wrap: wrap; } .anchor-row small { width: 100%; margin-left: 24px; text-align: left; } }
+@media (max-width: 480px) { .section-preview-row { gap: 8px; } .section-level { font-size: 11px; } }
 </style>

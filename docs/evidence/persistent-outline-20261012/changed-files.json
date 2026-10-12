@@ -1,0 +1,18 @@
+{
+  "frontend/e2e/ui-refactor.spec.ts": {
+    "before": "7ce570f48f72bc616dd7595f1941d83b7b5300d6aa323ba6a3631e3a14e7e998",
+    "after": "c2c8f9f97fb65794959ee1fd9948c19a0f325c38a98062af3c23787a221970da"
+  },
+  "frontend/src/style.css": {
+    "before": "38e26c1862f96c29b12e43b5ba75bee9f7ecf4d417565b939586666be8fb8c67",
+    "after": "de819885f0fa29f4895c8a5f8c36435f6acd7ac02cb9643647e62b47da3119d7"
+  },
+  "frontend/src/views/Writer.vue": {
+    "before": "28874880cecf090485bcd67f9ca631ae0075c79a4a171aa8c2f03ad189917261",
+    "after": "b9c8a87d860ac16158c51710dbb301c72dec850300eaee425ce07fb544d8941c"
+  },
+  "frontend/tests/UiReviewRegression.test.js": {
+    "before": "278b60cb2f800f50317490a771f61a9f2b71288f44ecd0e1a253f6c8b1560cc3",
+    "after": "e7e6a640eed0f0fb06248b60d430a48451e0f802dcb0fbce93950b6316545e56"
+  }
+}

@@ -22,7 +22,7 @@
       <h5>{{ section.title || section.key }}</h5>
       <div v-for="block in (section.paragraphs || [])" :key="block.id" class="snapshot-block">
         <p v-if="block.type === 'paragraph'">{{ block.text || t('reviewEvidence.emptyParagraph') }}</p>
-        <div v-else-if="block.type === 'table'" class="snapshot-table">
+        <div v-else-if="block.type === 'table'" class="snapshot-table" tabindex="0" role="region" :aria-label="block.table?.caption || t('reviewEvidence.table')">
           <strong>{{ block.table?.caption || t('reviewEvidence.table') }}</strong>
           <div v-for="(row, rowIndex) in (block.table?.cells || [])" :key="rowIndex">{{ row.join(' | ') }}</div>
         </div>

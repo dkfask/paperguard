@@ -1,0 +1,67 @@
+{
+  "base_head": "5971f506d889caa4bcaa26f751ddd66cf067460d",
+  "application_source_sha256": "5a9ba56f3e6a833a7d3d5840299ed1185bf854178f49a38cb9ddfb7cedaeb242",
+  "local_only": true,
+  "checks": [
+    {
+      "name": "frontend build",
+      "command": "cd frontend && npm run build",
+      "status": "passed",
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/dynamic-build-final7.log"
+    },
+    {
+      "name": "frontend types",
+      "command": "cd frontend && npm run typecheck",
+      "status": "passed",
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/dynamic-typecheck-final7.log"
+    },
+    {
+      "name": "college admin",
+      "command": "cd frontend && npm run check:college-admin",
+      "status": "passed",
+      "test_files": 4,
+      "tests": 5,
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/dynamic-check-college-admin-final7.log"
+    },
+    {
+      "name": "paragraph splitter",
+      "command": "cd frontend && npm run test:paragraphs",
+      "status": "passed",
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/dynamic-test-paragraphs-final7.log"
+    },
+    {
+      "name": "frontend unit",
+      "command": "cd frontend && npm run test",
+      "status": "passed",
+      "test_files": 24,
+      "tests": 102,
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/dynamic-test-final7.log"
+    },
+    {
+      "name": "backend unit",
+      "command": "cd backend && /Users/a1234/Documents/perpetual/paperguard/.venv/bin/python -m pytest -q",
+      "status": "passed",
+      "tests": 1098,
+      "warnings": 2,
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/dynamic-backend.log"
+    },
+    {
+      "name": "all page desktop viewport",
+      "command": "cd frontend && npm run test:e2e -- all-pages-viewport.spec.ts --project=chromium",
+      "status": "passed",
+      "tests": 9,
+      "route_role_viewport_combinations": 176,
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/dynamic-all-pages-final2.log"
+    },
+    {
+      "name": "business desktop and mobile",
+      "command": "cd frontend && npm run test:e2e -- document-platform.spec.ts ui-refactor.spec.ts admin-workspace-viewport.spec.ts",
+      "status": "passed",
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/dynamic-business-final2.log",
+      "tests": 28
+    }
+  ],
+  "diff_hygiene": "passed",
+  "credential_pattern_scan": "no_findings",
+  "audit_result": "READY_LOCAL"
+}

@@ -14,7 +14,7 @@
   --card: #ffffff;
 
   --on-surface: #172033;
-  --on-surface-variant: #697386;
+  --on-surface-variant: #596579;
   --muted: var(--on-surface-variant);
   --inverse-surface: #12213d;
   --inverse-on-surface: #eaf1ff;
@@ -1178,8 +1178,8 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   .workspace-page { padding: 18px 0 32px; }
   .workspace-hero { flex-direction: column; }
   .workspace-hero h1 { font-size: 21px; }
-  .workspace-stats { grid-template-columns: 1fr; gap: 12px; }
-  .workspace-stats > div { min-height: 104px; }
+  .workspace-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .workspace-stats > div { min-height: 0; padding: 12px; gap: 4px; }
   .workspace-focus-content { align-items: flex-start; flex-direction: column; }
   .workspace-action { width: 100%; justify-content: center; }
   .workspace-task-row, .workspace-review-row, .workspace-material-row, .workspace-cohort-row { align-items: flex-start; flex-wrap: wrap; }
@@ -1203,227 +1203,497 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
    --------------------------------------------------------------------------
    The shell owns the desktop viewport. Page roots keep the homepage's compact
    surface language while long lists and editors scroll inside their work area.
-   Mobile keeps the existing document flow below 1101px.
+   Desktop and tablet windows use bounded work areas, including the compact
+   menu layout below 901px. Phones retain their existing document flow.
 */
-@media (min-width: 1101px) {
-  .app-shell-page > .workspace-page,
-  .app-shell-page > .writing-home,
-  .app-shell-page > .workflow-page,
-  .app-shell-page > .org-page,
-  .app-shell-page > .document-page,
-  .app-shell-page > .publisher-page,
-  .app-shell-page > .editor-page,
-  .app-shell-page > .writer-shell,
-  .app-shell-page > .route-state-page,
-  .app-shell-page > .card {
+@media (min-width: 769px) {
+  .app-shell-viewport .app-shell-page :is(input, textarea, select, button, a[href], summary) {
+    scroll-margin: 8px;
+  }
+  .app-shell-viewport .app-shell-page > .workspace-page,
+  .app-shell-viewport .app-shell-page > .writing-home,
+  .app-shell-viewport .app-shell-page > .workflow-page,
+  .app-shell-viewport .app-shell-page > .org-page,
+  .app-shell-viewport .app-shell-page > .document-page,
+  .app-shell-viewport .app-shell-page > .publisher-page,
+  .app-shell-viewport .app-shell-page > .editor-page,
+  .app-shell-viewport .app-shell-page > .writer-shell,
+  .app-shell-viewport .app-shell-page > .route-state-page,
+  .app-shell-viewport .app-shell-page > .card {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    width: 100%;
     height: 100%;
     overflow: hidden;
   }
 
-  .app-shell-page > .workspace-page,
-  .app-shell-page > .writing-home,
-  .app-shell-page > .workflow-page,
-  .app-shell-page > .org-page,
-  .app-shell-page > .document-page,
-  .app-shell-page > .publisher-page,
-  .app-shell-page > .editor-page {
+  .app-shell-viewport .app-shell-page > .workspace-page,
+  .app-shell-viewport .app-shell-page > .writing-home,
+  .app-shell-viewport .app-shell-page > .workflow-page,
+  .app-shell-viewport .app-shell-page > .org-page,
+  .app-shell-viewport .app-shell-page > .document-page,
+  .app-shell-viewport .app-shell-page > .publisher-page,
+  .app-shell-viewport .app-shell-page > .editor-page {
     display: flex;
     flex-direction: column;
   }
 
-  .app-shell-page > .workspace-page {
+  .app-shell-viewport .app-shell-page > .workspace-page {
     gap: 12px;
     padding-top: 16px;
     padding-bottom: 16px;
   }
 
-  .app-shell-page > .workspace-page > .workspace-hero,
-  .app-shell-page > .workspace-page > .workspace-stats,
-  .app-shell-page > .workspace-page > .error-banner,
-  .app-shell-page > .workspace-page > .ok-banner,
-  .app-shell-page > .workspace-page > .saved-banner {
+  .app-shell-viewport .app-shell-page > .workspace-page > .workspace-hero,
+  .app-shell-viewport .app-shell-page > .workspace-page > .workspace-stats,
+  .app-shell-viewport .app-shell-page > .workspace-page > .error-banner,
+  .app-shell-viewport .app-shell-page > .workspace-page > .ok-banner,
+  .app-shell-viewport .app-shell-page > .workspace-page > .saved-banner {
     flex: 0 0 auto;
     margin-bottom: 0;
   }
 
-  .app-shell-page > .workspace-page > .workspace-layout,
-  .app-shell-page > .workspace-page > .template-layout,
-  .app-shell-page > .workspace-page > .policy-layout,
-  .app-shell-page > .workspace-page > .org-layout,
-  .app-shell-page > .workspace-page > .workflow-layout {
+  .app-shell-viewport .app-shell-page > .workspace-page > .workspace-layout,
+  .app-shell-viewport .app-shell-page > .workspace-page > .template-layout,
+  .app-shell-viewport .app-shell-page > .workspace-page > .policy-layout,
+  .app-shell-viewport .app-shell-page > .workspace-page > .org-layout,
+  .app-shell-viewport .app-shell-page > .workspace-page > .workflow-layout {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
     overflow: hidden;
   }
 
-  .app-shell-page .workspace-main,
-  .app-shell-page .workspace-side,
-  .app-shell-page .workflow-main,
-  .app-shell-page .workflow-side,
-  .app-shell-page .org-layout > *,
-  .app-shell-page .template-layout > *,
-  .app-shell-page .policy-layout > * {
+  .app-shell-viewport .app-shell-page .workspace-main,
+  .app-shell-viewport .app-shell-page .workspace-side,
+  .app-shell-viewport .app-shell-page .workflow-main,
+  .app-shell-viewport .app-shell-page .workflow-side,
+  .app-shell-viewport .app-shell-page .org-layout > *,
+  .app-shell-viewport .app-shell-page .template-layout > *,
+  .app-shell-viewport .app-shell-page .policy-layout > * {
     min-height: 0;
+    min-width: 0;
   }
 
-  .app-shell-page .workspace-main,
-  .app-shell-page .workspace-side,
-  .app-shell-page .workflow-main,
-  .app-shell-page .workflow-side {
+  .app-shell-viewport .app-shell-page .workspace-main,
+  .app-shell-viewport .app-shell-page .workspace-side,
+  .app-shell-viewport .app-shell-page .workflow-main,
+  .app-shell-viewport .app-shell-page .workflow-side {
     overflow: auto;
     overscroll-behavior: contain;
-    scroll-padding-block: 8px;
+    scroll-padding: 8px;
     scrollbar-gutter: stable;
   }
 
-  .app-shell-page .workspace-main > .panel,
-  .app-shell-page .workspace-side > .panel,
-  .app-shell-page .workflow-main > .panel,
-  .app-shell-page .workflow-side > .panel,
-  .app-shell-page .template-layout > .panel,
-  .app-shell-page .policy-layout > .panel,
-  .app-shell-page .org-layout > .card {
+  .app-shell-viewport .app-shell-page .workspace-main > .panel,
+  .app-shell-viewport .app-shell-page .workspace-side > .panel,
+  .app-shell-viewport .app-shell-page .workflow-main > .panel,
+  .app-shell-viewport .app-shell-page .workflow-side > .panel,
+  .app-shell-viewport .app-shell-page .template-layout > .panel,
+  .app-shell-viewport .app-shell-page .policy-layout > .panel,
+  .app-shell-viewport .app-shell-page .org-layout > .card {
     min-height: 0;
+    min-width: 0;
+    max-width: 100%;
   }
 
-  .app-shell-page > .workspace-page > .panel:last-of-type,
-  .app-shell-page > .workspace-page > .async-state {
+  .app-shell-viewport .app-shell-page > .workspace-page > .panel:last-of-type,
+  .app-shell-viewport .app-shell-page > .workspace-page > .async-state {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    max-width: 100%;
     overflow: auto;
     overscroll-behavior: contain;
-    scroll-padding-block: 8px;
+    scroll-padding: 8px;
     scrollbar-gutter: stable;
   }
 
-  .app-shell-page .workspace-page > .panel:only-of-type,
-  .app-shell-page .workspace-page > .panel.certification-panel,
-  .app-shell-page .workspace-page > .panel.template-editor-panel {
+  .app-shell-viewport .app-shell-page .workspace-page > .panel:only-of-type,
+  .app-shell-viewport .app-shell-page .workspace-page > .panel.certification-panel,
+  .app-shell-viewport .app-shell-page .workspace-page > .panel.template-editor-panel {
     flex: 1;
     overflow: auto;
     overscroll-behavior: contain;
-    scroll-padding-block: 8px;
+    scroll-padding: 8px;
     scrollbar-gutter: stable;
   }
 
-  .app-shell-page .workspace-page .table-scroll,
-  .app-shell-page .workspace-page .data-table-wrap,
-  .app-shell-page .workspace-page .user-table-wrap,
-  .app-shell-page .template-list,
-  .app-shell-page .policy-list,
-  .app-shell-page .style-table-wrap,
-  .app-shell-page .editor-main,
-  .app-shell-page .editor-aside,
-  .app-shell-page .unit-list,
-  .app-shell-page .members {
+  .app-shell-viewport .app-shell-page .workspace-page .table-scroll,
+  .app-shell-viewport .app-shell-page .workspace-page .data-table-wrap,
+  .app-shell-viewport .app-shell-page .workspace-page .user-table-wrap,
+  .app-shell-viewport .app-shell-page .template-list,
+  .app-shell-viewport .app-shell-page .policy-list,
+  .app-shell-viewport .app-shell-page .style-table-wrap,
+  .app-shell-viewport .app-shell-page .editor-main,
+  .app-shell-viewport .app-shell-page .editor-aside,
+  .app-shell-viewport .app-shell-page .unit-list,
+  .app-shell-viewport .app-shell-page .members {
     min-height: 0;
+    min-width: 0;
+    max-width: 100%;
     overflow: auto;
     overscroll-behavior: contain;
-    scroll-padding-block: 8px;
+    scroll-padding: 8px;
     scrollbar-gutter: stable;
   }
 
-  .app-shell-page > .writing-home {
+  .app-shell-viewport .app-shell-page > .writing-home {
     gap: 0;
   }
 
-  .app-shell-page > .writing-home > .writing-home-head,
-  .app-shell-page > .writing-home > .workspace-switcher,
-  .app-shell-page > .writing-home > .error-banner {
+  .app-shell-viewport .app-shell-page > .writing-home > .writing-home-head,
+  .app-shell-viewport .app-shell-page > .writing-home > .workspace-switcher,
+  .app-shell-viewport .app-shell-page > .writing-home > .error-banner {
     flex: 0 0 auto;
   }
 
-  .app-shell-page > .writing-home > .writing-projects,
-  .app-shell-page > .writing-home > .inspection-section {
+  .app-shell-viewport .app-shell-page > .writing-home > .writing-projects,
+  .app-shell-viewport .app-shell-page > .writing-home > .inspection-section {
     padding-bottom: 16px;
     flex: 1;
     min-height: 0;
-    overflow: auto;
-    overscroll-behavior: contain;
-    scroll-padding-block: 8px;
-    scrollbar-gutter: stable;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
   }
 
-  .app-shell-page > .workflow-page {
+  .app-shell-viewport .app-shell-page > .workflow-page {
+    gap: 12px;
     padding-top: 16px;
     padding-bottom: 16px;
   }
 
-  .app-shell-page > .workflow-page > .workflow-hero,
-  .app-shell-page > .workflow-page > .workflow-summary,
-  .app-shell-page > .workflow-page > .workflow-tabs,
-  .app-shell-page > .workflow-page > .workflow-sync-state,
-  .app-shell-page > .workflow-page > .error-banner,
-  .app-shell-page > .workflow-page > .ok-banner {
+  .app-shell-viewport .app-shell-page > .workflow-page > .workflow-hero,
+  .app-shell-viewport .app-shell-page > .workflow-page > .workflow-summary,
+  .app-shell-viewport .app-shell-page > .workflow-page > .workflow-tabs,
+  .app-shell-viewport .app-shell-page > .workflow-page > .workflow-sync-state,
+  .app-shell-viewport .app-shell-page > .workflow-page > .error-banner,
+  .app-shell-viewport .app-shell-page > .workflow-page > .ok-banner {
     flex: 0 0 auto;
-    margin-bottom: 0;
+    margin-block: 0;
   }
 
-  .app-shell-page > .workflow-page > .workflow-layout {
+  .app-shell-viewport .app-shell-page > .workflow-page > .workflow-layout {
     display: grid;
+    flex: 1;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
   }
 
-  .app-shell-page > .org-page,
-  .app-shell-page > .document-page,
-  .app-shell-page > .publisher-page,
-  .app-shell-page > .editor-page {
+  .app-shell-viewport .app-shell-page > .org-page,
+  .app-shell-viewport .app-shell-page > .document-page,
+  .app-shell-viewport .app-shell-page > .publisher-page,
+  .app-shell-viewport .app-shell-page > .editor-page {
     padding-top: 16px;
     padding-bottom: 16px;
   }
 
-  .app-shell-page > .org-page > .page-head,
-  .app-shell-page > .document-page > .document-hero,
-  .app-shell-page > .publisher-page > .publisher-header,
-  .app-shell-page > .editor-page > .editor-header {
+  .app-shell-viewport .app-shell-page > .org-page > .page-head,
+  .app-shell-viewport .app-shell-page > .document-page > .document-hero,
+  .app-shell-viewport .app-shell-page > .publisher-page > .publisher-header,
+  .app-shell-viewport .app-shell-page > .editor-page > .editor-header {
     flex: 0 0 auto;
     margin-bottom: 0;
   }
 
-  .app-shell-page > .org-page > .org-layout,
-  .app-shell-page > .document-page > .document-section,
-  .app-shell-page > .publisher-page > .publisher-steps,
-  .app-shell-page > .editor-page > .editor-layout {
+  .app-shell-viewport .app-shell-page > .org-page > .org-layout,
+  .app-shell-viewport .app-shell-page > .document-page > .document-section,
+  .app-shell-viewport .app-shell-page > .publisher-page > .publisher-steps,
+  .app-shell-viewport .app-shell-page > .editor-page > .editor-layout {
     min-height: 0;
     flex: 1;
     overflow: hidden;
   }
 
-  .app-shell-page > .org-page .unit-list,
-  .app-shell-page > .org-page .editor,
-  .app-shell-page > .org-page .members,
-  .app-shell-page > .document-page .document-section,
-  .app-shell-page > .publisher-page .step-panel,
-  .app-shell-page > .editor-page .editor-aside,
-  .app-shell-page > .editor-page .editor-main {
+  .app-shell-viewport .app-shell-page > .org-page .unit-list,
+  .app-shell-viewport .app-shell-page > .org-page .editor,
+  .app-shell-viewport .app-shell-page > .org-page .members,
+  .app-shell-viewport .app-shell-page > .document-page .document-section,
+  .app-shell-viewport .app-shell-page > .publisher-page .step-panel,
+  .app-shell-viewport .app-shell-page > .editor-page .editor-aside,
+  .app-shell-viewport .app-shell-page > .editor-page .editor-main {
     overflow: auto;
     overscroll-behavior: contain;
-    scroll-padding-block: 8px;
+    scroll-padding: 8px;
     scrollbar-gutter: stable;
   }
 
-  .app-shell-page > .org-page > .members {
+  .app-shell-viewport .app-shell-page > .org-page > .members {
     flex: 0 1 30%;
     min-height: 0;
+    min-width: 0;
+    max-width: 100%;
     overflow: auto;
     overscroll-behavior: contain;
-    scroll-padding-block: 8px;
+    scroll-padding: 8px;
     scrollbar-gutter: stable;
   }
 
-  .app-shell-page > .writer-shell {
+  .app-shell-viewport .app-shell-page > .writer-shell {
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
 
-  .app-shell-page > .writer-shell > .writer-command-bar {
+  .app-shell-viewport .app-shell-page > .writer-shell > .writer-command-bar {
     flex: 0 0 auto;
   }
 
-  .app-shell-page > .writer-shell > .writer-columns {
+  .app-shell-viewport .app-shell-page > .writer-shell > .writer-columns {
     flex: 1;
     min-height: 0;
   }
 }
+
+/* Match compact desktop panels to the space left by the navigation rail. */
+@media (min-width: 769px) and (max-width: 1100px) {
+  .app-shell-viewport .app-shell-page .workspace-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .app-shell-viewport .app-shell-page .workspace-stats > div,
+  .app-shell-viewport .app-shell-page .workflow-summary > div {
+    min-width: 0;
+    min-height: 0;
+    padding: 12px;
+  }
+  .app-shell-viewport .app-shell-page .workspace-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, .65fr);
+  }
+  .app-shell-viewport .app-shell-page .workflow-layout {
+    grid-template-columns: minmax(0, 1fr) 190px;
+    gap: 12px;
+  }
+  .app-shell-viewport .app-shell-page .workspace-hero { gap: 12px; }
+  .app-shell-viewport .app-shell-page .workspace-identity,
+  .app-shell-viewport .app-shell-page .workflow-identity { display: none; }
+}
+
+@media (min-width: 769px) {
+  .app-shell-viewport .app-shell-page .workflow-summary {
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 8px;
+  }
+}
+
+/* One active section per work surface; data remains mounted while switching. */
+.screen-deck { display: flex !important; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow: hidden !important; }
+.screen-deck-tabs { display: flex; flex: 0 0 auto; gap: 6px; flex-wrap: wrap; }
+.screen-deck-tabs button { min-height: 34px; padding: 7px 12px; border-radius: 8px; background: var(--surface-container-lowest); }
+.screen-deck-tabs button.active { background: var(--primary-fixed); color: var(--primary); border-color: var(--primary); }
+.screen-deck-stage { flex: 1; min-height: 0; min-width: 0; }
+.screen-deck-pane { height: 100%; min-height: 0; min-width: 0; }
+.screen-deck-pane[hidden] { display: none !important; }
+.screen-deck-pane > .panel, .screen-deck-pane > section { height: 100%; min-height: 0; margin: 0; display: flex; flex-direction: column; overflow: auto; }
+.screen-pane-active { animation: screen-pane-reveal .2s ease; }
+.screen-collection { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.screen-collection-body { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.screen-collection-body > * { flex-shrink: 0; animation: screen-reveal .18s ease; }
+.screen-pager { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 36px; }
+.screen-pager span { margin-right: auto; color: var(--on-surface-variant); font-size: 12px; }
+.screen-pager button { min-width: 32px; height: 32px; padding: 0 8px; }
+.screen-panel { display: flex; flex-direction: column; min-height: 0; }
+@keyframes screen-pane-reveal { from { opacity: .4; transform: scale(.995); } to { opacity: 1; transform: scale(1); } }
+@keyframes screen-reveal { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (min-width: 769px) {
+  .app-shell-viewport .screen-deck { flex: 1; padding: 0; }
+  .app-shell-viewport .screen-collection-body { overflow: hidden; }
+  .app-shell-viewport .workspace-main.screen-deck, .app-shell-viewport .workspace-side.screen-deck { overflow: hidden; }
+  .app-shell-viewport .workspace-main.screen-deck .workspace-panel-body { max-height: none; }
+  .app-shell-viewport .screen-deck-pane > .panel > .panel-heading { flex: 0 0 auto; }
+}
+@media (max-width: 768px) { .screen-deck-stage, .screen-deck-pane, .screen-deck-pane > section { height: auto; } .screen-collection-body { flex: none; } }
+@media (prefers-reduced-motion: reduce) { .screen-pane-active, .screen-collection-body > * { animation: none; } }
+
+.app-shell-viewport .workflow-main:has(> .workflow-task-pages) { display: flex; flex-direction: column; overflow: hidden; }
+.app-shell-viewport .workflow-main:has(> .workflow-task-pages) > .section-title-row { flex: 0 0 auto; }
+.student-task-summary { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 16px !important; text-align: left; min-height: 78px; margin: 0; border-left: 3px solid var(--primary); }
+.student-task-summary .task-copy { flex: 1; min-width: 0; }
+.student-task-summary .task-copy strong, .student-task-summary .task-copy span { display: block; overflow-wrap: anywhere; }
+.student-task-summary .task-copy span, .task-summary-state small { font-size: 11px; color: var(--on-surface-variant); margin-top: 4px; }
+.task-summary-state { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+.base-modal-body .student-task { margin: 0; }
+.document-deck { flex: 1; }
+
+/* Size each active work surface; only details and editable prose scroll. */
+.screen-summary-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; text-align: left; padding: 12px; }
+.screen-summary-row small { display: block; font-size: 12px; color: var(--on-surface-variant); margin-top: 4px; }
+.screen-form-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+.screen-form-section > h3 { margin: 0; }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+.screen-deck-tabs { flex-wrap: wrap; padding-bottom: 2px; }
+.screen-deck-tabs button { flex-shrink: 0; }
+@media (min-width: 769px) {
+  .app-shell-viewport .screen-deck-pane > :is(section, article, .panel, .org-layout) { height: 100%; min-height: 0; margin: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .app-shell-viewport .workspace-panel-body:has(.screen-collection),
+  .app-shell-viewport :is(.workspace-cohort-list, .workspace-archive-list, .workspace-task-list, .workspace-material-list, .workspace-review-list, .package-grid, .project-list, .cohort-list, .material-list, .reference-list, .process-inbox-list, .unit-list, .theses-list):has(.screen-collection) { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+  .app-shell-viewport :is(.templates-page, .admin-users-page, .audit-page) > .panel { display: flex; flex-direction: column; overflow: hidden !important; }
+  .app-shell-viewport .policy-layout { grid-template-columns: minmax(0, 1fr); }
+  .app-shell-viewport .policy-list-panel, .app-shell-viewport .policy-list { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .app-shell-viewport .policy-list { flex: 1; }
+  .app-shell-viewport .template-editor-panel { display: flex; flex-direction: column; overflow: hidden !important; }
+  .app-shell-viewport .template-form-deck .editor-section-title { margin: 0; padding-top: 0; border-top: 0; }
+  .app-shell-viewport .template-form-deck :is(.template-description-field, .structure-edit-toggle, .field-hint) { margin: 0; }
+  .app-shell-viewport .template-form-deck .policy-binding { padding: 10px; gap: 8px; }
+  .app-shell-viewport .template-form-deck .policy-select-label select { min-height: 72px; }
+
+  .app-shell-viewport .org-layout { display: flex; flex: 1; overflow: hidden; }
+  .app-shell-viewport .org-layout > .unit-list { flex: 1; }
+  .app-shell-viewport .members { display: flex; flex-direction: column; }
+  .app-shell-viewport .editor-layout { grid-template-columns: minmax(0, 1fr); }
+  .app-shell-viewport .editor-main { padding: 0; overflow: hidden; }
+  .app-shell-viewport .editor-main .editor-section { overflow: auto; }
+  .app-shell-viewport .writer-shell .writer-columns {
+    display: grid;
+    grid-template-columns: 225px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .app-shell-viewport .writer-columns > .editor-pane { flex: 1; width: 100%; min-height: 0; padding: 16px 24px; overflow: auto; }
+  .app-shell-viewport .writing-projects { display: flex; flex-direction: column; min-height: 0; gap: 10px; overflow: hidden !important; }
+  .app-shell-viewport .writing-projects > * { flex-shrink: 0; margin-block: 0; }
+  .app-shell-viewport .writing-projects > .theses-list { flex: 1; flex-shrink: 1; min-height: 0; }
+  .app-shell-viewport .continue-writing-panel { padding: 12px 16px; margin-bottom: 0; }
+  .app-shell-viewport .writing-utilities { padding-top: 8px; margin-top: 0; }
+  .app-shell-viewport .audit-filter-panel { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+  .app-shell-viewport .audit-filter-panel .panel-heading { flex: 1; margin: 0; border: 0; padding-bottom: 0; }
+  .app-shell-viewport .screen-deck-pane :is(.panel-heading, .section-heading, .step-heading) { flex: 0 0 auto; }
+  .app-shell-viewport .workflow-main.screen-deck, .app-shell-viewport .workflow-side { overflow: hidden; }
+  .app-shell-viewport .workflow-main .screen-deck-pane > .screen-collection { height: 100%; }
+}
+@media (min-width: 769px) {
+  .app-shell-viewport .writing-home .inspection-section { display: flex; flex-direction: column; gap: 12px; padding-bottom: 16px; }
+  .app-shell-viewport .inspection-section > :is(.check-options-bar, .template-upload-card, .run-inspection-bar) { flex: 0 0 auto; margin: 0; }
+  .app-shell-viewport .inspection-section .stitch-dropzone { flex: 1; min-height: 0; padding: 16px 20px; gap: 8px; }
+  .app-shell-viewport .inspection-section .dropzone-icon-circle { flex: 0 0 40px; width: 40px; height: 40px; margin: 0; }
+  .app-shell-viewport .inspection-section :is(.dropzone-title, .dropzone-subtitle) { margin: 0; overflow-wrap: anywhere; }
+  .app-shell-viewport .inspection-section > button { flex: 0 0 auto; align-self: flex-end; }
+  .app-shell-viewport .writing-home .writing-projects { padding-top: 12px; }
+  .app-shell-viewport .writing-home .continue-writing-panel { padding: 10px 16px; min-height: 0; margin: 0; }
+  .app-shell-viewport .writing-home .continue-writing-progress { margin-top: 6px; }
+  .app-shell-viewport .writing-home .writing-home-head { padding: 16px 0 14px; }
+  .app-shell-viewport .writing-home .continue-writing-panel h2 { font-size: 18px; margin: 4px 0; }
+  .app-shell-viewport .writing-home .writing-projects .section-heading-row { margin: 0; padding: 0; }
+  .app-shell-viewport .writing-home .writing-utilities { padding-top: 8px; margin-top: 0; }
+  .app-shell-viewport .template-list-panel, .app-shell-viewport .template-list { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .app-shell-viewport .template-list { flex: 1; }
+  .app-shell-viewport .template-list-panel > :not(.template-list) { flex: 0 0 auto; }
+  .app-shell-viewport .template-layout .workspace-side.screen-deck { overflow: hidden; }
+}
+@media (min-width: 769px) and (max-width: 1360px) {
+  .app-shell-viewport .writer-shell .writer-columns { grid-template-columns: 180px minmax(0, 1fr); }
+}
+@media (min-width: 769px) and (max-width: 1100px) {
+  .app-shell-viewport .writer-shell .writer-columns { grid-template-columns: 150px minmax(0, 1fr); }
+}
+.screen-drawer .create-thesis-bar { display: flex; flex-direction: column; align-items: stretch; }
+.screen-drawer .create-thesis-bar > * { width: 100%; }
+.screen-drawer :is(.sidebar, .writer-context) { position: static; width: 100%; max-height: none; border: 0; padding: 0; }
+.screen-drawer .editor-aside { max-height: none; }
+.screen-drawer .screen-collection-body { overflow: auto; }
+.screen-drawer .policy-editor-panel { display: flex; flex-direction: column; }
+.screen-drawer .screen-deck { min-height: 260px; }
+.screen-drawer .screen-deck-pane > :is(.screen-form-section, .panel) { height: auto; }
+@media (min-width: 769px) {
+  .app-shell-viewport .templates-page .template-layout { grid-template-columns: minmax(0, 1fr) minmax(180px, .6fr); grid-template-rows: minmax(0, 1fr); gap: 12px; }
+  .app-shell-viewport .templates-page .template-row { padding: 12px; }
+  .app-shell-viewport .admin-users-page .workspace-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+.app-shell-viewport .workflow-layout-side-only > .workflow-main.screen-deck { display: none !important; }
+
+@media (min-width: 769px) {
+  .app-shell-viewport .document-page .document-hero { padding: 0 0 12px; border-bottom: 0; }
+  .app-shell-viewport .document-deck .document-section { padding: 12px 0; border-bottom: 0; }
+}
+
+@media (min-width: 769px) {
+  .app-shell-viewport .workflow-main > .section-title-row { margin: 0; }
+  .app-shell-viewport .workflow-main .reference-panel { padding: 12px; }
+  .app-shell-viewport .reference-panel .reference-row { padding: 6px 0; }
+}
+
+@media (min-width: 769px) {
+  .app-shell-viewport .workflow-main .create-panel {
+    padding: 12px 14px;
+  }
+  .app-shell-viewport .workflow-main .create-panel .panel-heading p {
+    margin-top: 2px;
+  }
+  .app-shell-viewport .workflow-main .create-panel .form-grid {
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .app-shell-viewport .workflow-main .create-panel .form-actions {
+    margin-top: 9px;
+  }
+  .app-shell-viewport .workflow-layout-single .history-panel {
+    padding: 12px 14px;
+  }
+  .app-shell-viewport .workflow-layout-single .history-panel .empty-state {
+    padding: 26px 12px;
+  }
+}
+
+/* Keep short desktop report states and authentication forms in their allotted pane. */
+@media (min-width: 769px) {
+  .app-shell-viewport .workflow-layout-single .report-panel { display: flex; flex-direction: column; padding: 12px 14px; height: 100%; min-height: 0; margin: 0; }
+  .app-shell-viewport .report-panel .panel-heading { flex: 0 0 auto; margin: 0; }
+  .app-shell-viewport .report-panel .report-filter { flex: 0 0 auto; grid-template-columns: auto minmax(0, 320px); align-items: center; margin-top: 10px; }
+  .app-shell-viewport .report-panel .async-state { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 12px; }
+  .app-shell-viewport .report-panel .report-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 10px; }
+  .app-shell-viewport .report-panel .report-metrics { margin-top: 10px; padding-top: 10px; }
+  .app-shell-host :is(.public-shell, .app-shell-viewport) .stitch-auth-page { height: 100%; min-height: 0; overflow: hidden; }
+  .app-shell-host .stitch-auth-page > .stitch-auth-header { flex: 0 0 52px; height: 52px; }
+  .app-shell-host .stitch-auth-page > .stitch-auth-bottom-footer { flex: 0 0 auto; padding: 10px 24px; }
+  .public-shell .stitch-auth-page .stitch-auth-main { min-height: 0; padding: 14px 16px; }
+  .public-shell .stitch-auth-page .auth-heading-box { margin-bottom: 12px; }
+  .public-shell .stitch-auth-page .auth-title { margin-top: 0; }
+  .public-shell .stitch-auth-page .stitch-auth-card { padding: 20px; }
+  .public-shell .stitch-auth-page .stitch-compliance-footer { margin-top: 12px; }
+  .public-shell .stitch-auth-page .register-main { min-height: 0; padding: 8px 20px; }
+  .public-shell .stitch-auth-page .register-columns.screen-deck { display: flex; flex-direction: column; gap: 8px; }
+  .public-shell .stitch-auth-page .register-card { padding: 12px 18px; max-width: 900px; margin-inline: auto; }
+  .public-shell .stitch-auth-page .register-card .brand-row { display: none; }
+  .public-shell .stitch-auth-page .register-card .card-title { margin: 0; font-size: 22px; }
+  .public-shell .stitch-auth-page .register-card .card-sub { margin: 6px 0 0; }
+  .public-shell .stitch-auth-page .register-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+  .public-shell .stitch-auth-page .register-form .form-field { margin: 0; min-width: 0; }
+  .public-shell .stitch-auth-page .register-form .form-field input { min-width: 0; height: 38px; }
+  .public-shell .stitch-auth-page .register-form .field-hint { margin: 4px 0 0; }
+  .public-shell .stitch-auth-page .register-email-field { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) 180px; gap: 0 16px; }
+  .public-shell .stitch-auth-page .register-email-field > label { grid-column: 1 / -1; }
+  .public-shell .stitch-auth-page .register-email-field .mt8 { margin: 0; }
+  .public-shell .stitch-auth-page .register-email-field .code-button { height: 38px; }
+  .public-shell .stitch-auth-page .register-form :is(.agree-row, .submit-button) { grid-column: 1 / -1; margin: 0; }
+  .public-shell .stitch-auth-page .register-form .submit-button { height: 40px; }
+  .public-shell .stitch-auth-page .register-card .login-link { margin: 8px 0 0; }
+  .public-shell .stitch-auth-page .brand-panel { gap: 10px; padding: 18px; }
+  .public-shell .stitch-auth-page .brand-panel .brand-statement { font-size: 25px; }
+  .public-shell .stitch-auth-page .brand-panel .feature-card { padding: 10px 12px; }
+  .app-shell-viewport .stitch-auth-page .first-login-main { min-height: 0; padding: 16px 20px; align-items: center; }
+  .app-shell-viewport .stitch-auth-page .first-login-card { width: min(100%, 620px); padding: 22px; }
+  .app-shell-viewport .stitch-auth-page .first-login-card h1 { margin-top: 10px; }
+  .app-shell-viewport .stitch-auth-page .first-login-card form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin-top: 14px; }
+  .app-shell-viewport .stitch-auth-page .first-login-card .code-field { min-width: 0; }
+  .app-shell-viewport .stitch-auth-page .first-login-card .code-row { min-width: 0; }
+  .app-shell-viewport .stitch-auth-page .first-login-card .submit-button { grid-column: 1 / -1; }
+}
+
+@media (min-width: 769px) {
+  .app-shell-viewport .role-sidebar { overflow: hidden; gap: 12px; padding: 16px 14px; }
+  .app-shell-viewport .role-sidebar .sidebar-context { padding-bottom: 12px; }
+  .app-shell-viewport .role-sidebar .sidebar-nav { gap: 8px; }
+  .app-shell-viewport .role-sidebar .screen-deck-tabs { gap: 3px; flex-wrap: nowrap; }
+  .app-shell-viewport .role-sidebar .screen-deck-tabs button { flex: 1 1 0; min-width: 0; white-space: normal; line-height: 1.3; min-height: 28px; padding: 4px 6px; font-size: 10px; color: #b8c5d8; background: transparent; border-color: rgba(255,255,255,.12); }
+  .app-shell-viewport .role-sidebar .screen-deck-tabs button.active { color: #fff; background: #263551; border-color: #718abe; }
+  .app-shell-viewport .role-sidebar .screen-deck-pane > :is(.sidebar-group, .sidebar-tools) { display: flex; flex-direction: column; gap: 3px; padding: 0; border: 0; overflow: hidden; }
+  .app-shell-viewport .role-sidebar :is(.sidebar-link, .sidebar-tool) { min-height: 30px; padding: 5px 8px; font-size: 12px; flex: 0 0 auto; }
+  .app-shell-viewport .role-sidebar .sidebar-footer { margin-top: 0; }
+}
+.workspace-notification-panel .notification-row > span:last-child { display: grid; gap: 2px; min-width: 0; }

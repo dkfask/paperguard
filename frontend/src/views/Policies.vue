@@ -7,7 +7,7 @@
         <p>{{ t('policies.description') }}</p>
       </div>
       <div class="resource-hero-actions">
-        <template v-if="canManage">
+        <template v-if="canManage && !emptyList">
           <button class="small primary" type="button" @click="newPolicy">
             <span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('policies.new') }}
           </button>
@@ -16,18 +16,17 @@
             {{ importing ? t('policies.aiParsing') : t('policies.aiImport') }}
           </button>
         </template>
-        <span v-else class="hero-readonly-label"><span class="material-symbols-outlined" aria-hidden="true">visibility</span>{{ t('policies.readonly') }}</span>
-        <input ref="aiImportFile" class="file-input-hidden" type="file"
+        <span v-else-if="!canManage" class="hero-readonly-label"><span class="material-symbols-outlined" aria-hidden="true">visibility</span>{{ t('policies.readonly') }}</span>
+        <input ref="aiImportFile" type="file" hidden :aria-label="t('policies.aiImport')"
                accept=".docx,.pdf,.md,.markdown,.txt" :disabled="importing" @change="importWithAi" />
       </div>
     </section>
 
-    <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+    <div v-if="error || (listError && policies.length)" class="error-banner" role="alert">{{ error || listError }}</div>
     <div class="policy-layout">
-      <section class="panel policy-list-panel">
-        <div class="panel-heading">
+      <section class="panel policy-list-panel" :class="{ 'policy-list-panel--state': loading || policies.length === 0 }">
+        <div v-if="!loading && policies.length" class="panel-heading">
           <div>
-            <p class="workspace-kicker">{{ t('policies.available') }}</p>
             <h2>{{ t('policies.available') }}</h2>
             <p>{{ t('policies.choose') }}</p>
           </div>
@@ -40,9 +39,26 @@
         </div>
 
         <AsyncState v-if="loading" state="loading" :title="t('policies.loading')" :detail="t('policies.loadingDetail')" />
-        <AsyncState v-else-if="policies.length === 0" state="empty" :title="t('policies.empty')" :detail="t('policies.emptyDetail')" :action-label="t('common.reload')" @action="loadPolicies" />
+        <AsyncState v-else-if="listError && policies.length === 0" state="error" :title="t('policies.loadFailed')" :detail="listError" :action-label="t('common.reload')" @action="loadPolicies" />
+        <div v-else-if="policies.length === 0" class="policy-empty-state">
+          <AsyncState state="empty" :title="t('policies.empty')" :detail="canManage ? t('policies.emptyManageDetail') : t('policies.emptyDetail')" />
+          <div class="policy-empty-actions">
+            <template v-if="canManage">
+              <button class="small primary" type="button" @click="newPolicy">
+                <span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('policies.new') }}
+              </button>
+              <button class="small" type="button" :disabled="importing" @click="openAiImport">
+                <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+                {{ importing ? t('policies.aiParsing') : t('policies.aiImport') }}
+              </button>
+            </template>
+            <button class="small" type="button" @click="loadPolicies">
+              <span class="material-symbols-outlined" aria-hidden="true">refresh</span>{{ t('common.refresh') }}
+            </button>
+          </div>
+        </div>
         <div v-else class="policy-list">
-          <button v-for="policy in policies" :key="policy.id" class="policy-list-item"
+          <ScreenCollection :items="policies" :row-height="72" v-slot="{ items: visibleItems }"><button v-for="policy in visibleItems" :key="policy.id" class="policy-list-item"
                   :class="{ active: draft.id === policy.id }" type="button" @click="selectPolicy(policy.id)">
             <span class="policy-list-item-icon"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span></span>
             <span class="policy-list-item-copy">
@@ -50,11 +66,11 @@
               <span class="policy-list-meta">{{ levelLabel(policy.level) }} · v{{ policy.version }}</span>
             </span>
             <span class="status-pill" :class="policy.status">{{ statusLabel(policy.status) }}</span>
-          </button>
+          </button></ScreenCollection>
         </div>
       </section>
 
-      <section class="panel policy-editor-panel">
+      <BaseModal presentation="drawer" :open="editing" :title="t('policies.editTitle')" @close="editing = false"><section class="panel policy-editor-panel">
         <div v-if="!editing" class="empty-editor">
           <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
           <h2>{{ t('policies.selectTitle') }}</h2>
@@ -73,7 +89,7 @@
             </div>
           </div>
 
-          <div class="form-grid">
+          <ScreenDeck><section class="screen-form-section"><h3>{{ t('screen.basic') }}</h3><div class="form-grid">
             <label>{{ t('policies.name') }}
               <input v-model="draft.name" :disabled="readOnly" :placeholder="t('policies.namePlaceholder')" />
             </label>
@@ -96,9 +112,6 @@
                 <option value="batch">{{ levelLabel('batch') }}</option><option value="teacher">{{ levelLabel('teacher') }}</option>
               </select>
             </label>
-            <label>{{ t('policies.scopeId') }}
-              <input v-model="draft.scope_id" :disabled="readOnly" :placeholder="t('policies.scopeIdPlaceholder')" />
-            </label>
             <label>{{ t('policies.stage') }}
               <input v-model="draft.stage" :disabled="readOnly" :placeholder="t('policies.stagePlaceholder')" />
             </label>
@@ -107,7 +120,7 @@
             </label>
           </div>
 
-          <div class="section-heading">
+          </section><section class="screen-form-section"><div class="section-heading">
             <div>
               <h3>{{ t('policies.bindings') }}</h3>
               <p>{{ t('policies.bindingsDetail') }}</p>
@@ -116,21 +129,21 @@
           </div>
           <div v-if="draft.bindings?.length" class="binding-list">
             <div v-for="(binding, index) in draft.bindings" :key="binding.id + index" class="binding-row">
-              <input v-model="binding.id" :disabled="readOnly" :placeholder="t('policies.bindingId')" />
-              <select v-model="binding.scope_type" :disabled="readOnly">
-                <option value="global">{{ levelLabel('global') }}</option><option value="school">{{ levelLabel('school') }}</option><option value="college">{{ levelLabel('college') }}</option>
-                <option value="major">{{ levelLabel('major') }}</option><option value="course">{{ levelLabel('course') }}</option><option value="batch">{{ levelLabel('batch') }}</option>
-                <option value="teacher">{{ levelLabel('teacher') }}</option><option value="student">{{ levelLabel('student') }}</option>
-              </select>
-              <input v-model="binding.scope_id" :disabled="readOnly || ['global', 'all'].includes(binding.scope_type)" :placeholder="t('policies.scopeId')" />
-              <input v-model.number="binding.priority" :disabled="readOnly" type="number" :placeholder="t('policies.priority')" />
+              <label>{{ t('policies.bindingScope') }}<select v-model="binding.scope_type" :aria-label="t('policies.bindingScope')" :disabled="readOnly" @change="binding.scope_id = ''">
+                <option v-for="type in bindingTypes(binding)" :key="type" :value="type">{{ levelLabel(type) }}</option>
+              </select></label>
+              <label v-if="!['global', 'all'].includes(binding.scope_type)">{{ t('policies.bindingTarget') }}<select v-model="binding.scope_id" :aria-label="t('policies.bindingTarget')" :disabled="readOnly">
+                <option value="">{{ t('policies.chooseTarget') }}</option>
+                <option v-if="binding.scope_id && !bindingTargets(binding.scope_type).some(item => item.id === binding.scope_id)" :value="binding.scope_id" disabled>{{ t('policies.unavailableTarget') }}</option>
+                <option v-for="item in bindingTargets(binding.scope_type)" :key="item.id" :value="item.id">{{ item.name }}</option>
+              </select></label>
               <label class="binding-enabled"><input v-model="binding.enabled" :disabled="readOnly" type="checkbox" />{{ t('common.enabled') }}</label>
               <button v-if="!readOnly" class="tiny danger" type="button" @click="draft.bindings.splice(index, 1)"><span class="material-symbols-outlined" aria-hidden="true">delete</span>{{ t('common.remove') }}</button>
             </div>
           </div>
           <div v-else class="inline-empty">{{ t('policies.notConfigured') }}</div>
 
-          <div class="section-heading">
+          </section><section class="screen-form-section"><div class="section-heading">
             <div>
               <h3>{{ t('policies.rules') }}</h3>
               <p>{{ t('policies.rulesDetail') }}</p>
@@ -187,7 +200,7 @@
             </div>
           </div>
 
-          <div class="section-heading markdown-heading">
+          </section><section class="screen-form-section"><div class="section-heading markdown-heading">
             <div>
               <h3>{{ t('policies.body') }}</h3>
               <p>{{ t('policies.bodyDetail') }}</p>
@@ -196,7 +209,7 @@
           <textarea v-model="draft.markdown_content" :disabled="readOnly" class="markdown-input"
                     :placeholder="t('policies.markdownPlaceholder')"></textarea>
 
-          <div class="section-heading">
+          </section><section class="screen-form-section"><div class="section-heading">
             <div>
               <h3>{{ t('policies.referenceDocs') }}</h3>
               <p>{{ t('policies.referenceDocsDetail') }}</p>
@@ -215,7 +228,7 @@
             <input ref="docFile" type="file" accept=".md,.markdown,.txt,.pdf,.doc,.docx" @change="uploadDocument" />
           </div>
 
-          <div class="editor-actions">
+          </section></ScreenDeck><div class="editor-actions">
             <span v-if="savedMessage" class="saved-message" role="status"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span>{{ savedMessage }}</span>
             <button v-if="canManage && draft.id && draft.status !== 'published'" class="small primary" type="button" :disabled="saving" @click="save">
               <span class="material-symbols-outlined" aria-hidden="true">save</span>{{ saving ? t('common.saving') : t('policies.saveDraft') }}
@@ -228,7 +241,7 @@
             <button v-if="canManage && !draft.id" class="small primary" type="button" :disabled="saving" @click="save"><span class="material-symbols-outlined" aria-hidden="true">add</span>{{ saving ? t('common.saving') : t('policies.new') }}</button>
           </div>
         </template>
-      </section>
+      </section></BaseModal>
     </div>
 
     <div class="policy-related-links">
@@ -236,19 +249,16 @@
       <RouterLink v-if="canViewAudit" to="/audit" class="policy-related-link"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span><span><strong>{{ t('templates.audit') }}</strong><small>{{ t('policies.auditRelated') }}</small></span><span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
     </div>
 
-    <div v-if="cloneModal" class="modal-mask" @click.self="cloneModal = false">
-      <div class="modal card">
-        <h3>{{ t('policies.cloneTitle') }}</h3>
+    <BaseModal :open="cloneModal" size="small" :title="t('policies.cloneTitle')" @close="cloneModal = false"><form @submit.prevent="confirmCloneVersion">
         <p class="hint">{{ t('policies.cloneDetail') }}</p>
         <label class="modal-field">{{ t('policies.version') }}
           <input v-model="cloneVersionInput" autofocus :placeholder="t('policies.versionPlaceholder')" />
         </label>
         <div class="modal-actions">
-          <button class="primary" :disabled="saving || !cloneVersionInput.trim()" @click="confirmCloneVersion">{{ t('policies.newVersion') }}</button>
-          <button @click="cloneModal = false">{{ t('common.cancel') }}</button>
+          <button class="primary" type="submit" :disabled="saving || !cloneVersionInput.trim()">{{ t('policies.newVersion') }}</button>
+          <button type="button" @click="cloneModal = false">{{ t('common.cancel') }}</button>
         </div>
-      </div>
-    </div>
+      </form></BaseModal>
     </div>
   <ConfirmDialog
     :open="confirmDialog.open"
@@ -263,11 +273,15 @@
 </template>
 
 <script setup>
+import BaseModal from '../components/base/BaseModal.vue'
+import ScreenDeck from '../components/ScreenDeck.vue'
+import ScreenCollection from '../components/ScreenCollection.vue'
 import { computed, onMounted, ref } from 'vue'
 import { auth, isManager } from '../auth'
 import AsyncState from '../components/AsyncState.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import {
+  fetchOrganizations, fetchCohorts, getAdminUsers, getTeacherStudents,
   archivePolicy, createPolicyVersion, deletePolicyDocument, downloadPolicyDocument, fetchPolicies, fetchPolicy,
   importPolicyWithAi, publishPolicy, savePolicy, submitPolicyReview, upgradePolicyProjects, uploadPolicyDocument,
 } from '../api'
@@ -275,11 +289,15 @@ import { useI18n } from '../i18n'
 
 const { t } = useI18n()
 const policies = ref([])
+const organizations = ref([])
+const cohorts = ref([])
+const scopeUsers = ref([])
 const loading = ref(true)
 const saving = ref(false)
 const bulkBusy = ref(false)
 const importing = ref(false)
 const error = ref('')
+const listError = ref('')
 const savedMessage = ref('')
 const editing = ref(false)
 const draft = ref(emptyPolicy())
@@ -290,6 +308,7 @@ const cloneVersionInput = ref('')
 const confirmBusy = ref(false)
 const confirmDialog = ref({ open: false, title: '', description: '', confirmLabel: t('common.confirm'), danger: false, action: null })
 const canManage = computed(() => isManager() && (auth.user?.role === 'admin' || auth.user?.status === 'active'))
+const emptyList = computed(() => !loading.value && !listError.value && policies.value.length === 0)
 // 底部「论文模板 / 审计记录」入口必须与后端门槛一致，否则点了只会看到 403 死路。
 const canUseTemplates = computed(() => auth.user?.role === 'admin'
   || (auth.user?.role === 'teacher' && auth.user?.status === 'active'))
@@ -334,20 +353,24 @@ function levelLabel(level) {
 async function loadPolicies() {
   loading.value = true
   error.value = ''
+  listError.value = ''
   try {
     policies.value = await fetchPolicies()
-    if (draft.value.id && policies.value.some((item) => item.id === draft.value.id)) await selectPolicy(draft.value.id)
-  } catch (e) { error.value = e.message || t('common.operationFailed') }
+    if (draft.value.id && policies.value.some((item) => item.id === draft.value.id)) await selectPolicy(draft.value.id, false)
+  } catch (e) { listError.value = e.message || t('common.operationFailed') }
   finally { loading.value = false }
 }
 
-async function selectPolicy(id) {
+async function selectPolicy(id, openEditor = true) {
   error.value = ''
   try {
     const value = await fetchPolicy(id)
+    if (!openEditor && draft.value.id !== id) return
     draft.value = { ...value, items: (value.items || []).map(formItem) }
-    editing.value = true
-    savedMessage.value = ''
+    if (openEditor) {
+      editing.value = true
+      savedMessage.value = ''
+    }
   } catch (e) { error.value = e.message || t('common.operationFailed') }
 }
 
@@ -364,6 +387,24 @@ function addItem() {
     min: '', max: '', severity: 'warning', enforce: 'soft', description: '',
     rule_pack_id: '', rule_pack_params: {}, rulePackParamsText: '',
   })
+}
+
+function bindingTargets(type) {
+  if (type === 'teacher' || type === 'student') return scopeUsers.value.filter(item => item.role === type).map(item => ({ id: item.id, name: item.display_name || item.username }))
+  const units = organizations.value.filter(item => item.type === type).map(item => ({ id: item.id, name: item.name }))
+  if (type === 'batch') units.push(...cohorts.value.map(item => ({ id: item.id, name: item.name })))
+  return [...new Map(units.map(item => [item.id, item])).values()]
+}
+function bindingTypes(binding) {
+  return [...new Set(['global', ...['school', 'college', 'major', 'course', 'batch', 'teacher', 'student'].filter(type => bindingTargets(type).length), binding.scope_type])]
+}
+async function loadBindingTargets() {
+  try {
+    const userPromise = !canManage.value ? Promise.resolve([]) : auth.user?.role === 'admin' ? getAdminUsers()
+      : auth.user?.role === 'teacher' ? getTeacherStudents().then(result => [auth.user, ...(result.students || []).map(item => ({ ...item, role: 'student' }))]) : Promise.resolve([auth.user])
+    const [units, batches, users] = await Promise.all([fetchOrganizations(), canManage.value ? fetchCohorts() : Promise.resolve([]), canManage.value ? userPromise : Promise.resolve([])])
+    organizations.value = units; cohorts.value = batches; scopeUsers.value = users.filter(Boolean)
+  } catch (e) { error.value = e.message || t('common.operationFailed') }
 }
 
 function addBinding() {
@@ -533,18 +574,10 @@ async function archive() {
   finally { saving.value = false }
 }
 
-onMounted(loadPolicies)
+onMounted(() => { loadPolicies(); loadBindingTargets() })
 </script>
 
 <style scoped>
-.file-input-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .hero-readonly-label {
   display: inline-flex;
   align-items: center;
@@ -559,15 +592,66 @@ onMounted(loadPolicies)
 }
 
 .policy-layout {
-  display: grid;
-  grid-template-columns: 288px minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 18px;
-  align-items: start;
 }
 
 .policy-list-panel,
 .policy-editor-panel {
   min-width: 0;
+}
+
+.policy-list-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.policy-list-panel--state {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.policy-empty-state {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 240px;
+}
+
+.policy-list-panel--state > .async-state {
+  flex: 1;
+  align-content: center;
+}
+
+.policy-list-panel--state > .async-state,
+.policy-empty-state :deep(.async-state) {
+  min-height: 0;
+  padding: 24px 12px;
+  border: 0;
+}
+
+.policy-empty-state :deep(.async-state h3) {
+  font-size: 20px;
+}
+
+.policy-empty-state :deep(.async-state p) {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.policy-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 12px 24px;
 }
 
 .policy-list-actions,
@@ -591,6 +675,10 @@ onMounted(loadPolicies)
 }
 
 .policy-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
   margin-top: 14px;
   border-top: 1px solid var(--border);
 }
@@ -614,8 +702,7 @@ onMounted(loadPolicies)
 }
 
 .policy-list-item.active {
-  margin-left: -9px;
-  padding-left: 9px;
+  padding-left: 6px;
   border-left: 3px solid var(--primary);
 }
 
@@ -1018,10 +1105,6 @@ onMounted(loadPolicies)
 }
 
 @media (max-width: 900px) {
-  .policy-layout {
-    grid-template-columns: 1fr;
-  }
-
   .rule-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1068,4 +1151,7 @@ onMounted(loadPolicies)
     grid-template-columns: 1fr;
   }
 }
+.binding-row { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.binding-row > label:not(.binding-enabled) { display: grid; gap: 6px; flex: 1 1 180px; font-size: 12px; color: var(--on-surface-variant); }
+.binding-row select { width: 100%; min-width: 0; }
 </style>

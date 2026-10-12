@@ -37,7 +37,7 @@ from app.services.document_render_jobs import (
 from app.services.document_access import (
     audit_document_access_denied,
     can_access_document_project,
-    document_context_visible,
+    document_package_visible,
     public_document_bundle,
 )
 from app.services.generic_docx_renderer import GenericDocxRenderError, render_document_project_to_docx
@@ -76,8 +76,7 @@ def _now() -> str:
 
 
 def _package_visible(store: Store, bundle: dict[str, Any], user: dict) -> bool:
-    context = bundle["package"].metadata.get("organization_context") or {}
-    return document_context_visible(store, user, context)
+    return document_package_visible(store, user, bundle["package"])
 
 
 def _ensure_project_access(store: Store, project: DocumentProject, user: dict) -> None:

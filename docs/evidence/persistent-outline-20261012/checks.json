@@ -1,0 +1,90 @@
+{
+  "frontend_unit": {
+    "command": "npm run test",
+    "passed": 128,
+    "files": 30,
+    "exit": 0
+  },
+  "typecheck": {
+    "command": "npm run typecheck",
+    "exit": 0
+  },
+  "build": {
+    "command": "npm run build",
+    "exit": 0
+  },
+  "college_admin": {
+    "command": "npm run check:college-admin",
+    "passed": 5,
+    "files": 4,
+    "exit": 0
+  },
+  "diff_check": {
+    "command": "git diff --check",
+    "exit": 0
+  },
+  "writer-outline": {
+    "tests": 6,
+    "failures": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "workspace errors, retry and panel navigation remain consistent on direct entry",
+        "project": "chromium",
+        "status": "PASS"
+      },
+      {
+        "name": "writer keeps its draft, editor instance and selection when panels and viewport change",
+        "project": "chromium",
+        "status": "PASS"
+      },
+      {
+        "name": "writer retains a failed Chinese draft and retries the same content",
+        "project": "chromium",
+        "status": "PASS"
+      },
+      {
+        "name": "workspace errors, retry and panel navigation remain consistent on direct entry",
+        "project": "mobile-chrome",
+        "status": "PASS"
+      },
+      {
+        "name": "writer keeps its draft, editor instance and selection when panels and viewport change",
+        "project": "mobile-chrome",
+        "status": "PASS"
+      },
+      {
+        "name": "writer retains a failed Chinese draft and retries the same content",
+        "project": "mobile-chrome",
+        "status": "PASS"
+      }
+    ]
+  },
+  "persistent-outline-lifecycle": {
+    "tests": 4,
+    "failures": 0,
+    "skipped": 2,
+    "cases": [
+      {
+        "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+        "project": "chromium",
+        "status": "PASS"
+      },
+      {
+        "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+        "project": "chromium",
+        "status": "SKIP"
+      },
+      {
+        "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+        "project": "mobile-chrome",
+        "status": "SKIP"
+      },
+      {
+        "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+        "project": "mobile-chrome",
+        "status": "PASS"
+      }
+    ]
+  }
+}
