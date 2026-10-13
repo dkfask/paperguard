@@ -12,6 +12,12 @@ export interface FirstLoginCompleteInput {
   new_password: string
 }
 
+export interface PasswordResetInput {
+  email: string
+  email_code: string
+  new_password: string
+}
+
 export interface OrganizationOption {
   id: string
   name: string
@@ -46,6 +52,12 @@ export const authApi = {
     authRequired: false,
     body: { email, purpose },
   }),
+  resetPassword: (payload: PasswordResetInput) => apiClient.request<{ ok: boolean }>({
+    url: '/api/auth/reset-password',
+    method: 'POST',
+    authRequired: false,
+    body: payload,
+  }),
   completeFirstLogin: (payload: FirstLoginCompleteInput) => apiClient.request<AuthResponse>({
     url: '/api/auth/first-login/complete',
     method: 'POST',
@@ -68,6 +80,7 @@ export const authApi = {
   changePassword: (currentPassword: string, newPassword: string) => apiClient.request<void>({
     url: '/api/auth/change-password',
     method: 'POST',
+    includeRequestId: false,
     body: { current_password: currentPassword, new_password: newPassword },
   }),
   logout: () => apiClient.request<void>({ url: '/api/auth/logout', method: 'POST' }),

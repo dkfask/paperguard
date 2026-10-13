@@ -1,0 +1,33 @@
+{
+  "base_head": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "branch": "codex/login-password-recovery",
+  "dirty_source": true,
+  "observed_at": "2026-10-13T02:42:20.213069+00:00",
+  "source_checksums": {
+    "backend/app/api/auth.py": "e789699ff3be0df58c976714cf90212079dec712888f71e34f33dc4fe512c5de",
+    "backend/app/auth.py": "aac4a2230df0dbe269cdb4e8d49e54e5bd16a8a69eb5ec8bf0ed375884d1991a",
+    "backend/app/services/password_recovery.py": "c0182ddd0bb2b619ad9ca3c6d85aa204e401dcd9e3863139186851c49e021693",
+    "backend/tests/test_password_recovery.py": "35931146a8c3c8372f212733884fe91f4973da7f0efeddf7303006a10042e69f",
+    "frontend/e2e/login-recovery.spec.ts": "802a690f2be02c623666564aa441d788d1b765d806e126ee21228ed36472cc01",
+    "frontend/src/api/client.js": "c96b87fda104c9ebca37136b26d359aba563c39db8b4101caf49de5e1b6b6886",
+    "frontend/src/features/auth/api.ts": "17b588bad69d96b3b4831bb3dbf8b243d6840a43bba32344e7c5060ec4db04bf",
+    "frontend/src/i18n.js": "8e522f9e17dfd3b813fd5dbbee704cdf3ec719adf298f81998811f4c1965cb9b",
+    "frontend/src/shared/api/client.ts": "d718b4f38d3e84a757f1b8b5c33903ef0c2b1a88004a245cc0ec1956538e58bc",
+    "frontend/src/views/Login.vue": "4e40ca7a5727960bc3b8c3beef10eb17863b937abdcb1c80462b4e321c271806",
+    "frontend/tests/Login.recovery.test.js": "e8d1825052828f078967f27a2167ec0e493f66c4b8fb417b6dc480dade1d87b1",
+    "frontend/tests/api-client.test.js": "f7016aabedcfddda820ec02aecd4dc6ca4c4f5412aa3438d1426ba885c5064b0"
+  },
+  "source_snapshot_sha256": "f8df8c74ee7bce3d2ede5d8ffee4143014ca0875e0e7cf87e2a9b02b96e4ea5c",
+  "browser_stats": {
+    "startTime": "2026-10-13T02:40:02.558Z",
+    "duration": 23131.846,
+    "expected": 6,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "backend_passed": 1115,
+  "frontend_passed": 139,
+  "email_transport": "fixture only; no real mail sent",
+  "deployment_status": "not deployed"
+}

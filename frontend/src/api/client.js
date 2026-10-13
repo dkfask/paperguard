@@ -4,7 +4,7 @@ import { translate } from '../i18n'
 const API_BASE = '/api'
 
 /** 带认证头的 fetch; 401 时清除会话并跳转登录页 */
-async function apiFetch(url, options = {}) {
+async function apiFetch(url, options = {}, { includeRequestId = true } = {}) {
   const headers = { ...(options.headers || {}) }
   if (auth.token) headers['Authorization'] = 'Bearer ' + auth.token
   const resp = await fetch(url, { ...options, headers })
@@ -15,7 +15,7 @@ async function apiFetch(url, options = {}) {
       location.href = `/login?redirect=${redirect}`
     }
     const requestId = resp.headers.get('x-request-id')
-    const error = new Error(requestId ? translate('auth.sessionExpired', { requestId }) : translate('auth.sessionRequired'))
+    const error = new Error(includeRequestId && requestId ? translate('auth.sessionExpired', { requestId }) : translate('auth.sessionRequired'))
     error.status = 401
     error.requestId = requestId || ''
     throw error
@@ -34,11 +34,11 @@ function detailMessage(payload, fallback) {
   return fallback
 }
 
-async function responseError(resp, fallback) {
+async function responseError(resp, fallback, { includeRequestId = true } = {}) {
   const payload = await resp.json().catch(() => ({}))
   const requestId = resp.headers.get('x-request-id') || ''
   const message = detailMessage(payload, `${fallback} (${resp.status})`)
-  const error = new Error(requestId ? `${message}（请求 ID: ${requestId}）` : message)
+  const error = new Error(includeRequestId && requestId ? `${message}（请求 ID: ${requestId}）` : message)
   error.status = resp.status
   error.requestId = requestId
   return error

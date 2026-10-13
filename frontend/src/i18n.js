@@ -66,6 +66,14 @@ export function useI18n() {
 
 export const translations = {
   zh: {
+    'auth.forgotPassword': '忘记密码？',
+    'auth.resetPasswordTitle': '重置密码',
+    'auth.resetPasswordSub': '使用已绑定并验证的邮箱找回账号。',
+    'auth.recoveryHelp': '未绑定或未验证邮箱？请联系导师或管理员重置密码。',
+    'auth.recoveryEmailLabel': '已绑定并验证的邮箱',
+    'auth.resetPassword': '确认重置密码',
+    'auth.sendingCode': '发送中…',
+    'auth.resendCode': '{seconds} 秒后重发',
     'workspace.loadFailed': '工作台读取失败',
     'operations.restricted': '平台操作受限', 'operations.unavailable': '不可用', 'operations.loadingFailed': '读取失败',
     'shell.skipContent': '跳到主要内容',
@@ -190,6 +198,14 @@ export const translations = {
     'writer.backToTheses': '返回我的论文', 'writer.unsaved': '有 {count} 项待保存', 'writer.savedAt': '已保存 {time}', 'writer.characters': '字', 'writer.sectionsDone': '节完成', 'writer.aiSettings': 'AI 设置', 'writer.aiAssistant': 'AI 写作助手', 'writer.switchTemplateTitle': '把本项目换成其它模板的排版规范', 'writer.switchTemplate': '换模板', 'writer.check': '检查', 'writer.fixTitle': '修复检查结果中可自动处理的警告和错误', 'writer.fixing': '修复中…', 'writer.fix': '一键修复', 'writer.importTitle': '预览并导入 Word 正文', 'writer.importing': '导入中…', 'writer.importBody': '导入正文', 'writer.previewTitle': '预览当前导出内容', 'writer.preview': '预览', 'writer.exporting': '导出中…', 'writer.export': '导出', 'writer.formatCheck': '规范检查', 'writer.checking': '正在检查...', 'writer.autoFix': '自动修复', 'writer.requestWaiver': '申请豁免', 'writer.noIssues': '未发现格式问题，符合规范要求', 'writer.unknownSection': '未知章节', 'writer.outline': '章节大纲', 'writer.addSection': '添加章节', 'writer.lockedTitle': '导师已锁定论文框架', 'writer.locked': '框架锁定', 'writer.incomplete': '未完成', 'writer.moveUp': '上移章节', 'writer.moveDown': '下移章节', 'writer.deleteSection': '删除此章节', 'writer.completion': '完成度', 'writer.totalCharacters': '总字数', 'writer.missingRequired': '缺失必填章节', 'writer.coverInfo': '封面信息', 'writer.addParagraph': '添加段落', 'writer.aiExpand': 'AI 扩写', 'writer.paragraphPlaceholder': '段落 {number}', 'writer.referencePlaceholder': '作者. 文献标题[J]. 期刊名, 年份, 卷(期): 页码.', 'writer.addReference': '添加文献', 'writer.selectSection': '← 请从左侧选择章节开始编辑', 'writer.aiConfig': 'AI 配置', 'writer.model': '模型', 'writer.saveConfig': '保存配置', 'writer.quickActions': '快速操作', 'writer.aiPolish': '润色文字', 'writer.aiSummarize': '生成摘要', 'writer.aiTranslate': '中英互译', 'writer.aiResult': 'AI 生成结果', 'writer.applyResult': '应用到编辑器', 'writer.discardResult': '放弃',
   },
   en: {
+    'auth.forgotPassword': 'Forgot password?',
+    'auth.resetPasswordTitle': 'Reset password',
+    'auth.resetPasswordSub': 'Recover your account with your linked, verified email.',
+    'auth.recoveryHelp': 'No linked, verified email? Contact your advisor or administrator to reset your password.',
+    'auth.recoveryEmailLabel': 'Linked, verified email',
+    'auth.resetPassword': 'Reset password',
+    'auth.sendingCode': 'Sending…',
+    'auth.resendCode': 'Resend in {seconds}s',
     'workspace.loadFailed': 'Unable to load workspace',
     'operations.restricted': 'Platform access restricted', 'operations.unavailable': 'Unavailable', 'operations.loadingFailed': 'Unable to load',
     'shell.skipContent': 'Skip to main content',

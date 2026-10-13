@@ -27,6 +27,7 @@ from app.auth import (
     seed_admin,
 )
 from app.db import Store
+from app.services.password_recovery import reset_password
 
 router = APIRouter(prefix="/api/auth")
 
@@ -163,6 +164,20 @@ def request_email_code(req: EmailCodeRequest, store: Store = Depends(get_store))
 def login(req: LoginRequest, store: Store = Depends(get_store)) -> dict:
     """登录, 返回 {token, user}。"""
     return login_user(store, req.username, req.password)
+
+
+class PasswordResetRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    email: str
+    email_code: str
+    new_password: str
+
+
+@router.post("/reset-password")
+def reset_user_password(req: PasswordResetRequest, store: Store = Depends(get_store)) -> dict:
+    """已验证的绑定邮箱确认身份；不签发会话，旧会话全部撤销。"""
+    reset_password(store, req.email, req.email_code, req.new_password)
+    return {"ok": True}
 
 
 @router.post("/mp/login")

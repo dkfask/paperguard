@@ -266,7 +266,10 @@ def send_email_code(store: Store, email: str, purpose: str = "register") -> dict
         emailer.send_verification_code(email, code, _EMAIL_CODE_MINUTES)
     except emailer.EmailNotConfigured as exc:
         raise HTTPException(status_code=503, detail={
-            "code": "EMAIL_NOT_CONFIGURED", "message": "邮件服务尚未配置, 请联系管理员或使用账号密码注册",
+            "code": "EMAIL_NOT_CONFIGURED",
+            "message": ("邮件服务尚未配置，请联系导师或管理员重置密码"
+                        if purpose == "password_reset"
+                        else "邮件服务尚未配置, 请联系管理员或使用账号密码注册"),
         }) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail={
