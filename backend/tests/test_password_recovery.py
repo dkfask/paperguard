@@ -238,3 +238,90 @@ def test_recovery_without_master_key_does_not_send_or_mutate(recovery, monkeypat
     assert response.status_code == 503
     assert not sent
     assert store.get_email_code(user["email"]) is None
+
+
+def test_authenticated_password_change_cannot_overwrite_recovery(recovery, monkeypatch):
+    import app.auth as auth
+    store, user, payload = recovery
+    token = client.post("/api/auth/login", json={"username": user["email"], "password": OLD_PASSWORD}).json()["token"]
+    started, resume = Event(), Event()
+    original_verify = auth.verify_password
+    def delayed_verify(password, password_hash, salt):
+        valid = original_verify(password, password_hash, salt)
+        if password == OLD_PASSWORD:
+            started.set()
+            assert resume.wait(10)
+        return valid
+    monkeypatch.setattr(auth, "verify_password", delayed_verify)
+    attacker_password = "AttackerFixturePassword789"
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        change = pool.submit(client.post, "/api/auth/change-password",
+                             headers={"Authorization": f"Bearer {token}"},
+                             json={"current_password": OLD_PASSWORD, "new_password": attacker_password})
+        assert started.wait(10)
+        try:
+            assert client.post("/api/auth/reset-password", json=payload).status_code == 200
+        finally:
+            resume.set()
+        assert change.result().status_code == 401
+    monkeypatch.setattr(auth, "verify_password", original_verify)
+    assert client.post("/api/auth/login", json={"username": user["email"], "password": NEW_PASSWORD}).status_code == 200
+    assert client.post("/api/auth/login", json={"username": user["email"], "password": attacker_password}).status_code == 401
+
+
+def test_stale_first_login_cannot_overwrite_recovered_credentials(recovery, monkeypatch):
+    import app.auth as auth
+    store, user, payload = recovery
+    store.save_user({**user, "must_change_password": 1})
+    token = client.post("/api/auth/login", json={"username": user["email"], "password": OLD_PASSWORD}).json()["token"]
+    other_email = f"first-{uuid.uuid4().hex}@example.edu"
+    now = datetime.now(timezone.utc)
+    store.save_email_code(other_email, _email_code_hash(CODE), "first_login",
+                          (now + timedelta(minutes=10)).isoformat(), now.isoformat())
+    attacker_password = "AttackerFixturePassword789"
+    started, resume = Event(), Event()
+    original_hash = auth.hash_password
+    def delayed_hash(password, salt=None):
+        result = original_hash(password, salt)
+        if password == attacker_password:
+            started.set()
+            assert resume.wait(10)
+        return result
+    monkeypatch.setattr(auth, "hash_password", delayed_hash)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first_login = pool.submit(client.post, "/api/auth/first-login/complete",
+                                  headers={"Authorization": f"Bearer {token}"},
+                                  json={"email": other_email, "email_code": CODE, "new_password": attacker_password})
+        assert started.wait(10)
+        try:
+            assert client.post("/api/auth/reset-password", json=payload).status_code == 200
+        finally:
+            resume.set()
+        assert first_login.result().status_code == 401
+    assert store.get_user(user["id"])["email"] == user["email"]
+    assert client.post("/api/auth/login", json={"username": user["email"], "password": NEW_PASSWORD}).status_code == 200
+
+
+def test_inflight_identity_update_cannot_restore_an_old_password(recovery, monkeypatch):
+    import app.api.auth as auth_routes
+    store, user, payload = recovery
+    store.save_user({**user, "role": "user", "role_application_status": "unselected"})
+    token = client.post("/api/auth/login", json={"username": user["email"], "password": OLD_PASSWORD}).json()["token"]
+    started, resume = Event(), Event()
+    original_check = auth_routes._require_unselected_user
+    def delayed_check(account):
+        original_check(account)
+        started.set()
+        assert resume.wait(10)
+    monkeypatch.setattr(auth_routes, "_require_unselected_user", delayed_check)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        update = pool.submit(client.post, "/api/auth/role-certification",
+                             headers={"Authorization": f"Bearer {token}"}, json={"role": "user"})
+        assert started.wait(10)
+        try:
+            assert client.post("/api/auth/reset-password", json=payload).status_code == 200
+        finally:
+            resume.set()
+        assert update.result().status_code == 401
+    assert client.post("/api/auth/login", json={"username": user["email"], "password": NEW_PASSWORD}).status_code == 200
+    assert client.post("/api/auth/login", json={"username": user["email"], "password": OLD_PASSWORD}).status_code == 401

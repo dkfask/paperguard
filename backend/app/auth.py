@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -104,6 +105,72 @@ def _password_error(password: str) -> str | None:
     if not any(ch.isalpha() for ch in password) or not any(ch.isdigit() for ch in password):
         return "密码需同时包含字母和数字"
     return None
+
+
+def _credential_user_conn(conn, user: dict):
+    """Check a trusted request's credential snapshot under the writer lock."""
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+    if row["status"] not in {"active", "pending"}:
+        raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
+    if (not hmac.compare_digest(row["password_hash"], user["password_hash"])
+            or not hmac.compare_digest(row["salt"], user["salt"])
+            or row["email"] != (user.get("email") or "")
+            or row["role"] != user["role"]
+            or row["status"] != user.get("status", "active")):
+        raise HTTPException(status_code=401, detail="登录信息已变化，请重新登录")
+    return row
+
+
+def _replace_credentials(store: Store, user: dict, password: str, *,
+                         email: str | None = None, revoke_sessions: bool = True,
+                         must_change_password: bool = False, actor: dict | None = None) -> dict:
+    password_hash, salt = hash_password(password)
+    with store.workflow_transaction() as conn:
+        if actor is not None:
+            _credential_user_conn(conn, actor)
+        _credential_user_conn(conn, user)
+        if email is not None:
+            if conn.execute("SELECT id FROM users WHERE email = ? AND id != ?", (email, user["id"])).fetchone():
+                raise HTTPException(status_code=409, detail={"code": "EMAIL_TAKEN", "message": "该邮箱已被其他账号使用"})
+            conn.execute(
+                "UPDATE users SET email = ?, email_verified = 1, password_set = 1, "
+                "password_hash = ?, salt = ?, must_change_password = ?, token = NULL WHERE id = ?",
+                (email, password_hash, salt, int(must_change_password), user["id"]),
+            )
+        else:
+            conn.execute(
+                "UPDATE users SET password_hash = ?, salt = ?, password_set = 1, "
+                "must_change_password = ?, token = NULL WHERE id = ?",
+                (password_hash, salt, int(must_change_password), user["id"]),
+            )
+        if revoke_sessions:
+            conn.execute(
+                "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+                (_now(), user["id"]),
+            )
+        updated = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+        return store._hydrate_user(dict(updated))
+
+
+def _save_user_metadata(store: Store, target: dict, fields: tuple[str, ...], *, actor: dict) -> None:
+    """Metadata updates must never replay a stale full user's credentials."""
+    allowed = {"role", "status", "display_name", "teacher_id", "organization_context",
+               "requested_role", "requested_organization_context", "role_application_status"}
+    if not fields or not set(fields).issubset(allowed):
+        raise ValueError("unsupported user metadata fields")
+    params = [json.dumps(target.get(field) or {}, ensure_ascii=False)
+              if field in {"organization_context", "requested_organization_context"}
+              else target.get(field) for field in fields]
+    with store.workflow_transaction() as conn:
+        _credential_user_conn(conn, actor)
+        changed = conn.execute(
+            "UPDATE users SET " + ", ".join(f"{field} = ?" for field in fields) + " WHERE id = ?",
+            (*params, target["id"]),
+        )
+        if changed.rowcount != 1:
+            raise HTTPException(status_code=404, detail="用户不存在")
 
 
 def register_user(store: Store, username: str, password: str,
@@ -211,17 +278,7 @@ def complete_first_login(store: Store, user: dict, email: str, code: str, new_pa
     password_error = _password_error(new_password)
     if password_error:
         raise HTTPException(status_code=400, detail=password_error)
-    ph, salt = hash_password(new_password)
-    updated = store.save_user({
-        **user,
-        "email": email,
-        "email_verified": 1,
-        "password_set": 1,
-        "password_hash": ph,
-        "salt": salt,
-        "must_change_password": 0,
-    })
-    store.revoke_user_sessions(user["id"], _now())
+    updated = _replace_credentials(store, user, new_password, email=email)
     return _issue_session(store, updated, source=user.get("session_source", "web"))
 
 
@@ -316,14 +373,7 @@ def _issue_session(store: Store, user: dict, *, source: str = "web") -> dict:
     # Recheck the credential snapshot under the same write lock used by reset.
     # A login verified before a reset cannot insert a valid session afterward.
     with store.workflow_transaction() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
-        if row is None:
-            raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
-        if row["status"] not in {"active", "pending"}:
-            raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
-        if (not hmac.compare_digest(row["password_hash"], user["password_hash"])
-                or not hmac.compare_digest(row["salt"], user["salt"])):
-            raise HTTPException(status_code=401, detail="登录信息已变化，请重新登录")
+        row = _credential_user_conn(conn, user)
         conn.execute(
             "INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, revoked_at, last_seen_at, source) "
             "VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
@@ -544,16 +594,7 @@ def mp_bind_email(store: Store, user: dict, email: str, code: str, password: str
     password_error = _password_error(password)
     if password_error:
         raise HTTPException(status_code=400, detail=password_error)
-    ph, salt = hash_password(password)
-    updated = store.save_user({
-        **user,
-        "email": email,
-        "email_verified": 1,
-        "password_set": 1,
-        "password_hash": ph,
-        "salt": salt,
-        "must_change_password": 0,
-    })
+    updated = _replace_credentials(store, user, password, email=email, revoke_sessions=False)
     return public_user(updated)
 
 
@@ -593,12 +634,7 @@ def change_password(store: Store, user: dict, current_password: str, new_passwor
         raise HTTPException(status_code=400, detail="新密码至少 12 位")
     if not any(ch.isalpha() for ch in new_password) or not any(ch.isdigit() for ch in new_password):
         raise HTTPException(status_code=400, detail="新密码需同时包含字母和数字")
-    password_hash, salt = hash_password(new_password)
-    user["password_hash"] = password_hash
-    user["salt"] = salt
-    user["must_change_password"] = 0
-    store.save_user(user)
-    store.revoke_user_sessions(user["id"], _now())
+    _replace_credentials(store, user, new_password)
 
 
 def public_user(user: dict) -> dict:
