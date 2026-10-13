@@ -76,6 +76,17 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
   或 SMTP 的 `PAPERGUARD_SMTP_HOST` / `PORT` / `USER` / `PASSWORD` / `FROM`。
   **未配置邮件服务时，邮箱注册、验证码发送和邮箱绑定明确返回 `EMAIL_NOT_CONFIGURED`，
   不降级为免验证成功**。无邮箱的兼容账号注册与学校统一注册是独立路径。
+- **忘记密码**：登录页通过已绑定并验证的邮箱恢复账号。使用
+  `password_reset` 用途验证码（10 分钟有效、60 秒发送间隔、连续输错 5 次锁定），
+  新密码至少 12 位且含字母与数字。重置成功后验证码失效，原有全部会话撤销；
+  不自动登录、不改变角色或账号状态。未绑定/验证邮箱或邮件服务未配置时，
+  页面提示联系导师或管理员。登录及恢复失败只显示提示信息，请求 ID 保留为内部诊断字段。
+  恢复验证码使用现有 `PAPERGUARD_SECRET_KEY` 主密钥计算绑定邮箱的 HMAC，
+  主密钥缺失时拒绝发码和重置；不接受旧的无密钥验证码摘要。
+  停用账号拒绝恢复、登录与会话访问；待审核账号仍保留原有审批限制。
+  登录签发会话时在事务内复查密码快照，阻止旧密码登录与重置并发产生有效会话。
+  改密、首次设置密码、邮箱绑定及教师重置共用凭据快照复查；
+  身份和组织信息保存只更新对应字段，避免旧请求覆盖已经恢复的密码。
 - **静态密钥保护**：配置 `PAPERGUARD_SECRET_KEY` 后，新写入供应商密钥以 AES-GCM
   `pgsec1$...` 格式加密并校验完整性，页面仅显示脱敏摘要。主密钥使用至少 32 字节随机值，
   通过受控环境保存，和数据库备份分开保管，恢复时使用原主密钥，**不得直接换新值**。
@@ -293,6 +304,8 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 | GET/POST | `/api/saas/v1/tenants/{tenant_id}/memberships` | 成员范围读取与平台管理员成员绑定 |
 | POST | `/api/projects/{id}/export-preview` | 正式下载前只读预览版本、规范门禁、缺失项、章节/表格/图片/公式摘要 |
 | POST | `/api/auth/mp/login` | 微信 code 换取已绑定会话或一次性绑定票据 |
+| POST | `/api/auth/email/code` | 发送邮箱验证码；密码恢复使用 `purpose=password_reset` |
+| POST | `/api/auth/reset-password` | 使用 `email`、`email_code`、`new_password` 恢复密码并撤销旧会话 |
 | POST | `/api/auth/mp/bind` | 用校内账号密码绑定当前微信身份 |
 | POST | `/api/auth/mp/unbind` | 小程序会话下经口令确认解绑微信 |
 

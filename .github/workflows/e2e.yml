@@ -41,14 +41,22 @@ jobs:
           e2e_password="E2e7$(python -c 'import secrets; print(secrets.token_hex(18))')"
           echo "::add-mask::$e2e_password"
           echo "E2E_ADMIN_PASSWORD=$e2e_password" >> "$GITHUB_ENV"
+          recovery_key="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::add-mask::$recovery_key"
+          echo "PAPERGUARD_SECRET_KEY=$recovery_key" >> "$GITHUB_ENV"
+          echo "E2E_DB_PATH=$RUNNER_TEMP/paperguard-e2e-$GITHUB_RUN_ID.db" >> "$GITHUB_ENV"
 
       - name: Install Playwright browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
-      - name: Run generic document E2E
+      - name: Run generic document and password-recovery E2E
         working-directory: frontend
-        run: npm run test:e2e -- e2e/document-platform.spec.ts --project=chromium --project=mobile-chrome
+        run: npm run test:e2e -- e2e/document-platform.spec.ts e2e/login-recovery.spec.ts --project=chromium --project=mobile-chrome
+        env:
+          PAPERGUARD_RESEND_API_KEY: ''
+          PAPERGUARD_SMTP_HOST: ''
+          PAPERGUARD_SMTP_FROM: ''
 
       - name: Upload Playwright report
         if: always()

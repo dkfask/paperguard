@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.auth import (
+    _save_user_metadata,
     exchange_mp_code,
     mini_program_bind,
     mini_program_login,
@@ -27,6 +28,7 @@ from app.auth import (
     seed_admin,
 )
 from app.db import Store
+from app.services.password_recovery import reset_password
 
 router = APIRouter(prefix="/api/auth")
 
@@ -144,7 +146,10 @@ def submit_role_certification(req: RoleCertificationRequest,
     user["requested_role"] = requested_role
     user["requested_organization_context"] = context
     user["role_application_status"] = status
-    store.save_user(user)
+    _save_user_metadata(store, user, (
+        "role", "status", "organization_context", "requested_role",
+        "requested_organization_context", "role_application_status",
+    ), actor=user)
     return public_user(store.get_user(user["id"]))
 
 
@@ -163,6 +168,20 @@ def request_email_code(req: EmailCodeRequest, store: Store = Depends(get_store))
 def login(req: LoginRequest, store: Store = Depends(get_store)) -> dict:
     """登录, 返回 {token, user}。"""
     return login_user(store, req.username, req.password)
+
+
+class PasswordResetRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    email: str
+    email_code: str
+    new_password: str
+
+
+@router.post("/reset-password")
+def reset_user_password(req: PasswordResetRequest, store: Store = Depends(get_store)) -> dict:
+    """已验证的绑定邮箱确认身份；不签发会话，旧会话全部撤销。"""
+    reset_password(store, req.email, req.email_code, req.new_password)
+    return {"ok": True}
 
 
 @router.post("/mp/login")
@@ -339,5 +358,8 @@ def decide_role_certification(user_id: str, req: RoleCertificationDecision,
         target["role_application_status"] = "rejected"
     target["requested_role"] = None
     target["requested_organization_context"] = {}
-    store.save_user(target)
+    _save_user_metadata(store, target, (
+        "role", "status", "organization_context", "requested_role",
+        "requested_organization_context", "role_application_status",
+    ), actor=admin)
     return public_user(store.get_user(user_id))

@@ -6,6 +6,7 @@ export interface RequestConfig extends Omit<RequestInit, 'body'> {
   body?: BodyInit | object | null
   responseType?: 'json' | 'blob' | 'text'
   authRequired?: boolean
+  includeRequestId?: boolean
 }
 
 export class ApiError extends Error {
@@ -40,18 +41,22 @@ function normalizeBody(body: RequestConfig['body'], headers: Record<string, stri
   return JSON.stringify(body)
 }
 
-export async function request<T>({ url, body, responseType = 'json', authRequired = true, headers: inputHeaders, ...init }: RequestConfig): Promise<T> {
+export async function request<T>({ url, body, responseType = 'json', authRequired = true, includeRequestId = true, headers: inputHeaders, ...init }: RequestConfig): Promise<T> {
   const headers = normalizeHeaders(inputHeaders)
-  const fetcher = authRequired ? legacyFetch : fetch
-  const response = await fetcher(url, {
+  const options = {
     ...init,
     // The legacy client clones headers with object spread, so pass a plain map.
     headers,
     body: normalizeBody(body, headers),
-  })
+  }
+  const response = authRequired
+    ? await legacyFetch(url, options, { includeRequestId })
+    : await fetch(url, options)
 
   if (!response.ok) {
-    const error = await responseError(response, translate('common.operationFailed')) as Error & { status?: number; requestId?: string }
+    const error = await responseError(response, translate('common.operationFailed'), {
+      includeRequestId,
+    }) as Error & { status?: number; requestId?: string }
     throw new ApiError(error.message, error.status, error.requestId)
   }
 

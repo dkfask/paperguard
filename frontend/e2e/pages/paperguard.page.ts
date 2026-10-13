@@ -7,7 +7,7 @@ export class LoginPage {
     await this.page.goto('/login?redirect=/')
     await this.page.locator('#username').fill(username)
     await this.page.locator('#password').fill(password)
-    await this.page.locator('form.auth-form').getByRole('button').click()
+    await this.page.locator('form.auth-form button[type="submit"]').click()
 
     let requiresPasswordChange = false
     try {
@@ -24,11 +24,11 @@ export class LoginPage {
       await this.page.locator('#password').fill(password)
       await this.page.locator('#newPassword').fill(replacementPassword)
       await this.page.locator('#confirmPassword').fill(replacementPassword)
-      await this.page.locator('form.auth-form').getByRole('button').click()
+      await this.page.locator('form.auth-form button[type="submit"]').click()
       await expect(this.page).toHaveURL(/\/login$/)
       await this.page.locator('#username').fill(username)
       await this.page.locator('#password').fill(replacementPassword)
-      await this.page.locator('form.auth-form').getByRole('button').click()
+      await this.page.locator('form.auth-form button[type="submit"]').click()
     }
 
     await expect(this.page).not.toHaveURL(/\/login/)
