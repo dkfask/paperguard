@@ -59,4 +59,13 @@ describe('typed API client', () => {
       message: '请先登录', status: 401, requestId: 'synthetic-request-id',
     })
   })
+
+  it.each(['register', 'first_login'])('preserves diagnostic presentation for %s email codes', async (purpose) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: '邮件发送失败' }), {
+      status: 502, headers: { 'x-request-id': 'synthetic-request-id' },
+    })))
+    await expect(authApi.requestEmailCode('fixture@example.edu', purpose)).rejects.toMatchObject({
+      message: '邮件发送失败（请求 ID: synthetic-request-id）',
+    })
+  })
 })

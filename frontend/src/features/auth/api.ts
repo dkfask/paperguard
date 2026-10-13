@@ -38,6 +38,7 @@ export const authApi = {
     url: '/api/auth/login',
     method: 'POST',
     authRequired: false,
+    includeRequestId: false,
     body: credentials,
   }),
   register: (payload: LoginInput & { display_name?: string; role?: string; email?: string; email_code?: string }) => apiClient.request<User>({
@@ -50,12 +51,14 @@ export const authApi = {
     url: '/api/auth/email/code',
     method: 'POST',
     authRequired: false,
+    includeRequestId: purpose !== 'password_reset',
     body: { email, purpose },
   }),
   resetPassword: (payload: PasswordResetInput) => apiClient.request<{ ok: boolean }>({
     url: '/api/auth/reset-password',
     method: 'POST',
     authRequired: false,
+    includeRequestId: false,
     body: payload,
   }),
   completeFirstLogin: (payload: FirstLoginCompleteInput) => apiClient.request<AuthResponse>({

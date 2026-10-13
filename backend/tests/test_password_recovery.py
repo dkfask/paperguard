@@ -2,12 +2,13 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Event
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth import _email_code_hash, hash_password
+from app.auth import _email_code_hash, _password_reset_code_hash, hash_password
 from app.db import Store, new_id
 from app.main import app
 from app.services import emailer
@@ -34,7 +35,7 @@ def recovery():
     }
     store.save_user(user)
     now = datetime.now(timezone.utc)
-    store.save_email_code(email, _email_code_hash(CODE), "password_reset",
+    store.save_email_code(email, _password_reset_code_hash(email, CODE), "password_reset",
                           (now + timedelta(minutes=10)).isoformat(), now.isoformat())
     return store, user, {"email": email, "email_code": CODE, "new_password": NEW_PASSWORD}
 
@@ -167,14 +168,73 @@ def test_recovery_mail_failure_and_cooldown_are_explicit(recovery, monkeypatch):
     assert client.post("/api/auth/email/code", json={"email": user["email"], "purpose": "password_reset"}).status_code == 200
     assert client.post("/api/auth/email/code", json={"email": user["email"], "purpose": "password_reset"}).status_code == 429
     assert store.get_email_code(user["email"])["purpose"] == "password_reset"
-    assert store.get_email_code(user["email"])["code_hash"] == _email_code_hash(captured["code"])
+    assert store.get_email_code(user["email"])["code_hash"] == _password_reset_code_hash(user["email"], captured["code"])
 
 
-def test_disabled_account_is_not_reactivated_and_client_cannot_choose_target(recovery):
+def test_disabled_account_cannot_recover_or_authenticate_and_client_cannot_choose_target(recovery):
     store, user, payload = recovery
+    token = client.post("/api/auth/login", json={"username": user["email"], "password": OLD_PASSWORD}).json()["token"]
     store.save_user({**user, "status": "disabled"})
     response = client.post("/api/auth/reset-password", json={**payload, "user_id": "user-admin"})
     assert response.status_code == 422
     assert store.get_email_code(user["email"]) is not None
-    assert client.post("/api/auth/reset-password", json=payload).status_code == 200
+    assert client.post("/api/auth/reset-password", json=payload).status_code == 400
     assert store.get_user(user["id"])["status"] == "disabled"
+    assert store.get_email_code(user["email"]) is not None
+    assert client.post("/api/auth/login", json={"username": user["email"], "password": OLD_PASSWORD}).status_code == 403
+    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 403
+
+
+def test_old_password_login_cannot_issue_session_after_reset(recovery, monkeypatch):
+    import app.auth as auth
+    store, user, payload = recovery
+    started, resume = Event(), Event()
+    original_verify = auth.verify_password
+    def delayed_verify(password, password_hash, salt):
+        valid = original_verify(password, password_hash, salt)
+        if password == OLD_PASSWORD:
+            started.set()
+            assert resume.wait(10)
+        return valid
+    monkeypatch.setattr(auth, "verify_password", delayed_verify)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        old_login = pool.submit(client.post, "/api/auth/login", json={"username": user["email"], "password": OLD_PASSWORD})
+        assert started.wait(10)
+        try:
+            assert client.post("/api/auth/reset-password", json=payload).status_code == 200
+        finally:
+            resume.set()
+        assert old_login.result().status_code == 401
+    with store._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ? AND revoked_at IS NULL", (user["id"],)).fetchone()[0] == 0
+
+
+def test_reset_verifier_is_keyed_and_bound_to_mailbox(recovery, monkeypatch):
+    store, user, payload = recovery
+    record = store.get_email_code(user["email"])
+    assert record["code_hash"].startswith("pgrst1$")
+    assert record["code_hash"] != _email_code_hash(CODE)
+    assert record["code_hash"] != _password_reset_code_hash("other@example.edu", CODE)
+    monkeypatch.setenv("PAPERGUARD_SECRET_KEY", "different-isolated-fixture-key")
+    response = client.post("/api/auth/reset-password", json=payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "EMAIL_CODE_MISMATCH"
+
+
+def test_recovery_without_master_key_does_not_send_or_mutate(recovery, monkeypatch):
+    store, user, payload = recovery
+    monkeypatch.delenv("PAPERGUARD_SECRET_KEY", raising=False)
+    sent = []
+    monkeypatch.setattr(emailer, "send_verification_code", lambda *args: sent.append(args))
+    before = store.get_user(user["id"])
+    original_code = store.get_email_code(user["email"])
+    response = client.post("/api/auth/reset-password", json=payload)
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "PASSWORD_RECOVERY_NOT_CONFIGURED"
+    assert store.get_user(user["id"]) == before
+    assert store.get_email_code(user["email"]) == original_code
+    store.delete_email_code(user["email"])
+    response = client.post("/api/auth/email/code", json={"email": user["email"], "purpose": "password_reset"})
+    assert response.status_code == 503
+    assert not sent
+    assert store.get_email_code(user["email"]) is None

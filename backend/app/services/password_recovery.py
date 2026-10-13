@@ -7,7 +7,7 @@ import re
 
 from fastapi import HTTPException
 
-from app.auth import _EMAIL_CODE_MAX_ATTEMPTS, _EMAIL_RE, _email_code_hash, _now, hash_password, verify_password
+from app.auth import _EMAIL_CODE_MAX_ATTEMPTS, _EMAIL_RE, _password_reset_code_hash, _now, hash_password, verify_password
 from app.db import Store
 
 
@@ -40,14 +40,15 @@ def reset_password(store: Store, email: str, code: str, new_password: str) -> No
             raise _error(400, "EMAIL_CODE_EXPIRED", "验证码已过期，请重新获取")
         if int(record["attempts"]) >= _EMAIL_CODE_MAX_ATTEMPTS:
             raise _error(429, "EMAIL_CODE_LOCKED", "尝试次数过多，请重新获取验证码")
-        if not hmac.compare_digest(record["code_hash"], _email_code_hash(code)):
+        if not hmac.compare_digest(record["code_hash"], _password_reset_code_hash(email, code)):
             conn.execute(
                 "UPDATE email_verification_codes SET attempts = attempts + 1 WHERE email = ?", (email,),
             )
             mismatch = _error(400, "EMAIL_CODE_MISMATCH", "验证码不正确")
         else:
             user = conn.execute(
-                "SELECT id, password_hash, salt FROM users WHERE email = ? AND email_verified = 1", (email,),
+                "SELECT id, password_hash, salt FROM users WHERE email = ? AND email_verified = 1 "
+                "AND status IN ('active', 'pending')", (email,),
             ).fetchone()
             if not user:
                 raise _error(400, "PASSWORD_RECOVERY_UNAVAILABLE",

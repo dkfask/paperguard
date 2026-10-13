@@ -248,6 +248,19 @@ def _email_code_hash(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
+def _password_reset_code_hash(email: str, code: str) -> str:
+    from app.services.secret_store import SecretDecryptError, _require_master_key
+    try:
+        key = _require_master_key()
+    except SecretDecryptError as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "PASSWORD_RECOVERY_NOT_CONFIGURED",
+            "message": "密码恢复服务尚未配置，请联系导师或管理员重置密码",
+        }) from exc
+    payload = f"paperguard:password-reset:v1:{email.strip().lower()}:{code}"
+    return "pgrst1$" + hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 def send_email_code(store: Store, email: str, purpose: str = "register") -> dict:
     """生成并邮件发送 6 位验证码; SMTP 未配置时明确报 503。"""
     if purpose not in {"register", "bind", "first_login", "password_reset"}:
@@ -261,6 +274,7 @@ def send_email_code(store: Store, email: str, purpose: str = "register") -> dict
     if existing and (datetime.now(timezone.utc) - datetime.fromisoformat(existing["created_at"])).total_seconds() < 60:
         raise HTTPException(status_code=429, detail={"code": "EMAIL_CODE_COOLDOWN", "message": "验证码发送过于频繁, 请 1 分钟后再试"})
     code = f"{secrets.randbelow(1_000_000):06d}"
+    code_hash = _password_reset_code_hash(email, code) if purpose == "password_reset" else _email_code_hash(code)
     expires_at = (datetime.now(timezone.utc) + timedelta(minutes=_EMAIL_CODE_MINUTES)).isoformat(timespec="seconds")
     try:
         emailer.send_verification_code(email, code, _EMAIL_CODE_MINUTES)
@@ -275,7 +289,7 @@ def send_email_code(store: Store, email: str, purpose: str = "register") -> dict
         raise HTTPException(status_code=502, detail={
             "code": "EMAIL_SEND_FAILED", "message": "验证码邮件发送失败, 请稍后重试",
         }) from exc
-    store.save_email_code(email, _email_code_hash(code), purpose, expires_at, _now())
+    store.save_email_code(email, code_hash, purpose, expires_at, _now())
     return {"ok": True, "expires_in": _EMAIL_CODE_MINUTES * 60}
 
 
@@ -287,7 +301,9 @@ def _verify_email_code(store: Store, email: str, code: str, *, purpose: str, con
         raise HTTPException(status_code=400, detail={"code": "EMAIL_CODE_EXPIRED", "message": "验证码已过期, 请重新获取"})
     if int(record.get("attempts", 0)) >= _EMAIL_CODE_MAX_ATTEMPTS:
         raise HTTPException(status_code=429, detail={"code": "EMAIL_CODE_LOCKED", "message": "尝试次数过多, 请重新获取验证码"})
-    if not hmac.compare_digest(record["code_hash"], _email_code_hash(code.strip())):
+    expected_hash = (_password_reset_code_hash(email, code.strip()) if purpose == "password_reset"
+                     else _email_code_hash(code.strip()))
+    if not hmac.compare_digest(record["code_hash"], expected_hash):
         store.bump_email_code_attempts(email)
         raise HTTPException(status_code=400, detail={"code": "EMAIL_CODE_MISMATCH", "message": "验证码不正确"})
     if consume:
@@ -297,16 +313,26 @@ def _verify_email_code(store: Store, email: str, code: str, *, purpose: str, con
 def _issue_session(store: Store, user: dict, *, source: str = "web") -> dict:
     token = secrets.token_hex(32)
     now = _now()
-    store.create_session({
-        "id": new_id("session"),
-        "user_id": user["id"],
-        "token_hash": _token_hash(token),
-        "created_at": now,
-        "expires_at": _expires_at(days=_MP_SESSION_DAYS) if source == "mp" else _expires_at(hours=_SESSION_HOURS),
-        "last_seen_at": now,
-        "source": source,
-    })
-    return {"token": token, "user": public_user(user)}
+    # Recheck the credential snapshot under the same write lock used by reset.
+    # A login verified before a reset cannot insert a valid session afterward.
+    with store.workflow_transaction() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+        if row["status"] not in {"active", "pending"}:
+            raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
+        if (not hmac.compare_digest(row["password_hash"], user["password_hash"])
+                or not hmac.compare_digest(row["salt"], user["salt"])):
+            raise HTTPException(status_code=401, detail="登录信息已变化，请重新登录")
+        conn.execute(
+            "INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, revoked_at, last_seen_at, source) "
+            "VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+            (new_id("session"), user["id"], _token_hash(token), now,
+             _expires_at(days=_MP_SESSION_DAYS) if source == "mp" else _expires_at(hours=_SESSION_HOURS),
+             now, source),
+        )
+        current = store._hydrate_user(dict(row))
+    return {"token": token, "user": public_user(current)}
 
 
 def login_user(store: Store, username: str, password: str) -> dict:
@@ -639,6 +665,8 @@ async def current_user(request: Request, authorization: str | None = Header(defa
     )
     if user is None:
         raise HTTPException(status_code=401, detail="登录已失效, 请重新登录")
+    if user.get("status", "active") not in {"active", "pending"}:
+        raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
     if onboarding_required(user) and not _onboarding_path_exempt(request.url.path):
         raise HTTPException(status_code=403, detail={
             "code": "ONBOARDING_REQUIRED", "message": "请先完成邮箱验证和首次登录设置",

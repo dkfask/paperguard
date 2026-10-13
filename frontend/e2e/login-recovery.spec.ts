@@ -45,7 +45,7 @@ test('a linked mailbox resets its password and invalidates its old session', asy
   execFileSync(python, ['-c', `
 import json, sys
 from datetime import datetime, timedelta, timezone
-from app.auth import hash_password, _email_code_hash
+from app.auth import hash_password, _password_reset_code_hash
 from app.db import Store, new_id
 payload = json.load(sys.stdin)
 store = Store()
@@ -58,7 +58,7 @@ store.save_user({
     "display_name": "Recovery browser fixture", "role_application_status": "approved",
     "created_at": now.isoformat(),
 })
-store.save_email_code(payload["email"], _email_code_hash(payload["code"]), "password_reset",
+store.save_email_code(payload["email"], _password_reset_code_hash(payload["email"], payload["code"]), "password_reset",
                       (now + timedelta(minutes=10)).isoformat(), now.isoformat())
 `], {
     cwd: path.resolve('../backend'),

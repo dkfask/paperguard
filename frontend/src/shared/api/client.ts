@@ -41,7 +41,7 @@ function normalizeBody(body: RequestConfig['body'], headers: Record<string, stri
   return JSON.stringify(body)
 }
 
-export async function request<T>({ url, body, responseType = 'json', authRequired = true, includeRequestId = authRequired, headers: inputHeaders, ...init }: RequestConfig): Promise<T> {
+export async function request<T>({ url, body, responseType = 'json', authRequired = true, includeRequestId = true, headers: inputHeaders, ...init }: RequestConfig): Promise<T> {
   const headers = normalizeHeaders(inputHeaders)
   const options = {
     ...init,
