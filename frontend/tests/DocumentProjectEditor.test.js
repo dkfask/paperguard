@@ -13,7 +13,7 @@ const route = vi.hoisted(() => ({ params: { id: 'project-1' } }))
 vi.mock('../src/api.js', () => api)
 vi.mock('../src/i18n', () => ({
   useI18n: () => ({
-    t: (key, params = {}) => key === 'documentProjects.saved' ? `saved ${params.revision}` : key,
+    t: (key, params = {}) => key === 'documentProjects.saved' ? `saved ${params.revision}` : key === 'documentProjects.blockKind.paragraph' ? '段落' : key,
   }),
 }))
 vi.mock('vue-router', () => ({ useRoute: () => route }))
@@ -73,6 +73,27 @@ describe('DocumentProjectEditor', () => {
     await wrapper.get('[data-test="block-kind-block-1"]').setValue('table')
     expect(wrapper.get('[data-test="document-table-editor"]').exists()).toBe(true)
     expect(wrapper.get('[aria-label="documentProjects.tableCell 1-1"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('localizes schema defaults while preserving custom template names', async () => {
+    const fixture = await api.getDocumentProjectEditor()
+    fixture.editor_schema.fields[0].label = 'Summary'
+    fixture.editor_schema.fields[1].label = 'Category'
+    fixture.editor_schema.sections[0] = { ...fixture.editor_schema.sections[0], key: 'body', title: 'Body' }
+    fixture.project.sections.body = fixture.project.sections.intro
+    delete fixture.project.sections.intro
+    api.getDocumentProjectEditor.mockResolvedValue(fixture)
+    const wrapper = mount(DocumentProjectEditor, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('documentProjects.defaultField.summary')
+    expect(wrapper.text()).toContain('documentProjects.defaultField.category')
+    expect(wrapper.text()).toContain('documentProjects.defaultBody')
+    expect(wrapper.text()).toContain('段落')
+    expect(wrapper.text()).toContain('数量')
+    expect(wrapper.get('.editor-subtitle').text()).toContain('实验报告模板')
+    expect(wrapper.get('.editor-subtitle').text()).not.toContain('template@1')
+    expect(wrapper.get('.editor-subtitle').text()).not.toContain('lab-report')
     wrapper.unmount()
   })
 })

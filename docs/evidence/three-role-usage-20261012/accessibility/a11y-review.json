@@ -1,0 +1,54 @@
+{
+  "engine": {
+    "name": "axe-core",
+    "version": "4.14.0"
+  },
+  "violations": [
+    {
+      "id": "scrollable-region-focusable",
+      "impact": "serious",
+      "description": "Ensure elements that have scrollable content are accessible by keyboard in Safari",
+      "help": "Scrollable region must have keyboard access",
+      "nodes": [
+        {
+          "target": [
+            ".snapshot-section:nth-child(58) > .snapshot-block:nth-child(5) > .snapshot-table"
+          ],
+          "failureSummary": "Fix any of the following:\n  Element should have focusable content\n  Element should be focusable"
+        },
+        {
+          "target": [
+            ".snapshot-block:nth-child(8) > .snapshot-table"
+          ],
+          "failureSummary": "Fix any of the following:\n  Element should have focusable content\n  Element should be focusable"
+        }
+      ]
+    },
+    {
+      "id": "select-name",
+      "impact": "critical",
+      "description": "Ensure select element has an accessible name",
+      "help": "Select element must have an accessible name",
+      "nodes": [
+        {
+          "target": [
+            "select"
+          ],
+          "failureSummary": "Fix any of the following:\n  Element does not have an implicit (wrapped) <label>\n  Element does not have an explicit <label>\n  aria-label attribute does not exist or is empty\n  aria-labelledby attribute does not exist, references elements that do not exist or references elements that are empty\n  Element has no title attribute\n  Element's default semantics were not overridden with role=\"none\" or role=\"presentation\""
+        }
+      ]
+    }
+  ],
+  "incomplete": [
+    {
+      "id": "label-content-name-mismatch",
+      "impact": "serious",
+      "targets": [
+        [
+          ".base-modal-close"
+        ]
+      ]
+    }
+  ],
+  "passedRules": 16
+}

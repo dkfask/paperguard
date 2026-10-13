@@ -1,96 +1,100 @@
 <template>
-  <div
-    v-if="navigationFailure"
-    class="nav-failure"
-    role="alert"
-  >
-    <span class="material-symbols-outlined nav-failure-icon" aria-hidden="true">cloud_off</span>
-    <div class="nav-failure-body">
-      <strong>{{ t('navError.title') }}</strong>
-      <span>{{ navigationFailure.chunkLoadFailed ? t('navError.chunkLoad') : t('navError.generic') }}</span>
-      <code v-if="navigationFailure.target" class="nav-failure-target">{{ navigationFailure.target }}</code>
-    </div>
-    <div class="nav-failure-actions">
-      <button class="primary" type="button" @click="retryNavigation">{{ t('navError.retry') }}</button>
-      <button type="button" @click="clearNavigationFailure">{{ t('navError.dismiss') }}</button>
-    </div>
-  </div>
-
-  <div v-if="authenticated" class="app-shell-root" :class="{ 'app-shell-viewport': viewportWorkspace }" @keydown.esc="closeSidebar">
-    <a class="skip-content" href="#workspace-content">{{ t('shell.skipContent') }}</a>
-    <header class="app-shell-header">
-      <div class="header-inner">
-        <div class="brand-section">
-          <button
-            ref="menuButtonRef"
-            class="shell-menu-button"
-            type="button"
-            :aria-label="t('shell.openNavigation')"
-            :title="t('shell.openNavigation')"
-            aria-controls="role-sidebar"
-            :aria-expanded="sidebarOpen"
-            @click="toggleSidebar"
-          >
-            <IconMaterialSymbolsMenu />
-          </button>
-          <RouterLink to="/" class="brand-logo">
-            <span class="brand-title">PaperGuard</span>
-          </RouterLink>
-        </div>
-
-        <nav class="app-breadcrumbs" :aria-label="t('common.pageLocation')">
-          <RouterLink to="/workspace">{{ roleLabel(user?.role) }}</RouterLink>
-          <span aria-hidden="true">/</span>
-          <strong>{{ routeTitle }}</strong>
-        </nav>
-
-        <div class="user-tray">
-          <span class="scope-context">{{ roleLabel(user?.role) }}</span>
-          <button class="lang-switch-btn" type="button" :title="t('shell.switchLanguage')" @click="toggleLang">
-            <IconMaterialSymbolsTranslate />
-            <span>{{ lang === 'zh' ? t('shell.switchToEnglish') : t('shell.switchToChinese') }}</span>
-          </button>
-          <div
-            class="user-avatar-btn"
-            :title="user?.display_name || user?.username"
-            :aria-label="t('shell.userProfile')"
-            role="img"
-          >
-            <span class="user-avatar-initial">{{ userInitial }}</span>
-          </div>
-          <span class="shell-user-name" :title="user?.display_name || user?.username">
-            {{ user?.display_name || user?.username }}
-            <span v-if="isPending" class="shell-pending-label">({{ t('pendingAuth') }})</span>
-          </span>
-          <button class="small shell-logout" type="button" @click="$emit('logout')">{{ t('logout') }}</button>
-        </div>
+  <div class="app-shell-host">
+    <div
+      v-if="navigationFailure"
+      class="nav-failure"
+      role="alert"
+    >
+      <span class="material-symbols-outlined nav-failure-icon" aria-hidden="true">cloud_off</span>
+      <div class="nav-failure-body">
+        <strong>{{ t('navError.title') }}</strong>
+        <span>{{ navigationFailure.chunkLoadFailed ? t('navError.chunkLoad') : t('navError.generic') }}</span>
+        <code v-if="navigationFailure.target" class="nav-failure-target">{{ navigationFailure.target }}</code>
       </div>
-    </header>
-
-    <div v-if="isPending" class="pending-bar">
-      <span>{{ t('shell.pendingTeacher') }}</span>
+      <div class="nav-failure-actions">
+        <button class="primary" type="button" @click="retryNavigation">{{ t('navError.retry') }}</button>
+        <button type="button" @click="clearNavigationFailure">{{ t('navError.dismiss') }}</button>
+      </div>
     </div>
 
-    <div class="app-shell">
-      <div
-        v-if="sidebarOpen"
-        class="sidebar-backdrop"
-        aria-hidden="true"
-        @click="closeSidebar"
-      />
-      <RoleSidebar
-        :user="user"
-        :open="sidebarOpen"
-        @close-mobile="closeSidebar"
-      />
-      <main id="workspace-content" class="app-shell-main" tabindex="-1" @click="closeSidebar">
-        <slot />
-      </main>
+    <div v-if="authenticated" class="app-shell-root" :class="{ 'app-shell-viewport': viewportWorkspace }" @keydown.esc="closeSidebar">
+      <a class="skip-content" href="#workspace-content">{{ t('shell.skipContent') }}</a>
+      <header class="app-shell-header">
+        <div class="header-inner">
+          <div class="brand-section">
+            <button
+              ref="menuButtonRef"
+              class="shell-menu-button"
+              type="button"
+              :aria-label="t('shell.openNavigation')"
+              :title="t('shell.openNavigation')"
+              aria-controls="role-sidebar"
+              :aria-expanded="sidebarOpen"
+              @click="toggleSidebar"
+            >
+              <IconMaterialSymbolsMenu />
+            </button>
+            <RouterLink to="/" class="brand-logo">
+              <span class="brand-title">PaperGuard</span>
+            </RouterLink>
+          </div>
+
+          <nav class="app-breadcrumbs" :aria-label="t('common.pageLocation')">
+            <RouterLink to="/workspace">{{ roleLabel(user?.role) }}</RouterLink>
+            <span aria-hidden="true">/</span>
+            <strong>{{ routeTitle }}</strong>
+          </nav>
+
+          <div class="user-tray">
+            <span class="scope-context">{{ roleLabel(user?.role) }}</span>
+            <button class="lang-switch-btn" type="button" :title="t('shell.switchLanguage')" @click="toggleLang">
+              <IconMaterialSymbolsTranslate />
+              <span>{{ lang === 'zh' ? t('shell.switchToEnglish') : t('shell.switchToChinese') }}</span>
+            </button>
+            <div
+              class="user-avatar-btn"
+              :title="user?.display_name || user?.username"
+              :aria-label="t('shell.userProfile')"
+              role="img"
+            >
+              <span class="user-avatar-initial">{{ userInitial }}</span>
+            </div>
+            <span class="shell-user-name" :title="user?.display_name || user?.username">
+              {{ user?.display_name || user?.username }}
+              <span v-if="isPending" class="shell-pending-label">({{ t('pendingAuth') }})</span>
+            </span>
+            <button class="small shell-logout" type="button" @click="$emit('logout')">{{ t('logout') }}</button>
+          </div>
+        </div>
+      </header>
+
+      <div v-if="isPending" class="pending-bar">
+        <span>{{ t('shell.pendingTeacher') }}</span>
+      </div>
+
+      <div class="app-shell">
+        <div
+          v-if="sidebarOpen"
+          class="sidebar-backdrop"
+          aria-hidden="true"
+          @click="closeSidebar"
+        />
+        <RoleSidebar
+          :user="user"
+          :open="sidebarOpen"
+          @close-mobile="closeSidebar"
+        />
+        <main id="workspace-content" class="app-shell-main" tabindex="-1" @click="closeSidebar">
+          <div class="app-shell-page">
+            <slot />
+          </div>
+        </main>
+      </div>
     </div>
+    <main v-else class="public-shell">
+      <slot />
+    </main>
   </div>
-  <main v-else class="public-shell">
-    <slot />
-  </main>
 </template>
 
 <script setup>
@@ -118,7 +122,7 @@ const { lang, setLang, t } = useI18n()
 const routeTitle = computed(() => pageTitle(route, props.user, t))
 
 const isPending = computed(() => props.user?.role === 'teacher' && props.user?.status === 'pending')
-const viewportWorkspace = computed(() => route.path === '/workspace' && ['admin', 'college_admin'].includes(props.user?.role))
+const viewportWorkspace = computed(() => Boolean(props.authenticated))
 
 // avatar.png 是一张 512×512 的整版品牌图，缩到 28px 圆头像里完全不可辨认，
 // 所以直接改用姓名首字母，不再显示那张图。
@@ -217,6 +221,7 @@ watchEffect(() => {
 </script>
 
 <style scoped>
+.app-shell-host { min-height: 100vh; }
 .app-shell-root { min-height: 100vh; }
 .skip-content { position: fixed; left: 16px; top: -80px; z-index: 220; padding: 10px 16px; border-radius: var(--radius-sm); background: var(--primary); color: var(--on-primary); }
 .skip-content:focus { top: 12px; }
@@ -313,18 +318,77 @@ watchEffect(() => {
   .nav-failure-actions { margin-left: 28px; }
 }
 
-/* Only manager dashboards allocate the shell to one desktop viewport. */
-@media (min-width: 1101px) {
-  .app-shell-viewport {
+/* Every authenticated desktop page uses the same one-viewport application shell. */
+.app-shell-page { min-width: 0; width: 100%; }
+@media (min-width: 769px) {
+  .app-shell-host {
     height: 100vh;
     height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell-host > .nav-failure {
+    position: relative;
+    flex: 0 0 auto;
+  }
+  .app-shell-host > .app-shell-root,
+  .app-shell-host > .public-shell {
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+  .app-shell-viewport {
+    min-height: 0;
+    height: 100%;
     display: flex;
     flex-direction: column;
   }
   .app-shell-viewport > .app-shell-header { flex: 0 0 60px; }
-  .app-shell-viewport > .app-shell { flex: 1; min-height: 0; }
-  .app-shell-viewport .app-shell-main { min-height: 0; padding-bottom: 0; }
-  .app-shell-viewport :deep(.role-sidebar) { min-height: 0; height: 100%; }
-  .app-shell-viewport :deep(.role-sidebar > *) { flex-shrink: 0; }
+  .app-shell-viewport > .app-shell { display: flex; flex: 1; min-height: 0; }
+  .app-shell-viewport .app-shell-main {
+    min-height: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell-viewport .app-shell-page {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell-viewport .app-shell-page > :deep(*) {
+    min-height: 0;
+  }
+  .app-shell-viewport .app-shell-page > :deep(.stitch-auth-page) {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  .app-shell-viewport :deep(.role-sidebar) { min-height: 0; }
+  .app-shell-viewport :deep(.role-sidebar > :not(.sidebar-nav)) { flex-shrink: 0; }
+  .app-shell-viewport :deep(.role-sidebar > .sidebar-nav) { flex: 1; min-height: 0; }
+}
+@media (min-width: 769px) {
+  .public-shell {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .public-shell > :deep(*) {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+}
+@media (min-width: 901px) {
+  .app-shell-viewport :deep(.role-sidebar) { height: 100%; }
 }
 </style>

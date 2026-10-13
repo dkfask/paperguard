@@ -27,10 +27,7 @@
 
       <!-- Stitch Glassmorphic Card -->
       <div class="stitch-auth-card">
-        <div v-if="error" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'" style="margin-bottom: 16px">
-          <span class="material-symbols-outlined text-[16px]" aria-hidden="true">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>
-          <span>{{ error }}</span>
-        </div>
+        <InlineNotice v-if="error" :message="error" :type="noticeType" />
 
         <form class="auth-form" @submit.prevent="submit">
           <div class="form-field">
@@ -88,6 +85,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import InlineNotice from '../components/InlineNotice.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setAuth, clearAuth, auth } from '../auth'
 import { authApi } from '../features/auth/api'

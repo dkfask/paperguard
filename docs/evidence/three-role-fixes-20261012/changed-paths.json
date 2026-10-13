@@ -1,0 +1,40 @@
+{
+  "modified": [
+    "frontend/src/style.css",
+    "frontend/src/i18n.js",
+    "frontend/src/shared/useDialogFocus.js",
+    "frontend/src/components/ConfirmDialog.vue",
+    "frontend/src/components/ReviewEvidence.vue",
+    "frontend/src/components/ArchiveJobStatus.vue",
+    "frontend/src/components/ReasonDialog.vue",
+    "frontend/src/components/base/BaseModal.vue",
+    "frontend/src/views/Policies.vue",
+    "frontend/src/views/AdminWorkspace.vue",
+    "frontend/src/views/AdminUsers.vue",
+    "frontend/src/views/Workflow.vue",
+    "frontend/src/views/StudentWorkspace.vue",
+    "frontend/tests/Templates.test.js",
+    "frontend/tests/Workflow.reports.test.js",
+    "frontend/tests/DialogFocus.test.js",
+    "frontend/e2e/usage-audit.spec.ts",
+    "frontend/e2e/full-lifecycle.spec.ts",
+    "frontend/e2e/full-lifecycle.spec.ts-snapshots/full-lifecycle-admin-shell-chromium-darwin.png",
+    "frontend/e2e/full-lifecycle.spec.ts-snapshots/full-lifecycle-student-shell-chromium-darwin.png",
+    "frontend/e2e/pages/usage-audit.page.ts",
+    "backend/tests/conftest.py",
+    "backend/tests/test_writing_api.py",
+    "backend/tests/test_data_paths.py",
+    "frontend/playwright.config.ts",
+    "frontend/e2e/component-walkthrough.spec.ts",
+    "frontend/e2e/pages/paperguard.page.ts"
+  ],
+  "added": [
+    "frontend/src/components/SubmissionFeedback.vue",
+    "frontend/tests/AdminUsers.status.test.js",
+    "frontend/tests/Policies.bindings.test.js",
+    "frontend/tests/AdminWorkspace.archives.test.js",
+    "frontend/tests/SubmissionFeedback.test.js",
+    "frontend/tests/Workflow.usage.test.js"
+  ],
+  "backend_app_changed": false
+}

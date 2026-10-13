@@ -21,18 +21,9 @@
     <div v-if="saved" class="saved-banner" role="status" aria-live="polite"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span>{{ t('editor.saved') }}{{ savedAt ? ` · ${savedAt}` : '' }}</div>
 
     <section class="panel template-editor-panel">
-      <div class="panel-heading template-editor-heading">
-        <div>
-          <p class="workspace-kicker">{{ t('editor.kicker') }}</p>
-          <h2>{{ t('editor.title') }}</h2>
-          <p>{{ t('editor.description') }}</p>
-        </div>
-        <span class="material-symbols-outlined panel-icon" aria-hidden="true">tune</span>
-      </div>
-
       <div v-if="loading" class="editor-loading">{{ t('editor.loading') }}</div>
     <!-- 基本信息 -->
-    <div v-else class="template-basic-form">
+    <ScreenDeck v-else class="template-form-deck"><section class="screen-form-section"><h3>{{ t('screen.basic') }}</h3>
       <div class="template-basic-grid">
         <label>{{ t('editor.templateId') }}
           <input v-model="tpl.id" :disabled="!isNew" :placeholder="t('editor.templateIdPlaceholder')" />
@@ -53,7 +44,7 @@
       </div>
 
     <!-- 写作规范绑定 -->
-    <h3 class="editor-section-title"><span class="material-symbols-outlined" aria-hidden="true">rule</span>{{ t('editor.policyBinding') }}</h3>
+    </section><section class="screen-form-section"><h3 class="editor-section-title"><span class="material-symbols-outlined" aria-hidden="true">rule</span>{{ t('editor.policyBinding') }}</h3>
     <div class="policy-binding">
       <label>{{ t('editor.templateVersion') }}
         <input v-model="tpl.version" :placeholder="t('editor.templateVersionPlaceholder')" />
@@ -75,8 +66,8 @@
     </div>
 
     <!-- 封面字段 -->
-    <h3 class="editor-section-title"><span class="material-symbols-outlined" aria-hidden="true">badge</span>{{ t('editor.coverFields') }}</h3>
-    <div v-for="(f, i) in tpl.meta_fields" :key="i" class="meta-field-row">
+    </section><section class="screen-form-section"><h3 class="editor-section-title"><span class="material-symbols-outlined" aria-hidden="true">badge</span>{{ t('editor.coverFields') }}</h3>
+    <ScreenCollection :items="tpl.meta_fields" :row-height="88" v-slot="{ items: visibleItems }"><div v-for="(f, i) in visibleItems" :key="i" class="meta-field-row">
       <label>{{ t('editor.fieldKey') }}
         <input v-model="f.key" :placeholder="t('editor.fieldKeyPlaceholder')" />
       </label>
@@ -84,24 +75,21 @@
         <input v-model="f.label" :placeholder="t('editor.displayNamePlaceholder')" />
       </label>
       <label class="meta-field-required"><input type="checkbox" v-model="f.required" /> {{ t('editor.required') }}</label>
-      <button class="small danger" type="button" @click="tpl.meta_fields.splice(i, 1)"><span class="material-symbols-outlined" aria-hidden="true">delete</span>{{ t('common.remove') }}</button>
-    </div>
+      <button class="small danger" type="button" @click="tpl.meta_fields.splice(tpl.meta_fields.indexOf(f), 1)"><span class="material-symbols-outlined" aria-hidden="true">delete</span>{{ t('common.remove') }}</button>
+    </div></ScreenCollection>
     <button class="small" type="button" @click="tpl.meta_fields.push({ key: '', label: '', required: true })"><span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('editor.addCoverField') }}</button>
 
     <!-- 章节结构 -->
-    <h3 class="editor-section-title"><span class="material-symbols-outlined" aria-hidden="true">account_tree</span>{{ t('editor.sections') }}</h3>
-    <div class="tree">
-      <section-node v-for="node in tpl.sections" :key="node.key" :node="node"
-                    @remove="removeTopLevel(node.key)" />
-    </div>
+    </section><section class="screen-form-section"><h3 class="editor-section-title"><span class="material-symbols-outlined" aria-hidden="true">account_tree</span>{{ t('editor.sections') }}</h3>
+    <ScreenCollection :items="tpl.sections" :row-height="54" v-slot="{ items }"><button v-for="node in items" :key="node.key" type="button" class="screen-summary-row" @click="activeNode = node"><strong>{{ node.title || node.key }}</strong><span class="material-symbols-outlined" aria-hidden="true">chevron_right</span></button></ScreenCollection><BaseModal presentation="drawer" :open="Boolean(activeNode)" :title="t('editor.sections')" @close="activeNode = null"><SectionNode v-if="activeNode" :node="activeNode" @remove="removeTopLevel(activeNode.key); activeNode = null" /></BaseModal>
     <button class="small" type="button" @click="addSection()"><span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('editor.addTopSection') }}</button>
 
     <!-- 样式规范 -->
-    <h3 class="editor-section-title"><span class="material-symbols-outlined" aria-hidden="true">format_paint</span>{{ t('editor.styles') }}</h3>
+    </section><section class="screen-form-section"><h3 class="editor-section-title"><span class="material-symbols-outlined" aria-hidden="true">format_paint</span>{{ t('editor.styles') }}</h3>
     <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px">
       {{ t('editor.stylesDetail') }}
     </p>
-    <div v-for="key in stylesKeys" :key="key" class="style-block">
+    <ScreenCollection :items="stylesKeys" :row-height="50" v-slot="{ items }"><button v-for="key in items" :key="key" type="button" class="screen-summary-row" @click="activeStyle = key; collapsed[key] = false"><strong>{{ styleLabel(key) }}</strong><span class="material-symbols-outlined" aria-hidden="true">chevron_right</span></button></ScreenCollection><BaseModal presentation="drawer" :open="Boolean(activeStyle)" :title="activeStyle ? styleLabel(activeStyle) : ''" @close="activeStyle = null"><div v-for="key in [activeStyle]" :key="key" class="style-block">
       <button class="style-block-heading" type="button" @click="toggleStyle(key)">
         <span style="font-weight: 600">{{ styleLabel(key) }}</span>
         <span class="rule-id"><span class="material-symbols-outlined" aria-hidden="true">{{ collapsed[key] ? 'expand_more' : 'expand_less' }}</span>{{ collapsed[key] ? t('editor.expand') : t('editor.collapse') }}</span>
@@ -133,13 +121,16 @@
           </span>
         </div>
       </div>
-    </div>
-    </div>
+    </div></BaseModal>
+    </section></ScreenDeck>
     </section>
   </div>
 </template>
 
 <script setup>
+import BaseModal from '../components/base/BaseModal.vue'
+import ScreenCollection from '../components/ScreenCollection.vue'
+import ScreenDeck from '../components/ScreenDeck.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { fetchTemplate, fetchPolicies, saveTemplate } from '../api'
@@ -170,6 +161,7 @@ const tpl = ref({
   sections: [], styles: {}, meta_fields: [],
 })
 const policyOptions = ref([])
+const activeStyle = ref(null), activeNode = ref(null)
 const stylesKeys = ref([])
 const collapsed = ref({})
 const error = ref('')
@@ -328,10 +320,6 @@ async function save() {
 .policy-select-label { grid-column: 1 / -1; }
 .policy-select-label select { min-height: 96px; }
 .field-hint { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
-.template-editor-heading {
-  margin-bottom: 18px;
-}
-
 .template-editor-panel {
   padding-bottom: 22px;
 }

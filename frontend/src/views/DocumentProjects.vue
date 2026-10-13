@@ -2,20 +2,21 @@
   <div class="document-page">
     <section class="document-hero">
       <div>
-        <p class="workspace-kicker">{{ t('documentProjects.kicker') }}</p>
-        <h1>{{ t('documentProjects.title') }}</h1>
-        <p>{{ t('documentProjects.description') }}</p>
+        <p class="workspace-kicker">{{ documentText('kicker') }}</p>
+        <h1>{{ documentText('title') }}</h1>
+        <p>{{ documentText('description') }}</p>
       </div>
-      <span class="material-symbols-outlined hero-icon" aria-hidden="true">article</span>
+      <RouterLink v-if="personalWriting" to="/document-packages/publish" class="personal-template-action">{{ t('personalTemplates.title') }}</RouterLink>
+      <span v-else class="material-symbols-outlined hero-icon" aria-hidden="true">article</span>
     </section>
 
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
 
-    <section class="document-section">
+    <ScreenDeck class="document-deck"><section class="document-section">
       <div class="section-heading">
         <div>
           <p class="workspace-kicker">{{ t('documentProjects.packagesEyebrow') }}</p>
-          <h2>{{ t('documentProjects.packagesTitle') }}</h2>
+          <h2>{{ documentText('packagesTitle') }}</h2>
         </div>
         <button class="small" type="button" :disabled="loading" @click="load">
           <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
@@ -27,15 +28,15 @@
       <div v-else-if="!packages.length" class="empty-state">
         <span class="material-symbols-outlined" aria-hidden="true">inventory_2</span>
         <strong>{{ t('documentProjects.noPackages') }}</strong>
-        <span>{{ t('documentProjects.noPackagesDetail') }}</span>
+        <span>{{ documentText('noPackagesDetail') }}</span>
       </div>
       <div v-else class="package-grid">
-        <article v-for="item in packages" :key="item.package.id" class="package-card">
+        <ScreenCollection :items="packages" :row-height="220" v-slot="{ items: visibleItems }"><article v-for="item in visibleItems" :key="item.package.id" class="package-card">
           <div class="package-card-head">
             <span class="material-symbols-outlined" aria-hidden="true">description</span>
             <div>
               <h3>{{ item.template.name }}</h3>
-              <p>{{ item.spec_set.name }}</p>
+              <p>{{ item.spec_set.name }}</p><small v-if="personalWriting">{{ t(item.package.metadata?.usage === 'personal' ? 'personalDocuments.ownTemplate' : 'personalDocuments.sharedTemplate') }}</small>
             </div>
           </div>
           <dl class="package-meta">
@@ -43,13 +44,13 @@
             <div><dt>{{ t('documentProjects.specVersion') }}</dt><dd>{{ item.package.spec_version_id }}</dd></div>
           </dl>
           <div class="create-row">
-            <input v-model="titles[item.package.id]" :aria-label="t('documentProjects.projectTitle')" :placeholder="t('documentProjects.projectTitlePlaceholder')" maxlength="300" />
+            <input v-model="titles[item.package.id]" :aria-label="t('documentProjects.projectTitle')" :placeholder="documentText('projectTitlePlaceholder')" maxlength="300" />
             <button class="primary small" type="button" :disabled="creating === item.package.id" @click="createProject(item.package.id)">
               <span class="material-symbols-outlined" aria-hidden="true">add</span>
-              {{ creating === item.package.id ? t('common.creating') : t('documentProjects.start') }}
+              {{ creating === item.package.id ? t('common.creating') : documentText('start') }}
             </button>
           </div>
-        </article>
+        </article></ScreenCollection>
       </div>
     </section>
 
@@ -62,25 +63,30 @@
       </div>
       <div v-if="!projects.length" class="empty-state compact">{{ t('documentProjects.noProjects') }}</div>
       <div v-else class="project-list">
-        <RouterLink v-for="project in projects" :key="project.id" :to="`/document-projects/${project.id}`" class="project-row">
+        <ScreenCollection :items="projects" :row-height="64" v-slot="{ items: visibleItems }"><RouterLink v-for="project in visibleItems" :key="project.id" :to="`/document-projects/${project.id}`" class="project-row">
           <span class="material-symbols-outlined" aria-hidden="true">edit_document</span>
           <span class="project-row-main"><strong>{{ project.title || t('documentProjects.untitled') }}</strong><small>{{ project.document_type_id }} · {{ project.section_count }} {{ t('documentProjects.sections') }}</small></span>
           <span class="project-row-revision">v{{ project.revision }}</span>
           <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
-        </RouterLink>
+        </RouterLink></ScreenCollection>
       </div>
-    </section>
+    </section></ScreenDeck>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import ScreenDeck from '../components/ScreenDeck.vue'
+import ScreenCollection from '../components/ScreenCollection.vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from '../i18n'
+import { auth } from '../auth'
 import { createDocumentProject, getDocumentPackages, getDocumentProjects } from '../api.js'
 
 const router = useRouter()
 const { t } = useI18n()
+const personalWriting = computed(() => auth.user?.role === 'teacher')
+function documentText(key) { return t(`${personalWriting.value ? 'personalDocuments' : 'documentProjects'}.${key}`) }
 const packages = ref([])
 const projects = ref([])
 const titles = reactive({})
@@ -123,6 +129,8 @@ onMounted(load)
 .document-hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 24px 0 32px; border-bottom: 1px solid var(--border); }
 .document-hero h1 { margin: 4px 0 8px; font-size: 25px; }
 .document-hero p:not(.workspace-kicker) { max-width: 680px; margin: 0; color: var(--on-surface-variant); line-height: 1.7; }
+.personal-template-action { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; padding: 9px 12px; border: 1px solid var(--primary); border-radius: 6px; color: var(--primary); background: var(--surface); font-size: 13px; font-weight: 600; line-height: 1.4; text-decoration: none; white-space: nowrap; }
+.personal-template-action:hover { background: color-mix(in srgb, var(--primary) 5%, var(--surface)); }
 .hero-icon { color: var(--primary); font-size: 48px; }
 .document-section { padding: 28px 0; border-bottom: 1px solid var(--border); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
@@ -149,5 +157,5 @@ onMounted(load)
 .project-row-main { display: grid; gap: 3px; flex: 1; min-width: 0; }
 .project-row-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-row-main small, .project-row-revision { color: var(--on-surface-variant); font-size: 12px; }
-@media (max-width: 640px) { .document-page { padding: 18px 14px 40px; } .document-hero { padding-top: 10px; } .hero-icon { display: none; } .create-row { align-items: stretch; flex-direction: column; } .create-row input, .create-row button { width: 100%; } }
+@media (max-width: 640px) { .document-page { padding: 18px 14px 40px; } .document-hero { padding-top: 10px; flex-direction: column; gap: 16px; } .hero-icon { display: none; } .create-row { align-items: stretch; flex-direction: column; } .create-row input, .create-row button { width: 100%; } }
 </style>

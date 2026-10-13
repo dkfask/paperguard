@@ -45,6 +45,7 @@ describe('Templates', () => {
     const wrapper = mount(Templates, {
       global: {
         stubs: {
+          teleport: true,
           AsyncState: true,
           RouterLink: { template: '<a><slot /></a>' },
         },
@@ -60,6 +61,7 @@ describe('Templates', () => {
     const wrapper = mount(Templates, {
       global: {
         stubs: {
+          teleport: true,
           AsyncState: true,
           RouterLink: { template: '<a><slot /></a>' },
         },
@@ -73,5 +75,49 @@ describe('Templates', () => {
 
     expect(api.deleteTemplateApi).toHaveBeenCalledWith('custom-template')
     expect(api.fetchTemplates).toHaveBeenCalledTimes(2)
+  })
+
+  async function importPreview() {
+    const result = {
+      filename: 'abstract-keywords.docx', style_names: ['Heading 1', 'Abstract', 'Key Words'],
+      styles: Object.fromEntries(['heading3', 'english_abstract', 'keywords', 'english_keywords', 'heading1', 'heading2'].map(key => [key, { font_en: 'Times New Roman', size_pt: 12 }])),
+      sections: [{ key: 'english_abstract', type: 'english_abstract', title: 'Abstract', children: [] }, { key: 'ch1', type: 'heading1', title: '第1章 绪论', children: [] }],
+    }
+    api.importDocxTemplate.mockResolvedValue(result)
+    const wrapper = mount(Templates, { global: { stubs: { teleport: true, AsyncState: true, RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { value: [new File(['fixture'], result.filename)] })
+    await input.trigger('change'); await flushPromises()
+    return { wrapper, result }
+  }
+
+  it('uses translated names for English abstract and both keyword styles', async () => {
+    const { wrapper } = await importPreview()
+    const names = wrapper.findAll('.style-preview-item summary').map(el => el.text())
+    expect(names).toContain('section.englishAbstract')
+    expect(names).toContain('section.keywords')
+    expect(names).toContain('section.englishKeywords')
+    expect(names).not.toContain('english_abstract')
+    expect(names).not.toContain('keywords')
+    expect(names).not.toContain('english_keywords')
+    wrapper.unmount()
+  })
+
+  it('separates heading levels from other styles without changing the saved definitions', async () => {
+    const { wrapper, result } = await importPreview()
+    const groups = wrapper.findAll('.style-preview-group')
+    expect(groups).toHaveLength(2)
+    expect(groups[0].findAll('summary').map(el => el.text())).toEqual(['section.heading1', 'section.heading2', 'section.heading3'])
+    expect(groups[1].findAll('summary').map(el => el.text())).toEqual(['section.englishAbstract', 'section.keywords', 'section.englishKeywords'])
+    api.fetchTemplate.mockResolvedValue({ sections: [], meta_fields: [] })
+    api.saveTemplate.mockResolvedValue({ id: 'imported' })
+    await wrapper.findAll('button').find(el => el.text().includes('templates.confirmCreate')).trigger('click')
+    await flushPromises()
+    const saved = api.saveTemplate.mock.calls[0][0]
+    expect(saved.styles).toEqual(result.styles)
+    expect(saved.sections).toEqual([{ ...result.sections[0], required: true }, result.sections[1]])
+    expect(router.push).toHaveBeenCalledWith('/templates/imported/edit')
+    wrapper.unmount()
   })
 })

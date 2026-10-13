@@ -1,5 +1,5 @@
 <template>
-  <div class="data-table-wrap">
+  <ScreenCollection :items="rows" :row-height="48" row-selector="tbody tr" body-class="table-scroll" v-slot="{ items: visibleRows }" class="data-table-wrap">
     <table class="data-table">
       <thead>
         <tr>
@@ -9,7 +9,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(row, rowIndex) in rows" :key="row[rowKey] || rowIndex">
+        <tr v-for="(row, rowIndex) in visibleRows" :key="row[rowKey] || rowIndex">
           <td v-for="column in columns" :key="column.key">
             <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]">
               {{ formatValue(row[column.key]) }}
@@ -18,10 +18,10 @@
         </tr>
       </tbody>
     </table>
-  </div>
-</template>
+  </ScreenCollection></template>
 
 <script setup>
+import ScreenCollection from './ScreenCollection.vue'
 defineProps({
   columns: { type: Array, required: true },
   rows: { type: Array, default: () => [] },

@@ -1,0 +1,53 @@
+{
+  "style_keys": [
+    "abstract",
+    "acknowledgement",
+    "body",
+    "cover_meta",
+    "cover_title",
+    "english_abstract",
+    "english_keywords",
+    "figure_caption",
+    "heading1",
+    "heading2",
+    "heading3",
+    "keywords",
+    "references",
+    "table_caption",
+    "toc"
+  ],
+  "special_sections": [
+    {
+      "key": "abstract",
+      "type": "abstract",
+      "title": "摘  要"
+    },
+    {
+      "key": "english_abstract",
+      "type": "english_abstract",
+      "title": "Abstract"
+    },
+    {
+      "key": "toc",
+      "type": "toc",
+      "title": "目  录"
+    },
+    {
+      "key": "references",
+      "type": "references",
+      "title": "参考文献"
+    },
+    {
+      "key": "acknowledgement",
+      "type": "acknowledgement",
+      "title": "致  谢"
+    },
+    {
+      "key": "appendix",
+      "type": "appendix",
+      "title": "附  录"
+    }
+  ],
+  "keyword_sections": [],
+  "heading_count": 36
+}

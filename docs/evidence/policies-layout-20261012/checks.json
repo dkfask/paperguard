@@ -1,0 +1,59 @@
+[
+  {
+    "check": "backend",
+    "command": "project Python 3.12 -m pytest -q",
+    "directory": "backend",
+    "exit": 0,
+    "passed": 1100,
+    "warnings": 2
+  },
+  {
+    "check": "frontend",
+    "command": "npm run test",
+    "directory": "frontend",
+    "exit": 0,
+    "files": 30,
+    "passed": 125
+  },
+  {
+    "check": "typecheck",
+    "command": "npm run typecheck",
+    "directory": "frontend",
+    "exit": 0
+  },
+  {
+    "check": "build",
+    "command": "npm run build",
+    "directory": "frontend",
+    "exit": 0
+  },
+  {
+    "check": "college-admin",
+    "command": "npm run check:college-admin",
+    "directory": "frontend",
+    "exit": 0,
+    "passed": 5
+  },
+  {
+    "check": "policies browser",
+    "command": "npm run test:e2e -- e2e/policies-layout.spec.ts",
+    "directory": "frontend",
+    "exit": 0,
+    "passed": 8,
+    "skipped": 0
+  },
+  {
+    "check": "three-role lifecycle",
+    "command": "npm run test:e2e -- e2e/full-lifecycle.spec.ts --project=chromium --grep 'admin teacher student complete lifecycle'",
+    "directory": "frontend",
+    "exit": 0,
+    "passed": 1,
+    "skipped": 0
+  },
+  {
+    "check": "format",
+    "command": "git diff --check",
+    "directory": ".",
+    "exit": 0
+  }
+]

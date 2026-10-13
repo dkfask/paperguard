@@ -1,0 +1,32 @@
+[
+  {
+    "path": "backend/tests/test_import_section_tree.py",
+    "before": "7d0aa18d0b380a0b022ad3b70403beb71fe11f038f12222ce126f524cc0bf185",
+    "after": "60899b125520077a50ece08dbd4755db13715bd1061995133ecbbaa235bf9367"
+  },
+  {
+    "path": "frontend/e2e/compact-previews.spec.ts",
+    "before": "6d23a8a64c4da1c431d3b5af832e96cb3ee7fd5fc5acd932cf6ed44c768de9a5",
+    "after": "fffb71b9fcb6004612da741a73863717b8ffa20d402ce3548b3e2535ccf150f2"
+  },
+  {
+    "path": "frontend/e2e/full-lifecycle.spec.ts",
+    "before": "a83b3599997d9102a6ce6c31bbfefc9add2c3d053167a854a03c9f053f8e2b08",
+    "after": "d34709e523ab9deb1bf84ac201373402fa52c7f64ab51fad2bdbe8b1c6972a59"
+  },
+  {
+    "path": "frontend/src/i18n.js",
+    "before": "ecc25dcf29f4723322bb92f0f1ebb1ec0cf51d41d3d1b650ee25728cf1c773c7",
+    "after": "9af3c4b2fb3bb4226d1f57d4f010bb30d524e9483bfbee07cc976004f71d5188"
+  },
+  {
+    "path": "frontend/src/views/Templates.vue",
+    "before": "5b05a52751b4f45d60002a517e9d4709447ea819e9c333f31c10d5a8c30d0a7a",
+    "after": "ecbd921f398db46d813d064cc4c0a20febd9668748eb6369063143be90cad15b"
+  },
+  {
+    "path": "frontend/tests/Templates.test.js",
+    "before": "e0b4e142823a75a798444e915c56ae0a409a587ddd4db141c52112f764cb2e6a",
+    "after": "b5059a2c354c4160f4ac2bc750d345e78564d8b4d4dfb2d4c5897b0bde1b334f"
+  }
+]

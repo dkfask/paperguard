@@ -1,0 +1,324 @@
+{
+  "counts": {
+    "total": 30,
+    "pass": 25,
+    "fail": 5,
+    "blocked": 0,
+    "not_executed": 0
+  },
+  "caveat": "Diagnostic recovery is retained as failure. An audit execution PASS does not mean zero violations.",
+  "cases": [
+    {
+      "id": "TC-01-01",
+      "title": "登录及改密",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:210"
+      ]
+    },
+    {
+      "id": "TC-01-02",
+      "title": "认证教师",
+      "status": "FAIL",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [
+        "BUG-01"
+      ],
+      "code_refs": [
+        "frontend/src/views/AdminUsers.vue:35"
+      ]
+    },
+    {
+      "id": "TC-01-03",
+      "title": "组织和成员范围",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:222"
+      ]
+    },
+    {
+      "id": "TC-01-04",
+      "title": "归档生成",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:534"
+      ]
+    },
+    {
+      "id": "TC-01-05",
+      "title": "归档下载",
+      "status": "PASS",
+      "note": "实际下载 ZIP；压缩包完整且清单 SHA-256 全匹配",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:553"
+      ]
+    },
+    {
+      "id": "TC-01-06",
+      "title": "管理页面可操作",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/component-walkthrough.spec.ts:149"
+      ]
+    },
+    {
+      "id": "TC-02-01",
+      "title": "登录与模板导入",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:243"
+      ]
+    },
+    {
+      "id": "TC-02-02",
+      "title": "规范发布",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:284"
+      ]
+    },
+    {
+      "id": "TC-02-03",
+      "title": "批次和指导关系",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:298"
+      ]
+    },
+    {
+      "id": "TC-02-04",
+      "title": "发布阶段",
+      "status": "FAIL",
+      "note": "确认被遮挡；诊断关闭侧栏后发布又报异常，刷新恢复",
+      "bugs": [
+        "BUG-02",
+        "BUG-03"
+      ],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:331"
+      ]
+    },
+    {
+      "id": "TC-02-05",
+      "title": "审核材料",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:406"
+      ]
+    },
+    {
+      "id": "TC-02-06",
+      "title": "退回理由校验",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:464"
+      ]
+    },
+    {
+      "id": "TC-02-07",
+      "title": "添加意见及退回",
+      "status": "FAIL",
+      "note": "批注及退回成功，学生端缺具体反馈",
+      "bugs": [
+        "BUG-05"
+      ],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:465"
+      ]
+    },
+    {
+      "id": "TC-02-08",
+      "title": "通过重提论文",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:523"
+      ]
+    },
+    {
+      "id": "TC-02-09",
+      "title": "角色边界",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/component-walkthrough.spec.ts:203"
+      ]
+    },
+    {
+      "id": "TC-03-01",
+      "title": "任务绑定与确认",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:371"
+      ]
+    },
+    {
+      "id": "TC-03-02",
+      "title": "过程材料填写提交",
+      "status": "PASS",
+      "note": "四项材料重开读回；附件和填充表实际下载",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:394"
+      ]
+    },
+    {
+      "id": "TC-03-03",
+      "title": "正文编辑保存读回",
+      "status": "PASS",
+      "note": "修订保存后刷新读回一致",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:506"
+      ]
+    },
+    {
+      "id": "TC-03-04",
+      "title": "格式检查和导出",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:439"
+      ]
+    },
+    {
+      "id": "TC-03-05",
+      "title": "预检正式提交",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:446"
+      ]
+    },
+    {
+      "id": "TC-03-06",
+      "title": "查看退回意见",
+      "status": "FAIL",
+      "note": "任务记录入口不开详情；历史详情缺理由/批注",
+      "bugs": [
+        "BUG-04",
+        "BUG-05"
+      ],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:492"
+      ]
+    },
+    {
+      "id": "TC-03-07",
+      "title": "修订重提",
+      "status": "FAIL",
+      "note": "新旧两条记录保留，但旧记录不能打开",
+      "bugs": [
+        "BUG-06"
+      ],
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:516"
+      ]
+    },
+    {
+      "id": "TC-03-08",
+      "title": "学生权限边界",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "backend/tests/test_workflow_api.py:431"
+      ]
+    },
+    {
+      "id": "TC-04-01",
+      "title": "短表单弹窗",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/compact-previews.spec.ts:1"
+      ]
+    },
+    {
+      "id": "TC-04-02",
+      "title": "长章节标题",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/compact-previews.spec.ts:1"
+      ]
+    },
+    {
+      "id": "TC-04-03",
+      "title": "保存失败恢复",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/ui-refactor.spec.ts:111"
+      ]
+    },
+    {
+      "id": "TC-04-04",
+      "title": "加载失败恢复",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/admin-workspace-viewport.spec.ts:148"
+      ]
+    },
+    {
+      "id": "TC-04-05",
+      "title": "手机导航",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/ui-refactor.spec.ts:24"
+      ]
+    },
+    {
+      "id": "TC-04-06",
+      "title": "英文导航",
+      "status": "PASS",
+      "note": "实际执行，见报告及对应证据引用",
+      "bugs": [],
+      "code_refs": [
+        "frontend/e2e/all-pages-viewport.spec.ts:397"
+      ]
+    },
+    {
+      "id": "TC-04-07",
+      "title": "键盘及自动无障碍检查",
+      "status": "PASS",
+      "note": "键盘及9场景扫描执行完成；发现违规，不表示无障碍验收通过",
+      "bugs": [],
+      "code_refs": [
+        "frontend/src/shared/useDialogFocus.js:1"
+      ]
+    }
+  ]
+}

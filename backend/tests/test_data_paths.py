@@ -7,14 +7,18 @@ from pathlib import Path
 import app.main as main_api
 from app import db
 from app.services import backup_restore
+from app.services.document_assets import document_upload_dir
 
 
-def test_default_runtime_assets_share_backend_data_root() -> None:
+def test_default_runtime_assets_share_backend_data_root(monkeypatch) -> None:
     data_root = Path(__file__).resolve().parents[1] / "data"
 
     assert db._DEFAULT_DB_PATH == data_root / "paperguard.db"
     assert backup_restore._DEFAULT_DATA_DIR == data_root
-    assert main_api._uploads_dir == data_root / "uploads"
+    assert main_api._uploads_dir == document_upload_dir()
+    with monkeypatch.context() as env:
+        env.delenv("PAPERGUARD_DATA_DIR", raising=False)
+        assert document_upload_dir() == data_root / "uploads"
 
 
 def test_data_dir_override_controls_database_and_backup_paths(monkeypatch, tmp_path) -> None:

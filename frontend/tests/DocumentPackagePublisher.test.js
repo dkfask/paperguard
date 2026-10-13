@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 const api = vi.hoisted(() => ({
@@ -12,8 +12,9 @@ const api = vi.hoisted(() => ({
 }))
 
 vi.mock('../src/api.js', () => api)
+const identity = vi.hoisted(() => ({ user: { role: 'admin' }, canManage: vi.fn(() => true) }))
 vi.mock('../src/auth.js', () => ({
-  auth: { canManage: vi.fn(() => true) },
+  auth: identity,
 }))
 vi.mock('../src/i18n', () => ({
   useI18n: () => ({ t: (key) => key }),
@@ -48,6 +49,16 @@ const specCandidate = {
   rules: [{ id: 'body-min', kind: 'auto', checker: 'text.word_count', description: '正文至少 100 字' }],
 }
 
+const mounted = []
+function mountPublisher() {
+  const wrapper = mount(DocumentPackagePublisher, {
+    global: { stubs: { teleport: true, RouterLink: { template: '<a><slot /></a>' } } },
+  })
+  mounted.push(wrapper)
+  return wrapper
+}
+afterEach(() => { mounted.splice(0).forEach(wrapper => wrapper.unmount()) })
+
 function chooseFile(wrapper, selector, file) {
   const input = wrapper.get(selector).element
   Object.defineProperty(input, 'files', { configurable: true, value: [file] })
@@ -57,6 +68,7 @@ function chooseFile(wrapper, selector, file) {
 describe('DocumentPackagePublisher', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    identity.user = { role: 'admin' }
     api.getDocumentTemplateCandidates.mockResolvedValue([])
     api.getDocumentSpecCandidates.mockResolvedValue([])
     api.parseDocumentTemplate.mockImplementation(async () => JSON.parse(JSON.stringify(templateCandidate)))
@@ -70,10 +82,23 @@ describe('DocumentPackagePublisher', () => {
     })
   })
 
+  it('saves a teacher template for personal writing using named document types', async () => {
+    identity.user = { role: 'teacher' }
+    const wrapper = mountPublisher()
+    expect(wrapper.get('h1').text()).toBe('personalTemplates.title')
+    expect(wrapper.text()).not.toContain('documentPackagePublisher.publishTitle')
+    expect(wrapper.text()).toContain('personalTemplates.specOptional')
+    await chooseFile(wrapper, '[data-test="template-file"]', new File(['docx'], 'application.docx'))
+    await wrapper.get('[data-test="template-parse"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-test="template-confirm"]').trigger('click'); await flushPromises()
+    await wrapper.get('[aria-label="personalTemplates.documentType"]').setValue('grant-application')
+    await wrapper.get('[data-test="publish"]').trigger('click'); await flushPromises()
+    expect(api.publishDocumentPackage).toHaveBeenCalledWith(expect.objectContaining({ usage: 'personal', document_type_id: 'grant-application' }))
+    expect(wrapper.text()).toContain('personalTemplates.published')
+  })
+
   it('allows legacy and modern Word files in both upload steps', () => {
-    const wrapper = mount(DocumentPackagePublisher, {
-      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
-    })
+    const wrapper = mountPublisher()
 
     expect(wrapper.get('[data-test="template-file"]').attributes('accept')).toContain('.doc')
     expect(wrapper.get('[data-test="template-file"]').attributes('accept')).toContain('.docx')
@@ -82,9 +107,7 @@ describe('DocumentPackagePublisher', () => {
   })
 
   it('publishes with an optional separate standard when one is provided', async () => {
-    const wrapper = mount(DocumentPackagePublisher, {
-      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
-    })
+    const wrapper = mountPublisher()
     const templateFile = new File(['docx'], 'report.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
     const specFile = new File(['rules'], 'rules.md', { type: 'text/markdown' })
 
@@ -115,9 +138,7 @@ describe('DocumentPackagePublisher', () => {
   })
 
   it('allows a confirmed form template to publish without a separate standard', async () => {
-    const wrapper = mount(DocumentPackagePublisher, {
-      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
-    })
+    const wrapper = mountPublisher()
     const templateFile = new File(['docx'], 'application-form.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
 
     await chooseFile(wrapper, '[data-test="template-file"]', templateFile)
@@ -138,9 +159,7 @@ describe('DocumentPackagePublisher', () => {
   })
 
   it('reviews editable fields and rule params before confirmation', async () => {
-    const wrapper = mount(DocumentPackagePublisher, {
-      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
-    })
+    const wrapper = mountPublisher()
     const templateFile = new File(['docx'], 'report.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
     const specFile = new File(['rules'], 'rules.md', { type: 'text/markdown' })
 
@@ -150,6 +169,10 @@ describe('DocumentPackagePublisher', () => {
     await wrapper.get('[data-test="template-candidate-name"]').setValue('修订后的模板')
     await wrapper.get('[data-test="template-field-label"]').setValue('报告作者')
     await wrapper.get('[data-test="template-section-title"]').setValue('背景与目标')
+    await wrapper.get('[role="dialog"] .base-modal-close').trigger('click')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    await wrapper.get('[data-test="template-review"]').trigger('click')
+    expect(wrapper.get('[data-test="template-candidate-name"]').element.value).toBe('修订后的模板')
     await wrapper.get('[data-test="template-confirm"]').trigger('click')
     await flushPromises()
 
@@ -177,14 +200,41 @@ describe('DocumentPackagePublisher', () => {
   it('restores saved candidates after the page loads', async () => {
     api.getDocumentTemplateCandidates.mockResolvedValue([{ ...templateCandidate, name: '已保存模板' }])
     api.getDocumentSpecCandidates.mockResolvedValue([{ ...specCandidate, name: '已保存规范' }])
-    const wrapper = mount(DocumentPackagePublisher, {
-      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
-    })
+    const wrapper = mountPublisher()
     await flushPromises()
 
     expect(wrapper.get('[data-test="template-saved"]').exists()).toBe(true)
     await wrapper.get('[data-test="template-saved"]').setValue('template-candidate-1')
     expect(wrapper.text()).toContain('已保存模板')
     expect(wrapper.get('[data-test="spec-saved"]').exists()).toBe(true)
+  })
+
+  it('keeps parsed structure and permissions intact through the simplified preview', async () => {
+    const definition = {
+      ...templateCandidate.definition,
+      mode: 'hybrid', export_strategy: 'source_template',
+      sections: [{
+        key: 'ch1', title: '第一章 包含较长名称的研究背景与技术方法', kind: 'heading1', order: 3,
+        style_ref: 'body', required: true, repeatable: true, allow_user_add: false, allow_user_delete: true,
+        children: [{ key: 'ch1_1', title: '国内外研究进展', kind: 'heading2', order: 0,
+          children: [{ key: 'ch1_1_1', title: '关键技术比较', kind: 'heading3', children: [] }] }],
+      }],
+    }
+    api.parseDocumentTemplate.mockResolvedValue({ ...templateCandidate, definition })
+    const wrapper = mountPublisher()
+    await chooseFile(wrapper, '[data-test="template-file"]', new File(['docx'], 'outline.docx'))
+    await wrapper.get('[data-test="template-parse"]').trigger('click')
+    await flushPromises()
+
+    const row = wrapper.get('[data-test="template-section-ch1"]')
+    expect(row.get('textarea').element.value).toBe(definition.sections[0].title)
+    expect(wrapper.findAll('.section-level').map(item => item.text())).toEqual([
+      'section.heading1', 'section.heading2', 'section.heading3',
+    ])
+    expect(row.find('select, input').exists()).toBe(false)
+    expect(row.text()).not.toContain('ch1')
+    await wrapper.get('[data-test="template-confirm"]').trigger('click')
+    await flushPromises()
+    expect(api.confirmDocumentTemplateCandidate).toHaveBeenCalledWith(expect.objectContaining({ definition }))
   })
 })

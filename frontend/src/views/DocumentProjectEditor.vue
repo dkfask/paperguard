@@ -10,10 +10,10 @@
             {{ t('documentProjects.back') }}
           </RouterLink>
           <input v-model="draft.title" class="title-input" :aria-label="t('documentProjects.projectTitle')" maxlength="300" @input="scheduleSave" />
-          <p class="editor-subtitle">{{ editor.template.name }} · {{ editor.package.document_type_id }} · {{ editor.project.template_version_id }}</p>
+          <p class="editor-subtitle">{{ t('documentProjects.templateLabel') }} {{ editor.template.name }}</p>
         </div>
-        <div class="editor-actions">
-          <button class="validate-action" type="button" :disabled="validating || saving || exporting" @click="runValidation">
+        <div class="editor-actions"><button type="button" class="small" @click="documentContextOpen = true">{{ t('documentProjects.snapshot') }}</button><button v-if="validation" type="button" class="small" @click="validationOpen = true">{{ t('documentProjects.validationTitle') }}</button>
+          <button class="validate-action" type="button" :disabled="validating || saving || exporting" @click="runValidation()">
             <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
             {{ validating ? t('documentProjects.validating') : t('documentProjects.validate') }}
           </button>
@@ -30,7 +30,7 @@
 
       <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
 
-      <section v-if="validation" class="validation-panel" aria-live="polite">
+      <BaseModal presentation="drawer" :open="validationOpen" :title="t('documentProjects.validationTitle')" @close="validationOpen = false"><section v-if="validation" class="validation-panel" aria-live="polite">
         <div class="validation-heading">
           <div><p class="workspace-kicker">{{ t('documentProjects.validationEyebrow') }}</p><h2>{{ t('documentProjects.validationTitle') }}</h2></div>
           <strong :class="validation.findings.length ? 'has-findings' : 'clean'">{{ validation.findings.length ? t('documentProjects.issueCount', { count: validation.findings.length }) : t('documentProjects.noFindings') }}</strong>
@@ -43,10 +43,10 @@
           </li>
         </ul>
         <p v-if="validation.not_checked.length" class="not-checked">{{ t('documentProjects.notChecked', { count: validation.not_checked.length }) }}</p>
-      </section>
+      </section></BaseModal>
 
       <div class="editor-layout">
-        <aside class="editor-aside">
+        <BaseModal presentation="drawer" :open="documentContextOpen" :title="t('documentProjects.snapshot')" @close="documentContextOpen = false"><aside class="editor-aside">
           <div class="aside-block">
             <p class="workspace-kicker">{{ t('documentProjects.snapshot') }}</p>
             <dl class="snapshot-list">
@@ -67,14 +67,14 @@
               </li>
             </ul>
           </div>
-        </aside>
+        </aside></BaseModal>
 
-        <main class="editor-main">
+        <ScreenDeck class="editor-main" :labels="editorPanelLabels">
           <section v-if="editor.editor_schema.fields.length" class="editor-section">
-            <div class="section-heading"><div><p class="workspace-kicker">{{ t('documentProjects.fieldsEyebrow') }}</p><h2>{{ t('documentProjects.fieldsTitle') }}</h2></div></div>
+            <div class="section-heading"><h2>{{ t('documentProjects.fieldsTitle') }}</h2></div>
             <div class="field-grid">
-              <label v-for="field in editor.editor_schema.fields" :key="field.key" class="document-field">
-                <span>{{ field.label || field.key }} <em v-if="field.required">{{ t('documentProjects.required') }}</em></span>
+              <label v-for="field in editor.editor_schema.fields" :key="field.key" class="document-field" :class="{ 'document-field-multiline': isMultilineField(field) }">
+                <span>{{ fieldLabel(field) }} <em v-if="field.required">{{ t('documentProjects.required') }}</em></span>
                 <textarea v-if="isMultilineField(field)" :data-test="`document-field-${field.key}`" v-model="draft.field_values[field.key]" rows="3" @input="scheduleSave"></textarea>
                 <select v-else-if="isChoiceField(field)" :data-test="`document-field-${field.key}`" v-model="draft.field_values[field.key]" @change="scheduleSave">
                   <option value="">{{ t('documentProjects.selectPlaceholder') }}</option>
@@ -86,9 +86,9 @@
             </div>
           </section>
 
-          <section v-for="section in editableSections" :key="section.key" class="editor-section">
+          <section v-for="section in editableSections" :key="section.key" class="editor-section writing-section">
             <div class="section-heading">
-              <div><p class="workspace-kicker">{{ section.kind }}</p><h2>{{ section.title || section.key }}</h2></div>
+              <h2>{{ sectionLabel(section) }}</h2>
               <button v-if="canAddBlock(section)" class="icon-action" type="button" :title="t('documentProjects.addBlock')" :aria-label="t('documentProjects.addBlock')" :data-test="`add-block-${section.key}`" @click="addBlock(section.key)">
                 <span class="material-symbols-outlined" aria-hidden="true">add</span>
               </button>
@@ -99,14 +99,14 @@
                   <span>{{ t('documentProjects.block') }} {{ index + 1 }}</span>
                   <div class="block-actions">
                     <select :data-test="`block-kind-${block.id}`" v-model="block.kind" :aria-label="t('documentProjects.blockType')" @change="normalizeBlock(block); scheduleSave()">
-                      <option v-for="kind in blockKinds(section)" :key="kind" :value="kind">{{ kind }}</option>
+                      <option v-for="kind in blockKinds(section)" :key="kind" :value="kind">{{ blockKindLabel(kind) }}</option>
                     </select>
                     <button v-if="canDeleteBlock(section)" class="icon-action danger" type="button" :title="t('documentProjects.deleteBlock')" :aria-label="t('documentProjects.deleteBlock')" :data-test="`delete-block-${block.id}`" @click="removeBlock(section.key, index)">
                       <span class="material-symbols-outlined" aria-hidden="true">delete</span>
                     </button>
                   </div>
                 </div>
-                <textarea v-if="isTextBlock(block)" v-model="block.text" :aria-label="`${section.title || section.key} ${index + 1}`" rows="7" @input="scheduleSave"></textarea>
+                <textarea v-if="isTextBlock(block)" v-model="block.text" :aria-label="`${sectionLabel(section)} ${index + 1}`" rows="7" @input="scheduleSave"></textarea>
                 <div v-else-if="isImageBlock(block)" class="block-fields">
                   <label>{{ t('documentProjects.imageUpload') }}<input type="file" accept="image/png,image/jpeg,image/gif" :disabled="uploadingBlockId === block.id" @change="uploadBlockImage(block, $event)" /></label>
                   <label>{{ t('documentProjects.imageUrl') }}<input v-model="block.data.url" type="text" readonly /></label>
@@ -132,17 +132,19 @@
                   <label>{{ t('documentProjects.equationText') }}<textarea v-model="block.data.omml" rows="4" @input="scheduleSave"></textarea></label>
                   <label>{{ t('documentProjects.equationAltText') }}<input v-model="block.data.alt_text" type="text" @input="scheduleSave" /></label>
                 </div>
-                <textarea v-else v-model="block.text" :aria-label="`${section.title || section.key} ${index + 1}`" rows="7" @input="scheduleSave"></textarea>
+                <textarea v-else v-model="block.text" :aria-label="`${sectionLabel(section)} ${index + 1}`" rows="7" @input="scheduleSave"></textarea>
               </article>
             </div>
           </section>
-        </main>
+        </ScreenDeck>
       </div>
     </template>
   </div>
 </template>
 
 <script setup>
+import BaseModal from '../components/base/BaseModal.vue'
+import ScreenDeck from '../components/ScreenDeck.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '../i18n'
@@ -165,6 +167,7 @@ const loading = ref(true)
 const saving = ref(false)
 const validating = ref(false)
 const exporting = ref(false)
+const documentContextOpen = ref(false), validationOpen = ref(false)
 const validation = ref(null)
 const error = ref('')
 const uploadingBlockId = ref('')
@@ -174,6 +177,31 @@ const editableSections = computed(() => {
   if (editor.value?.editor_schema.mode === 'fixed_form') return []
   return (editor.value?.editor_schema.sections || []).filter((section) => draft.sections[section.key])
 })
+
+const editorPanelLabels = computed(() => [
+  ...(editor.value?.editor_schema.fields.length ? [t('documentProjects.fieldsTitle')] : []),
+  ...editableSections.value.map(sectionLabel),
+])
+
+function fieldLabel(field) {
+  const label = String(field.label || field.key)
+  const key = String(field.key || '').toLowerCase()
+  const defaults = ['summary', 'category', 'title', 'author', 'date']
+  // Translate only schema defaults, preserving names supplied by the template.
+  return defaults.includes(key) && label.toLowerCase() === key
+    ? t(`documentProjects.defaultField.${key}`) : label
+}
+
+function sectionLabel(section) {
+  const label = String(section.title || section.key)
+  return section.key === 'body' && label.toLowerCase() === 'body'
+    ? t('documentProjects.defaultBody') : label
+}
+
+function blockKindLabel(kind) {
+  const label = t(`documentProjects.blockKind.${kind}`)
+  return label === `documentProjects.blockKind.${kind}` ? kind : label
+}
 
 function applyProject(project) {
   draft.title = project.title || ''
@@ -219,7 +247,7 @@ async function save() {
       base_revision: draft.revision,
     })
     applyProject(updated)
-    await runValidation()
+    await runValidation({ openDrawer: false })
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -227,10 +255,11 @@ async function save() {
   }
 }
 
-async function runValidation() {
+async function runValidation({ openDrawer = true } = {}) {
   validating.value = true
   error.value = ''
   try {
+    if (openDrawer) validationOpen.value = true
     validation.value = await validateDocumentProject(route.params.id)
   } catch (exception) {
     error.value = exception.message
@@ -367,12 +396,13 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 <style scoped>
 .editor-page { max-width: 1280px; margin: 0 auto; padding: 22px 20px 56px; }
 .editor-state { display: grid; place-items: center; min-height: 50vh; color: var(--on-surface-variant); }
-.editor-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; padding: 10px 0 22px; border-bottom: 1px solid var(--border); }
+.editor-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px; padding: 10px 0 16px; border-bottom: 1px solid var(--border); }
+.editor-header > div:first-child { flex: 1 1 280px; min-width: 0; }
 .back-link { display: inline-flex; align-items: center; gap: 5px; color: var(--primary); font-size: 13px; text-decoration: none; }
 .back-link .material-symbols-outlined { font-size: 18px; }
 .title-input { display: block; width: min(720px, 100%); margin: 14px 0 6px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--on-surface); font-size: 30px; font-weight: 700; }
 .editor-subtitle { margin: 0; color: var(--on-surface-variant); font-size: 13px; }
-.editor-actions { display: flex; align-items: center; gap: 14px; flex: none; }
+.editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .validate-action { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--primary); cursor: pointer; font: inherit; font-size: 12px; }
 .validate-action:hover:not(:disabled) { border-color: var(--primary); }
 .validate-action:disabled { cursor: wait; opacity: .6; }
@@ -384,7 +414,7 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .save-status { display: flex; align-items: center; gap: 7px; color: var(--on-surface-variant); font-size: 12px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success, #2f7d4a); }
 .status-dot.working { background: var(--tertiary, #a56a00); }
-.editor-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 30px; padding-top: 26px; }
+.editor-layout { display: flex; flex-direction: column; min-width: 0; gap: 0; padding-top: 20px; }
 .editor-aside { align-self: start; position: sticky; top: 20px; display: grid; gap: 22px; }
 .aside-block { padding-bottom: 18px; border-bottom: 1px solid var(--border); }
 .snapshot-list { display: grid; gap: 10px; margin: 12px 0 0; }
@@ -395,7 +425,7 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .rule-list li { display: flex; gap: 7px; align-items: flex-start; font-size: 12px; line-height: 1.45; }
 .rule-kind { flex: none; padding: 2px 5px; border-radius: 4px; background: color-mix(in srgb, var(--primary) 12%, var(--surface)); color: var(--primary); font-size: 10px; }
 .rule-kind.manual { background: color-mix(in srgb, var(--tertiary) 13%, var(--surface)); color: var(--tertiary); }
-.editor-main { min-width: 0; }
+.editor-main { flex: 1; width: 100%; min-width: 0; min-height: 0; }
 .validation-panel { padding: 18px 20px; margin: 22px 0 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .validation-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .validation-heading h2 { margin: 3px 0 0; font-size: 18px; }
@@ -413,7 +443,10 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
 .section-heading h2 { margin: 3px 0 0; font-size: 20px; }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.document-field { display: grid; gap: 6px; color: var(--on-surface); font-size: 13px; font-weight: 600; }
+.document-field { display: flex; flex-direction: column; align-self: start; gap: 6px; color: var(--on-surface); font-size: 13px; font-weight: 600; }
+.document-field-multiline { grid-column: 1 / -1; }
+.document-field select { width: 100%; min-height: 42px; box-sizing: border-box; }
+.document-field textarea { min-height: 112px; }
 .document-field em { color: var(--tertiary); font-size: 11px; font-style: normal; font-weight: 400; }
 .document-field input, .document-field textarea, .content-block textarea, .block-fields input, .block-fields textarea, .table-editor input { width: 100%; box-sizing: border-box; padding: 10px 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--on-surface); font: inherit; font-weight: 400; resize: vertical; }
 .document-field input[type="checkbox"] { width: auto; padding: 0; accent-color: var(--primary); }
@@ -428,11 +461,15 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 .table-editor td input { min-width: 100px; padding: 7px 8px; }
 .block-list { display: grid; gap: 12px; }
 .content-block { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.writing-section .block-list { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.writing-section .content-block:only-child { flex: 1; display: flex; flex-direction: column; min-height: 220px; }
+.writing-section .content-block > textarea { min-height: 180px; line-height: 1.7; }
+.writing-section .content-block:only-child > textarea { flex: 1; }
 .block-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--on-surface-variant); font-size: 11px; }
 .block-actions { display: inline-flex; align-items: center; gap: 7px; }
 .block-actions select { min-width: 118px; }
 .icon-action { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--primary); cursor: pointer; }
 .icon-action:hover { border-color: var(--primary); }
 .icon-action.danger { color: var(--error, #b3261e); }
-@media (max-width: 780px) { .editor-page { padding: 14px 14px 42px; } .editor-header { align-items: flex-start; flex-direction: column; } .editor-actions { width: 100%; justify-content: space-between; } .title-input { font-size: 26px; } .editor-layout { display: block; } .editor-aside { position: static; margin-bottom: 26px; } .field-grid { grid-template-columns: 1fr; } .table-editor-toolbar { display: grid; grid-template-columns: 1fr 1fr; } .table-editor-toolbar label { min-width: 0; } .table-editor-toolbar input { width: 100%; } }
+@media (max-width: 780px) { .editor-page { padding: 14px 14px 42px; } .editor-header { align-items: flex-start; flex-direction: column; } .editor-header > div:first-child { flex-basis: auto; width: 100%; } .editor-actions { width: 100%; justify-content: flex-start; } .title-input { font-size: 26px; } .editor-aside { position: static; margin-bottom: 26px; } .field-grid { grid-template-columns: 1fr; } .table-editor-toolbar { display: grid; grid-template-columns: 1fr 1fr; } .table-editor-toolbar label { min-width: 0; } .table-editor-toolbar input { width: 100%; } }
 </style>

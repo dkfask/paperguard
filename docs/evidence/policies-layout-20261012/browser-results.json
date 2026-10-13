@@ -1,0 +1,118 @@
+{
+  "policies": [
+    {
+      "project": "chromium",
+      "name": "writing standards layout and states › teacher empty state uses the available width and offers one set of actions",
+      "status": "PASS",
+      "seconds": 6.483
+    },
+    {
+      "project": "chromium",
+      "name": "writing standards layout and states › administrator and student see appropriate empty guidance, including English",
+      "status": "PASS",
+      "seconds": 10.222
+    },
+    {
+      "project": "chromium",
+      "name": "writing standards layout and states › failed loading shows a recoverable error instead of an empty list",
+      "status": "PASS",
+      "seconds": 4.353
+    },
+    {
+      "project": "chromium",
+      "name": "writing standards layout and states › teacher creates and publishes a standard; administrators page the list; students read published details",
+      "status": "PASS",
+      "seconds": 6.415
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "writing standards layout and states › teacher empty state uses the available width and offers one set of actions",
+      "status": "PASS",
+      "seconds": 6.216
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "writing standards layout and states › administrator and student see appropriate empty guidance, including English",
+      "status": "PASS",
+      "seconds": 8.425
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "writing standards layout and states › failed loading shows a recoverable error instead of an empty list",
+      "status": "PASS",
+      "seconds": 4.23
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "writing standards layout and states › teacher creates and publishes a standard; administrators page the list; students read published details",
+      "status": "PASS",
+      "seconds": 6.171
+    }
+  ],
+  "accessibility": [
+    {
+      "project": "mobile-chrome",
+      "case": "admin-empty-accessibility",
+      "passedRules": 21,
+      "violations": 0,
+      "incompleteRules": 0
+    },
+    {
+      "project": "mobile-chrome",
+      "case": "student-empty-accessibility",
+      "passedRules": 21,
+      "violations": 0,
+      "incompleteRules": 0
+    },
+    {
+      "project": "mobile-chrome",
+      "case": "teacher-empty-accessibility",
+      "passedRules": 21,
+      "violations": 0,
+      "incompleteRules": 0
+    },
+    {
+      "project": "chromium",
+      "case": "admin-list-accessibility",
+      "passedRules": 24,
+      "violations": 0,
+      "incompleteRules": 1
+    },
+    {
+      "project": "mobile-chrome",
+      "case": "admin-list-accessibility",
+      "passedRules": 23,
+      "violations": 0,
+      "incompleteRules": 0
+    },
+    {
+      "project": "chromium",
+      "case": "admin-empty-accessibility",
+      "passedRules": 23,
+      "violations": 0,
+      "incompleteRules": 0
+    },
+    {
+      "project": "chromium",
+      "case": "student-empty-accessibility",
+      "passedRules": 21,
+      "violations": 0,
+      "incompleteRules": 0
+    },
+    {
+      "project": "chromium",
+      "case": "teacher-empty-accessibility",
+      "passedRules": 21,
+      "violations": 0,
+      "incompleteRules": 0
+    }
+  ],
+  "lifecycle": [
+    {
+      "project": "chromium",
+      "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+      "status": "PASS",
+      "seconds": 105.017
+    }
+  ]
+}

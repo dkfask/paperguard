@@ -1,0 +1,233 @@
+{
+  "counts": {
+    "total": 30,
+    "pass": 30,
+    "fail": 0,
+    "blocked": 0,
+    "not_executed": 0
+  },
+  "cases": [
+    {
+      "id": "TC-01-01",
+      "title": "登录及改密",
+      "status": "PASS",
+      "evidence": "full-lifecycle / usage-audit / component-walkthrough",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-01-02",
+      "title": "认证教师",
+      "status": "PASS",
+      "evidence": "full-lifecycle / usage-audit / component-walkthrough",
+      "closed_bugs": [
+        "BUG-01"
+      ]
+    },
+    {
+      "id": "TC-01-03",
+      "title": "组织和成员范围",
+      "status": "PASS",
+      "evidence": "full-lifecycle / usage-audit / component-walkthrough",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-01-04",
+      "title": "归档生成",
+      "status": "PASS",
+      "evidence": "full-lifecycle / usage-audit / component-walkthrough",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-01-05",
+      "title": "归档下载",
+      "status": "PASS",
+      "evidence": "full-lifecycle / usage-audit / component-walkthrough",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-01-06",
+      "title": "管理页面可操作",
+      "status": "PASS",
+      "evidence": "full-lifecycle / usage-audit / component-walkthrough",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-02-01",
+      "title": "登录与模板导入",
+      "status": "PASS",
+      "evidence": "full-lifecycle 三角色链路",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-02-02",
+      "title": "规范发布",
+      "status": "PASS",
+      "evidence": "full-lifecycle 三角色链路",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-02-03",
+      "title": "批次和指导关系",
+      "status": "PASS",
+      "evidence": "full-lifecycle 三角色链路",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-02-04",
+      "title": "发布阶段",
+      "status": "PASS",
+      "evidence": "full-lifecycle 三角色链路",
+      "closed_bugs": [
+        "BUG-02",
+        "BUG-03"
+      ]
+    },
+    {
+      "id": "TC-02-05",
+      "title": "审核材料",
+      "status": "PASS",
+      "evidence": "full-lifecycle 三角色链路",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-02-06",
+      "title": "退回理由校验",
+      "status": "PASS",
+      "evidence": "full-lifecycle 三角色链路",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-02-07",
+      "title": "添加意见及退回",
+      "status": "PASS",
+      "evidence": "full-lifecycle 三角色链路",
+      "closed_bugs": [
+        "BUG-05"
+      ]
+    },
+    {
+      "id": "TC-02-08",
+      "title": "通过重提论文",
+      "status": "PASS",
+      "evidence": "full-lifecycle 三角色链路",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-02-09",
+      "title": "角色边界",
+      "status": "PASS",
+      "evidence": "component-walkthrough 角色及越权边界",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-03-01",
+      "title": "任务绑定与确认",
+      "status": "PASS",
+      "evidence": "full-lifecycle 学生链路与持久化",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-03-02",
+      "title": "过程材料填写提交",
+      "status": "PASS",
+      "evidence": "full-lifecycle 学生链路与持久化",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-03-03",
+      "title": "正文编辑保存读回",
+      "status": "PASS",
+      "evidence": "full-lifecycle 学生链路与持久化",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-03-04",
+      "title": "格式检查和导出",
+      "status": "PASS",
+      "evidence": "full-lifecycle 学生链路与持久化",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-03-05",
+      "title": "预检正式提交",
+      "status": "PASS",
+      "evidence": "full-lifecycle 学生链路与持久化",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-03-06",
+      "title": "查看退回意见",
+      "status": "PASS",
+      "evidence": "full-lifecycle 学生链路与持久化",
+      "closed_bugs": [
+        "BUG-04",
+        "BUG-05"
+      ]
+    },
+    {
+      "id": "TC-03-07",
+      "title": "修订重提",
+      "status": "PASS",
+      "evidence": "full-lifecycle 学生链路与持久化",
+      "closed_bugs": [
+        "BUG-06"
+      ]
+    },
+    {
+      "id": "TC-03-08",
+      "title": "学生权限边界",
+      "status": "PASS",
+      "evidence": "backend 全量权限/工作流门禁与 component-walkthrough",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-04-01",
+      "title": "短表单弹窗",
+      "status": "PASS",
+      "evidence": "compact-previews 短表单；usage-audit 焦点和尺寸",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-04-02",
+      "title": "长章节标题",
+      "status": "PASS",
+      "evidence": "compact-previews 长章节标题，桌面与手机参数",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-04-03",
+      "title": "保存失败恢复",
+      "status": "PASS",
+      "evidence": "ui-refactor 保存失败重试；SubmissionFeedback 单元回归",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-04-04",
+      "title": "加载失败恢复",
+      "status": "PASS",
+      "evidence": "admin-workspace-viewport 与 all-pages-viewport 错误恢复",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-04-05",
+      "title": "手机导航",
+      "status": "PASS",
+      "evidence": "ui-refactor / admin-workspace-viewport 手机导航",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-04-06",
+      "title": "英文导航",
+      "status": "PASS",
+      "evidence": "all-pages-viewport 中英文导航与控件可达",
+      "closed_bugs": []
+    },
+    {
+      "id": "TC-04-07",
+      "title": "键盘及自动无障碍检查",
+      "status": "PASS",
+      "evidence": "usage-audit / full-lifecycle 十场景扫描、键盘与 DialogFocus 单元回归",
+      "closed_bugs": []
+    }
+  ]
+}

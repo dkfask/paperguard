@@ -17,6 +17,7 @@ const e2eEnvironment = {
   PAPERGUARD_DB_PATH: process.env.E2E_DB_PATH ?? join(e2eDataDir, 'paperguard.db'),
   PAPERGUARD_TEMPLATE_DIR: process.env.E2E_TEMPLATE_DIR ?? join(e2eDataDir, 'templates'),
   PAPERGUARD_ARTIFACT_DIR: process.env.E2E_ARTIFACT_DIR ?? join(e2eDataDir, 'artifacts'),
+  PAPERGUARD_DATA_DIR: process.env.E2E_DATA_DIR ?? join(e2eDataDir, 'data'),
   PAPERGUARD_WORKER_INTERVAL_SECONDS: '5',
 }
 const localWebServers = [

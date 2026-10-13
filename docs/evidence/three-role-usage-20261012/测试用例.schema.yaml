@@ -1,0 +1,965 @@
+{
+  "meta": {
+    "source_markmap": "测试用例_markmap.md",
+    "extracted_at": "2026-10-12",
+    "strategy_ref": "测试策略.md"
+  },
+  "modules": [
+    {
+      "module": "1. 管理员",
+      "shared_preconditions": [
+        "运行器已创建独立本地环境、测试账号及本用例所需阶段状态；按前序主链建立状态。"
+      ]
+    },
+    {
+      "module": "2. 教师",
+      "shared_preconditions": [
+        "运行器已创建独立本地环境、测试账号及本用例所需阶段状态；按前序主链建立状态。"
+      ]
+    },
+    {
+      "module": "3. 学生",
+      "shared_preconditions": [
+        "运行器已创建独立本地环境、测试账号及本用例所需阶段状态；按前序主链建立状态。"
+      ]
+    },
+    {
+      "module": "4. UI与恢复",
+      "shared_preconditions": [
+        "运行器已创建独立本地环境、测试账号及本用例所需阶段状态；按前序主链建立状态。"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "TC-01-01",
+      "title": "登录及改密",
+      "module": "1. 管理员",
+      "priority": "P0",
+      "type": "functional",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "从登录页输入运行器创建的管理员凭据，完成首次改密后再登录。"
+      ],
+      "expected": [
+        "进入管理工作台，退出后返回登录页。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:210"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:210",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-01-02",
+      "title": "认证教师",
+      "module": "1. 管理员",
+      "priority": "P0",
+      "type": "state",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "管理工作台→用户管理，找到测试教师，查看详情后通过认证。"
+      ],
+      "expected": [
+        "用户状态显示已认证，教师可进入指导端。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/src/views/AdminUsers.vue:35"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/src/views/AdminUsers.vue:35",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-01-03",
+      "title": "组织和成员范围",
+      "module": "1. 管理员",
+      "priority": "P1",
+      "type": "data",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "管理工作台→组织结构，新增“三角色测试学校”，将测试教师分配到该组织。"
+      ],
+      "expected": [
+        "列表显示组织，刷新后成员范围仍保存。"
+      ],
+      "test_data": {},
+      "risk_ref": "R4",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:222"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:222",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-01-04",
+      "title": "归档生成",
+      "module": "1. 管理员",
+      "priority": "P0",
+      "type": "state",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "提交与归档→找到教师已通过的测试论文，点击生成归档。"
+      ],
+      "expected": [
+        "任务进入队列，测试环境 60 秒内完成，未完成记阻塞或失败，不等同产品 SLA。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:534"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:534",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-01-05",
+      "title": "归档下载",
+      "module": "1. 管理员",
+      "priority": "P0",
+      "type": "data",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "在成功归档记录点击下载。"
+      ],
+      "expected": [
+        "获得非空 ZIP，包含正文、提交与审核证据，ZIP 校验无损坏。"
+      ],
+      "test_data": {},
+      "risk_ref": "R4",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:553"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:553",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-01-06",
+      "title": "管理页面可操作",
+      "module": "1. 管理员",
+      "priority": "P1",
+      "type": "functional",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "工作台依次进入批次、规范、审计、运行管理和系统设置，打开各面板并切换分页。"
+      ],
+      "expected": [
+        "页面有有效主标题，控件可达，权限限制明确，无页面错误。"
+      ],
+      "test_data": {},
+      "risk_ref": "R3",
+      "code_refs": [
+        "frontend/e2e/component-walkthrough.spec.ts:149"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/component-walkthrough.spec.ts:149",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-02-01",
+      "title": "登录与模板导入",
+      "module": "2. 教师",
+      "priority": "P0",
+      "type": "functional",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "教师登录→论文模板→上传学校 DOCX 模板→查看预览→确认创建。"
+      ],
+      "expected": [
+        "章节名称及层级可读，创建后进入模板编辑，解析结构保存。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:243"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:243",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-02-02",
+      "title": "规范发布",
+      "module": "2. 教师",
+      "priority": "P1",
+      "type": "state",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "写作规范→新建规范，填写“三角色测试规范”和版本 2026.1，上传 PDF 后发布。"
+      ],
+      "expected": [
+        "参考文档可见，规范状态已发布。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:284"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:284",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-02-03",
+      "title": "批次和指导关系",
+      "module": "2. 教师",
+      "priority": "P0",
+      "type": "data",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "流程中心→创建“三角色测试批次”，选择测试学校，打开批次配置并指定测试学生和教师。"
+      ],
+      "expected": [
+        "批次与指导关系保存，重新打开配置仍显示已保存数据。"
+      ],
+      "test_data": {},
+      "risk_ref": "R4",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:298"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:298",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-02-04",
+      "title": "发布阶段",
+      "module": "2. 教师",
+      "priority": "P0",
+      "type": "state",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "在批次配置新增“终稿阶段”，选择导入模板，开放时间早于当前时间、截止晚于当前时间，预览并确认发布。"
+      ],
+      "expected": [
+        "阶段显示已发布，学生看到对应任务。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:331"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:331",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-02-05",
+      "title": "审核材料",
+      "module": "2. 教师",
+      "priority": "P1",
+      "type": "state",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "审核台→过程材料审批，逐条点击通过学生已提交的四种材料。"
+      ],
+      "expected": [
+        "待审批列表减少，学生记录显示通过。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:406"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:406",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-02-06",
+      "title": "退回理由校验",
+      "module": "2. 教师",
+      "priority": "P1",
+      "type": "boundary",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "提交与审核→打开测试论文，不填理由直接退回。"
+      ],
+      "expected": [
+        "提示填写理由，提交仍待审核。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:464"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:464",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-02-07",
+      "title": "添加意见及退回",
+      "module": "2. 教师",
+      "priority": "P0",
+      "type": "state",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "打开论文审核，添加“请补充系统测试结论”，填写退回理由后退回。"
+      ],
+      "expected": [
+        "退回成功，学生看到需修改状态与意见，旧提交快照保留。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:465"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:465",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-02-08",
+      "title": "通过重提论文",
+      "module": "2. 教师",
+      "priority": "P0",
+      "type": "state",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "刷新审核台，打开学生重新提交的测试论文，点击通过提交。"
+      ],
+      "expected": [
+        "提交已通过，管理员可生成归档。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:523"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:523",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-02-09",
+      "title": "角色边界",
+      "module": "2. 教师",
+      "priority": "P1",
+      "type": "permission",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "教师登录后尝试访问用户管理与系统设置。"
+      ],
+      "expected": [
+        "被路由守卫拦截，不能执行管理员操作。"
+      ],
+      "test_data": {},
+      "risk_ref": "R2",
+      "code_refs": [
+        "frontend/e2e/component-walkthrough.spec.ts:203"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/component-walkthrough.spec.ts:203",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-03-01",
+      "title": "任务绑定与确认",
+      "module": "3. 学生",
+      "priority": "P0",
+      "type": "state",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "学生登录→我的任务，打开测试阶段，开始写作，填写“三角色测试论文”并创建绑定，确认要求。"
+      ],
+      "expected": [
+        "任务显示论文名称与已确认状态。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:371"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:371",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-03-02",
+      "title": "过程材料填写提交",
+      "module": "3. 学生",
+      "priority": "P1",
+      "type": "functional",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "阶段任务→过程材料，依次填写任务书、开题报告、终稿说明和过程封面，上传测试文件并提交。"
+      ],
+      "expected": [
+        "四项材料成功提交，重开面板可下载附件或已填表单。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:394"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:394",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-03-03",
+      "title": "正文编辑保存读回",
+      "module": "3. 学生",
+      "priority": "P0",
+      "type": "data",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "继续写作→导入测试 DOCX 并应用，修改系统测试段落，等待保存完成后刷新。"
+      ],
+      "expected": [
+        "正文修改保留，保存状态不再待保存。"
+      ],
+      "test_data": {},
+      "risk_ref": "R4",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:506"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:506",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-03-04",
+      "title": "格式检查和导出",
+      "module": "3. 学生",
+      "priority": "P0",
+      "type": "functional",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "写作页→检查论文→导出 Word；存在缺失内容时核对提示并按提示处理。"
+      ],
+      "expected": [
+        "检查面板可读，下载获得可打开的非空 DOCX。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:439"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:439",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-03-05",
+      "title": "预检正式提交",
+      "module": "3. 学生",
+      "priority": "P0",
+      "type": "state",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "回到阶段任务→提交预检，确认提示后正式提交。"
+      ],
+      "expected": [
+        "提交成功，待审核状态与版本记录出现。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:446"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:446",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-03-06",
+      "title": "查看退回意见",
+      "module": "3. 学生",
+      "priority": "P0",
+      "type": "functional",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "教师退回后，进入阶段任务和提交历史，打开退回记录。"
+      ],
+      "expected": [
+        "需修改状态、退回理由和教师意见可读。"
+      ],
+      "test_data": {},
+      "risk_ref": "R1",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:492"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:492",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-03-07",
+      "title": "修订重提",
+      "module": "3. 学生",
+      "priority": "P0",
+      "type": "data",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "根据退回意见补充系统测试结论，保存后重新预检并提交。"
+      ],
+      "expected": [
+        "出现新的正式提交，旧记录仍保留、可从列表打开，且新版本包含修订。"
+      ],
+      "test_data": {},
+      "risk_ref": "R4",
+      "code_refs": [
+        "frontend/e2e/full-lifecycle.spec.ts:516"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/full-lifecycle.spec.ts:516",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-03-08",
+      "title": "学生权限边界",
+      "module": "3. 学生",
+      "priority": "P1",
+      "type": "security",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "学生登录尝试访问组织、用户管理、系统设置和运行管理。"
+      ],
+      "expected": [
+        "入口被拦截；他人提交与文件在后端授权测试中被拒绝。"
+      ],
+      "test_data": {},
+      "risk_ref": "R2",
+      "code_refs": [
+        "backend/tests/test_workflow_api.py:431"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "backend/tests/test_workflow_api.py:431",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-04-01",
+      "title": "短表单弹窗",
+      "module": "4. UI与恢复",
+      "priority": "P1",
+      "type": "compatibility",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "从论文列表新建论文，打开组织编辑和用户详情。"
+      ],
+      "expected": [
+        "弹窗居中且大小适合内容，输入和主按钮在 390×844、900×600、1280×800 可操作。"
+      ],
+      "test_data": {},
+      "risk_ref": "R3",
+      "code_refs": [
+        "frontend/e2e/compact-previews.spec.ts:1"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/compact-previews.spec.ts:1",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-04-02",
+      "title": "长章节标题",
+      "module": "4. UI与恢复",
+      "priority": "P1",
+      "type": "functional",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "上传含长章节名称及三级标题的测试模板，查看导入预览。"
+      ],
+      "expected": [
+        "标题换行完整、层级清楚，无顺序或样式映射等技术编辑列。"
+      ],
+      "test_data": {},
+      "risk_ref": "R3",
+      "code_refs": [
+        "frontend/e2e/compact-previews.spec.ts:1"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/compact-previews.spec.ts:1",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-04-03",
+      "title": "保存失败恢复",
+      "module": "4. UI与恢复",
+      "priority": "P1",
+      "type": "reliability",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "写作页修改内容，模拟一次保存失败后恢复网络，点击重试。"
+      ],
+      "expected": [
+        "输入不丢失，重试成功后保存状态恢复。"
+      ],
+      "test_data": {},
+      "risk_ref": "R4",
+      "code_refs": [
+        "frontend/e2e/ui-refactor.spec.ts:111"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/ui-refactor.spec.ts:111",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-04-04",
+      "title": "加载失败恢复",
+      "module": "4. UI与恢复",
+      "priority": "P1",
+      "type": "reliability",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "打开管理工作台时模拟一次请求失败，恢复后点击重试。"
+      ],
+      "expected": [
+        "错误提示明确，恢复后工作面可用。"
+      ],
+      "test_data": {},
+      "risk_ref": "R4",
+      "code_refs": [
+        "frontend/e2e/admin-workspace-viewport.spec.ts:148"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/admin-workspace-viewport.spec.ts:148",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-04-05",
+      "title": "手机导航",
+      "module": "4. UI与恢复",
+      "priority": "P1",
+      "type": "compatibility",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "在 390×844 的浏览器中登录，打开导航并依次选择当前角色入口。"
+      ],
+      "expected": [
+        "导航及操作按钮可触达，不出现页面横向溢出。"
+      ],
+      "test_data": {},
+      "risk_ref": "R3",
+      "code_refs": [
+        "frontend/e2e/ui-refactor.spec.ts:24"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/ui-refactor.spec.ts:24",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-04-06",
+      "title": "英文导航",
+      "module": "4. UI与恢复",
+      "priority": "P2",
+      "type": "functional",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "将语言切换为英文，打开三个角色导航分组和代表页。"
+      ],
+      "expected": [
+        "英文标签可读，导航分组与页面正确对应。"
+      ],
+      "test_data": {},
+      "risk_ref": "R3",
+      "code_refs": [
+        "frontend/e2e/all-pages-viewport.spec.ts:397"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/e2e/all-pages-viewport.spec.ts:397",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "yes",
+        "framework": "playwright"
+      },
+      "status": "active"
+    },
+    {
+      "id": "TC-04-07",
+      "title": "键盘及自动无障碍检查",
+      "module": "4. UI与恢复",
+      "priority": "P1",
+      "type": "functional",
+      "execution_model": "ui",
+      "preconditions": [],
+      "steps": [
+        "在登录、三角色工作台、创建论文弹窗与审核页按 Tab 切换，执行自动扫描。"
+      ],
+      "expected": [
+        "焦点可见且可达，弹窗关闭恢复焦点，自动违规项目按等级列入报告。"
+      ],
+      "test_data": {},
+      "risk_ref": "R3",
+      "code_refs": [
+        "frontend/src/shared/useDialogFocus.js:1"
+      ],
+      "evidence": {
+        "level": "E2",
+        "source": "frontend/src/shared/useDialogFocus.js:1",
+        "confidence": "high"
+      },
+      "tags": [],
+      "automation": {
+        "supported": "partial",
+        "framework": "playwright"
+      },
+      "status": "active"
+    }
+  ]
+}

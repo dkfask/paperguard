@@ -2,9 +2,9 @@
   <div class="workspace-page resource-page templates-page">
     <section class="workspace-hero">
       <div>
-        <p class="workspace-kicker">{{ t('templates.kicker') }}</p>
-        <h1>{{ t('templates.title') }}</h1>
-        <p>{{ t('templates.description') }}</p>
+        <p class="workspace-kicker">{{ t(isTeacher ? 'sidebar.studentGuidance' : 'templates.kicker') }}</p>
+        <h1>{{ t(isTeacher ? 'sidebar.publishThesisTemplate' : 'templates.title') }}</h1>
+        <p>{{ t(isTeacher ? 'personalDocuments.studentTemplateDetail' : 'templates.description') }}</p>
       </div>
       <div class="workspace-identity">
         <span class="material-symbols-outlined" aria-hidden="true">description</span>
@@ -17,35 +17,31 @@
 
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
 
-    <section v-if="importResult" class="panel import-result">
+    <BaseModal :open="importOpen" :title="t('templates.importPreview')" @close="importOpen = false"><section v-if="importResult" class="import-result">
       <div class="panel-heading">
         <div>
-          <p class="workspace-kicker">{{ t('templates.importPreview') }}</p>
           <h2>{{ importResult.filename }} {{ t('templates.importResult') }}</h2>
-          <p>{{ t('templates.stylesDetected', { count: importResult.style_names.length, styles: importResult.style_names.join(lang === 'zh' ? '、' : ', ') }) }}</p>
         </div>
         <span class="material-symbols-outlined panel-icon" aria-hidden="true">document_scanner</span>
       </div>
-      <div class="style-table-wrap">
-        <table class="style-table">
-          <thead>
-            <tr><th>{{ t('templates.element') }}</th><th>{{ t('templates.chineseFont') }}</th><th>{{ t('templates.westernFont') }}</th><th>{{ t('templates.fontSize') }}</th><th>{{ t('templates.bold') }}</th><th>{{ t('templates.lineSpacing') }}</th><th>{{ t('templates.beforeSpacing') }}</th><th>{{ t('templates.afterSpacing') }}</th><th>{{ t('templates.indent') }}</th><th>{{ t('templates.alignment') }}</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="(s, key) in importResult.styles" :key="key">
-              <td><strong>{{ styleLabel(key) }}</strong></td>
-              <td>{{ s.font_zh }}</td>
-              <td>{{ s.font_en }}</td>
-              <td>{{ s.size_pt }}pt</td>
-              <td>{{ s.bold ? t('common.yes') : t('common.no') }}</td>
-              <td>{{ s.line_spacing }}</td>
-              <td>{{ s.space_before_pt }}pt</td>
-              <td>{{ s.space_after_pt }}pt</td>
-              <td>{{ s.first_line_indent_chars }}{{ t('templates.charactersUnit') }}</td>
-              <td>{{ alignLabel(s.align) }}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="style-preview-list">
+        <section v-for="group in importStyleGroups" :key="group.key" class="style-preview-group" :aria-label="t(group.label)">
+          <h3>{{ t(group.label) }}</h3>
+          <details v-for="(style, key) in group.styles" :key="key" class="style-preview-item">
+            <summary>{{ styleLabel(key) }}</summary>
+            <dl>
+              <div><dt>{{ t('templates.chineseFont') }}</dt><dd>{{ style.font_zh }}</dd></div>
+              <div><dt>{{ t('templates.westernFont') }}</dt><dd>{{ style.font_en }}</dd></div>
+              <div><dt>{{ t('templates.fontSize') }}</dt><dd>{{ style.size_pt }}pt</dd></div>
+              <div><dt>{{ t('templates.bold') }}</dt><dd>{{ style.bold ? t('common.yes') : t('common.no') }}</dd></div>
+              <div><dt>{{ t('templates.lineSpacing') }}</dt><dd>{{ style.line_spacing }}</dd></div>
+              <div><dt>{{ t('templates.beforeSpacing') }}</dt><dd>{{ style.space_before_pt }}pt</dd></div>
+              <div><dt>{{ t('templates.afterSpacing') }}</dt><dd>{{ style.space_after_pt }}pt</dd></div>
+              <div><dt>{{ t('templates.indent') }}</dt><dd>{{ style.first_line_indent_chars }}{{ t('templates.charactersUnit') }}</dd></div>
+              <div><dt>{{ t('templates.alignment') }}</dt><dd>{{ alignLabel(style.align) }}</dd></div>
+            </dl>
+          </details>
+        </section>
       </div>
       <div class="form-actions import-actions">
         <button class="small primary" :disabled="saving" @click="createFromImport">
@@ -58,7 +54,7 @@
         </button>
         <span v-if="stripResult" class="strip-result">{{ t('templates.commentsRemoved', stripResult) }}</span>
       </div>
-    </section>
+    </section></BaseModal>
 
     <div class="template-layout">
       <section class="panel template-list-panel">
@@ -86,7 +82,7 @@
             {{ importing ? t('templates.aiRecognizing') : t('templates.importWord') }}
           </button>
           <input ref="importInput" type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden @change="onImportPick" />
-        </div>
+        <button v-if="importResult" type="button" class="small" @click="importOpen = true">{{ t('templates.importPreview') }}</button></div>
         <div v-else class="readonly-note">
           <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
           {{ t('templates.readonlyNote') }}
@@ -95,7 +91,7 @@
         <AsyncState v-if="loading" state="loading" :title="t('templates.loading')" :detail="t('templates.loadingDetail')" />
         <AsyncState v-else-if="templates.length === 0" state="empty" :title="t('templates.empty')" :detail="t('templates.emptyDetail')" :action-label="t('common.reload')" @action="loadTemplates" />
         <div v-else class="template-list">
-          <article v-for="template in templates" :key="template.id" class="template-row">
+          <ScreenCollection :items="templates" :row-height="64" v-slot="{ items: visibleItems }"><article v-for="template in visibleItems" :key="template.id" class="template-row">
             <div class="template-row-icon"><span class="material-symbols-outlined" aria-hidden="true">article</span></div>
             <div class="template-row-main">
               <div class="template-row-title">
@@ -118,11 +114,11 @@
                 <span class="material-symbols-outlined" aria-hidden="true">delete</span>
               </button>
             </div>
-          </article>
+          </article></ScreenCollection>
         </div>
       </section>
 
-      <aside class="workspace-side">
+      <ScreenDeck class="workspace-side">
         <section class="panel workspace-shortcuts">
           <div class="panel-heading">
             <div><p class="workspace-kicker">{{ t('templates.governance') }}</p><h3>{{ t('templates.related') }}</h3></div>
@@ -131,11 +127,11 @@
           <RouterLink to="/organizations"><span class="material-symbols-outlined" aria-hidden="true">account_tree</span>{{ t('templates.organizations') }}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
           <RouterLink v-if="canViewAudit" to="/audit"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('templates.audit') }}<span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink>
         </section>
-        <section class="panel template-side-note">
+        <section class="panel template-side-note" :aria-label="t('templates.responsibilityTitle')">
           <span class="material-symbols-outlined" aria-hidden="true">info</span>
           <div><strong>{{ t('templates.responsibilityTitle') }}</strong><p>{{ t('templates.responsibility') }}</p></div>
         </section>
-      </aside>
+      </ScreenDeck>
     </div>
   </div>
   <ConfirmDialog
@@ -151,6 +147,9 @@
 </template>
 
 <script setup>
+import BaseModal from '../components/base/BaseModal.vue'
+import ScreenDeck from '../components/ScreenDeck.vue'
+import ScreenCollection from '../components/ScreenCollection.vue'
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -161,6 +160,7 @@ import { useI18n } from '../i18n'
 
 const router = useRouter()
 const { lang, t, formatDate } = useI18n()
+const isTeacher = computed(() => auth.user?.role === 'teacher')
 // 「相关入口」对所有角色渲染，审计记录后端只允许 admin/college_admin，
 // 不加条件教师点进去只会看到一个 403 空壳页面（同 F-20 在 Policies.vue 的漏网）。
 const canViewAudit = computed(() => ['admin', 'college_admin'].includes(auth.user?.role))
@@ -173,6 +173,7 @@ const importing = ref(false)
 const saving = ref(false)
 const confirmBusy = ref(false)
 const confirmDialog = ref({ open: false, title: '', description: '', confirmLabel: t('templates.confirmDelete'), danger: true, action: null })
+const importOpen = ref(false)
 const importResult = ref(null)
 const importFile = ref(null)
 const strippingComments = ref(false)
@@ -180,10 +181,20 @@ const stripResult = ref(null)
 const importInput = ref(null)
 
 const STYLE_KEYS = {
-  cover_title: 'templates.style.coverTitle', cover_meta: 'templates.style.coverMeta', abstract: 'section.abstract', toc: 'section.toc',
+  cover_title: 'templates.style.coverTitle', cover_meta: 'templates.style.coverMeta', abstract: 'section.abstract', english_abstract: 'section.englishAbstract',
+  keywords: 'section.keywords', english_keywords: 'section.englishKeywords', toc: 'section.toc',
   heading1: 'section.heading1', heading2: 'section.heading2', heading3: 'section.heading3', body: 'section.body', references: 'section.references',
   acknowledgement: 'section.acknowledgement', appendix: 'section.appendix', figure_caption: 'templates.style.figureCaption', table_caption: 'templates.style.tableCaption', table_cell: 'templates.style.tableCell',
 }
+
+const HEADING_STYLE_KEYS = ['heading1', 'heading2', 'heading3']
+const importStyleGroups = computed(() => {
+  const styles = importResult.value?.styles || {}
+  return [
+    { key: 'headings', label: 'templates.headingLevels', styles: Object.fromEntries(HEADING_STYLE_KEYS.filter(key => key in styles).map(key => [key, styles[key]])) },
+    { key: 'other', label: 'templates.otherStyles', styles: Object.fromEntries(Object.entries(styles).filter(([key]) => !HEADING_STYLE_KEYS.includes(key))) },
+  ].filter(group => Object.keys(group.styles).length)
+})
 
 async function loadTemplates() {
   loading.value = true
@@ -210,6 +221,7 @@ async function onImportPick(e) {
   stripResult.value = null
   importFile.value = f
   try {
+    importOpen.value = true
     importResult.value = await importDocxTemplate(f)
   } catch (err) {
     error.value = err.message || t('common.operationFailed')
@@ -512,38 +524,16 @@ function alignLabel(a) { return t(`editor.${a}`) }
   margin-top: 14px;
 }
 
-.style-table-wrap {
-  overflow-x: auto;
-  max-width: 100%;
-  margin-top: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
+.style-preview-list { margin-top: 12px; }
+.style-preview-group + .style-preview-group { margin-top: 20px; }
+.style-preview-group h3 { margin: 0; padding-bottom: 10px; border-bottom: 1px solid var(--border); color: var(--on-surface-variant); font-size: 12px; font-weight: 500; }
+.style-preview-item { border-bottom: 1px solid var(--border); }
+.style-preview-item summary { padding: 12px 0; cursor: pointer; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.style-preview-item dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; padding: 0 0 16px; margin: 0; font-size: 12px; }
+.style-preview-item dt { color: var(--on-surface-variant); }
+.style-preview-item dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.import-result .panel-heading h2 { overflow-wrap: anywhere; }
 
-.style-table {
-  min-width: 760px;
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--surface-container-lowest);
-  font-size: 13px;
-}
-
-.style-table th, .style-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-}
-
-.style-table tr:last-child td {
-  border-bottom: 0;
-}
-
-.style-table th {
-  background: var(--surface-container-low);
-  color: var(--on-surface-variant);
-  font-weight: 600;
-  white-space: nowrap;
-}
 
 .strip-result {
   color: #15803d;

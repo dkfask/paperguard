@@ -1,0 +1,18 @@
+{
+  "repository": "/Users/a1234/.codex/worktrees/all-pages-one-screen-v3/paperguard",
+  "head": "5971f506d889caa4bcaa26f751ddd66cf067460d",
+  "scope": "本轮改动路径的当前内容，包含路径内已有调整；未提交工作区",
+  "files": {
+    "frontend/e2e/document-platform.spec.ts": "9c09790b936d612c04d619930b37b002f02713c48221c8372f5a7cc2793a527b",
+    "frontend/e2e/ui-refactor.spec.ts": "7ce570f48f72bc616dd7595f1941d83b7b5300d6aa323ba6a3631e3a14e7e998",
+    "frontend/src/components/base/BaseModal.vue": "72cc4b6f2f45870c41ba78952d5d2fc873f30a23a982657dfeb3f4ab895c3f5f",
+    "frontend/src/views/AdminUsers.vue": "04cc7a4634534fbce08b6843764457897d69b74d59ac40a23b29c6fc05049b11",
+    "frontend/src/views/Audit.vue": "ed714182ca1f69dd0b2931bbe025eeffac59b486ccc95ceeb22b57f2c1ca7ee1",
+    "frontend/src/views/DocumentPackagePublisher.vue": "e2d987363f0b0626b577d72a31ddddd5e24805c69a838eef3f4c3d04ed8639b0",
+    "frontend/src/views/Home.vue": "a11bc449044408058d58b673d3baf18d7e4e50ba1c09340e461603b0625708c2",
+    "frontend/src/views/Organizations.vue": "d5a684b6109fb1f83828750db82c648f6f0b5b7cd0a2311935c5ecc796f3397f",
+    "frontend/src/views/Templates.vue": "37c85bce879a0355c03ac86bc4034177300cb1a555329d7334a0b1eaf9828d62",
+    "frontend/tests/DocumentPackagePublisher.test.js": "9b8b520c7a5ecd98f32f1275c6d22ff577adaf2ee975b9f7d790b20598a3ec49",
+    "frontend/e2e/compact-previews.spec.ts": "6d23a8a64c4da1c431d3b5af832e96cb3ee7fd5fc5acd932cf6ed44c768de9a5"
+  }
+}

@@ -1,0 +1,164 @@
+{
+  "total": 22,
+  "counts": {
+    "PASS": 18,
+    "SKIP": 4,
+    "FAIL": 0
+  },
+  "cases": [
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › teacher saves a personal template and writes without publishing it to students",
+      "time_seconds": "13.694",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › published package opens an editor from its parsed section schema",
+      "time_seconds": "4.399",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › dynamic editor renders field and content block schemas",
+      "time_seconds": "4.138",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › content is autosaved and survives an editor reload",
+      "time_seconds": "4.437",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › deterministic validation reports an empty required body",
+      "time_seconds": "3.576",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › valid content exports as a DOCX download",
+      "time_seconds": "8.583",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › teacher saves a personal template and writes without publishing it to students",
+      "time_seconds": "23.101",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › published package opens an editor from its parsed section schema",
+      "time_seconds": "4.267",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › dynamic editor renders field and content block schemas",
+      "time_seconds": "4.259",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › content is autosaved and survives an editor reload",
+      "time_seconds": "4.362",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › deterministic validation reports an empty required body",
+      "time_seconds": "4.017",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-documents-final-2",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › valid content exports as a DOCX download",
+      "time_seconds": "5.575",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-guidance-final",
+      "suite": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+      "time_seconds": "108.736",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-guidance-final",
+      "suite": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+      "time_seconds": null,
+      "status": "SKIP"
+    },
+    {
+      "run": "personal-guidance-final",
+      "suite": "usage-audit.spec.ts",
+      "name": "TC-04-07: collect accessibility and UI evidence for three roles and a short form",
+      "time_seconds": "14.113",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-guidance-final",
+      "suite": "usage-audit.spec.ts",
+      "name": "TC-01-02: certification dialog reflects the completed decision",
+      "time_seconds": "3.807",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-guidance-final",
+      "suite": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+      "time_seconds": null,
+      "status": "SKIP"
+    },
+    {
+      "run": "personal-guidance-final",
+      "suite": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+      "time_seconds": "3.142",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-guidance-final",
+      "suite": "usage-audit.spec.ts",
+      "name": "TC-04-07: collect accessibility and UI evidence for three roles and a short form",
+      "time_seconds": null,
+      "status": "SKIP"
+    },
+    {
+      "run": "personal-guidance-final",
+      "suite": "usage-audit.spec.ts",
+      "name": "TC-01-02: certification dialog reflects the completed decision",
+      "time_seconds": null,
+      "status": "SKIP"
+    },
+    {
+      "run": "personal-layout-final-2",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › populated teacher and student routes keep every control reachable",
+      "time_seconds": "208.837",
+      "status": "PASS"
+    },
+    {
+      "run": "personal-layout-final-2",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › all navigation groups fit without scrolling in Chinese and English",
+      "time_seconds": "19.524",
+      "status": "PASS"
+    }
+  ]
+}
