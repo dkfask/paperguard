@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 
 test('login errors contain a helpful message without a diagnostic ID', async ({ page }) => {
   await page.goto('/login')
@@ -41,7 +42,8 @@ test('a linked mailbox resets its password and invalidates its old session', asy
   const password = 'OldFixturePassword123'
   const newPassword = 'NewFixturePassword456'
   const code = '123456'
-  const python = process.env.E2E_PYTHON_BIN ?? path.resolve('../.venv/bin/python')
+  const localPython = path.resolve('../.venv/bin/python')
+  const python = process.env.E2E_PYTHON_BIN ?? (existsSync(localPython) ? localPython : 'python')
   execFileSync(python, ['-c', `
 import json, sys
 from datetime import datetime, timedelta, timezone

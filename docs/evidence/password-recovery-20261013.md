@@ -61,6 +61,12 @@ PR #39 对首次提交 `31c2c1b` 的自动审查发现停用账号准入和登�
 `.github/workflows/e2e.yml` 同时执行这两组测试，显式提供隔离数据库和临时主密钥，
 禁用真实邮件通道，避免把密码恢复验收用例留在 CI 之外。
 
+后续远端恢复测试的 2 个用例因 Linux runner 没有本机 `.venv` 路径失败，
+其余 18 项通过，其他 7 个检查通过。恢复夹具现沿用浏览器启动器的解释器优先级：
+显式 `E2E_PYTHON_BIN`、实际存在的项目 venv、PATH 上的 Python。
+本地移除项目 venv 及解释器覆盖，在相同隔离环境重跑恢复 6 项全部通过；
+后端、前端及其他文档流程源码未变化，对应已通过证据继续绑定源码摘要。
+
 [桌面截图](password-recovery-20261013/recovery-desktop.png) ·
 [手机截图](password-recovery-20261013/recovery-mobile.png) ·
 [源码摘要及浏览器统计](password-recovery-20261013/source-checksums.json)。

@@ -1,15 +1,15 @@
 {
-  "base_head": "31c2c1bfc4794d8a7700ac268072c99198ee6f63",
+  "base_head": "ece30d21340c7572b8897c3521ce6fa84017fe9b",
   "branch": "codex/login-password-recovery",
   "dirty_source": true,
-  "observed_at": "2026-10-13T03:09:20.760114+00:00",
+  "observed_at": "2026-10-13T03:19:41.340731+00:00",
   "source_checksums": {
     ".github/workflows/e2e.yml": "732f85d4b556bed0c51d62eed4cf1cf350f41d2fe1925fb1c68d2c5830b2166d",
     "backend/app/api/auth.py": "e789699ff3be0df58c976714cf90212079dec712888f71e34f33dc4fe512c5de",
     "backend/app/auth.py": "396734a4741d8b5f2cf7ca479217172888b94a739e17303a0a1754969b81b04f",
     "backend/app/services/password_recovery.py": "ef3b0cd7f32bb6df56656368afdc36fb4c5f8e0e7b38a43d0c25d803cf4b3a5e",
     "backend/tests/test_password_recovery.py": "ef3f1c8320cad66bdedf547e93dea5c7e6426cdb2deb5b688192cd94af265656",
-    "frontend/e2e/login-recovery.spec.ts": "4b8f75c5e72241912d2abf1b73055ba3cc1f60ad4ea9d0956d1b2cb295be12fe",
+    "frontend/e2e/login-recovery.spec.ts": "f6d286bcefe0665bd8ba22e4debe0d537623e343c9cf9c062ff9192e7a160ffd",
     "frontend/e2e/pages/paperguard.page.ts": "097b35ad3ab572967525177358dabba5d12318c87b7789c80356627f2a82fdf3",
     "frontend/src/api/client.js": "c96b87fda104c9ebca37136b26d359aba563c39db8b4101caf49de5e1b6b6886",
     "frontend/src/features/auth/api.ts": "b3c779e0681008b51682ff03b4b550ffba40b7cbab30922d3a495878d7243ddf",
@@ -19,8 +19,8 @@
     "frontend/tests/Login.recovery.test.js": "e8d1825052828f078967f27a2167ec0e493f66c4b8fb417b6dc480dade1d87b1",
     "frontend/tests/api-client.test.js": "0c58a1c4e28642abdff8db45c7d18613a2f5c215018ad26011477bcf6b942d3e"
   },
-  "source_snapshot_sha256": "ce1d8cb4a3729e81dff26b9ce865e3201ca24d86c3e09536e2651a3a0ccddda2",
-  "superseded_local_snapshot_sha256": "f8df8c74ee7bce3d2ede5d8ffee4143014ca0875e0e7cf87e2a9b02b96e4ea5c",
+  "source_snapshot_sha256": "27b962bfe1f54a7fc04d766b634719e21ed9c54b216b7fc275fea4e0bbbb5206",
+  "superseded_local_snapshot_sha256": "ce1d8cb4a3729e81dff26b9ce865e3201ca24d86c3e09536e2651a3a0ccddda2",
   "browser_stats": {
     "startTime": "2026-10-13T03:05:26.173Z",
     "duration": 99736.339,
@@ -33,5 +33,14 @@
   "frontend_passed": 141,
   "email_transport": "fixture only; no real mail sent",
   "deployment_status": "not deployed",
-  "review_findings": "inactive-account access, credential-issuance race, unkeyed verifier, broad login selector, missing hosted recovery coverage and broad request-ID presentation corrected"
+  "review_findings": "inactive-account access, credential-issuance race, unkeyed verifier, broad login selector, missing hosted recovery coverage and broad request-ID presentation corrected",
+  "browser_interpreter_recheck_stats": {
+    "startTime": "2026-10-13T03:17:20.545Z",
+    "duration": 21205.309,
+    "expected": 6,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "browser_evidence_rebind": "14 document cases have unchanged code; six recovery cases rerun without a project venv or E2E_PYTHON_BIN override after interpreter selection was aligned with the native harness."
 }
