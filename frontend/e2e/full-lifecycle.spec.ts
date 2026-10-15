@@ -430,22 +430,16 @@ test.describe('PaperGuard browser lifecycle', () => {
       await expect(student.locator('.writer-save-status')).not.toContainText('未保存')
       await studentWorkflow.closeDetails()
 
-      const exportButton = student.locator('.writer-export-action')
-      const firstExport = student.waitForEvent('download', { timeout: 45_000 }).catch(() => null)
-      await exportButton.click()
-      let download = await firstExport
-      if (!download && await student.locator('.missing-panel').count()) {
-        const forcedExport = student.waitForEvent('download', { timeout: 45_000 })
-        await student.locator('.missing-panel').getByRole('button', { name: /仍要导出/ }).click()
-        download = await forcedExport
-      }
+      // 学生完成模板门禁后正常导出，不依赖强制导出。
+      await completeRequiredWriterGates(student, thesisTitle)
+      const exporting = student.waitForEvent('download', { timeout: 45_000 })
+      await student.locator('.writer-export-action').click()
+      const download = await exporting
       expect(download).toBeTruthy()
       const downloadedPath = await download!.path()
       expect(downloadedPath).toBeTruthy()
       expect(fs.statSync(downloadedPath!).size).toBeGreaterThan(10_000)
       await checkpoint('student-exported-docx')
-
-      await completeRequiredWriterGates(student, thesisTitle)
 
       await student.goto('/workflow')
       const finalTask = await studentWorkflow.openStudentTask(cohortName)

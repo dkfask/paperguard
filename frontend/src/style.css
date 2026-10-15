@@ -110,7 +110,7 @@ body {
   vertical-align: middle;
 }
 
-/* Material Symbols 来自 CDN（见 index.html）。CDN 不可用时字体加载失败，
+/* Material Symbols 随制品本地提供（见 index.html）。字体文件加载失败时，
    ligature 名会被当普通文本直接显示成 "school"、"refresh" 这类英文单词。
 
    早期这里写过两段看似防护、实则完全无效的代码：

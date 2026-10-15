@@ -36,7 +36,7 @@
           <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
           <span>{{ t('writer.switchTemplate') }}</span>
         </button>
-        <button class="writer-review-action" :title="t('writer.check')" :aria-label="t('writer.check')" @click="contextOpen = true; checkOpen = true">
+        <button class="writer-review-action" :disabled="checking || fixing" :title="t('writer.check')" :aria-label="t('writer.check')" @click="contextOpen = true; checkOpen = true; runCheckNow()">
           <span class="material-symbols-outlined" aria-hidden="true">rule</span>
           <span>{{ t('writer.check') }}</span>
         </button>
@@ -140,7 +140,7 @@
           <li v-for="(m, i) in missing" :key="i">{{ m }}</li>
         </ul>
         <div class="form-row" style="margin-top: 8px">
-          <button @click="exportDocx(true)" :disabled="exporting">{{ t('writer.exportAnyway') }}</button>
+          <button v-if="isManager()" @click="exportDocx(true)" :disabled="exporting">{{ t('writer.exportAnyway') }}</button>
           <button @click="missing = []">{{ t('writer.acknowledged') }}</button>
         </div>
       </div>
@@ -642,7 +642,7 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth, isManager } from '../auth'
 import {
   fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, restoreProjectSnapshot, createProjectExportJob, fetchProjectExportJob, downloadProjectExportJob, retryProjectExportJob, previewProjectExport,
-  checkProject, fixProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
+  checkProject, checkProjectTemplate, fixProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
   importProjectDocx,
   acknowledgeRequirements, assistRequirement, listRequirementWaivers, listRequirementDisputes, previewRequirementUpgrade,
   requestRequirementWaiver, requestRequirementDispute, upgradeRequirements, decideRequirementWaiver, revokeRequirementWaiver, decideRequirementDispute,
@@ -655,6 +655,7 @@ import ReasonDialog from '../components/ReasonDialog.vue'
 import SectionTextEditor from '../components/SectionTextEditor.vue'
 import { useI18n } from '../i18n'
 import { createTextBlocks, mergeTextBlocksWithMedia, textBlocksToSectionText } from '../utils/paragraphSplitter.js'
+import { isWritingSectionComplete, mergeWritingChecks } from '../utils/writingCompleteness.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -1327,9 +1328,15 @@ function computeChapterNumbers() {
 function chapterOf(key) { return chapterMap.value[key] || 0 }
 
 // ---------- 字数统计与完成度 ----------
-const requiredSections = computed(() =>
-  (project.value?.sections || []).filter((s) => s.required && s.type !== 'cover' && s.type !== 'toc'),
-)
+const requiredSections = computed(() => {
+  const sections = project.value?.sections || []
+  const required = new Map(flatTemplateSections.value.filter(s => s.required).map(s => {
+    const section = sections.find(item => item.key === s.key && item.type === s.type)
+    return [s.key, section || { ...s, paragraphs: [] }]
+  }))
+  for (const section of sections) if (section.required && !required.has(section.key)) required.set(section.key, section)
+  return [...required.values()].filter(s => s.type !== 'cover' && s.type !== 'toc')
+})
 const doneCount = computed(() => requiredSections.value.filter((s) => isDoneForSec(s)).length)
 const requiredCount = computed(() => requiredSections.value.length)
 const progressPct = computed(() => requiredCount.value ? Math.round((doneCount.value / requiredCount.value) * 100) : 0)
@@ -1351,15 +1358,7 @@ function sectionCharsOf(sec) {
 }
 
 function isDoneForSec(sec) {
-  if (sec.type === 'cover' || sec.type === 'toc') return true
-  if (sec.paragraphs && sec.paragraphs.length) {
-    return sec.paragraphs.some((p) => {
-      if (p.type === 'image') return !!(p.image && p.image.url)
-      if (p.type === 'table') return !!p.table && p.table.cells.flat().some((c) => String(c).trim())
-      return (p.text || '').trim()
-    })
-  }
-  return !!sec.title && sec.title.trim() !== ''
+  return isWritingSectionComplete(sec, project.value?.sections || [])
 }
 
 function label(node) { return node.title || node.key }
@@ -1699,9 +1698,9 @@ async function runCheckNow() {
   checking.value = true
   checkError.value = ''
   try {
-    const result = await checkProject(projectId)
+    const [result, templateResult] = await Promise.all([checkProject(projectId), checkProjectTemplate(projectId)])
     if (generation !== checkGeneration) return
-    checkResult.value = result
+    checkResult.value = mergeWritingChecks(result, templateResult)
     checkStale.value = false
   } catch (e) {
     if (generation === checkGeneration) checkError.value = e.message || t('writer.checkFailedFallback')
@@ -1722,13 +1721,14 @@ async function runOneClickFix() {
     const result = await fixProject(projectId, project.value.revision)
     project.value = result.project
     if (result.project.template_snapshot) template.value = result.project.template_snapshot
-    checkResult.value = result.report
+    checkStale.value = true
+    checkResult.value = mergeWritingChecks(result.report, await checkProjectTemplate(projectId))
     checkStale.value = false
     checkOpen.value = true
     savedAt.value = new Date().toLocaleTimeString()
     if (result.fixed_count > 0) {
       fixNotice.value = t('writer.fixedNotice', { count: result.fixed_count })
-    } else if (result.report?.findings?.length) {
+    } else if (checkResult.value.findings.length) {
       fixNotice.value = t('writer.fixUnavailable')
     } else {
       fixNotice.value = t('writer.noFixNeeded')
