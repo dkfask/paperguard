@@ -1,0 +1,27 @@
+{
+  "observed_at": "2026-10-16T02:31:55.931908+00:00",
+  "frontend": {
+    "unit_test_files": 33,
+    "unit_tests_passed": 146,
+    "typecheck": "passed",
+    "college_admin_tests": 5,
+    "college_admin_structure": "passed",
+    "build": "passed"
+  },
+  "browser": {
+    "passed": 12,
+    "skipped": 2,
+    "retries": 0,
+    "trace": "off",
+    "snapshot_updates": "none",
+    "new_fix_scenario_devices": [
+      "Desktop Chrome",
+      "Pixel 5 viewport 390x844"
+    ],
+    "verified_behavior": [
+      "100% first submission rate and 50% archive completion for one member/two stage tasks, using real local submissions and worker archive",
+      "final approved title appears in writer, cover and browser-downloaded Word"
+    ]
+  },
+  "scope": "local isolated database, random accounts and loopback ports; external AI/provider calls absent"
+}

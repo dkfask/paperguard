@@ -1,0 +1,16 @@
+{
+  "observed_at": "2026-10-16T02:31:55.931908+00:00",
+  "branch": "codex/fix-uat-20261016",
+  "base_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "state": "uncommitted-local-changes",
+  "files": {
+    "backend/app/db.py": "61c1ec456ac51873e5a9bf1a79e76b845cdc8faac57fab139f678e9d47053c8b",
+    "backend/app/api/process_records.py": "c52a420ca6b9ee239c771457049bf3ea6972d9807ad72d7f88aba5f10f0a929b",
+    "backend/app/api/workflow.py": "f9fc5e7fa6801d7296337b3920a8e5f3d232f3591ac799d157538018d514b6d9",
+    "backend/tests/test_uat_regressions.py": "b9232d5a9bf8a1a7146617eaa21e120a1f170f590d65e5a62f5699ac4695aa5d",
+    "frontend/e2e/uat-fixes.spec.ts": "d83a6502a317f72e8221061639ebd02b89091228cc71a2a2e12b4d89c031b5f5"
+  },
+  "production_writes": 0,
+  "migration_ledger_changed": false,
+  "original_tracked_dirty_diff_sha256": "d0a822c46f5e2216f70bf657c2e913a74cdf0ff3abd296d4a1087b51fb37a751"
+}

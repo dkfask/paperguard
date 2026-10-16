@@ -184,6 +184,10 @@ def _validate_submission(record: dict) -> None:
         raise HTTPException(status_code=422, detail="材料至少需要填写结构化内容或上传附件")
     artifact_type = record.get("artifact_type")
     data = record.get("data") or {}
+    if artifact_type == "topic_change":
+        new_topic = data.get("new_topic")
+        if not isinstance(new_topic, str) or not new_topic.strip():
+            raise HTTPException(status_code=422, detail="课题变更必须填写变更后课题名称")
     if artifact_type == "similarity_report":
         raw = data.get("copy_ratio", data.get("R"))
         try:
@@ -492,6 +496,10 @@ def decide_record(record_id: str, req: ProcessDecision, store: Store = Depends(g
         _transition_record(record, "returned" if req.decision == "returned" else "rejected")
         record["pending_approvals"] = list(item["required_approvals"] if item else [])
     with store.workflow_transaction() as conn:
+        if record["state"] == "approved" and record["artifact_type"] == "topic_change":
+            if participant is None:
+                raise HTTPException(status_code=409, detail="课题变更必须关联学生阶段任务")
+            _apply_topic_change(store, conn, record, participant, cohort, actor_id=user["id"])
         _record(store, "process_record", record, expected_revision=record.get("revision", 0), conn=conn)
         if req.decision == "approved" and record["artifact_type"] == "extension_application" and participant:
             _apply_extension_application(store, conn, record, participant, cohort, actor_id=user["id"])
@@ -501,6 +509,27 @@ def decide_record(record_id: str, req: ProcessDecision, store: Store = Depends(g
         _notify_record_owner(store, conn, record, title)
         _audit(store, conn, actor_id=user["id"], action=f"process_record.{req.decision}", resource_type="process_record", resource_id=record_id, organization_id=cohort["organization_id"], reason=reason)
     return _record_view(record)
+
+
+def _apply_topic_change(store: Store, conn, record: dict, participant: dict, cohort: dict, *, actor_id: str) -> None:
+    """Final approval changes the current draft; immutable submission snapshots stay intact."""
+    current = store.get_workflow_record("participant", participant["id"])
+    if current is None or current.get("revision", 0) != participant.get("revision", 0):
+        raise HTTPException(status_code=409, detail="阶段任务已变化，请刷新后重新审批")
+    project = store.get_project(current.get("project_id", ""))
+    if (project is None or project.deleted_at or project.owner_id != current.get("student_id")
+            or (project.organization_context or {}).get("batch_id") != cohort["id"]):
+        raise HTTPException(status_code=409, detail="课题变更未关联有效的本学生、本批次论文")
+    new_topic = (record.get("data") or {}).get("new_topic")
+    if not isinstance(new_topic, str) or not new_topic.strip():
+        raise HTTPException(status_code=422, detail="课题变更必须填写变更后课题名称")
+    expected_revision = project.revision
+    project.title = new_topic.strip()
+    project.meta = {**project.meta, "title": project.title}
+    if store.update_project_if_revision_conn(conn, project, expected_revision) is None:
+        raise HTTPException(status_code=409, detail="论文已被其他操作更新，请刷新后重新审批")
+    _audit(store, conn, actor_id=actor_id, action="project.topic_changed", resource_type="project",
+           resource_id=project.id, organization_id=cohort["organization_id"], reason=record["id"])
 
 
 def _approved_participant_records(store: Store, participant_id: str, current_record: dict | None = None) -> dict[str, dict]:
