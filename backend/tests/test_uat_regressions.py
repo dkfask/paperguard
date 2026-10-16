@@ -125,6 +125,67 @@ def _final_approval(fixture, session=client):
     return session.post(f"/api/process-records/{fixture['record_id']}/decisions", headers=fixture["admin"], json={"decision": "approved"})
 
 
+def test_student_cannot_mutate_teacher_midterm_draft_but_can_edit_writable_material():
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    cohort = _cohort(admin)
+    member = client.post(f"/api/cohorts/{cohort['id']}/members", headers=admin, json={
+        "student_id": student_id, "teacher_id": teacher_id,
+    })
+    assert member.status_code == 201, member.text
+    now = datetime.now(timezone.utc)
+    stage = client.post(f"/api/cohorts/{cohort['id']}/stages", headers=admin, json={
+        "key": "midterm", "name": "中期材料权限回归",
+        "open_at": (now - timedelta(minutes=1)).isoformat(),
+        "deadline_at": (now + timedelta(days=1)).isoformat(),
+    })
+    assert stage.status_code == 201, stage.text
+    assert client.post(f"/api/stages/{stage.json()['id']}/publish", headers=admin).status_code == 200
+    participant = next(
+        task for task in client.get("/api/my-tasks", headers=student).json()
+        if task["stage_id"] == stage.json()["id"]
+    )
+    original_data = {
+        "progress": "合成中期进展", "problems": "合成问题", "next_plan": "合成计划",
+        "advisor_comment": "仅教师可修改的合成意见", "score": 82,
+    }
+    teacher_draft = client.post(
+        f"/api/stage-participants/{participant['id']}/process-records", headers=teacher,
+        json={"artifact_type": "midterm_check", "data": original_data},
+    )
+    assert teacher_draft.status_code == 201, teacher_draft.text
+    record = teacher_draft.json()
+
+    forbidden_update = client.put(f"/api/process-records/{record['id']}", headers=student, json={
+        "base_revision": record["revision"], "data": {
+            **original_data, "score": 99, "advisor_comment": "学生越权改写",
+        },
+    })
+    assert forbidden_update.status_code == 403, forbidden_update.text
+    forbidden_attachment = client.post(
+        f"/api/process-records/{record['id']}/attachments", headers=student,
+        files={"file": ("student-note.txt", b"synthetic attachment", "text/plain")},
+    )
+    assert forbidden_attachment.status_code == 403, forbidden_attachment.text
+    unchanged = client.get(f"/api/process-records/{record['id']}", headers=teacher).json()
+    assert unchanged["data"] == original_data
+    assert unchanged["revision"] == record["revision"]
+    assert unchanged["version"] == record["version"]
+    assert unchanged["attachments"] == []
+
+    student_draft = client.post(
+        f"/api/stage-participants/{participant['id']}/process-records", headers=student,
+        json={"artifact_type": "task_book", "data": {"title": "学生自有任务书"}},
+    )
+    assert student_draft.status_code == 201, student_draft.text
+    editable = student_draft.json()
+    updated = client.put(f"/api/process-records/{editable['id']}", headers=student, json={
+        "base_revision": editable["revision"], "data": {"title": "学生更新后的任务书"},
+    })
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["data"]["title"] == "学生更新后的任务书"
+
+
 def test_final_topic_approval_syncs_cover_and_export_preserving_snapshot():
     f = _topic_fixture()
     student, project = f["student"], f["project"]

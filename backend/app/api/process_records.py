@@ -136,6 +136,8 @@ def _ensure_record_editor(store: Store, user: dict, record: dict) -> tuple[dict 
         raise HTTPException(status_code=409, detail="批次已关闭，不能新增或提交材料")
     if participant is not None and not _can_edit_participant(user, participant):
         raise HTTPException(status_code=403, detail="无权编辑该学生的过程材料")
+    if user["role"] == "student" and record.get("artifact_type") not in _STUDENT_WRITABLE:
+        raise HTTPException(status_code=403, detail="学生不能直接修改该类材料")
     _ensure_student_material_write(store, user, participant)
     if record.get("state") not in {"draft", "returned"}:
         raise HTTPException(status_code=409, detail="当前材料已提交或审批完成，不能直接修改")
