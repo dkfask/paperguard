@@ -86,6 +86,29 @@ describe('workflow usage regressions', () => {
     expect(document.querySelector('.student-task-summary')).toBeTruthy()
     expect(router.replace).toHaveBeenCalledWith({ query: { panel: 'submissions' } })
   })
+  it('shows the latest return reason on returned process material records', async () => {
+    const latestReason = '请补充合成样本范围与指标定义'
+    api.fetchParticipantProcessRecords.mockResolvedValue([
+      { id: 'returned-record', artifact_type: 'opening_report', artifact_name: '开题报告', state: 'returned',
+        updated_at: '2026-10-16T07:00:00Z', attachments: [], approval_history: [
+          { decision: 'returned', reason: '旧版退回意见' },
+          { decision: 'returned', reason: latestReason },
+        ] },
+      { id: 'approved-record', artifact_type: 'task_book', artifact_name: '任务书', state: 'approved',
+        updated_at: '2026-10-16T07:00:00Z', attachments: [], approval_history: [
+          { decision: 'approved', reason: '' },
+        ] },
+    ])
+    api.fetchParticipantQualification.mockResolvedValue({ eligible_for_application: false, gates: [] })
+    api.fetchParticipantScoreSummary.mockResolvedValue({ scores: {}, total_score: null })
+    api.fetchProcessRecordForm.mockResolvedValue({ schema: { fields: [] } })
+    await open(); await button('测试论文').trigger('click'); await flushPromises()
+    await button('过程材料').trigger('click'); await flushPromises()
+    const returnReasons = document.querySelectorAll('.record-history .record-return-reason')
+    expect(returnReasons).toHaveLength(1)
+    expect(returnReasons[0].textContent).toContain(latestReason)
+    expect(returnReasons[0].textContent).not.toContain('旧版退回意见')
+  })
   it('opens an older submission by its own identity and selects that immutable version', async () => {
     route.query = { panel: 'submissions' }; await open(); await button('SUB-OLD').trigger('click'); await flushPromises()
     expect(api.fetchSubmission).toHaveBeenCalledWith('old-submission')

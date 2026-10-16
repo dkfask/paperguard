@@ -1,0 +1,33 @@
+{
+  "observed_at": "2026-10-16T02:34:07.725926+00:00",
+  "result": "LOCAL GATE PASSED",
+  "backend": {
+    "passed": 1145,
+    "warnings": 2,
+    "exit_code": 0,
+    "focused_regressions_passed": 16,
+    "command": "cd backend && python3.12 -m pytest -q --tb=short",
+    "python": "existing project Python 3.12 venv"
+  },
+  "baseline": {
+    "product_regression_tests_failed_before_fix": 3,
+    "log_scope": "summary only, no authentication tokens retained in evidence"
+  },
+  "intermediate_test_defects": [
+    "new test import corrected to tests package",
+    "candidate/export check-run metadata captured before exact project comparisons",
+    "isolated report fixture given active admin and visible organization; no authorization bypass"
+  ],
+  "interrupted_run": "one redundant full run stopped after an isolated fixture precondition failure was identified; final full run passed",
+  "delivery": {
+    "committed": false,
+    "pushed": false,
+    "merged": false,
+    "deployed": false,
+    "production_data_repaired": false
+  },
+  "tests_derived_from": [
+    "DEF-F08-001",
+    "DEF-X10-REPORT-001"
+  ]
+}

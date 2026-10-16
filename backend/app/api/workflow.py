@@ -2083,19 +2083,27 @@ def mark_notification_read(event_id: str, store: Store = Depends(get_store), use
 def cohort_report(cohort_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     _ensure_manager(user)
     cohort = _ensure_cohort_access(store, user, cohort_id)
-    participants = [item for item in store.list_workflow_records("participant") if item.get("cohort_id") == cohort_id]
-    submissions = [item for item in store.list_workflow_records("submission") if any(p.get("id") == item.get("participant_id") for p in participants)]
+    participants = [item for item in store.list_workflow_records("participant", limit=None) if item.get("cohort_id") == cohort_id]
+    participant_ids = {item["id"] for item in participants}
+    submissions = [item for item in store.list_workflow_records("submission", limit=None) if item.get("participant_id") in participant_ids]
     counts = {state: sum(1 for item in participants if item.get("state") == state) for state in ("not_started", "in_progress", "submitted", "needs_revision", "approved", "pending_archive", "archived", "exited")}
-    first_submissions = [item for item in submissions if int(item.get("review_cycle", 0)) == 1]
+    eligible = {item["id"]: item for item in participants if item.get("state") not in {"exited", "withdrawn"}}
+    eligible_submissions = [item for item in submissions if item.get("participant_id") in eligible]
+    first_attempts = [item for item in eligible_submissions if int(item.get("review_cycle", 0)) == 1]
+    first_by_participant = {}
+    for item in sorted(first_attempts, key=lambda row: _parse_time(row.get("submitted_at", ""), "提交时间") or datetime.max.replace(tzinfo=timezone.utc)):
+        first_by_participant.setdefault(item["participant_id"], item)
+    first_submissions = list(first_by_participant.values())
     on_time = 0
     for submission in first_submissions:
-        participant = next((item for item in participants if item.get("id") == submission.get("participant_id")), None)
+        participant = eligible.get(submission.get("participant_id"))
         if participant:
             deadline = _parse_time(participant.get("initial_deadline_at", ""), "首次截止时间")
             submitted_at = _parse_time(submission.get("submitted_at", ""), "提交时间")
             if deadline and submitted_at and submitted_at <= deadline:
                 on_time += 1
-    reviews = [item for item in store.list_workflow_records("review") if any(item.get("submission_id") == submission.get("id") for submission in submissions)]
+    submission_ids = {item["id"] for item in submissions}
+    reviews = [item for item in store.list_workflow_records("review", limit=None) if item.get("submission_id") in submission_ids]
     review_waits = []
     for submission in first_submissions:
         decision = next((item for item in reviews if item.get("submission_id") == submission.get("id")), None)
@@ -2104,7 +2112,8 @@ def cohort_report(cohort_id: str, store: Store = Depends(get_store), user: dict 
             finished = _parse_time(decision.get("created_at", ""), "审核时间")
             if started and finished:
                 review_waits.append(max(0, int((finished - started).total_seconds())))
-    archive_records = [item for item in store.list_workflow_records("archive") if item.get("status") == "succeeded" and any(p.get("current_submission_id") == item.get("submission_id") for p in participants)]
+    succeeded_submission_ids = {item.get("submission_id") for item in store.list_workflow_records("archive", limit=None) if item.get("status") == "succeeded" and item.get("submission_id")}
+    archived_participant_ids = {key for key, item in eligible.items() if item.get("current_submission_id") in succeeded_submission_ids}
     member_snapshot = set(cohort.get("member_ids", []))
     student_states: dict[str, set[str]] = {}
     for participant in participants:
@@ -2113,22 +2122,24 @@ def cohort_report(cohort_id: str, store: Store = Depends(get_store), user: dict 
         student_id for student_id, states in student_states.items()
         if student_id and states and states <= {"exited", "withdrawn"}
     }
-    denominator = len(member_snapshot - excluded_student_ids)
+    member_count = len(member_snapshot - excluded_student_ids)
+    denominator = len(eligible)
     return {
         "cohort_id": cohort_id, "cohort_name": cohort["name"], "generated_at": _now(),
-        "member_count": denominator, "participant_count": len(participants),
+        "member_count": member_count, "participant_count": len(participants),
         "state_counts": counts, "late_count": sum(1 for item in participants if _late(item)),
         "pending_review_count": sum(1 for item in submissions if item.get("state") == "submitted"),
-        "archive_count": len(archive_records),
+        "archive_count": len(archived_participant_ids),
         "metrics": {
             "first_submission_count": len(first_submissions),
             "on_time_first_submission_rate": round(on_time / denominator, 4) if denominator else None,
             "average_review_wait_seconds": round(sum(review_waits) / len(review_waits), 1) if review_waits else None,
-            "revision_submission_count": sum(1 for item in submissions if int(item.get("review_cycle", 0)) > 1),
-            "archive_completion_rate": round(len(archive_records) / denominator, 4) if denominator else None,
+            "revision_submission_count": sum(1 for item in eligible_submissions if int(item.get("review_cycle", 0)) > 1),
+            "archive_completion_rate": round(len(archived_participant_ids) / denominator, 4) if denominator else None,
             "denominator": {
                 "member_snapshot_count": len(member_snapshot),
-                "eligible_member_count": denominator,
+                "eligible_member_count": member_count,
+                "eligible_participant_count": denominator,
                 "excluded_student_count": len(excluded_student_ids),
                 "excluded_states": ["exited", "withdrawn"],
             },
