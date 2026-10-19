@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   createSubmissionComment: vi.fn(),
   respondSubmissionComment: vi.fn(),
   decideProcessRecord: vi.fn(),
+  updateMidtermTeacherFields: vi.fn(),
   downloadProcessRecordAttachment: vi.fn(),
   exportProcessRecord: vi.fn(),
   fetchProcessRecordForm: vi.fn(),
@@ -74,10 +75,31 @@ beforeEach(() => {
   api.fetchWorkflowNotifications.mockResolvedValue({ items: [], unread: 0 }); api.fetchProcessCatalog.mockResolvedValue({ participant: [], cohort: [], reference: [] }); api.fetchProcessRecordInbox.mockResolvedValue([])
   api.fetchSubmission.mockImplementation(async id => detail(id)); api.fetchParticipantProcessRecords.mockResolvedValue([]); api.fetchProjectVersions.mockResolvedValue([{ id: 'version-old', created_at: '2026-10-11' }, { id: 'version-new', created_at: '2026-10-12' }])
   api.fetchOrganizations.mockResolvedValue([]); api.fetchTemplates.mockResolvedValue([]); api.fetchArchives.mockResolvedValue([])
+  api.fetchCohorts.mockResolvedValue([])
 })
 afterEach(() => { wrapper?.unmount(); document.body.innerHTML = '' })
 async function open() { wrapper = mount(Workflow, { attachTo: document.body, global: { stubs: { ReviewEvidence: true, StageConfigForm: true, ScreenDeck: { template: '<div><slot name="header" /><slot /></div>' } } } }); await flushPromises() }
 describe('workflow usage regressions', () => {
+  it.each(['admin', 'college_admin'])('hides teacher fields from the %s material inbox', async role => {
+    identity.user = { role, status: 'active' }
+    api.fetchProcessRecordInbox.mockResolvedValue([{ id: 'midterm-1', artifact_type: 'midterm_check', artifact_name: '中期检查', pending_approvals: ['teacher'] }])
+    await open()
+    expect(wrapper.get('.process-inbox').text()).toContain('中期检查')
+    expect(wrapper.get('.process-inbox').text()).not.toContain('填写意见/评分')
+  })
+  it('clears a persisted midterm score and preserves the teacher opinion', async () => {
+    identity.user = { role: 'teacher', status: 'active' }
+    const record = { id: 'midterm-1', artifact_type: 'midterm_check', revision: 3, data: { advisor_comment: '保留教师意见', score: 88 } }
+    api.fetchProcessRecordInbox.mockResolvedValue([record])
+    api.updateMidtermTeacherFields.mockResolvedValue({ ...record, revision: 4, data: { advisor_comment: '保留教师意见', score: null } })
+    await open(); await button('填写意见/评分').trigger('click'); await flushPromises()
+    const dialog = new DOMWrapper(document.querySelector('[role="dialog"]'))
+    expect(dialog.element.contains(document.activeElement)).toBe(true)
+    await dialog.get('input[type="number"]').setValue('')
+    await button('保存教师字段').trigger('click'); await flushPromises()
+    expect(api.updateMidtermTeacherFields).toHaveBeenCalledWith('midterm-1', { data: { advisor_comment: '保留教师意见', score: null }, base_revision: 3 })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
   it('opens the task record immediately and shows the persisted review and comment', async () => {
     await open(); await button('测试论文').trigger('click'); await button('查看记录').trigger('click'); await flushPromises()
     expect(api.fetchSubmission).toHaveBeenCalledWith('new-submission')

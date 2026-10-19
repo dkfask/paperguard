@@ -30,7 +30,7 @@ export class MidtermTeacherInboxPage {
     return dialog
   }
 
-  async saveTeacherFields(studentId: string, opinion: string, score: number) {
+  async saveTeacherFields(studentId: string, opinion: string, score: number | '') {
     const dialog = await this.openTeacherFields(studentId)
     await dialog.getByLabel('指导教师意见').fill(opinion)
     await dialog.getByLabel('中期评价分数').fill(String(score))
