@@ -8,10 +8,12 @@ export class MidtermTeacherInboxPage {
     await this.page.getByLabel('用户名').fill(username)
     await this.page.getByLabel('密码').fill(password)
     await this.page.getByRole('button', { name: /登\s*录/ }).click()
-    await expect(this.page.getByRole('link', { name: '打开收件箱' })).toBeVisible()
+    await expect(this.page).toHaveURL(/\/workspace$/)
+    await expect(this.page.locator('.workspace-stats')).toBeVisible()
   }
 
   async openInbox() {
+    await this.page.locator('.workspace-main').getByRole('tab', { name: '过程材料', exact: true }).click()
     await this.page.getByRole('link', { name: '打开收件箱' }).click()
     await expect(this.page).toHaveURL(/panel=materials/)
     await expect(this.page.getByRole('heading', { name: '过程材料待审批' }).first()).toBeVisible()
