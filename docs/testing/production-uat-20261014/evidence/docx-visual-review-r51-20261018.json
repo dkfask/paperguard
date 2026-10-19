@@ -1,0 +1,36 @@
+{
+  "format": "paperguard-f09-docx-visual-review",
+  "format_version": 1,
+  "recorded_at": "2026-10-18T14:50:00Z",
+  "artifact": "writing-r51-final-20261018.docx",
+  "environment": "local-render-of-production-export",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "renderer": "bundled documents render_docx.py / bundled LibreOffice",
+  "page_count": 10,
+  "sections": 3,
+  "paragraphs": 38,
+  "tables": 0,
+  "rendered_pages_inspected": 10,
+  "structural_text_readable": true,
+  "cjk_text_present_in_docx": true,
+  "declared_cjk_fonts": [
+    "宋体",
+    "黑体"
+  ],
+  "render_observations": {
+    "cjk_glyphs": "rendered as square placeholders in the bundled renderer; CJK-only pages appear blank",
+    "page1": "synthetic cover text is structurally present; only Latin project identifier rendered visibly",
+    "page2": "abstract heading/body text structurally present; CJK portions not visible",
+    "page3": "contents page is structurally present; CJK-only text not visible in bundled render",
+    "pages4_to_9": "chapter/reference structure renders; Chinese headings show missing glyph squares",
+    "page10": "acknowledgements heading is structurally present but not visible in bundled render because CJK glyphs are missing",
+    "clipping_or_overlap_observed": false
+  },
+  "citation_export": "not covered: this DOCX predates the later reference-save subtest and was not re-exported",
+  "status": "UNVERIFIED_CJK_RENDERER_LIMITATION",
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0
+}

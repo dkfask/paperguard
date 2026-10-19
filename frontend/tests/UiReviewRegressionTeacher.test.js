@@ -1,3 +1,4 @@
+import { workflowPageTitle } from '../src/shared/pageTitles'
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -112,7 +113,7 @@ describe('F-13 panel 参数不得静默失效', () => {
   it('review 入口的标题必须是审核语义', () => {
     const workflow = read('src/views/Workflow.vue')
     expect(workflow).toMatch(/panelTarget\.value === 'review' \? t\('review\.pending'\)/)
-    expect(workflow).toMatch(/panelTarget\.value === 'review' \? t\('workspace\.reviewDesk'\)/)
+    expect(workflowPageTitle('review', { role: 'teacher', status: 'active' }, key => key)).toBe('workspace.reviewDesk')
   })
 
   it('progress / materials 必须被显式识别并驱动标题', () => {

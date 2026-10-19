@@ -1,0 +1,56 @@
+{
+  "observed_at": "2026-10-15T07:48:24.174882+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "authenticated production API on synthetic UAT object; TLS verification enabled; all sessions revoked",
+  "preconditions": {
+    "same_revision": true,
+    "stage_is_test_draft": true,
+    "cohort_is_test_published_target": true
+  },
+  "publish_status": 200,
+  "publish_result": {
+    "cohort_status": "published",
+    "participant_count": 1,
+    "synthetic_member_snapshot_count": 1,
+    "intended_in_app_recipients": [
+      "S-A",
+      "T-A"
+    ]
+  },
+  "participant_id": "participant-3b9434807b06",
+  "role_task_visibility": {
+    "S-A": {
+      "login_status": 200,
+      "task_list_status": 200,
+      "visible_test_task_count": 1,
+      "role_expected_visibility": true
+    },
+    "T-A": {
+      "login_status": 200,
+      "task_list_status": 200,
+      "visible_test_task_count": 1,
+      "role_expected_visibility": true
+    },
+    "S-B": {
+      "login_status": 200,
+      "task_list_status": 200,
+      "visible_test_task_count": 0,
+      "role_expected_visibility": false
+    },
+    "T-B": {
+      "login_status": 200,
+      "task_list_status": 200,
+      "visible_test_task_count": 0,
+      "role_expected_visibility": false
+    },
+    "COL-B": {
+      "login_status": 200,
+      "task_list_status": 200,
+      "visible_test_task_count": 0,
+      "role_expected_visibility": false
+    }
+  },
+  "notification_channel": "workflow_events/in-app only per deployed _notify + Store.save_workflow_event_conn source; no email or external send requested",
+  "ui_verified": false
+}

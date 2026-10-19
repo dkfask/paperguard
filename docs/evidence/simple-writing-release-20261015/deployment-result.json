@@ -1,0 +1,32 @@
+{
+  "status": "deployed",
+  "release_id": "4b79f96-simple-writing-b20261015T104714Z",
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "runtime": {
+    "component": "backend",
+    "product_version": null,
+    "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+    "release_id": "4b79f96-simple-writing-b20261015T104714Z",
+    "build_id": "20261015T104714Z",
+    "built_at": "2026-10-15T10:47:16Z",
+    "identity_status": "declared"
+  },
+  "verification": {
+    "result": "verified",
+    "release_id": "4b79f96-simple-writing-b20261015T104714Z",
+    "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+    "backend_files": 150,
+    "frontend_files": 90,
+    "metadata_current": true,
+    "written": false
+  },
+  "backup": {
+    "path": "/home/ubuntu/paperguard/backups/pre-4b79f96-simple-writing-b20261015T104714Z/data.zip",
+    "sha256": "2624867c03deb936a815243917dcd04008ae1147a11fec714b0a8c5ffcde3d82",
+    "files": 21,
+    "restore_rehearsal_verified": true
+  },
+  "migration_ledger_unchanged": true,
+  "openapi_paths": 198,
+  "runner_sha256": "606dc355d86b3f8b36290bd723c37088f8a50caf242debfbd9805e83c3b30af8"
+}

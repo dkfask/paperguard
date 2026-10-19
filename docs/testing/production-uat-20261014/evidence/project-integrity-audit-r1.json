@@ -1,0 +1,50 @@
+{
+  "recorded_at": "2026-10-15T11:18:01+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "actor": "S-A synthetic student",
+  "project_id": "proj-dfde4747c750",
+  "api_login_status": 200,
+  "project_get_status": 200,
+  "current_project_revision": 16,
+  "current_title": "校园图书借阅服务体验研究",
+  "current_section_count": 13,
+  "current_section_keys_in_order": [
+    "abstract",
+    "ch1",
+    "ch1_1",
+    "ch1_2",
+    "ch1_3",
+    "ch2",
+    "ch2_1",
+    "ch2_2",
+    "ch3",
+    "ch4",
+    "ch5",
+    "references",
+    "acknowledgement"
+  ],
+  "current_table_count": 1,
+  "comparison": {
+    "v3_source_revision": 16,
+    "current_revision_matches_v3": true,
+    "current_section_keys_match_project_structure_r3": true,
+    "current_revision_unchanged_after_broad_row_click_probe": true
+  },
+  "prior_probe": {
+    "attempted_method": "clicked entire .tree-nav .nav-row elements while sampling; child controls may have received clicks",
+    "observed_requests": 6,
+    "request": "PUT /api/projects/proj-dfde4747c750/sections",
+    "http_response_codes_captured": false,
+    "persistent_structure_change_observed": false,
+    "basis": "current revision remains 16 and all 13 section keys/order remain identical to the recorded project structure"
+  },
+  "precise_followup": {
+    "method": "clicked only the .nav-title text for 摘要",
+    "non_auth_write_requests": 0,
+    "content_hash_same_after_refresh_and_relogin": true
+  },
+  "no_deletion_or_rollback": true,
+  "ai_generation_calls": 0,
+  "result": "No persistent structure mutation found; previous broad-row requests remain an unclassified attempt because their response codes were not retained."
+}

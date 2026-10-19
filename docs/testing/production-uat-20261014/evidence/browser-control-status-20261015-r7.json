@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-10-15T14:01:58+08:00",
+  "target": "https://paper.thunderuni.com",
+  "kind": "browser_control_recovery",
+  "attempts": [
+    {
+      "surface": "Codex In-app Browser",
+      "method": "bind current login tab by URL",
+      "timeout_seconds": 15,
+      "result": "timeout"
+    },
+    {
+      "surface": "Codex In-app Browser",
+      "method": "read browser state",
+      "timeout_seconds": 15,
+      "result": "timeout"
+    },
+    {
+      "surface": "Chrome extension tab bridge",
+      "method": "bind current login tab by URL",
+      "timeout_seconds": 15,
+      "result": "timeout"
+    },
+    {
+      "surface": "Chrome native application accessibility",
+      "method": "select the existing PaperGuard login tab and read its accessibility tree",
+      "result": "success"
+    }
+  ],
+  "observed_page": {
+    "url": "https://paper.thunderuni.com/login?redirect=%2F",
+    "title": "欢迎登录 PaperGuard",
+    "controls": [
+      "学号 / 工号 / 用户名",
+      "登录密码",
+      "登录",
+      "立即注册"
+    ]
+  },
+  "credentials_entered": false,
+  "login_submitted": false,
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "limitations": "This confirms the login page is readable through Chrome native accessibility only. It does not verify authentication or core role pages; the Codex in-app and Chrome extension tab bridges remain unavailable."
+}

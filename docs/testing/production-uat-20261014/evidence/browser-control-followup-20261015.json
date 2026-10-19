@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-15T10:15:41+08:00",
+  "failure_class": "ENVIRONMENT",
+  "scope": "local Codex browser-control route; not a PaperGuard product result",
+  "attempt": {
+    "action": "cua.getTab({url: PaperGuard page}, {browser: 'chrome'})",
+    "result": "js execution timed out; kernel reset",
+    "duration_seconds_approx": 12,
+    "page_result": "target business page content was not obtained; subsequent view showed a blank/new-tab shell"
+  },
+  "interpretation": "The tab-binding/control route remains unavailable or unstable. This does not establish whether PaperGuard page navigation itself succeeded or failed.",
+  "handling": {
+    "stop_repeating_tab_binding": true,
+    "continue_synthetic_business_flows_via_ssh_loopback_api": true,
+    "api_results_are_not_web_ui_passes": true,
+    "previous_native_chrome_sys_a_login_evidence_remains_limited_to_that_login_session": true
+  },
+  "changes": {
+    "application_code_modified": false,
+    "production_configuration_modified": false,
+    "codex_or_chrome_restarted_or_reconfigured": false
+  }
+}

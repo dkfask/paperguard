@@ -1,0 +1,39 @@
+{
+  "observed_at": "2026-10-15T14:58:41.189153+00:00",
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "release_id": "4b79f96-simple-writing-b20261015T104714Z",
+  "project_id": "proj-57adb8300efa",
+  "ui_checkpoints": {
+    "total": 9,
+    "passed": 9
+  },
+  "docx_structure_artifacts": {
+    "total": 2,
+    "passed": 2
+  },
+  "render_review": {
+    "pages": 10,
+    "result": "passed with residual risk: Word field update/print not checked"
+  },
+  "access_requests": {
+    "total": 12,
+    "passed": 12
+  },
+  "existing_defects": {
+    "report_rate": "reproduced in API and UI on current version",
+    "topic_title": "historical approved record/project mismatch persists; approval transition not replayed"
+  },
+  "strict_full_uat_passed": false,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "business_objects_created": {
+    "writing_projects": 1,
+    "exports": 2
+  },
+  "deletions": 0,
+  "scope_note": "current evidence is one simple loop; original 36 scenario packages remain incomplete",
+  "session_cleanup": {
+    "recorded_execution_sessions": "logout HTTP 200",
+    "initial_readonly_discovery": "logout button clicked; response not recorded, server revocation unverified"
+  }
+}

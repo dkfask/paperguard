@@ -1,0 +1,58 @@
+{
+  "recorded_at": "2026-10-15T12:48:35+08:00",
+  "target": "https://paper.thunderuni.com",
+  "issue": "CUA 页面读取反复 js execution timed out / kernel reset；同时确认 UAT 登录流程是否存在服务端慢响应",
+  "current_reproduction": {
+    "cua_getState": {
+      "timeout_seconds": 10,
+      "result": "js execution timed out; kernel reset"
+    },
+    "cua_tab_inventory": {
+      "result": "success",
+      "tabs_for_login_url": 3,
+      "detail": "仅返回标签元数据；页面内容读取仍不可用"
+    },
+    "cua_getTab_by_url": {
+      "result": "重复 URL 无法唯一选择；使用唯一编码 URL 后页面读取仍超时"
+    },
+    "cua_getTab_by_known_id": {
+      "timeout_seconds": [
+        8,
+        15
+      ],
+      "result": "js execution timed out; kernel reset"
+    },
+    "cua_getTab_by_provider_id": {
+      "timeout_seconds": 8,
+      "result": "js execution timed out; kernel reset"
+    }
+  },
+  "read_only_service_probe": {
+    "login": {
+      "http_status": 200,
+      "elapsed_ms": 1075
+    },
+    "health_ready": {
+      "http_status": 200,
+      "elapsed_ms": 987
+    }
+  },
+  "previous_workaround_evidence": {
+    "file": "browser-control-recovery-20261015-r3.json",
+    "result": "独立无界面 Playwright 登录已在 4409 ms 内到达首页，HTTP 200，页面错误 0；使用实际根路径与页面内容条件等待，不等待 networkidle"
+  },
+  "resolution_status": {
+    "uat_login_flow_timeout": "已通过修正等待条件并切换隔离 Playwright 控制路径解决；生产登录页和 ready 响应正常",
+    "interactive_cua_bridge": "仍未恢复。此前桌面控制诊断确认 Mac 处于锁定状态；恢复原生浏览器控制需用户手动解锁。当前 UAT 不依赖该桥接继续",
+    "next_action": "后续 UAT 保持用有界 Playwright 调用与页面内容条件等待；解锁后如需要直接操作桌面浏览器，再复测 CUA"
+  },
+  "scope": {
+    "business_writes": 0,
+    "auth_submissions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "production_configuration_changed": false,
+    "application_code_changed": false,
+    "credentials_or_tokens_recorded": false
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "method": "production backend loopback over SSH; synthetic submission only",
+  "student_login_status": 200,
+  "preconditions": {
+    "revision": true,
+    "participant_in_progress_and_acknowledged": true,
+    "same_test_project_revision_14": true,
+    "empty_candidate_still_blocked": true
+  },
+  "blocked_candidate_confirm_status": 409,
+  "candidate_create_status": 201,
+  "candidate_id": "candidate-562eb5f82c77",
+  "candidate_status": "ready",
+  "candidate_source_revision": 14,
+  "warning_count": 2,
+  "candidate_gates": [
+    {
+      "key": "automatic_checks",
+      "passed": true,
+      "blocking": false
+    },
+    {
+      "key": "requirements_acknowledged",
+      "passed": true,
+      "blocking": false
+    },
+    {
+      "key": "completeness",
+      "passed": true,
+      "blocking": false
+    },
+    {
+      "key": "materials",
+      "passed": true,
+      "blocking": false
+    },
+    {
+      "key": "attachments",
+      "passed": true,
+      "blocking": false
+    }
+  ],
+  "warning_unacknowledged_status": 409,
+  "submission_status": 200,
+  "submission_id": "submission-691de2599180",
+  "submission_number": "SUB-20261015-2E5D69",
+  "submission_state": "submitted",
+  "review_cycle": 1,
+  "idempotent_replay_status": 200,
+  "idempotent_same_submission": true,
+  "version_id": "version-85a5c8892768",
+  "submission_access": {
+    "T-A": {
+      "login_status": 200,
+      "get_status": 200,
+      "version_matches_candidate": true
+    },
+    "S-B": {
+      "login_status": 200,
+      "get_status": 404,
+      "version_matches_candidate": false
+    },
+    "T-B": {
+      "login_status": 200,
+      "get_status": 404,
+      "version_matches_candidate": false
+    }
+  },
+  "ui_verified": false,
+  "observed_at": "2026-10-15T10:11:50.698370+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046"
+}

@@ -1,0 +1,123 @@
+{
+  "recorded_at": "2026-10-14T18:16:39.369789+08:00",
+  "source_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "release_marker_rechecked": "98b51d7-role-workflows-b20261012T085040Z",
+  "review_status": "SOURCE_REVIEW_COMPLETE",
+  "runtime_performance_status": "UNVERIFIED",
+  "review_ids": [
+    "PRF01",
+    "PRF02",
+    "PRF03",
+    "PRF04",
+    "PRF05",
+    "PRF06",
+    "PRF07",
+    "PRF08"
+  ],
+  "risk_status": "hypothesis",
+  "production_load_generated": false,
+  "store_constructed": false,
+  "production_database_queried": false,
+  "files": [
+    {
+      "path": "backend/app/db.py",
+      "sha256": "c19ced09024234a11ebf8d1b5e149dfcbf4829ef9971257fa6c9fb88ab265866",
+      "ranges": [
+        {
+          "start": 94,
+          "end": 99,
+          "text": "    def _connect(self) -> sqlite3.Connection:\n        conn = sqlite3.connect(self._db_path, timeout=10)\n        conn.row_factory = sqlite3.Row\n        conn.execute(\"PRAGMA busy_timeout = 10000\")\n        conn.execute(\"PRAGMA foreign_keys = ON\")\n        return conn"
+        },
+        {
+          "start": 433,
+          "end": 436,
+          "text": "                CREATE INDEX IF NOT EXISTS idx_jobs_claim\n                    ON jobs (job_type, state, available_at, created_at);\n                CREATE INDEX IF NOT EXISTS idx_jobs_resource\n                    ON jobs (resource_type, resource_id, created_at DESC);"
+        },
+        {
+          "start": 2224,
+          "end": 2236,
+          "text": "    @contextmanager\n    def workflow_transaction(self) -> Iterator[sqlite3.Connection]:\n        \"\"\"事务性地执行跨工作流对象的状态变更和事件写入。\"\"\"\n        conn = self._connect()\n        try:\n            conn.execute(\"BEGIN IMMEDIATE\")\n            yield conn\n            conn.commit()\n        except Exception:\n            conn.rollback()\n            raise\n        finally:\n            conn.close()"
+        },
+        {
+          "start": 2292,
+          "end": 2303,
+          "text": "    def list_workflow_records(self, kind: str, limit: int | None = 500) -> list[dict]:\n        with self._connect() as conn:\n            if limit is None:\n                rows = conn.execute(\n                    \"SELECT data FROM workflow_records WHERE kind=? ORDER BY updated_at DESC, id\", (kind,),\n                ).fetchall()\n            else:\n                rows = conn.execute(\n                    \"SELECT data FROM workflow_records WHERE kind = ? ORDER BY updated_at DESC LIMIT ?\",\n                    (kind, max(1, min(limit, 5000))),\n                ).fetchall()\n        return [json.loads(row[\"data\"]) for row in rows]"
+        },
+        {
+          "start": 2430,
+          "end": 2495,
+          "text": "    def list_jobs(\n        self,\n        *,\n        job_type: str | None = None,\n        resource_type: str | None = None,\n        resource_id: str | None = None,\n        states: tuple[str, ...] | None = None,\n        limit: int = 200,\n    ) -> list[dict]:\n        clauses: list[str] = []\n        params: list[object] = []\n        if job_type:\n            clauses.append(\"job_type = ?\"); params.append(job_type)\n        if resource_type:\n            clauses.append(\"resource_type = ?\"); params.append(resource_type)\n        if resource_id:\n            clauses.append(\"resource_id = ?\"); params.append(resource_id)\n        if states:\n            marks = \",\".join(\"?\" for _ in states)\n            clauses.append(f\"state IN ({marks})\"); params.extend(states)\n        where = f\"WHERE {' AND '.join(clauses)}\" if clauses else \"\"\n        with self._connect() as conn:\n            rows = conn.execute(\n                f\"SELECT * FROM jobs {where} ORDER BY created_at ASC LIMIT ?\",\n                (*params, max(1, min(int(limit), 1000))),\n            ).fetchall()\n        return [dict(row) for row in rows]\n\n    def claim_jobs(\n        self,\n        *,\n        job_type: str,\n        consumer_id: str,\n        limit: int = 20,\n        lease_seconds: int = 120,\n    ) -> list[dict]:\n        \"\"\"Atomically claim queued jobs and recover expired leases.\"\"\"\n        now = datetime.now(timezone.utc)\n        now_text = now.isoformat(timespec=\"seconds\")\n        lease_until = (now + timedelta(seconds=max(10, min(int(lease_seconds), 900)))).isoformat(timespec=\"seconds\")\n        claimed: list[dict] = []\n        with self._connect() as conn:\n            conn.execute(\"BEGIN IMMEDIATE\")\n            rows = conn.execute(\n                \"SELECT * FROM jobs WHERE job_type = ? AND \"\n                \"((state = 'queued' AND available_at <= ?) OR \"\n                \"(state = 'running' AND lease_until IS NOT NULL AND lease_until <= ?) OR \"\n                \"(state = 'failed' AND attempt_count < max_attempts AND available_at <= ?)) \"\n                \"ORDER BY created_at ASC LIMIT ?\",\n                (job_type, now_text, now_text, now_text, max(1, min(int(limit), 200))),\n            ).fetchall()\n            for row in rows:\n                token = uuid.uuid4().hex\n                attempt = int(row[\"attempt_count\"] or 0) + 1\n                cur = conn.execute(\n                    \"UPDATE jobs SET state = 'running', attempt_count = ?, lease_until = ?, lease_token = ?, \"\n                    \"leased_by = ?, last_error = NULL, updated_at = ? WHERE id = ?\",\n                    (attempt, lease_until, token, consumer_id, now_text, row[\"id\"]),\n                )\n                if cur.rowcount != 1:\n                    continue\n                updated = conn.execute(\"SELECT * FROM jobs WHERE id = ?\", (row[\"id\"],)).fetchone()\n                item = dict(updated)\n                claimed.append(item)\n            conn.commit()\n        return claimed"
+        }
+      ]
+    },
+    {
+      "path": "backend/app/api/workflow.py",
+      "sha256": "a1eb99a8b6aa065259618de1c2e023762af047bcaa0449aac1ea1e062086c2f7",
+      "ranges": [
+        {
+          "start": 253,
+          "end": 269,
+          "text": "def _supervisions(store: Store, cohort_id: str, student_id: str | None = None) -> list[dict]:\n    records = [\n        item for item in store.list_workflow_records(\"supervision\", limit=None)\n        if item.get(\"cohort_id\") == cohort_id\n        and (student_id is None or item.get(\"student_id\") == student_id)\n    ]\n    return sorted(records, key=lambda item: item.get(\"effective_from\") or item.get(\"created_at\", \"\"), reverse=True)\n\n\ndef _current_supervision(store: Store, cohort_id: str, student_id: str, now: datetime | None = None) -> dict | None:\n    now = now or datetime.now(timezone.utc)\n    for item in _supervisions(store, cohort_id, student_id):\n        start = _parse_time(item.get(\"effective_from\", \"\"), \"生效时间\") or datetime.min.replace(tzinfo=timezone.utc)\n        end = _parse_time(item.get(\"effective_to\", \"\"), \"结束时间\")\n        if item.get(\"active\", True) and start <= now and (end is None or now < end):\n            return item\n    return None"
+        },
+        {
+          "start": 2082,
+          "end": 2118,
+          "text": "@router.get(\"/reports/cohorts/{cohort_id}\")\ndef cohort_report(cohort_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:\n    _ensure_manager(user)\n    cohort = _ensure_cohort_access(store, user, cohort_id)\n    participants = [item for item in store.list_workflow_records(\"participant\") if item.get(\"cohort_id\") == cohort_id]\n    submissions = [item for item in store.list_workflow_records(\"submission\") if any(p.get(\"id\") == item.get(\"participant_id\") for p in participants)]\n    counts = {state: sum(1 for item in participants if item.get(\"state\") == state) for state in (\"not_started\", \"in_progress\", \"submitted\", \"needs_revision\", \"approved\", \"pending_archive\", \"archived\", \"exited\")}\n    first_submissions = [item for item in submissions if int(item.get(\"review_cycle\", 0)) == 1]\n    on_time = 0\n    for submission in first_submissions:\n        participant = next((item for item in participants if item.get(\"id\") == submission.get(\"participant_id\")), None)\n        if participant:\n            deadline = _parse_time(participant.get(\"initial_deadline_at\", \"\"), \"首次截止时间\")\n            submitted_at = _parse_time(submission.get(\"submitted_at\", \"\"), \"提交时间\")\n            if deadline and submitted_at and submitted_at <= deadline:\n                on_time += 1\n    reviews = [item for item in store.list_workflow_records(\"review\") if any(item.get(\"submission_id\") == submission.get(\"id\") for submission in submissions)]\n    review_waits = []\n    for submission in first_submissions:\n        decision = next((item for item in reviews if item.get(\"submission_id\") == submission.get(\"id\")), None)\n        if decision:\n            started = _parse_time(submission.get(\"submitted_at\", \"\"), \"提交时间\")\n            finished = _parse_time(decision.get(\"created_at\", \"\"), \"审核时间\")\n            if started and finished:\n                review_waits.append(max(0, int((finished - started).total_seconds())))\n    archive_records = [item for item in store.list_workflow_records(\"archive\") if item.get(\"status\") == \"succeeded\" and any(p.get(\"current_submission_id\") == item.get(\"submission_id\") for p in participants)]\n    member_snapshot = set(cohort.get(\"member_ids\", []))\n    student_states: dict[str, set[str]] = {}\n    for participant in participants:\n        student_states.setdefault(participant.get(\"student_id\", \"\"), set()).add(participant.get(\"state\", \"\"))\n    excluded_student_ids = {\n        student_id for student_id, states in student_states.items()\n        if student_id and states and states <= {\"exited\", \"withdrawn\"}\n    }\n    denominator = len(member_snapshot - excluded_student_ids)\n    return {\n        \"cohort_id\": cohort_id, \"cohort_name\": cohort[\"name\"], \"generated_at\": _now(),"
+        }
+      ]
+    },
+    {
+      "path": "backend/app/services/workflow_jobs.py",
+      "sha256": "d009ef6f7af4a8bfbd7c0dad493fc94e09194beb3d03949e3a84d5678ca01e38",
+      "ranges": [
+        {
+          "start": 28,
+          "end": 43,
+          "text": "def _retry_delay_seconds(\n    attempt_count: Any,\n    *,\n    base: int = _RETRY_BASE_SECONDS,\n    cap: int = _RETRY_MAX_SECONDS,\n) -> int:\n    \"\"\"按尝试次数计算指数退避间隔：base * 2^(attempt-1)，上限 cap。\n\n    attempt_count 由 claim_jobs 在抢占时递增，首次抢占即为 1，故首次失败退避为 base。\n    \"\"\"\n    try:\n        attempt = int(attempt_count)\n    except (TypeError, ValueError):\n        attempt = 1\n    exponent = max(0, attempt - 1)\n    return min(int(base) * (2 ** exponent), int(cap))"
+        },
+        {
+          "start": 46,
+          "end": 54,
+          "text": "def consume_archive_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> dict[str, Any]:\n    \"\"\"Claim and execute durable archive jobs outside the web process.\"\"\"\n    from app.api.workflow import _run_archive, _now\n\n    repository = WorkflowRepository(store)\n    claimed = repository.claim_jobs(\n        job_type=\"archive.generate\", consumer_id=consumer_id,\n        limit=max(1, min(limit, 50)), lease_seconds=300,\n    )"
+        },
+        {
+          "start": 119,
+          "end": 128,
+          "text": "def consume_project_export_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> dict[str, Any]:\n    \"\"\"Claim and execute durable project export jobs outside the web process.\"\"\"\n    from app.services.export_jobs import EXPORT_ID_RE, EXPORT_JOB_TYPE, run_project_export\n    from app.api.workflow import _now\n\n    repository = WorkflowRepository(store)\n    claimed = repository.claim_jobs(\n        job_type=EXPORT_JOB_TYPE, consumer_id=consumer_id,\n        limit=max(1, min(limit, 50)), lease_seconds=300,\n    )"
+        },
+        {
+          "start": 164,
+          "end": 175,
+          "text": "def consume_document_render_jobs(store: Store, *, consumer_id: str, limit: int = 20) -> dict[str, Any]:\n    \"\"\"Claim and execute generic DOCX render jobs outside the web process.\"\"\"\n    from app.api.workflow import _now\n    from app.services.document_render_jobs import RENDER_JOB_TYPE, run_document_render_job\n\n    repository = WorkflowRepository(store)\n    claimed = repository.claim_jobs(\n        job_type=RENDER_JOB_TYPE,\n        consumer_id=consumer_id,\n        limit=max(1, min(limit, 50)),\n        lease_seconds=300,\n    )"
+        },
+        {
+          "start": 230,
+          "end": 254,
+          "text": "def consume_in_app_outbox(store: Store, *, consumer_id: str, limit: int = 100) -> dict[str, Any]:\n    \"\"\"Deliver persisted in-app notifications and acknowledge them under a lease.\"\"\"\n    from app.api.workflow import _now\n\n    pending = store.list_pending_workflow_events(limit=max(1, min(limit, 200)))\n    claimed = store.claim_workflow_events(\n        [item[\"id\"] for item in pending], consumer_id=consumer_id,\n        lease_seconds=120, max_attempts=_OUTBOX_MAX_ATTEMPTS,\n    )\n    delivered: list[str] = []\n    failed: list[dict[str, str]] = []\n    for event in claimed:\n        recipient = store.get_user(event.get(\"recipient_id\", \"\"))\n        if recipient and recipient.get(\"status\") == \"active\":\n            if store.mark_workflow_event_delivered_with_lease(event[\"id\"], event.get(\"lease_token\", \"\")):\n                delivered.append(event[\"id\"])\n            continue\n        reason = \"通知接收账号不存在或已禁用\"\n        failed_event = store.fail_workflow_event(\n            event[\"id\"], error=reason, lease_token=event.get(\"lease_token\", \"\"),\n            max_attempts=_OUTBOX_MAX_ATTEMPTS,\n        )\n        if failed_event:\n            failed.append({\"event_id\": event[\"id\"], \"status\": failed_event[\"delivery_status\"], \"error\": reason})\n    return {\"claimed\": len(claimed), \"delivered\": delivered, \"failed\": failed, \"at\": _now()}"
+        },
+        {
+          "start": 257,
+          "end": 292,
+          "text": "def create_system_due_reminders(store: Store) -> dict[str, Any]:\n    \"\"\"Create deduplicated deadline reminders for all active participants.\"\"\"\n    from app.api.workflow import _ACTIVE_STUDENT_STATES, _current_supervision, _notify, _now, _parse_time\n\n    created: list[str] = []\n    now = datetime.now(timezone.utc)\n    for participant in store.list_workflow_records(\"participant\"):\n        if participant.get(\"state\") not in _ACTIVE_STUDENT_STATES:\n            continue\n        cohort = store.get_workflow_record(\"cohort\", participant.get(\"cohort_id\", \"\"))\n        if not cohort:\n            continue\n        deadline = _parse_time(participant.get(\"revision_deadline_at\") or participant.get(\"effective_deadline_at\", \"\"), \"截止时间\")\n        if not deadline:\n            continue\n        remaining = (deadline - now).total_seconds()\n        if remaining > 72 * 3600:\n            continue\n        kind = \"overdue\" if remaining < 0 else \"deadline_soon\"\n        dedupe_key = f\"reminder:{kind}:{participant['id']}:{participant.get('revision', 0)}:{deadline.isoformat()}\"\n        with store.workflow_transaction() as conn:\n            inserted = _notify(\n                store, conn, participant[\"student_id\"], f\"participant.{kind}\", \"participant\", participant[\"id\"],\n                \"阶段任务已逾期，请尽快处理\" if kind == \"overdue\" else \"阶段任务即将截止，请及时提交\",\n                dedupe_key=dedupe_key,\n            )\n            if inserted:\n                created.append(participant[\"id\"])\n            relation = _current_supervision(store, participant[\"cohort_id\"], participant[\"student_id\"])\n            if relation:\n                _notify(\n                    store, conn, relation[\"teacher_id\"], f\"participant.{kind}\", \"participant\", participant[\"id\"],\n                    \"指导学生任务临近截止\" if kind == \"deadline_soon\" else \"指导学生任务已逾期\",\n                    dedupe_key=f\"{dedupe_key}:teacher\",\n                )\n    return {\"created\": created, \"generated_at\": _now()}"
+        }
+      ]
+    },
+    {
+      "path": "backend/app/worker.py",
+      "sha256": "eabed60565d483d3d684c6e84709c3f1f76c9dd4d9eedb20e663d1a4e61ad3ea",
+      "ranges": [
+        {
+          "start": 34,
+          "end": 49,
+          "text": "def run_once(store: Store | None = None) -> dict:\n    store = store or Store()\n    consumer_id = _consumer_id()\n    reminders = create_system_due_reminders(store)\n    archives = consume_archive_jobs(store, consumer_id=consumer_id)\n    exports = consume_project_export_jobs(store, consumer_id=consumer_id)\n    document_renders = consume_document_render_jobs(store, consumer_id=consumer_id)\n    outbox = consume_in_app_outbox(store, consumer_id=consumer_id)\n    wechat_pushes = deliver_wechat_push(store, consumer_id=consumer_id)\n    return {\n        \"reminders\": reminders,\n        \"archives\": archives,\n        \"exports\": exports,\n        \"document_renders\": document_renders,\n        \"outbox\": outbox,\n        \"wechat_pushes\": wechat_pushes,"
+        },
+        {
+          "start": 53,
+          "end": 84,
+          "text": "def main() -> None:\n    logging.basicConfig(level=os.environ.get(\"PAPERGUARD_LOG_LEVEL\", \"INFO\"))\n    interval = max(5, int(os.environ.get(\"PAPERGUARD_WORKER_INTERVAL_SECONDS\", \"30\")))\n    once = os.environ.get(\"PAPERGUARD_WORKER_ONCE\", \"0\") == \"1\"\n    consumer_id = _consumer_id()\n    while True:\n        try:\n            result = run_once()\n            log_event(\n                LOGGER, \"worker.iteration.completed\",\n                context=RequestContext(request_id=f\"worker-{consumer_id}\"), actor_id=\"system\", role=\"system\",\n                consumer_id=consumer_id,\n                reminders_created=len(result[\"reminders\"][\"created\"]),\n                archives_claimed=result[\"archives\"][\"claimed\"],\n                archives_succeeded=len(result[\"archives\"][\"succeeded\"]),\n                exports_claimed=result[\"exports\"][\"claimed\"],\n                exports_succeeded=len(result[\"exports\"][\"succeeded\"]),\n                document_renders_claimed=result[\"document_renders\"][\"claimed\"],\n                document_renders_succeeded=len(result[\"document_renders\"][\"succeeded\"]),\n                outbox_claimed=result[\"outbox\"][\"claimed\"],\n                outbox_delivered=len(result[\"outbox\"][\"delivered\"]),\n            )\n        except Exception:\n            log_event(\n                LOGGER, \"worker.iteration.failed\",\n                context=RequestContext(request_id=f\"worker-{consumer_id}\"), actor_id=\"system\", role=\"system\",\n                consumer_id=consumer_id,\n            )\n            LOGGER.exception(\"workflow worker iteration failed\")\n        if once:\n            return\n        time.sleep(interval)"
+        }
+      ]
+    }
+  ],
+  "report_ref": "../性能只读审查_20261014.md"
+}

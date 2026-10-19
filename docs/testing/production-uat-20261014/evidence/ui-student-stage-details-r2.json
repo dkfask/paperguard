@@ -1,0 +1,82 @@
+{
+  "recorded_at": "2026-10-15T12:04:37+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Repository frontend Playwright 1.63.0; isolated headless Chromium",
+  "role_account": "S-A (student; synthetic UAT account)",
+  "viewport": {
+    "width": 1365,
+    "height": 900
+  },
+  "route": "/workflow",
+  "scenario": "F02/F05/F06 partial: read the synthetic stage task, open its details and process-material catalog",
+  "known_test_cohort_id": "cohort-ed0046d38402",
+  "observed": {
+    "login_page_http": 200,
+    "auth_http": 200,
+    "post_login_path": "/",
+    "workflow_http": 200,
+    "task_data_wait_condition": "synthetic paper title and archived state visible",
+    "task_card_count": 1,
+    "task_state": "archived",
+    "task_detail_button": "查看详情：UAT-20261014-开题报告",
+    "detail_dialog_visible": true,
+    "synthetic_cohort_visible": true,
+    "synthetic_paper_title_visible": true,
+    "displayed_deadline": "首次截止 10/29 07:47",
+    "detail_actions": [
+      "过程材料",
+      "查看记录"
+    ],
+    "process_materials_dialog_visible": true,
+    "material_items_marked_not_submitted": 20,
+    "form_controls": {
+      "select": 1,
+      "text": 1,
+      "textarea": 1,
+      "file": 1
+    },
+    "save_and_submit_button_visible": true,
+    "save_and_submit_button_enabled": true,
+    "button_clicked": false,
+    "api_responses": [
+      {
+        "method": "GET",
+        "path": "/api/my-tasks",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/process-records/catalog",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/submissions",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/notifications",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/packs",
+        "status": 200
+      }
+    ],
+    "page_errors": 0,
+    "api_errors": 0,
+    "non_auth_business_requests": 0
+  },
+  "interpretation": "学生可读取任务详情和材料目录；该任务已归档，因此本轮没有填写或提交。归档后仍显示可用的材料提交表单；计划书未明确归档状态是否应锁定材料编辑，需业务口径确认后再定性。",
+  "correction": "Supersedes the earlier no-action conclusion in ui-student-archived-task-actions-r1.json: the task-card itself is an accessible button and opens the details dialog. The first no-task snapshot was taken before the task API data rendered.",
+  "scope": {
+    "business_writes": 0,
+    "auth_posts": 1,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "credentials_in_evidence": false
+  }
+}

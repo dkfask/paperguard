@@ -1,0 +1,199 @@
+{
+  "recorded_at": "2026-10-19T11:00:00+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X08 exact participant process-record list access matrix",
+  "deployment": {
+    "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+    "identity_verified": true,
+    "health": {
+      "/api/health/live": 200,
+      "/api/health/ready": 200,
+      "/api/version": 200
+    }
+  },
+  "synthetic_object": {
+    "participant_id": "participant-e7b399a3625e",
+    "record_id": "record-8695cee6c5b3",
+    "file_id": "file-2d18bff0dda4"
+  },
+  "method": "Exact-ID GET of the process-record list for one synthetic participant. Compared owner/assigned roles S-A and T-A with unrelated roles S-B and T-B. For 404 denials, response bodies were canceled without reading. Allowed responses were reduced in memory to counts, artifact types, and whether the known synthetic record/file IDs were present.",
+  "accounts": [
+    {
+      "alias": "S-A",
+      "role": "student",
+      "login": 200,
+      "me": 200,
+      "role_matches": true,
+      "list_status": 200,
+      "expected_access": "allowed",
+      "record_count": 2,
+      "artifact_type_counts": {
+        "guidance_log": 1,
+        "final_report": 1
+      },
+      "known_record_present": true,
+      "known_record_attachment_count": 1,
+      "known_file_id_present": true,
+      "logout": 200
+    },
+    {
+      "alias": "T-A",
+      "role": "teacher",
+      "login": 200,
+      "me": 200,
+      "role_matches": true,
+      "list_status": 200,
+      "expected_access": "allowed",
+      "record_count": 2,
+      "artifact_type_counts": {
+        "guidance_log": 1,
+        "final_report": 1
+      },
+      "known_record_present": true,
+      "known_record_attachment_count": 1,
+      "known_file_id_present": true,
+      "logout": 200
+    },
+    {
+      "alias": "S-B",
+      "role": "student",
+      "login": 200,
+      "me": 200,
+      "role_matches": true,
+      "list_status": 404,
+      "expected_access": "denied",
+      "response_body_read": false,
+      "logout": 200
+    },
+    {
+      "alias": "T-B",
+      "role": "teacher",
+      "login": 200,
+      "me": 200,
+      "role_matches": true,
+      "list_status": 404,
+      "expected_access": "denied",
+      "response_body_read": false,
+      "logout": 200
+    }
+  ],
+  "requests": [
+    {
+      "alias": "S-A",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "alias": "S-A",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "alias": "S-A",
+      "method": "GET",
+      "path": "/api/stage-participants/participant-e7b399a3625e/process-records",
+      "status": 200
+    },
+    {
+      "alias": "S-A",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "status": 200
+    },
+    {
+      "alias": "T-A",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "alias": "T-A",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "alias": "T-A",
+      "method": "GET",
+      "path": "/api/stage-participants/participant-e7b399a3625e/process-records",
+      "status": 200
+    },
+    {
+      "alias": "T-A",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "status": 200
+    },
+    {
+      "alias": "S-B",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "alias": "S-B",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "alias": "S-B",
+      "method": "GET",
+      "path": "/api/stage-participants/participant-e7b399a3625e/process-records",
+      "status": 404
+    },
+    {
+      "alias": "S-B",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "status": 200
+    },
+    {
+      "alias": "T-B",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "alias": "T-B",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "alias": "T-B",
+      "method": "GET",
+      "path": "/api/stage-participants/participant-e7b399a3625e/process-records",
+      "status": 404
+    },
+    {
+      "alias": "T-B",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "status": 200
+    }
+  ],
+  "result": {
+    "expected_role_matrix_matches": 4,
+    "checks": 4,
+    "authorized_list_gets": 2,
+    "unauthorized_list_gets": 2,
+    "unauthorized_record_data_exposed": false,
+    "known_guidance_record_and_attachment_visible_to_authorized_roles": true,
+    "other_record_content_inspected_or_retained": false
+  },
+  "writes": {
+    "business_data": 0,
+    "auth_sessions_created": 4,
+    "auth_sessions_logged_out": 4,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0,
+    "deployment": 0
+  },
+  "status": "partial_submatrix_passed"
+}

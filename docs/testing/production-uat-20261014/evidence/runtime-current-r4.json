@@ -1,0 +1,23 @@
+{
+  "observed_at": "2026-10-15T10:36:13+08:00",
+  "target": "https://paper.thunderuni.com",
+  "health_live_status": 200,
+  "health_ready_status": 200,
+  "health_body": {
+    "status": "ok",
+    "service": "paperguard"
+  },
+  "release_marker": "98b51d7-role-workflows-b20261012T085040Z",
+  "release_metadata_release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "source_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "metadata_commit": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "release_marker_matches_metadata": true,
+  "backend_service": "active/running",
+  "worker_service": "active/running",
+  "openapi_loopback_status": 200,
+  "version_endpoint_probe": {
+    "path": "/api/health/version",
+    "result": "HTTP error; no version route was established"
+  },
+  "ui_verified": false
+}

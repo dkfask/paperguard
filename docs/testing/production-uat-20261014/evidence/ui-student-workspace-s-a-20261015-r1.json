@@ -1,0 +1,40 @@
+{
+  "recorded_at": "2026-10-15T14:29:48+08:00",
+  "target": "https://paper.thunderuni.com/workspace",
+  "kind": "user_provided_ui_observation",
+  "timestamp_basis": "Screenshot filename timestamp; embedded capture metadata was not checked.",
+  "account_alias": "S-A",
+  "username_visible": "UAT-20261014-S-A",
+  "displayed_role": "学生",
+  "visible_state": {
+    "page_title": "我的毕业论文",
+    "in_progress_stages": 1,
+    "items_needing_attention": 0,
+    "submission_records": 5,
+    "unread_messages": 19,
+    "stage_tasks": 2,
+    "recent_submissions": 5,
+    "visible_notice_titles": [
+      "论文审核已通过",
+      "论文需要修改",
+      "毕业设计报告（论文）已提交",
+      "新阶段任务已发布：UAT-20261015-主论文提交审核"
+    ]
+  },
+  "coverage": "Partial UI evidence for S-A dashboard and role label only; it does not close F01 or the cross-role workflow scenarios.",
+  "count_comparison": {
+    "earlier_api_observation": {
+      "observed_at": "2026-10-15 13:45 CST (execution log records the minute; exact seconds unavailable)",
+      "total_messages": 21,
+      "unread_messages": 20
+    },
+    "screenshot_unread_messages": 19,
+    "interpretation": "Different observation times; reconcile with a same-time read-only check before classifying as a UI/API discrepancy."
+  },
+  "agent_page_interactions": 0,
+  "agent_business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "screenshot": "ui-student-workspace-s-a-20261015-r1.png",
+  "screenshot_sha256": "85e9f048a110e80d3636cfbe5dd1229c52109a36d716d542dc0dae40a9ee3d81"
+}

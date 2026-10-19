@@ -1,0 +1,66 @@
+{
+  "observed_at": "2026-10-15T10:24:51+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "production backend loopback over SSH; synthetic UAT submissions only",
+  "ui_verified": false,
+  "v3": {
+    "submission_id": "submission-fdac25a57359",
+    "version_id": "version-3ddb03acf618",
+    "source_revision": 16,
+    "state_before_review": "submitted",
+    "review_cycle": 3,
+    "stage_is_final": true,
+    "candidate_gates_all_passed": true,
+    "required_manual_checks": []
+  },
+  "prior_comment_resolution": [
+    {
+      "submission_id": "submission-691de2599180",
+      "comment_id": "comment-9b1dfd9429ca",
+      "before": "addressed",
+      "resolve_status": 200,
+      "after": "resolved"
+    },
+    {
+      "submission_id": "submission-b6586e251afb",
+      "comment_id": "comment-808dd0d12d31",
+      "before": "addressed",
+      "resolve_status": 200,
+      "after": "resolved"
+    }
+  ],
+  "negative_gate_test": {
+    "created_comment_id": "comment-25e959bcf831",
+    "severity": "blocking",
+    "create_status": 201,
+    "premature_approval_status": 409,
+    "error_included_open_blocking_comment_id": true,
+    "submission_remained_submitted": true,
+    "review_created": false
+  },
+  "final_review": {
+    "gate_comment_resolve_status": 200,
+    "gate_comment_final_status": "resolved",
+    "approval_status": 200,
+    "decision": "approved",
+    "review_cycle": 3,
+    "submission_state": "approved",
+    "participant_state": "pending_archive"
+  },
+  "previous_submissions_preserved": [
+    {
+      "id": "submission-691de2599180",
+      "review_cycle": 1,
+      "state": "returned"
+    },
+    {
+      "id": "submission-b6586e251afb",
+      "review_cycle": 2,
+      "state": "returned"
+    }
+  ],
+  "access": {
+    "T-B_v3_get_status": 404
+  }
+}

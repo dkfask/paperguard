@@ -17,7 +17,7 @@ def _section_complete(proj_sec) -> bool:
     if not proj_sec.title or not proj_sec.title.strip():
         return False
     if not proj_sec.paragraphs:
-        return True  # 无内容块的节(如纯标题节)只要标题即可
+        return False
     for par in proj_sec.paragraphs:
         if par.type.value == "image":
             if par.image and par.image.url:
@@ -33,7 +33,7 @@ def _section_complete(proj_sec) -> bool:
     return False
 
 
-def _section_complete_with_children(index: int, sections: list) -> bool:
+def section_complete_with_children(index: int, sections: list) -> bool:
     """判断一节是否完成, 允许一级标题由下属内容节承载正文。
 
     写作项目把模板树展开成扁平列表。一级标题常只有标题, 正文写在随后
@@ -42,7 +42,7 @@ def _section_complete_with_children(index: int, sections: list) -> bool:
     section = sections[index]
     if _section_complete(section):
         return True
-    if section.type != SectionType.HEADING1.value:
+    if not section.title.strip() or section.type != SectionType.HEADING1.value:
         return False
 
     for child in sections[index + 1:]:
@@ -70,13 +70,25 @@ def validate_project_completeness(
         if f.required and not proj.meta.get(f.key, "").strip():
             missing.append(f"封面「{f.label}」未填写")
 
-    # 必填章节
-    for index, sec in enumerate(proj.sections):
-        if not sec.required:
-            continue
+    # 模板快照中的必填项不能被项目中的删除或 required=False 绕过。
+    required = {}
+
+    def collect(nodes):
+        for node in nodes:
+            if node.required:
+                required[node.key] = node
+            collect(node.children)
+
+    collect(tpl.sections)
+    for sec in proj.sections:
+        if sec.required:
+            required.setdefault(sec.key, sec)
+    indices = {sec.key: index for index, sec in enumerate(proj.sections)}
+    for key, sec in required.items():
         if sec.type in (SectionType.COVER.value, SectionType.TOC.value):
             continue  # 封面走字段, 目录自动生成
-        if not _section_complete_with_children(index, proj.sections):
+        index = indices.get(key)
+        if index is None or proj.sections[index].type != sec.type or not section_complete_with_children(index, proj.sections):
             missing.append(f"「{sec.title or sec.key}」未完成(标题或内容为空)")
 
     return missing

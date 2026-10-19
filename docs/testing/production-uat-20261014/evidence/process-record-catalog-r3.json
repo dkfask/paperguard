@@ -1,0 +1,225 @@
+{
+  "observed_at": "2026-10-15T07:49:28.353679+08:00",
+  "target": "https://paper.thunderuni.com",
+  "login_status": 200,
+  "catalog_status": 200,
+  "forms_status": 200,
+  "participant_catalog": [
+    {
+      "artifact_type": "task_book",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "opening_report",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "guidance_log",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "midterm_check",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "final_report",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "similarity_report",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "academic_integrity_case",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "result_package",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "advisor_score",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "reviewer_score",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "defense_record",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "defense_score",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "comprehensive_score",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "defense_presentation",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "defense_application",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "internship_identification",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "excellence_application",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "topic_change",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "extension_application",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    },
+    {
+      "artifact_type": "process_cover",
+      "scope": "participant",
+      "label": null,
+      "required_fields": []
+    }
+  ],
+  "cohort_catalog": [
+    {
+      "artifact_type": "process_material_list",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "topic_direction_review",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "topic_review_summary",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "topic_summary",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "internship_statistics",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "midterm_quality_check",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "defense_schedule",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "defense_inspection",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "grade_summary",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "college_excellence_application",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "excellent_supervisor_application",
+      "scope": "cohort",
+      "label": null
+    },
+    {
+      "artifact_type": "work_summary",
+      "scope": "cohort",
+      "label": null
+    }
+  ],
+  "form_schema_keys": [
+    "task_book",
+    "opening_report",
+    "guidance_log",
+    "midterm_check",
+    "similarity_report",
+    "academic_integrity_case",
+    "advisor_score",
+    "reviewer_score",
+    "defense_application",
+    "defense_record",
+    "defense_score",
+    "comprehensive_score",
+    "topic_change",
+    "extension_application",
+    "excellence_application",
+    "final_report",
+    "result_package",
+    "defense_presentation",
+    "internship_identification",
+    "process_cover",
+    "process_material_list",
+    "topic_direction_review",
+    "topic_review_summary",
+    "topic_summary",
+    "internship_statistics",
+    "midterm_quality_check",
+    "defense_schedule",
+    "defense_inspection",
+    "grade_summary",
+    "college_excellence_application",
+    "excellent_supervisor_application",
+    "work_summary"
+  ]
+}

@@ -26,5 +26,6 @@ const icon = computed(() => ({
   loading: 'progress_activity',
   error: 'error_outline',
   empty: 'inbox',
+  denied: 'lock',
 }[props.state] || 'info'))
 </script>

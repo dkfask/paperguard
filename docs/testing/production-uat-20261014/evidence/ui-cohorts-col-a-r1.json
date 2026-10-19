@@ -1,0 +1,37 @@
+{
+  "recorded_at": "2026-10-15T11:27:46+08:00",
+  "target": "https://paper.thunderuni.com",
+  "environment": "production UAT; bounded read-only UI check",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0, isolated headless Chromium",
+  "role_account": "COL-A (college_admin; synthetic UAT account)",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "scenario": "F03 partial: view the named synthetic cohort and open its detail from the college-admin UI",
+  "known_test_object": {
+    "cohort_id": "cohort-ed0046d38402",
+    "name": "UAT-20261014-01a139c6-主流程"
+  },
+  "observed": {
+    "login_page_http": 200,
+    "login_http": 200,
+    "cohorts_page_http": 200,
+    "cohorts_heading_visible": true,
+    "cohort_list_http": 200,
+    "named_test_cohort_in_list_response": true,
+    "named_test_cohort_row_visible_after_render_wait": true,
+    "named_test_cohort_detail_http": 200,
+    "named_test_cohort_detail_visible": true,
+    "page_error_visible": false,
+    "page_errors": 0,
+    "elapsed_seconds_approx": 5.9
+  },
+  "timing_note": "An earlier immediate row visibility read occurred before Vue finished rendering and returned false; after a bounded wait for the exact test cohort row, it appeared and its detail loaded. This was an inconclusive early observation, not a product failure.",
+  "scope": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0
+  }
+}

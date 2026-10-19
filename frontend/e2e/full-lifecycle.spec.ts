@@ -241,6 +241,8 @@ test.describe('PaperGuard browser lifecycle', () => {
       await new PaperGuardPage(teacher).waitForMutation('/api/policies', async () => {
         await policyEditor.getByRole('button', { name: '新建规范' }).click()
       })
+      // 新建请求返回后页面仍在刷新规范列表，等保存结束再上传，避免刷新覆盖上传反馈。
+      await expect(policyEditor.getByRole('button', { name: '保存草稿' })).toBeEnabled()
       await new PaperGuardPage(teacher).waitForMutation('/documents', async () => {
         await policyEditor.locator('.upload-row input[type=file]').setInputFiles(files.policy)
       })
@@ -345,21 +347,15 @@ test.describe('PaperGuard browser lifecycle', () => {
       await expect(student.locator('.check-panel')).toBeVisible({ timeout: 60_000 })
       await expect(student.locator('.writer-save-status')).not.toContainText('未保存')
 
-      const exportButton = student.locator('.writer-export-action')
-      const firstExport = student.waitForEvent('download', { timeout: 45_000 }).catch(() => null)
-      await exportButton.click()
-      let download = await firstExport
-      if (!download && await student.locator('.missing-panel').count()) {
-        const forcedExport = student.waitForEvent('download', { timeout: 45_000 })
-        await student.locator('.missing-panel').getByRole('button', { name: /仍要导出/ }).click()
-        download = await forcedExport
-      }
+      // 学生须完成模板门禁后正常导出；空稿阻断由 simple-writing-loop 覆盖。
+      await completeRequiredWriterGates(student, thesisTitle)
+      const exporting = student.waitForEvent('download', { timeout: 45_000 })
+      await student.locator('.writer-export-action').click()
+      const download = await exporting
       expect(download).toBeTruthy()
       const downloadedPath = await download!.path()
       expect(downloadedPath).toBeTruthy()
       expect(fs.statSync(downloadedPath!).size).toBeGreaterThan(10_000)
-
-      await completeRequiredWriterGates(student, thesisTitle)
 
       await student.goto('/workflow')
       const finalTask = student.locator('.student-task').filter({ hasText: cohortName })
@@ -394,6 +390,7 @@ test.describe('PaperGuard browser lifecycle', () => {
         maxDiffPixels: 1000,
         mask: [
           admin.locator('.user-tray'),
+          admin.locator('.sidebar-footer'),
           admin.locator('.workflow-summary'),
           admin.locator('.workflow-identity'),
           admin.locator('.cohort-panel h3'),
@@ -406,18 +403,14 @@ test.describe('PaperGuard browser lifecycle', () => {
           admin.locator('.archive-row > div > span'),
         ],
       })
-      // 视觉快照改为软断言（expect.soft）：这些基线生成于 2025-09-12 的 04785e2，
-      // 此后登录页与 Workspace.vue 已被多个提交重写，基线已过期。
-      // 硬断言会让快照失败**中断**后续步骤，从而掩盖真正的功能与
-      // console/HTTP 错误门禁（本行之后还有 /templates 检查与
-      // expect([...consoleErrors, ...httpErrors]).toEqual([])）。
-      // 软断言让功能断言始终执行，视觉差异仍然在报告里失败，不会被隐藏。
-      // 注意：不要用 --update-snapshots 悄悄重生成基线来消掉失败。
+      // 软断言保留视觉门禁，同时让后续功能和 console/HTTP 检查继续执行。
+      // 2026-10-09 的 UI 改造按用户提供的 Muse 原型更新基线；后续更新仍须视觉复核。
       await expect.soft(student).toHaveScreenshot('full-lifecycle-student-shell.png', {
         animations: 'disabled',
         maxDiffPixels: 1000,
         mask: [
           student.locator('.user-tray'),
+          student.locator('.sidebar-footer'),
           student.locator('.workflow-summary'),
           student.locator('.workflow-identity'),
           student.locator('.student-task h3'),

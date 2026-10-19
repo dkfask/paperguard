@@ -1,0 +1,51 @@
+{
+  "format": "paperguard-production-uat-x10-cohort-report-recheck",
+  "format_version": 1,
+  "recorded_at": "2026-10-18T14:50:18Z",
+  "environment": "production",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_identity_rechecked_this_run": false,
+  "role_alias": "COL-A",
+  "role": "college_admin",
+  "login_http": 200,
+  "me_http": 200,
+  "role_match": true,
+  "report_http": 200,
+  "cohort_id": "cohort-ed0046d38402",
+  "cohort_match": true,
+  "member_count": 1,
+  "participant_count": 2,
+  "state_counts": {
+    "not_started": 0,
+    "in_progress": 0,
+    "submitted": 0,
+    "needs_revision": 0,
+    "approved": 0,
+    "pending_archive": 1,
+    "archived": 1,
+    "exited": 0
+  },
+  "metrics": {
+    "first_submission_count": 2,
+    "on_time_first_submission_rate": 1.0,
+    "average_review_wait_seconds": 27.5,
+    "revision_submission_count": 3,
+    "archive_completion_rate": 0.5,
+    "denominator": {
+      "eligible_member_count": 1,
+      "eligible_participant_count": 2,
+      "excluded_student_count": 0,
+      "member_snapshot_count": 1,
+      "excluded_states": [
+        "exited",
+        "withdrawn"
+      ]
+    }
+  },
+  "logout_http": 200,
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "status": "PASS_SUBCHECK"
+}

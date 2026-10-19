@@ -3,9 +3,10 @@
     :type="type"
     :class="buttonClasses"
     :disabled="disabled || loading"
+    :aria-busy="loading || undefined"
     @click="$emit('click', $event)"
   >
-    <span v-if="loading" class="inline-block animate-spin">⏳</span>
+    <span v-if="loading" class="animate-spin" aria-hidden="true">⏳</span>
     <slot />
   </button>
 </template>
@@ -35,19 +36,19 @@ const props = defineProps({
 defineEmits(['click'])
 
 const buttonClasses = computed(() => {
-  const base = 'inline-flex items-center justify-center gap-2 font-medium transition-colors rounded-md border disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2'
+  const base = 'base-button'
 
   const variants = {
-    default: 'bg-surface border-border text-on-surface hover:bg-surface-container focus:ring-primary',
-    primary: 'bg-primary border-primary text-on-primary hover:bg-primary-hover focus:ring-primary',
-    danger: 'bg-error border-error text-on-error hover:bg-red-700 focus:ring-error',
-    secondary: 'bg-secondary border-secondary text-on-secondary hover:bg-gray-600 focus:ring-secondary',
+    default: '',
+    primary: 'primary bg-primary',
+    danger: 'danger',
+    secondary: 'secondary',
   }
 
   const sizes = {
-    small: 'px-3 py-1.5 text-sm',
-    default: 'px-4 py-2 text-base',
-    large: 'px-6 py-3 text-lg',
+    small: 'small',
+    default: '',
+    large: 'large',
   }
 
   return `${base} ${variants[props.variant]} ${sizes[props.size]}`
@@ -55,10 +56,16 @@ const buttonClasses = computed(() => {
 </script>
 
 <style scoped>
+.base-button { min-height: 38px; }
+.base-button.small { min-height: 32px; }
+.base-button.large { min-height: 46px; padding: 12px 20px; font-size: 15px; }
+.base-button.secondary { color: var(--on-secondary); background: var(--secondary); }
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 .animate-spin {
+  display: inline-block;
   animation: spin 1s linear infinite;
 }
+@media (prefers-reduced-motion: reduce) { .animate-spin { animation: none; } }
 </style>

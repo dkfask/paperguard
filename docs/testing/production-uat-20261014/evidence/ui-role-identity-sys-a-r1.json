@@ -1,0 +1,25 @@
+{
+  "recorded_at": "2026-10-15T13:47:20+08:00",
+  "target": "https://paper.thunderuni.com/cohorts",
+  "surface": "Google Chrome native accessibility tree (CUA)",
+  "read_only_observation": {
+    "page_title": "批次与阶段配置 · PaperGuard",
+    "displayed_account_alias": "UAT-20261014-SYS-A",
+    "displayed_role": "学校管理员",
+    "role_identity_assessment": "The visible UI role is school administrator, while the existing scenario record labels SYS-A as system administrator. Account-role mapping is unresolved; this is not classified as a product defect.",
+    "synthetic_uat_list_item": "One UAT-named cohort row was visible; no row details were successfully opened.",
+    "row_action_result": "A click on the known UAT row produced no accessibility-tree change; the screenshot API did not provide a usable page rendering, so the detail navigation result is inconclusive."
+  },
+  "writes": {
+    "business_writes": 0,
+    "policy_publication": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0
+  },
+  "limitations": [
+    "No business details outside the synthetic UAT row were recorded.",
+    "No further SYS-A actions were performed.",
+    "This observation does not complete the school-administrator or system-administrator scenario."
+  ]
+}

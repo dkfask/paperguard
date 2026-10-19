@@ -1,0 +1,1063 @@
+{
+  "recorded_at": "2026-10-15T02:51:16.924Z",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0 headless Chromium",
+  "viewport": "1365x900",
+  "locale": "zh-CN",
+  "scenario": "F01 partial UI role identity, menu inventory, deep link, logout and same-account relogin",
+  "allowed_writes": "test-account authentication sessions only; no business-object mutations",
+  "ai_calls": 0,
+  "account_count": 9,
+  "completed_count": 9,
+  "all_pass": true,
+  "results": [
+    {
+      "tag": "SYS-A",
+      "role": "admin",
+      "status": "PASS",
+      "reason": null,
+      "firstLogin": {
+        "tag": "SYS-A",
+        "loginHttp": 200,
+        "serverRole": "admin",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学校管理员",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "menuTabs": [
+        {
+          "name": "学校运营",
+          "selected": true,
+          "links": [
+            {
+              "text": "dashboard\n运行仪表盘",
+              "href": "/workspace"
+            },
+            {
+              "text": "assignment\n批次工作台",
+              "href": "/workflow"
+            },
+            {
+              "text": "calendar_month\n批次与阶段配置",
+              "href": "/cohorts"
+            },
+            {
+              "text": "monitoring\n统计报表",
+              "href": "/workflow?panel=reports"
+            },
+            {
+              "text": "notifications\n消息",
+              "href": "/workflow?panel=messages"
+            }
+          ]
+        },
+        {
+          "name": "资源与治理",
+          "selected": true,
+          "links": [
+            {
+              "text": "groups\n成员与指导关系",
+              "href": "/organizations"
+            },
+            {
+              "text": "library_books\n模板与规范",
+              "href": "/templates"
+            },
+            {
+              "text": "menu_book\n写作规范",
+              "href": "/policies"
+            },
+            {
+              "text": "description\n通用文档",
+              "href": "/document-projects"
+            },
+            {
+              "text": "publish\n发布通用文档",
+              "href": "/document-packages/publish"
+            },
+            {
+              "text": "fact_check\n审计记录",
+              "href": "/audit"
+            },
+            {
+              "text": "inventory_2\n归档任务状态",
+              "href": "/workflow?panel=archives"
+            },
+            {
+              "text": "settings\n运行与治理",
+              "href": "/operations"
+            }
+          ]
+        },
+        {
+          "name": "管理工具",
+          "selected": true,
+          "links": [
+            {
+              "text": "manage_accounts\n用户与认证",
+              "href": "/admin/users"
+            },
+            {
+              "text": "tune\n默认 AI 模型",
+              "href": "/admin/ai"
+            }
+          ]
+        }
+      ],
+      "deepLink": {
+        "path": "/workspace",
+        "loaded": true
+      },
+      "firstLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      },
+      "protectedRedirect": {
+        "ok": true,
+        "path": "/login"
+      },
+      "relogin": {
+        "tag": "SYS-A",
+        "loginHttp": 200,
+        "serverRole": "admin",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学校管理员",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "secondLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      }
+    },
+    {
+      "tag": "SCH-A",
+      "role": "admin",
+      "status": "PASS",
+      "reason": null,
+      "firstLogin": {
+        "tag": "SCH-A",
+        "loginHttp": 200,
+        "serverRole": "admin",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学校管理员",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "menuTabs": [
+        {
+          "name": "学校运营",
+          "selected": true,
+          "links": [
+            {
+              "text": "dashboard\n运行仪表盘",
+              "href": "/workspace"
+            },
+            {
+              "text": "assignment\n批次工作台",
+              "href": "/workflow"
+            },
+            {
+              "text": "calendar_month\n批次与阶段配置",
+              "href": "/cohorts"
+            },
+            {
+              "text": "monitoring\n统计报表",
+              "href": "/workflow?panel=reports"
+            },
+            {
+              "text": "notifications\n消息",
+              "href": "/workflow?panel=messages"
+            }
+          ]
+        },
+        {
+          "name": "资源与治理",
+          "selected": true,
+          "links": [
+            {
+              "text": "groups\n成员与指导关系",
+              "href": "/organizations"
+            },
+            {
+              "text": "library_books\n模板与规范",
+              "href": "/templates"
+            },
+            {
+              "text": "menu_book\n写作规范",
+              "href": "/policies"
+            },
+            {
+              "text": "description\n通用文档",
+              "href": "/document-projects"
+            },
+            {
+              "text": "publish\n发布通用文档",
+              "href": "/document-packages/publish"
+            },
+            {
+              "text": "fact_check\n审计记录",
+              "href": "/audit"
+            },
+            {
+              "text": "inventory_2\n归档任务状态",
+              "href": "/workflow?panel=archives"
+            },
+            {
+              "text": "settings\n运行与治理",
+              "href": "/operations"
+            }
+          ]
+        },
+        {
+          "name": "管理工具",
+          "selected": true,
+          "links": [
+            {
+              "text": "manage_accounts\n用户与认证",
+              "href": "/admin/users"
+            },
+            {
+              "text": "tune\n默认 AI 模型",
+              "href": "/admin/ai"
+            }
+          ]
+        }
+      ],
+      "deepLink": {
+        "path": "/workspace",
+        "loaded": true
+      },
+      "firstLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      },
+      "protectedRedirect": {
+        "ok": true,
+        "path": "/login"
+      },
+      "relogin": {
+        "tag": "SCH-A",
+        "loginHttp": 200,
+        "serverRole": "admin",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学校管理员",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "secondLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      }
+    },
+    {
+      "tag": "COL-A",
+      "role": "college_admin",
+      "status": "PASS",
+      "reason": null,
+      "firstLogin": {
+        "tag": "COL-A",
+        "loginHttp": 200,
+        "serverRole": "college_admin",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学院管理员",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "menuTabs": [
+        {
+          "name": "学院运营",
+          "selected": true,
+          "links": [
+            {
+              "text": "dashboard\n运行仪表盘",
+              "href": "/workspace"
+            },
+            {
+              "text": "assignment\n批次工作台",
+              "href": "/workflow"
+            },
+            {
+              "text": "calendar_month\n批次与阶段配置",
+              "href": "/cohorts"
+            },
+            {
+              "text": "monitoring\n统计报表",
+              "href": "/workflow?panel=reports"
+            },
+            {
+              "text": "notifications\n消息",
+              "href": "/workflow?panel=messages"
+            }
+          ]
+        },
+        {
+          "name": "资源与治理",
+          "selected": true,
+          "links": [
+            {
+              "text": "groups\n成员与指导关系",
+              "href": "/organizations"
+            },
+            {
+              "text": "library_books\n模板与规范",
+              "href": "/templates"
+            },
+            {
+              "text": "menu_book\n写作规范",
+              "href": "/policies"
+            },
+            {
+              "text": "description\n通用文档",
+              "href": "/document-projects"
+            },
+            {
+              "text": "publish\n发布通用文档",
+              "href": "/document-packages/publish"
+            },
+            {
+              "text": "fact_check\n审计记录",
+              "href": "/audit"
+            },
+            {
+              "text": "inventory_2\n归档任务状态",
+              "href": "/workflow?panel=archives"
+            }
+          ]
+        }
+      ],
+      "deepLink": {
+        "path": "/workspace",
+        "loaded": true
+      },
+      "firstLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      },
+      "protectedRedirect": {
+        "ok": true,
+        "path": "/login"
+      },
+      "relogin": {
+        "tag": "COL-A",
+        "loginHttp": 200,
+        "serverRole": "college_admin",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学院管理员",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "secondLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      }
+    },
+    {
+      "tag": "COL-B",
+      "role": "college_admin",
+      "status": "PASS",
+      "reason": null,
+      "firstLogin": {
+        "tag": "COL-B",
+        "loginHttp": 200,
+        "serverRole": "college_admin",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学院管理员",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "menuTabs": [
+        {
+          "name": "学院运营",
+          "selected": true,
+          "links": [
+            {
+              "text": "dashboard\n运行仪表盘",
+              "href": "/workspace"
+            },
+            {
+              "text": "assignment\n批次工作台",
+              "href": "/workflow"
+            },
+            {
+              "text": "calendar_month\n批次与阶段配置",
+              "href": "/cohorts"
+            },
+            {
+              "text": "monitoring\n统计报表",
+              "href": "/workflow?panel=reports"
+            },
+            {
+              "text": "notifications\n消息",
+              "href": "/workflow?panel=messages"
+            }
+          ]
+        },
+        {
+          "name": "资源与治理",
+          "selected": true,
+          "links": [
+            {
+              "text": "groups\n成员与指导关系",
+              "href": "/organizations"
+            },
+            {
+              "text": "library_books\n模板与规范",
+              "href": "/templates"
+            },
+            {
+              "text": "menu_book\n写作规范",
+              "href": "/policies"
+            },
+            {
+              "text": "description\n通用文档",
+              "href": "/document-projects"
+            },
+            {
+              "text": "publish\n发布通用文档",
+              "href": "/document-packages/publish"
+            },
+            {
+              "text": "fact_check\n审计记录",
+              "href": "/audit"
+            },
+            {
+              "text": "inventory_2\n归档任务状态",
+              "href": "/workflow?panel=archives"
+            }
+          ]
+        }
+      ],
+      "deepLink": {
+        "path": "/workspace",
+        "loaded": true
+      },
+      "firstLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      },
+      "protectedRedirect": {
+        "ok": true,
+        "path": "/login"
+      },
+      "relogin": {
+        "tag": "COL-B",
+        "loginHttp": 200,
+        "serverRole": "college_admin",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学院管理员",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "secondLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      }
+    },
+    {
+      "tag": "T-A",
+      "role": "teacher",
+      "status": "PASS",
+      "reason": null,
+      "firstLogin": {
+        "tag": "T-A",
+        "loginHttp": 200,
+        "serverRole": "teacher",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "指导教师",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "menuTabs": [
+        {
+          "name": "学生指导",
+          "selected": true,
+          "links": [
+            {
+              "text": "dashboard\n待办中心",
+              "href": "/workspace"
+            },
+            {
+              "text": "publish\n发布论文模板",
+              "href": "/templates"
+            },
+            {
+              "text": "rate_review\n审阅工作台",
+              "href": "/workflow?panel=review"
+            },
+            {
+              "text": "groups\n学生进度",
+              "href": "/workflow?panel=progress"
+            },
+            {
+              "text": "school\n指导学生",
+              "href": "/teacher/students"
+            },
+            {
+              "text": "folder_managed\n过程材料",
+              "href": "/workflow?panel=materials"
+            },
+            {
+              "text": "menu_book\n写作规范",
+              "href": "/policies"
+            },
+            {
+              "text": "notifications\n消息",
+              "href": "/workflow?panel=messages"
+            }
+          ]
+        },
+        {
+          "name": "个人写作",
+          "selected": true,
+          "links": [
+            {
+              "text": "description\n我的通用文档",
+              "href": "/document-projects"
+            },
+            {
+              "text": "settings\n设置自用文档模板",
+              "href": "/document-packages/publish"
+            }
+          ]
+        }
+      ],
+      "deepLink": {
+        "path": "/workspace",
+        "loaded": true
+      },
+      "firstLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      },
+      "protectedRedirect": {
+        "ok": true,
+        "path": "/login"
+      },
+      "relogin": {
+        "tag": "T-A",
+        "loginHttp": 200,
+        "serverRole": "teacher",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "指导教师",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "secondLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      }
+    },
+    {
+      "tag": "T-B",
+      "role": "teacher",
+      "status": "PASS",
+      "reason": null,
+      "firstLogin": {
+        "tag": "T-B",
+        "loginHttp": 200,
+        "serverRole": "teacher",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "指导教师",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "menuTabs": [
+        {
+          "name": "学生指导",
+          "selected": true,
+          "links": [
+            {
+              "text": "dashboard\n待办中心",
+              "href": "/workspace"
+            },
+            {
+              "text": "publish\n发布论文模板",
+              "href": "/templates"
+            },
+            {
+              "text": "rate_review\n审阅工作台",
+              "href": "/workflow?panel=review"
+            },
+            {
+              "text": "groups\n学生进度",
+              "href": "/workflow?panel=progress"
+            },
+            {
+              "text": "school\n指导学生",
+              "href": "/teacher/students"
+            },
+            {
+              "text": "folder_managed\n过程材料",
+              "href": "/workflow?panel=materials"
+            },
+            {
+              "text": "menu_book\n写作规范",
+              "href": "/policies"
+            },
+            {
+              "text": "notifications\n消息",
+              "href": "/workflow?panel=messages"
+            }
+          ]
+        },
+        {
+          "name": "个人写作",
+          "selected": true,
+          "links": [
+            {
+              "text": "description\n我的通用文档",
+              "href": "/document-projects"
+            },
+            {
+              "text": "settings\n设置自用文档模板",
+              "href": "/document-packages/publish"
+            }
+          ]
+        }
+      ],
+      "deepLink": {
+        "path": "/workspace",
+        "loaded": true
+      },
+      "firstLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      },
+      "protectedRedirect": {
+        "ok": true,
+        "path": "/login"
+      },
+      "relogin": {
+        "tag": "T-B",
+        "loginHttp": 200,
+        "serverRole": "teacher",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "指导教师",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "secondLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      }
+    },
+    {
+      "tag": "S-A",
+      "role": "student",
+      "status": "PASS",
+      "reason": null,
+      "firstLogin": {
+        "tag": "S-A",
+        "loginHttp": 200,
+        "serverRole": "student",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学生",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "menuTabs": [
+        {
+          "name": "sidebar",
+          "selected": true,
+          "links": [
+            {
+              "text": "dashboard\n任务中心",
+              "href": "/workspace"
+            },
+            {
+              "text": "description\n通用文档",
+              "href": "/document-projects"
+            },
+            {
+              "text": "edit_document\n我的论文",
+              "href": "/"
+            },
+            {
+              "text": "history\n提交与反馈",
+              "href": "/workflow?panel=submissions"
+            },
+            {
+              "text": "folder_managed\n过程材料",
+              "href": "/workflow?panel=materials"
+            },
+            {
+              "text": "notifications\n消息",
+              "href": "/workflow?panel=messages"
+            }
+          ]
+        }
+      ],
+      "deepLink": {
+        "path": "/workspace",
+        "loaded": true
+      },
+      "firstLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      },
+      "protectedRedirect": {
+        "ok": true,
+        "path": "/login"
+      },
+      "relogin": {
+        "tag": "S-A",
+        "loginHttp": 200,
+        "serverRole": "student",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学生",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "secondLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      }
+    },
+    {
+      "tag": "S-B",
+      "role": "student",
+      "status": "PASS",
+      "reason": null,
+      "firstLogin": {
+        "tag": "S-B",
+        "loginHttp": 200,
+        "serverRole": "student",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学生",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "menuTabs": [
+        {
+          "name": "sidebar",
+          "selected": true,
+          "links": [
+            {
+              "text": "dashboard\n任务中心",
+              "href": "/workspace"
+            },
+            {
+              "text": "description\n通用文档",
+              "href": "/document-projects"
+            },
+            {
+              "text": "edit_document\n我的论文",
+              "href": "/"
+            },
+            {
+              "text": "history\n提交与反馈",
+              "href": "/workflow?panel=submissions"
+            },
+            {
+              "text": "folder_managed\n过程材料",
+              "href": "/workflow?panel=materials"
+            },
+            {
+              "text": "notifications\n消息",
+              "href": "/workflow?panel=messages"
+            }
+          ]
+        }
+      ],
+      "deepLink": {
+        "path": "/workspace",
+        "loaded": true
+      },
+      "firstLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      },
+      "protectedRedirect": {
+        "ok": true,
+        "path": "/login"
+      },
+      "relogin": {
+        "tag": "S-B",
+        "loginHttp": 200,
+        "serverRole": "student",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学生",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "secondLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      }
+    },
+    {
+      "tag": "S-C",
+      "role": "student",
+      "status": "PASS",
+      "reason": null,
+      "firstLogin": {
+        "tag": "S-C",
+        "loginHttp": 200,
+        "serverRole": "student",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学生",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "menuTabs": [
+        {
+          "name": "sidebar",
+          "selected": true,
+          "links": [
+            {
+              "text": "dashboard\n任务中心",
+              "href": "/workspace"
+            },
+            {
+              "text": "description\n通用文档",
+              "href": "/document-projects"
+            },
+            {
+              "text": "edit_document\n我的论文",
+              "href": "/"
+            },
+            {
+              "text": "history\n提交与反馈",
+              "href": "/workflow?panel=submissions"
+            },
+            {
+              "text": "folder_managed\n过程材料",
+              "href": "/workflow?panel=materials"
+            },
+            {
+              "text": "notifications\n消息",
+              "href": "/workflow?panel=messages"
+            }
+          ]
+        }
+      ],
+      "deepLink": {
+        "path": "/workspace",
+        "loaded": true
+      },
+      "firstLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      },
+      "protectedRedirect": {
+        "ok": true,
+        "path": "/login"
+      },
+      "relogin": {
+        "tag": "S-C",
+        "loginHttp": 200,
+        "serverRole": "student",
+        "identityIdMatch": true,
+        "roleMatch": true,
+        "roleLabel": "学生",
+        "roleLabelMatch": true,
+        "uiNameMatch": true,
+        "organizationContextAvailable": true,
+        "organizationContextMatch": true,
+        "tenantIdMatch": true,
+        "onboardingRequired": false,
+        "mustChangePassword": false,
+        "routeChanged": true,
+        "landedPath": "/",
+        "forceChange": false,
+        "shellVisible": true
+      },
+      "secondLogout": {
+        "http": 200,
+        "landedLogin": true,
+        "path": "/login"
+      }
+    }
+  ],
+  "observed_first_party_5xx": []
+}

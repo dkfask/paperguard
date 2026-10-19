@@ -1,0 +1,28 @@
+{
+  "recorded_at": "2026-10-15T14:32:19+08:00",
+  "target": "https://paper.thunderuni.com/write/proj-d148a21068b3",
+  "kind": "user_provided_ui_observation_and_user_report",
+  "timestamp_basis": "Screenshot filename timestamp; embedded capture metadata was not checked.",
+  "account_alias": "S-A",
+  "object_id": "proj-d148a21068b3",
+  "user_report": "用户反馈：AI续写内容不能正常保存。",
+  "visible_state": {
+    "section": "摘要",
+    "stage_notice": "当前阶段已通过或归档，请重新开启后再编辑",
+    "sync_notice": "同步失败，待发送内容已保存在本地恢复区",
+    "version_notice": "服务器版本已变化，本地内容未覆盖服务器；本地草稿仍保留，请读取服务器版本后手动合并",
+    "available_actions": [
+      "重试保存",
+      "读取服务器版本",
+      "AI生成"
+    ]
+  },
+  "interpretation": "页面证据支持存在保存失败和本地/服务器版本冲突，且页面声明本地草稿仍在恢复区。当前阶段已通过或归档也是可见的写入限制。证据不足以判断AI续写请求是否成功、是否由AI生成内容引发冲突，或读取/重试后的合并结果。",
+  "coverage": "用户反馈记录；未由测试人员触发AI、重试保存、读取服务器版本、编辑、刷新或登出。F09/X09保持未完成；AI06仍依用户此前要求暂缓。",
+  "agent_page_interactions": 0,
+  "agent_business_writes": 0,
+  "agent_ai_calls": 0,
+  "external_notifications": 0,
+  "screenshot": "ui-writer-save-conflict-20261015-r1.png",
+  "screenshot_sha256": "f11569025099319cbcf08232ba3ad9608c11cc48a7eb1352002650d4b78e1bd6"
+}

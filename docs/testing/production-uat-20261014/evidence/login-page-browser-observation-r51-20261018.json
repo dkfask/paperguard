@@ -1,0 +1,66 @@
+{
+  "format": "paperguard-production-ui-observation",
+  "format_version": 1,
+  "recorded_at": "2026-10-18",
+  "target": "https://paper.thunderuni.com/login?redirect=/first-login",
+  "deployment_identity": {
+    "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+    "verification_scope": "inherited from latest R51 matrix; not rechecked in this UI observation"
+  },
+  "observation": {
+    "title": "登录 · PaperGuard",
+    "app_root_mounted": true,
+    "visible_elements": [
+      "PaperGuard branding",
+      "login heading",
+      "username field",
+      "password field",
+      "login button",
+      "registration link"
+    ],
+    "devtools_console_message_count": 0,
+    "screenshot_persisted": false
+  },
+  "authentication": {
+    "autofill_selection_attempted": true,
+    "form_populated": false,
+    "login_button_clicked": false,
+    "post_attempt_page": "login page still visible",
+    "network_logging_started_after_attempt": true,
+    "auth_request_outcome": "unknown",
+    "successful_auth_session_observed": false,
+    "credentials_read_or_recorded": false
+  },
+  "scenario_assessment": {
+    "id": "F01",
+    "subcheck_login_page_render": "PASS",
+    "full_scenario_status": "NOT RUN",
+    "execution_state": "partial"
+  },
+  "side_effects": {
+    "business_writes": 0,
+    "auth_sessions": {
+      "confirmed": 0,
+      "uncertain_empty_field_attempts": 1
+    },
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0,
+    "deployment": false,
+    "application_code_changed": false
+  },
+  "matrix_snapshot": {
+    "total": 36,
+    "pass": 0,
+    "fail": 1,
+    "blocked": 10,
+    "not_run": 25
+  },
+  "limitations": [
+    "Role credentials and their controlled UAT mapping were unavailable in this browser session.",
+    "DevTools Network logging started after the autofill attempt, so a possible empty-field request cannot be ruled out.",
+    "First-use onboarding, role menus, and post-login deep links were not tested.",
+    "The screenshot was inspected inline and was not saved as a repository file."
+  ]
+}

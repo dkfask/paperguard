@@ -1,0 +1,58 @@
+{
+  "defect_id": "DEF-X10-REPORT-001",
+  "status": "生产UAT复现，待处理与复测",
+  "scenario": "X10",
+  "roles": [
+    "college_admin",
+    "teacher",
+    "student"
+  ],
+  "target": "https://paper.thunderuni.com",
+  "recorded_deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "current_deployed_revision_verified": true,
+  "current_release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "test_object_id": "cohort-ed0046d38402",
+  "related_objects": {
+    "stage_id": "stage-dde2f988be51",
+    "participant_id": "participant-e7b399a3625e"
+  },
+  "preconditions": {
+    "eligible_member_count": 1,
+    "stage_participant_count": 2,
+    "participant_states": {
+      "archived": 1,
+      "pending_archive": 1
+    }
+  },
+  "steps": [
+    "在同一合成批次中为同一成员保留一个已归档阶段任务，并创建第二个终稿阶段任务。",
+    "完成新阶段V1退回、V2重提与教师批准，使其处于待归档状态。",
+    "以COL-A读取批次报表，并与批次任务状态、成员数和提交数对照。"
+  ],
+  "expected": "标记为比例的指标不得超过100%；指标分子、分母口径应与阶段任务状态一致，不应在仍有阶段任务待归档时报告整个批次已100%归档。",
+  "actual": {
+    "member_count": 1,
+    "participant_count": 2,
+    "archived_participants": 1,
+    "pending_archive_participants": 1,
+    "first_submission_count": 2,
+    "on_time_first_submission_rate": 2.0,
+    "archive_count": 1,
+    "archive_completion_rate": 1.0,
+    "api_http_status": 200
+  },
+  "source_trace": {
+    "backend": "backend/app/api/workflow.py:2086-2128 counts first submissions and archives by stage participant, then divides by eligible cohort member count.",
+    "frontend": "frontend/src/views/Workflow.vue:871 and frontend/src/views/AdminWorkspace.vue:60 multiply ratios by 100 before adding a percent sign.",
+    "inference": "With the verified deployed source, API rate 2.0 is formatted as 200%; page rendering itself was not observed."
+  },
+  "impact": "学院报表可能显示200%首次提交及时率；同时将一个待归档阶段与另一个已归档阶段汇总为100%归档率，误导批次进度判断。",
+  "observed_repetitions": 1,
+  "owner": "待项目负责人分派",
+  "retest": "未执行；修复后需绑定新生产发布身份并用多阶段同一成员数据复测。",
+  "evidence": [
+    "api-cohort-report-notifications-r1.json",
+    "scenario-results-r33.json"
+  ],
+  "ui_verified": false
+}

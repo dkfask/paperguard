@@ -1,0 +1,87 @@
+{
+  "recorded_at": "2026-10-19T11:02:00+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X03 exact cohort, stages, and cohort-material list scope matrix",
+  "deployment": {
+    "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+    "identity_verified": true,
+    "health": {
+      "/api/health/live": 200,
+      "/api/health/ready": 200,
+      "/api/version": 200
+    }
+  },
+  "synthetic_object": {
+    "cohort_id": "cohort-ed0046d38402"
+  },
+  "checks": [
+    {
+      "alias": "COL-A",
+      "role": "college_admin",
+      "login_status": 200,
+      "me_status": 200,
+      "role_matches": true,
+      "endpoints": [
+        {
+          "path": "/api/cohorts/cohort-ed0046d38402",
+          "status": 200,
+          "scope_metadata_present": true,
+          "stage_count": 2
+        },
+        {
+          "path": "/api/cohorts/cohort-ed0046d38402/stages",
+          "status": 200,
+          "stage_count": 2,
+          "stage_status_counts": {
+            "published": 2
+          }
+        },
+        {
+          "path": "/api/cohorts/cohort-ed0046d38402/process-records",
+          "status": 200,
+          "record_count": 0,
+          "artifact_type_counts": {}
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "alias": "COL-B",
+      "role": "college_admin",
+      "login_status": 200,
+      "me_status": 200,
+      "role_matches": true,
+      "endpoints": [
+        {
+          "path": "/api/cohorts/cohort-ed0046d38402",
+          "status": 404,
+          "response_body_read": false
+        },
+        {
+          "path": "/api/cohorts/cohort-ed0046d38402/stages",
+          "status": 404,
+          "response_body_read": false
+        },
+        {
+          "path": "/api/cohorts/cohort-ed0046d38402/process-records",
+          "status": 404,
+          "response_body_read": false
+        }
+      ],
+      "logout_status": 200
+    }
+  ],
+  "method": "Authenticated exact-ID GETs only. Allowed responses were reduced to stage/material counts and statuses; no stage configuration, member list, or record content was retained. For every 404, the response body was canceled without reading.",
+  "writes": {
+    "business_data": 0,
+    "auth_sessions_created": 2,
+    "auth_sessions_logged_out": 2,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0,
+    "deployment": 0
+  },
+  "status": "partial_scope_submatrix_passed"
+}

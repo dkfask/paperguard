@@ -1,0 +1,223 @@
+{
+  "recorded_at": "2026-10-18T13:24:19+00:00",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "F01 supplemental API auth logout-and-relogin cycle for nine synthetic test identities; no business data endpoints opened",
+  "roles": [
+    {
+      "role_alias": "SYS-A",
+      "expected_role": "admin",
+      "cycles": [
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "initial"
+        },
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "relogin"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "role_alias": "SCH-A",
+      "expected_role": "admin",
+      "cycles": [
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "initial"
+        },
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "relogin"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "role_alias": "COL-A",
+      "expected_role": "college_admin",
+      "cycles": [
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "initial"
+        },
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "relogin"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "role_alias": "COL-B",
+      "expected_role": "college_admin",
+      "cycles": [
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "initial"
+        },
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "relogin"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "role_alias": "T-A",
+      "expected_role": "teacher",
+      "cycles": [
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "initial"
+        },
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "relogin"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "role_alias": "T-B",
+      "expected_role": "teacher",
+      "cycles": [
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "initial"
+        },
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "relogin"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "role_alias": "S-A",
+      "expected_role": "student",
+      "cycles": [
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "initial"
+        },
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "relogin"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "role_alias": "S-B",
+      "expected_role": "student",
+      "cycles": [
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "initial"
+        },
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "relogin"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "role_alias": "S-C",
+      "expected_role": "student",
+      "cycles": [
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "initial"
+        },
+        {
+          "login_status": 200,
+          "identity_status": 200,
+          "id_match": true,
+          "role_match": true,
+          "logout_status": 200,
+          "cycle": "relogin"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "summary": {
+    "role_count": 9,
+    "cycles": 18,
+    "all_passed": true,
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0
+  }
+}

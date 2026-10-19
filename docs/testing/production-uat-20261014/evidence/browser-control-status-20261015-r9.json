@@ -1,0 +1,45 @@
+{
+  "recorded_at": "2026-10-15T14:15:27+08:00",
+  "target": "https://paper.thunderuni.com",
+  "kind": "browser_control_and_pause",
+  "actions": [
+    {
+      "surface": "Codex computer-use browser control",
+      "method": "read browser/app state",
+      "result": "timeout",
+      "elapsed_seconds": 30,
+      "effect": "control kernel reset; no page interaction"
+    },
+    {
+      "surface": "Chrome",
+      "method": "request a separate visible Chrome session for the UAT login page",
+      "result": "control provider failed before returning a tab handle or visible state",
+      "elapsed_seconds": 30.5,
+      "effect": "the existence of a newly opened window/tab could not be confirmed"
+    },
+    {
+      "surface": "browser inventory",
+      "method": "list available browser services",
+      "result": "success",
+      "observed": [
+        "Chrome extension browser, ID 1, profile name 您的 Chrome",
+        "Codex in-app browser, ID 3"
+      ],
+      "limitation": "service inventory is not a window/tab inventory and cannot establish whether the failed create request partially opened a window"
+    },
+    {
+      "surface": "Chrome browser control",
+      "method": "read browser-control documentation",
+      "result": "success",
+      "effect": "documentation only; no tab was claimed, navigated, or interacted with"
+    }
+  ],
+  "existing_user_window": "No intentional activation, navigation, or page interaction was performed on the user's existing Chrome window; a partial effect from the failed separate-session request cannot be ruled out.",
+  "new_chrome_window_confirmed": false,
+  "testing_paused_by_user": true,
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "credentials_entered": false,
+  "limitations": "Testing stopped after recording this control failure at the user's request. No further browser or production test actions were performed."
+}

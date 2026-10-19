@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-15T13:53:22+08:00",
+  "classification": "TEST-DEFECT",
+  "scenario": "X08 direct synthetic submission-ID access test",
+  "description": "A test helper made two successful logins per alias because it discarded the first login response while obtaining the token. It tested and logged out the second session; one untracked session per alias remains.",
+  "affected_synthetic_accounts": [
+    "S-B",
+    "T-B"
+  ],
+  "business_data_changed": false,
+  "auth_sessions": {
+    "created": 4,
+    "logged_out": 2,
+    "untracked": 2
+  },
+  "expiry_basis": {
+    "expected_hours": 24,
+    "source_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+    "live_expiry_independently_verified": false
+  },
+  "credentials_or_tokens_recorded": false,
+  "cleanup_decision": "No account-wide revocation attempted; it could terminate unrelated sessions. Untracked sessions are expected to expire under the verified source policy."
+}

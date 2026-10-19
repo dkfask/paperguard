@@ -1,0 +1,160 @@
+{
+  "recorded_at": "2026-10-15T02:58:59.457Z",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0 headless Chromium",
+  "scenario": "F09-F15 partial read-only browser cross-check on known synthetic objects",
+  "project_id": "proj-dfde4747c750",
+  "submission_ids": {
+    "v1": "submission-691de2599180",
+    "v2": "submission-b6586e251afb",
+    "v3": "submission-fdac25a57359"
+  },
+  "ai_calls": 0,
+  "business_data_writes": 0,
+  "student": {
+    "loginHttp": 200,
+    "project": {
+      "requested": "/write/proj-dfde4747c750",
+      "finalPath": "/write/proj-dfde4747c750",
+      "query": "",
+      "apiStatus": null,
+      "apiPath": null,
+      "apiRequests": [],
+      "title": "当前页面 · PaperGuard",
+      "headings": [],
+      "textLength": 0,
+      "excerpt": "",
+      "tableRows": 0
+    },
+    "submissions": {
+      "requested": "/workflow?panel=submissions",
+      "finalPath": "/workflow",
+      "query": "?panel=submissions",
+      "apiStatus": 200,
+      "apiPath": "/api/submissions",
+      "apiRequests": [
+        {
+          "method": "GET",
+          "path": "/api/my-tasks",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/notifications",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/submissions",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/process-records/catalog",
+          "status": 200
+        }
+      ],
+      "title": "提交与归档 · PaperGuard",
+      "headings": [
+        "提交与归档"
+      ],
+      "textLength": 305,
+      "excerpt": "提交与归档 从阶段任务到可追溯终稿，所有提交、反馈和归档都绑定到确定版本。 verified_user UAT-20261014-S-A 学生 assignment 我的任务 inventory_2 提交与归档 notifications 站内消息 16 待处理任务 0 待审核提交 0 未读消息 16 最近截止 schedule 首次截止 10/29 07:47 历史版本 查看正式提交、审核状态和版本追踪。 history SUB-20261015-D12484 10/15 10:21 已通过 SUB-20261015-F0D216 10/15 10:19 已退回 第 1/2 页 · 共 3 项 ‹ ›",
+      "tableRows": 0
+    },
+    "logoutHttp": 200
+  },
+  "teacher": {
+    "loginHttp": 200,
+    "review": {
+      "requested": "/workflow?panel=review",
+      "finalPath": "/workflow",
+      "query": "?panel=review",
+      "apiStatus": 200,
+      "apiPath": "/api/submissions",
+      "apiRequests": [
+        {
+          "method": "GET",
+          "path": "/api/packs"
+        },
+        {
+          "method": "GET",
+          "path": "/api/templates"
+        },
+        {
+          "method": "GET",
+          "path": "/api/projects"
+        },
+        {
+          "method": "GET",
+          "path": "/api/projects/trash"
+        },
+        {
+          "method": "GET",
+          "path": "/api/process-records/inbox",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/my-tasks",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/notifications",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/submissions",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/process-records/catalog",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/cohorts",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/organizations",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/templates",
+          "status": 200
+        }
+      ],
+      "title": "审核台 · PaperGuard",
+      "headings": [
+        "审核台"
+      ],
+      "textLength": 365,
+      "excerpt": "审核台 从阶段任务到可追溯终稿，所有提交、反馈和归档都绑定到确定版本。 verified_user UAT-20261014-T-A 指导教师 rate_review 待审核 inventory_2 提交与归档 notifications 站内消息 4 待处理任务 0 待审核提交 0 未读消息 4 最近截止 schedule 首次截止 10/29 07:47 sync 正在同步 待审核 refresh 校园图书借阅服务体验研究 UAT-20261014-01a139c6-主流程 · UAT-20261014-开题报告 已归档 首次截止 10/29 07:47 chevron_right 第 1/1 页 · 共 1 项 ‹ › 常用入口 rate_review 提交审核 groups 学生进度 menu_book 写作规范",
+      "tableRows": 0
+    },
+    "logoutHttp": 200
+  },
+  "nonAuthMutations": [],
+  "writer_probe_followup": {
+    "status": "INCONCLUSIVE_SAMPLE_SUPERSEDED_FOR_ROUTE_RENDERING",
+    "evidence": "ui-writer-r2.json",
+    "note": "The prior empty snapshot preceded async writer component readiness; a later selector-bounded UI read observed the writer shell and project API 200."
+  },
+  "writer_persistence_followup": {
+    "status": "PARTIAL_PASS",
+    "evidence": "ui-writer-persistence-r1.json",
+    "integrity_evidence": "project-integrity-audit-r1.json"
+  },
+  "writer_component_followup": {
+    "status": "PARTIAL_PASS",
+    "evidence": "ui-writer-components-r1.json",
+    "note": "The references section uses the paragraph editor; an earlier reference-specific selector returned zero and was inconclusive."
+  }
+}

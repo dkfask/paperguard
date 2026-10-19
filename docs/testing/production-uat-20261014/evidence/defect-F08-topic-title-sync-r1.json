@@ -1,0 +1,47 @@
+{
+  "defect_id": "DEF-F08-001",
+  "status": "待当前版本核验与复测",
+  "scenario": "F08",
+  "roles": [
+    "student",
+    "teacher",
+    "college_admin"
+  ],
+  "target": "https://paper.thunderuni.com",
+  "recorded_deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "current_deployed_revision_verified": true,
+  "test_object_id": "record-e44d8b5928b5",
+  "preconditions": {
+    "revision": true,
+    "participant": true,
+    "no_duplicate": true,
+    "project_title_is_test_title": true
+  },
+  "steps": [
+    "学生提交合成课题变更申请",
+    "教师审批",
+    "学院管理员审批",
+    "读取申请状态与项目标题"
+  ],
+  "expected": "审批通过后主论文标题自动同步为变更后的新题目。",
+  "actual": {
+    "final_state": "approved",
+    "project_title_after_approval": "校园图书借阅服务体验研究",
+    "project_title_synced": false,
+    "project_versions_after": 0,
+    "ui_verified": false
+  },
+  "impact": "主论文项目标题可能与已批准课题变更不一致；其他任务书、开题、提交封面、导出快照影响尚未核实。",
+  "observed_repetitions": 1,
+  "owner": "待项目负责人分派",
+  "retest": "未执行；先核验当前生产发布身份，再对修复版本复测。",
+  "evidence": [
+    "process-record-topic-change-r3.json",
+    "acceptance-oracle-update-20261015-r1.json"
+  ],
+  "notes": "API evidence shows the mismatch on the same full source revision now verified against current production backend and frontend bytes; UI and historical snapshot behavior remain unverified.",
+  "current_release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "verification_evidence": [
+    "production-release-identity-20261015-r1.json"
+  ]
+}

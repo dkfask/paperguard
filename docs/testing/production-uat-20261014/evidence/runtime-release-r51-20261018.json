@@ -1,0 +1,40 @@
+{
+  "recorded_at": "2026-10-18T10:24:10+08:00",
+  "environment": "production",
+  "base_url": "https://paper.thunderuni.com",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "backend_source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "build_id": "20261016T080636Z",
+  "identity_status": "declared",
+  "health": {
+    "live": 200,
+    "ready": 200
+  },
+  "version_endpoint": {
+    "path": "/api/version",
+    "status": 200,
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8"
+  },
+  "server_release_marker": {
+    "matches_version_endpoint": true,
+    "deployed_at": null,
+    "note": "Release metadata reconciliation only; this round did not deploy."
+  },
+  "source_tree_verification": {
+    "status": "verified",
+    "method": "Read-only execution of ops/sync-release-markers.py from the identified release commit over SSH with write=False; GitHub tree blobs were independently hashed.",
+    "backend_files_verified": 150,
+    "frontend_manifest_entries": 91,
+    "frontend_manifest_sha256": "5c0b3e1d3d6e437cd15a1305c5dfbcf5f790a1eb92c91ba1c13bf8105ae5fa3c",
+    "metadata_current": true,
+    "markers_written": false
+  },
+  "git_context": {
+    "release_commit_merged_pr": 41,
+    "release_branch": "codex/simple-writing-release-20261015",
+    "merged_at": "2026-10-16T07:55:21Z",
+    "github_main_revision": "37a87af0ec5f299917c1a4de2f4cfe666767119d",
+    "note": "The deployed release commit is not GitHub main HEAD."
+  },
+  "evidence_scope": "Release identity only; this does not count as UAT scenario completion."
+}

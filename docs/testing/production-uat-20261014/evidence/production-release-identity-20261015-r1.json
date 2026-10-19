@@ -1,0 +1,15 @@
+{
+  "recorded_at": "2026-10-15T12:53:32+08:00",
+  "target": "https://paper.thunderuni.com",
+  "release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "source_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "verification": {
+    "result": "verified",
+    "backend_files_sha256_matched": 149,
+    "frontend_files_sha256_matched": 67,
+    "metadata_current": true,
+    "written": false
+  },
+  "method": "Generated the backend source checksum manifest with ops/sync-release-markers.py at the recorded source revision, then compared the server release marker, deployed backend/app files, frontend.sha256 manifest, deployed webroot files, and current-release.json using an equivalent read-only check of the repository verifier logic.",
+  "limitation": "The verifier script is not installed at /home/ubuntu/paperguard/ops on the server; the local source-manifest operation plus remote read-only checksum comparison completed successfully. No source, frontend files, marker, or metadata were modified."
+}

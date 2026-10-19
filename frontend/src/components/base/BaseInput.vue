@@ -1,8 +1,8 @@
 <template>
-  <div class="flex flex-col gap-1">
-    <label v-if="label" :for="inputId" class="text-sm font-medium text-on-surface">
+  <div class="base-field">
+    <label v-if="label" :for="inputId">
       {{ label }}
-      <span v-if="required" class="text-error">*</span>
+      <span v-if="required" class="required-mark" aria-hidden="true">*</span>
     </label>
     <input
       :id="inputId"
@@ -11,17 +11,19 @@
       :placeholder="placeholder"
       :disabled="disabled"
       :required="required"
+      :aria-invalid="error ? 'true' : undefined"
+      :aria-describedby="error || hint ? `${inputId}-detail` : undefined"
       :class="inputClasses"
       @input="$emit('update:modelValue', $event.target.value)"
       @blur="$emit('blur', $event)"
     />
-    <p v-if="error" class="text-sm text-error">{{ error }}</p>
-    <p v-else-if="hint" class="text-sm text-on-surface-variant">{{ hint }}</p>
+    <p v-if="error" :id="`${inputId}-detail`" class="field-error" role="alert">{{ error }}</p>
+    <p v-else-if="hint" :id="`${inputId}-detail`" class="field-hint">{{ hint }}</p>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 
 const props = defineProps({
   modelValue: [String, Number],
@@ -36,13 +38,20 @@ const props = defineProps({
 
 defineEmits(['update:modelValue', 'blur'])
 
-const inputId = computed(() => `input-${Math.random().toString(36).substr(2, 9)}`)
+const inputId = `input-${useId()}`
 
 const inputClasses = computed(() => {
-  const base = 'w-full px-3 py-2 rounded-md border transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed'
-  const state = props.error
-    ? 'border-error focus:border-error focus:ring-error'
-    : 'border-border focus:border-primary focus:ring-primary'
-  return `${base} ${state}`
+  return props.error ? 'base-input invalid' : 'base-input'
 })
 </script>
+
+<style scoped>
+.base-field { display: grid; gap: 6px; }
+.base-field label { font-size: 12px; font-weight: 600; }
+.base-input { width: 100%; min-height: 38px; }
+.base-input.invalid { border-color: var(--error); }
+.base-input:disabled { background: var(--surface-container-low); cursor: not-allowed; }
+.field-error, .required-mark { color: var(--error); }
+.field-error, .field-hint { margin: 0; font-size: 12px; }
+.field-hint { color: var(--on-surface-variant); }
+</style>

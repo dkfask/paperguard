@@ -1544,6 +1544,7 @@ def create_project_export_job(proj_id: str, force: bool = False,
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
+    force = force and can_manage(user)
     if not force:
         missing = _export_missing(proj, tpl, store, user["id"])
         if missing:
@@ -1647,7 +1648,7 @@ def export_docx(proj_id: str, force: bool = False,
     """按模板导出为 .docx, 下载新文件。
 
     导出前校验必填章节与封面字段; 未完成时返回 409 与缺失清单,
-    除非 force=true 跳过校验。
+    教师/管理员可用 force=true 导出未完成草稿；学生始终经过校验。
     """
     proj = store.get_project(proj_id)
     if proj is None:
@@ -1657,6 +1658,7 @@ def export_docx(proj_id: str, force: bool = False,
     _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
 
+    force = force and can_manage(user)
     if not force:
         missing = validate_project_completeness(proj, tpl)
         from app.services.project_check import check_project as run_check
@@ -1709,6 +1711,7 @@ def export_preview(proj_id: str, force: bool = False,
     tpl = _project_template(proj, store)
     _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
+    force = force and can_manage(user)
     missing = validate_project_completeness(proj, tpl)
     requirement_findings: list[str] = []
     from app.services.project_check import check_project as run_check

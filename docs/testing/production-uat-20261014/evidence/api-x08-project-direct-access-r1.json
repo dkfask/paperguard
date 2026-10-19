@@ -1,0 +1,67 @@
+{
+  "recorded_at": "2026-10-15T13:51:23+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X08 read-only horizontal/teacher-scope check against the newly authorized synthetic project",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "resource": {
+    "type": "synthetic writing project",
+    "id": "proj-d148a21068b3",
+    "owner_alias": "S-A",
+    "supervising_teacher_alias": "T-A"
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/proj-d148a21068b3"
+    }
+  ],
+  "accounts": [
+    {
+      "alias": "S-B",
+      "login_status": 200,
+      "login_role": "student",
+      "expected_role": "student",
+      "precondition_passed": true,
+      "me_status": 200,
+      "me_role": "student",
+      "project_get_status": 403,
+      "expected_denial": true,
+      "returned_object_id_matches": false,
+      "response_body_recorded": false,
+      "logout_status": 200
+    },
+    {
+      "alias": "T-B",
+      "login_status": 200,
+      "login_role": "teacher",
+      "expected_role": "teacher",
+      "precondition_passed": true,
+      "me_status": 200,
+      "me_role": "teacher",
+      "project_get_status": 403,
+      "expected_denial": true,
+      "returned_object_id_matches": false,
+      "response_body_recorded": false,
+      "logout_status": 200
+    }
+  ],
+  "assertions": {
+    "S-B peer_student_must_not_read_project": true,
+    "T-B non_supervising_teacher_must_not_read_project": true,
+    "response_bodies_or_credentials_recorded": false
+  },
+  "writes": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0
+  },
+  "limitations": [
+    "Covers only GET access to one known synthetic project ID.",
+    "Does not cover project lists, submissions, attachments, downloads, search, exports, or other organizations."
+  ]
+}

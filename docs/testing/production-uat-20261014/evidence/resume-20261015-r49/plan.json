@@ -1,0 +1,8 @@
+{
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "release_id": "4b79f96-simple-writing-b20261015T104714Z",
+  "credentials": "/Users/a1234/.codex/private/paperguard/uat-20261014-01a139c6.json",
+  "evidence": "/Users/a1234/Documents/perpetual/paperguard/docs/testing/production-uat-20261014/evidence",
+  "native_frontend": "/Users/a1234/.codex/worktrees/simple-writing-release-20261015/paperguard/frontend",
+  "allowed": "known synthetic UAT accounts and newly created UAT writing projects only; retain objects, no AI/provider/external sends"
+}

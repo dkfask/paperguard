@@ -1,0 +1,129 @@
+{
+  "recorded_at": "2026-10-15T02:44:10.764Z",
+  "scenario": "F01 partial: UI sign-in, role badge, logout and protected-route redirect",
+  "target": "https://paper.thunderuni.com",
+  "runtime": "Playwright 1.63.0 headless Chromium",
+  "viewport": "1280x800",
+  "account_count": 9,
+  "completed_count": 9,
+  "results": [
+    {
+      "tag": "SYS-A",
+      "expected_role": "admin",
+      "login_http": 200,
+      "server_role": "admin",
+      "landed_path": "/login",
+      "visible_role_label": "学校管理员",
+      "logout_http": 200,
+      "protected_route_redirect": true,
+      "status": "INCONCLUSIVE",
+      "reason": "route_transition_not_waited; superseded by corrected route-wait run"
+    },
+    {
+      "tag": "SCH-A",
+      "expected_role": "admin",
+      "login_http": 200,
+      "server_role": "admin",
+      "landed_path": "/login",
+      "visible_role_label": "学校管理员",
+      "logout_http": 200,
+      "protected_route_redirect": true,
+      "status": "INCONCLUSIVE",
+      "reason": "route_transition_not_waited; superseded by corrected route-wait run"
+    },
+    {
+      "tag": "COL-A",
+      "expected_role": "college_admin",
+      "login_http": 200,
+      "server_role": "college_admin",
+      "landed_path": "/login",
+      "visible_role_label": "学院管理员",
+      "logout_http": 200,
+      "protected_route_redirect": true,
+      "status": "INCONCLUSIVE",
+      "reason": "route_transition_not_waited; superseded by corrected route-wait run"
+    },
+    {
+      "tag": "COL-B",
+      "expected_role": "college_admin",
+      "login_http": 200,
+      "server_role": "college_admin",
+      "landed_path": "/login",
+      "visible_role_label": "学院管理员",
+      "logout_http": 200,
+      "protected_route_redirect": true,
+      "status": "INCONCLUSIVE",
+      "reason": "route_transition_not_waited; superseded by corrected route-wait run"
+    },
+    {
+      "tag": "T-A",
+      "expected_role": "teacher",
+      "login_http": 200,
+      "server_role": "teacher",
+      "landed_path": "/login",
+      "visible_role_label": "指导教师",
+      "logout_http": 200,
+      "protected_route_redirect": true,
+      "status": "INCONCLUSIVE",
+      "reason": "route_transition_not_waited; superseded by corrected route-wait run"
+    },
+    {
+      "tag": "T-B",
+      "expected_role": "teacher",
+      "login_http": 200,
+      "server_role": "teacher",
+      "landed_path": "/login",
+      "visible_role_label": "指导教师",
+      "logout_http": 200,
+      "protected_route_redirect": true,
+      "status": "INCONCLUSIVE",
+      "reason": "route_transition_not_waited; superseded by corrected route-wait run"
+    },
+    {
+      "tag": "S-A",
+      "expected_role": "student",
+      "login_http": 200,
+      "server_role": "student",
+      "landed_path": "/login",
+      "visible_role_label": "学生",
+      "logout_http": 200,
+      "protected_route_redirect": true,
+      "status": "INCONCLUSIVE",
+      "reason": "route_transition_not_waited; superseded by corrected route-wait run"
+    },
+    {
+      "tag": "S-B",
+      "expected_role": "student",
+      "login_http": 200,
+      "server_role": "student",
+      "landed_path": "/login",
+      "visible_role_label": "学生",
+      "logout_http": 200,
+      "protected_route_redirect": true,
+      "status": "INCONCLUSIVE",
+      "reason": "route_transition_not_waited; superseded by corrected route-wait run"
+    },
+    {
+      "tag": "S-C",
+      "expected_role": "student",
+      "login_http": 200,
+      "server_role": "student",
+      "landed_path": "/login",
+      "visible_role_label": "学生",
+      "logout_http": 200,
+      "protected_route_redirect": true,
+      "status": "INCONCLUSIVE",
+      "reason": "route_transition_not_waited; superseded by corrected route-wait run"
+    }
+  ],
+  "browser_error_diagnostic": {
+    "first_login_surface_run": "failed once when two lazy assets returned HTTP 522; exact URLs returned HTTP 200 on immediate direct recheck",
+    "focused_login_surface_rerun": "PASS in 4.5s",
+    "production_change": false,
+    "ai_calls": 0,
+    "business_data_writes": 0
+  },
+  "status": "SUPERSEDED",
+  "superseded_by": "ui-role-matrix-r1.json",
+  "quality_note": "The first run read the URL immediately after the login response and observed /login for all accounts while the router transition was still in progress. The login API and shell appeared, but this did not prove the final landing route. Treat the earlier PASS labels as inconclusive; use ui-role-matrix-r1.json for the corrected result."
+}

@@ -1,0 +1,71 @@
+{
+  "recorded_at": "2026-10-18T13:46:07.988Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "exact synthetic participant process-material attachment access; no body saved or inspected; no resource enumeration or writes",
+  "participant_id": "participant-e7b399a3625e",
+  "accounts": [
+    {
+      "role_alias": "S-A",
+      "expected_role": "student",
+      "login_status": 200,
+      "list_status": 200,
+      "logout_status": 200,
+      "role_match": true,
+      "record_count": 1,
+      "record_types": [
+        "final_report"
+      ],
+      "record_states": [
+        "submitted"
+      ],
+      "attachment_count": 0
+    },
+    {
+      "role_alias": "T-A",
+      "expected_role": "teacher",
+      "login_status": 200,
+      "list_status": 200,
+      "logout_status": 200,
+      "role_match": true,
+      "record_count": 1,
+      "record_types": [
+        "final_report"
+      ],
+      "record_states": [
+        "submitted"
+      ],
+      "attachment_count": 0
+    },
+    {
+      "role_alias": "S-B",
+      "expected_role": "student",
+      "login_status": 200,
+      "list_status": 404,
+      "logout_status": 200,
+      "role_match": true,
+      "record_count": null,
+      "record_types": [],
+      "record_states": [],
+      "attachment_count": null
+    },
+    {
+      "role_alias": "T-B",
+      "expected_role": "teacher",
+      "login_status": 200,
+      "list_status": 404,
+      "logout_status": 200,
+      "role_match": true,
+      "record_count": null,
+      "record_types": [],
+      "record_states": [],
+      "attachment_count": null
+    }
+  ],
+  "attachment_fixture": null,
+  "downloads": [],
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "status": "blocked_no_attachment_fixture"
+}

@@ -1,0 +1,72 @@
+{
+  "recorded_at": "2026-10-15T12:14:19+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Repository frontend Playwright 1.63.0; isolated headless Chromium mobile viewport emulation",
+  "role_account": "S-A (student; synthetic UAT account)",
+  "viewport": {
+    "width": 390,
+    "height": 844,
+    "isMobile": true,
+    "hasTouch": true
+  },
+  "route": "/workflow",
+  "scenario": "X12 partial: inspect student task card, deadline and horizontal overflow at a narrow viewport",
+  "observed": {
+    "login_http": 200,
+    "workflow_http": 200,
+    "synthetic_task_card_visible": true,
+    "task_state": "archived",
+    "task_card_bounds_px": {
+      "x": 13,
+      "y": 640,
+      "width": 364,
+      "height": 80
+    },
+    "displayed_deadline": "10/29 07:47",
+    "layout": {
+      "inner_width": 390,
+      "document_width": 390,
+      "body_width": 390,
+      "document_height": 983,
+      "horizontal_overflow": false
+    },
+    "api_responses": [
+      {
+        "method": "GET",
+        "path": "/api/my-tasks",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/submissions",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/process-records/catalog",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/notifications",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/packs",
+        "status": 200
+      }
+    ],
+    "page_errors": 0,
+    "api_errors": 0
+  },
+  "scope": {
+    "business_writes": 0,
+    "auth_posts": 1,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "real_user_data_exported": false
+  },
+  "limitations": "This is a simulated 390x844 Chromium viewport, not a real mobile device. Writer, long English/Chinese content, keyboard focus, accessibility labels, other browsers and real-device behavior remain unverified."
+}

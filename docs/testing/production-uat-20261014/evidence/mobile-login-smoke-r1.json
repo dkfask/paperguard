@@ -1,0 +1,64 @@
+{
+  "recorded_at": "2026-10-15T02:54:20.025Z",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0; mobile-chrome project (Pixel 5 device emulation)",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "scenario": "X12 partial: mobile login/redirect/layout/accessibility smoke",
+  "suite": {
+    "file": "frontend/e2e/smoke.spec.ts",
+    "command": "TEST_BASE_URL=https://paper.thunderuni.com npm run test:e2e -- e2e/smoke.spec.ts --project=mobile-chrome --reporter=line",
+    "passed": 3,
+    "failed": 0,
+    "duration": "12.5s",
+    "cases": [
+      "unauthenticated login surface",
+      "protected route redirects to login",
+      "mobile login has no horizontal overflow"
+    ]
+  },
+  "page_probe": {
+    "route": "/login",
+    "heading": "欢迎登录 PaperGuard",
+    "fields": [
+      {
+        "id": "username",
+        "required": true,
+        "label": "学号 / 工号 / 用户名",
+        "label_association_count": 1
+      },
+      {
+        "id": "password",
+        "required": true,
+        "label": "登录密码",
+        "label_association_count": 1
+      }
+    ],
+    "tab_focus_sequence": [
+      "language switch button",
+      "username input",
+      "password input",
+      "login button",
+      "register link"
+    ],
+    "viewport_width": 390,
+    "document_scroll_width": 390,
+    "body_scroll_width": 390,
+    "no_horizontal_overflow": true,
+    "all_fields_labeled": true
+  },
+  "scope": {
+    "production_reads_only": true,
+    "business_data_writes": 0,
+    "ai_calls": 0,
+    "real_device_test": false
+  },
+  "limitations": [
+    "仅验证登录页与受保护路由；未覆盖论文编辑器、长标题、中英文摘要、时间展示和其他核心页。",
+    "Pixel 5为Playwright设备模拟，不是真机；本证据不能关闭X11真机项。"
+  ],
+  "status": "PASS FOR SUBSET; OVERALL X12 PARTIAL"
+}

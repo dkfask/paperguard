@@ -1,0 +1,320 @@
+{
+  "recorded_at": "2026-10-19T10:55:27+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X06 review/defense catalog and role-linked form readback",
+  "deployment": {
+    "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+    "identity_verified": true,
+    "health": {
+      "/api/health/live": 200,
+      "/api/health/ready": 200,
+      "/api/version": 200
+    }
+  },
+  "method": "Read-only API checks using exact synthetic participant/cohort IDs; authenticated as assigned teacher T-A and college administrator COL-A. No record lists, form values, approvals, or business mutation endpoints were requested.",
+  "synthetic_objects": {
+    "participant_id": "participant-e7b399a3625e",
+    "cohort_id": "cohort-ed0046d38402"
+  },
+  "accounts": [
+    {
+      "alias": "T-A",
+      "role": "teacher",
+      "identity_matches": true,
+      "scope": "participant forms for the exact assigned synthetic participant",
+      "catalog_artifacts_visible": [
+        "reviewer_score",
+        "defense_application",
+        "defense_record",
+        "defense_score",
+        "comprehensive_score",
+        "excellence_application"
+      ],
+      "forms": [
+        {
+          "artifact_type": "reviewer_score",
+          "status": 200,
+          "field_count": 7,
+          "field_keys": [
+            "student_id",
+            "student_name",
+            "topic",
+            "score",
+            "comment",
+            "reviewer",
+            "rubric"
+          ],
+          "owner_fields": []
+        },
+        {
+          "artifact_type": "defense_application",
+          "status": 200,
+          "field_count": 8,
+          "field_keys": [
+            "student_id",
+            "student_name",
+            "topic",
+            "completed_items",
+            "absence_count",
+            "total_sessions",
+            "statement",
+            "teacher_opinion"
+          ],
+          "owner_fields": []
+        },
+        {
+          "artifact_type": "defense_record",
+          "status": 200,
+          "field_count": 10,
+          "field_keys": [
+            "student_id",
+            "student_name",
+            "topic",
+            "defense_date",
+            "venue",
+            "committee_members",
+            "questions",
+            "conclusion",
+            "secretary",
+            "question_rows"
+          ],
+          "owner_fields": []
+        },
+        {
+          "artifact_type": "defense_score",
+          "status": 200,
+          "field_count": 9,
+          "field_keys": [
+            "student_id",
+            "student_name",
+            "topic",
+            "paper_score",
+            "preparation_score",
+            "defense_score",
+            "score",
+            "comment",
+            "rubric"
+          ],
+          "owner_fields": []
+        },
+        {
+          "artifact_type": "comprehensive_score",
+          "status": 200,
+          "field_count": 9,
+          "field_keys": [
+            "student_id",
+            "student_name",
+            "topic",
+            "advisor_score",
+            "reviewer_score",
+            "defense_score",
+            "total_score",
+            "grade",
+            "components"
+          ],
+          "owner_fields": []
+        },
+        {
+          "artifact_type": "excellence_application",
+          "status": 200,
+          "field_count": 5,
+          "field_keys": [
+            "student_id",
+            "student_name",
+            "topic",
+            "copy_ratio",
+            "recommendation"
+          ],
+          "owner_fields": []
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/api/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/process-records/catalog",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/stage-participants/participant-e7b399a3625e/process-records/form/reviewer_score",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/stage-participants/participant-e7b399a3625e/process-records/form/defense_application",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/stage-participants/participant-e7b399a3625e/process-records/form/defense_record",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/stage-participants/participant-e7b399a3625e/process-records/form/defense_score",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/stage-participants/participant-e7b399a3625e/process-records/form/comprehensive_score",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/stage-participants/participant-e7b399a3625e/process-records/form/excellence_application",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/logout",
+          "status": 200
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "alias": "COL-A",
+      "role": "college_admin",
+      "identity_matches": true,
+      "scope": "cohort management forms for the exact synthetic cohort",
+      "catalog_artifacts_visible": [
+        "defense_schedule",
+        "defense_inspection",
+        "grade_summary",
+        "college_excellence_application"
+      ],
+      "forms": [
+        {
+          "artifact_type": "defense_schedule",
+          "status": 200,
+          "field_count": 6,
+          "field_keys": [
+            "schedule_rows",
+            "group_rows",
+            "student_rows",
+            "defense_date",
+            "groups",
+            "secretary"
+          ],
+          "owner_fields": []
+        },
+        {
+          "artifact_type": "defense_inspection",
+          "status": 200,
+          "field_count": 5,
+          "field_keys": [
+            "inspection_date",
+            "inspector",
+            "checklist",
+            "findings",
+            "actions"
+          ],
+          "owner_fields": []
+        },
+        {
+          "artifact_type": "grade_summary",
+          "status": 200,
+          "field_count": 3,
+          "field_keys": [
+            "rows",
+            "total",
+            "approved_by"
+          ],
+          "owner_fields": []
+        },
+        {
+          "artifact_type": "college_excellence_application",
+          "status": 200,
+          "field_count": 3,
+          "field_keys": [
+            "rows",
+            "college_opinion",
+            "teaching_affairs_opinion"
+          ],
+          "owner_fields": []
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/api/auth/login",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/auth/me",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/process-records/catalog",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/cohorts/cohort-ed0046d38402/process-records/form/defense_schedule",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/cohorts/cohort-ed0046d38402/process-records/form/defense_inspection",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/cohorts/cohort-ed0046d38402/process-records/form/grade_summary",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/api/cohorts/cohort-ed0046d38402/process-records/form/college_excellence_application",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/logout",
+          "status": 200
+        }
+      ],
+      "logout_status": 200
+    }
+  ],
+  "coverage": {
+    "teacher_form_gets_passed": 6,
+    "college_management_form_gets_passed": 4,
+    "review_or_defense_business_records_read": false,
+    "approval_actions_executed": false,
+    "grade_aggregation_executed": false,
+    "award_or_recommendation_flow_executed": false,
+    "dedicated_reviewer_or_defense_account_inventory_completed": false,
+    "catalog_and_form_metadata_only": true
+  },
+  "prior_attempt_capture_gap": {
+    "possible_auth_sessions": 2,
+    "login_or_logout_outcome_known": false,
+    "included_in_confirmed_session_counts": false
+  },
+  "writes": {
+    "business_data": 0,
+    "auth_sessions_created": 2,
+    "auth_sessions_logged_out": 2,
+    "untracked_auth_sessions_this_rerun": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0,
+    "deployment": 0
+  },
+  "response_form_values_recorded": false,
+  "status": "partial_evidence_only"
+}

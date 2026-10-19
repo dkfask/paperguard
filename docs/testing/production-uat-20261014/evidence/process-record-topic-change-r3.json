@@ -1,0 +1,36 @@
+{
+  "method": "production backend loopback over SSH; synthetic topic change only",
+  "student_login_status": 200,
+  "preconditions": {
+    "revision": true,
+    "participant": true,
+    "no_duplicate": true,
+    "project_title_is_test_title": true
+  },
+  "project_versions_before": 0,
+  "record_id": "record-e44d8b5928b5",
+  "create_status": 201,
+  "submit_status": 200,
+  "pending_after_submit": [
+    "teacher",
+    "college_admin"
+  ],
+  "teacher_login_status": 200,
+  "teacher_approval_status": 200,
+  "pending_after_teacher": [
+    "college_admin"
+  ],
+  "college_admin_login_status": 200,
+  "college_approval_status": 200,
+  "final_state": "approved",
+  "student_record_read_status": 200,
+  "student_record_state": "approved",
+  "project_after_status": 200,
+  "project_title_after_approval": "校园图书借阅服务体验研究",
+  "project_title_synced": false,
+  "project_versions_after": 0,
+  "ui_verified": false,
+  "observed_at": "2026-10-15T10:07:52.319097+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046"
+}

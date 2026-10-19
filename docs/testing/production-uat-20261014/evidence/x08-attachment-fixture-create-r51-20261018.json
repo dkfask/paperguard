@@ -1,0 +1,88 @@
+{
+  "recorded_at": "2026-10-18T15:49:21+00:00",
+  "target": "https://paper.thunderuni.com",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "one T-A-created empty guidance_log draft and one exact authorized synthetic text attachment; retain; no submit/approve/delete",
+  "participant_id": "participant-e7b399a3625e",
+  "fixture": {
+    "filename": "file.txt",
+    "content_sha256": "2bf075c60f4410d05c51a6ed6b3e04b8bf5e15b1ebac81c5190626cef3d7ae1e",
+    "size_bytes": 40
+  },
+  "health": {
+    "/api/health/live": 200,
+    "/api/health/ready": 200
+  },
+  "creator": {
+    "login_status": 200,
+    "role_match": true,
+    "me_status": 200,
+    "me_role_match": true
+  },
+  "preflight": {
+    "participant_status": 200,
+    "assigned_teacher_match": true,
+    "participant_state": "pending_archive",
+    "record_list_status": 200,
+    "existing_guidance_log_count": 0,
+    "existing_record_count": 1
+  },
+  "create": {
+    "started_at": "2026-10-18T15:49:28+00:00",
+    "status": 201,
+    "record_id": "record-8695cee6c5b3",
+    "state_is_draft": true,
+    "empty_data": true,
+    "created_by_matches_ta": true,
+    "initial_attachment_count": 0
+  },
+  "upload": {
+    "status": 201,
+    "attachment_id": "file-2d18bff0dda4",
+    "filename_matches": true,
+    "size_bytes": 40,
+    "sha256_matches": true
+  },
+  "readback": {
+    "status": 200,
+    "state": "draft",
+    "data_empty": true,
+    "attachment_count": 1,
+    "fixture_matches": true,
+    "attachment_id": "file-2d18bff0dda4"
+  },
+  "logout_status": 200,
+  "writes": {
+    "draft_create_attempts": 1,
+    "attachment_upload_attempts": 3,
+    "deletions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "auth_sessions_created": 3,
+    "auth_sessions_logged_out": 3,
+    "untracked_auth_sessions": 0
+  },
+  "status": "ready_for_download_matrix",
+  "upload_attempts": [
+    {
+      "status": 400,
+      "method": "manual_multipart",
+      "persisted": false,
+      "filename": "r51-synthetic-attachment.txt"
+    },
+    {
+      "status": 400,
+      "sanitized_error_detail": "附件名不合法",
+      "error_body_persisted": false,
+      "filename": "r51-synthetic-attachment.txt",
+      "persisted": false
+    },
+    {
+      "status": 201,
+      "filename": "file.txt",
+      "write_persisted": true,
+      "sha256_matches": true
+    }
+  ]
+}

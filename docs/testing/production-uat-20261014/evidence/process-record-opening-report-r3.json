@@ -1,0 +1,28 @@
+{
+  "method": "production backend loopback over SSH; synthetic opening report only",
+  "student_login_status": 200,
+  "preconditions": {
+    "revision_matches": true,
+    "participant_in_progress": true,
+    "no_existing_opening_report": true
+  },
+  "teacher_login_status": 200,
+  "student_relogin_status": 200,
+  "other_teacher_login_status": 200,
+  "record_id": "record-94f12d7715e9",
+  "create_status": 201,
+  "incomplete_submit_status": 422,
+  "incomplete_submit_expected_rejection": true,
+  "update_status": 200,
+  "valid_submit_status": 200,
+  "teacher_approval_status": 200,
+  "student_read_status": 200,
+  "student_read_state": "approved",
+  "student_title_matches_task_book": true,
+  "unassigned_teacher_read_status": 404,
+  "unassigned_teacher_denied": true,
+  "ui_verified": false,
+  "observed_at": "2026-10-15T10:05:12.327050+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046"
+}

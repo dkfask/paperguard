@@ -1,0 +1,60 @@
+{
+  "recorded_at": "2026-10-14T18:08:51.523802+08:00",
+  "observation_period": "2026-10-14 17:43 至记录时刻，Asia/Shanghai；未伪造逐步骤秒级时间",
+  "target": "https://paper.thunderuni.com",
+  "tool": "CUA native Google Chrome on macOS",
+  "role": "anonymous",
+  "credential_entered": false,
+  "steps": [
+    {
+      "id": "A08",
+      "before": "新标签页",
+      "action": "访问 /login",
+      "after": "欢迎登录 PaperGuard；用户名、密码、登录按钮和立即注册链接可见",
+      "result": "PASS"
+    },
+    {
+      "id": "A09",
+      "before": "用户名和密码均空",
+      "action": "点击登录",
+      "after": "用户名字段获得焦点，浏览器显示 请填写此字段。；仍在登录页",
+      "result": "PASS",
+      "limit": "仅客户端必填拦截；未监测该步骤网络，不推断后端登录校验"
+    },
+    {
+      "id": "A10",
+      "before": "中文登录页",
+      "action": "点击 English，再切回 Chinese",
+      "after": "Welcome to PaperGuard / Username or Institutional ID / Password / Sign In；切回后恢复中文字段",
+      "result": "PASS",
+      "limit": "仅登录页语言切换；未核验全业务国际化、翻译语义等价和刷新持久性"
+    },
+    {
+      "id": "A11",
+      "before": "未登录",
+      "action": "直接导航 /admin/users",
+      "after": "实际地址 /login?redirect=/admin/users；登录页可见，没有用户管理业务列表",
+      "result": "PASS"
+    },
+    {
+      "id": "A17",
+      "before": "中文登录页",
+      "action": "点击立即注册，只读取表单",
+      "after": "必填邮箱、6位验证码、密码至少12位且含字母数字、确认密码、服务条款和隐私政策复选框可见；空邮箱下发送验证码禁用",
+      "result": "PASS",
+      "limit": "未填邮箱/密码、未发送验证码、未勾选条款、未提交注册"
+    }
+  ],
+  "screenshots": "已在工具回合查看登录页图像。未将含浏览器个人标签/自动填充信息的原始截图写入仓库；本地留存仅为去除浏览器外壳信息的文本观察。后续角色截图仍待脱敏落盘。",
+  "unverified": [
+    "浏览器版本号",
+    "窄屏和真机",
+    "控制台/网络错误扫描",
+    "完整无障碍扫描",
+    "已登录角色菜单",
+    "退出登录后访问"
+  ],
+  "tool_incidents": [
+    "IAB createBrowserTab/getTab 各一次30秒超时；getState 返回 nodeRepl.fetch 错误。改用原生 Chrome 后完成公开页面检查，未判为产品缺陷。"
+  ]
+}

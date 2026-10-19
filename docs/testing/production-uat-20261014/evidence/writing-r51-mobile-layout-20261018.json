@@ -1,0 +1,76 @@
+{
+  "layout": {
+    "width": 390,
+    "scrollWidth": 390,
+    "actions": [
+      {
+        "name": "auto_awesome",
+        "rect": {
+          "x": 172,
+          "y": 115,
+          "width": 36,
+          "height": 34
+        }
+      },
+      {
+        "name": "rule",
+        "rect": {
+          "x": 216,
+          "y": 115,
+          "width": 34,
+          "height": 34
+        }
+      },
+      {
+        "name": "build",
+        "rect": {
+          "x": 258,
+          "y": 115,
+          "width": 34,
+          "height": 34
+        }
+      },
+      {
+        "name": "upload_file",
+        "rect": {
+          "x": 300,
+          "y": 115,
+          "width": 34,
+          "height": 34
+        }
+      },
+      {
+        "name": "visibility",
+        "rect": {
+          "x": 14,
+          "y": 157,
+          "width": 36,
+          "height": 34
+        }
+      },
+      {
+        "name": "download",
+        "rect": {
+          "x": 58,
+          "y": 157,
+          "width": 34,
+          "height": 34
+        }
+      }
+    ],
+    "skip_link": [
+      {
+        "text": "跳到主要内容",
+        "rect": {
+          "x": 16,
+          "y": -80,
+          "width": 118,
+          "height": 41
+        }
+      }
+    ],
+    "overlap": []
+  },
+  "blocked": [],
+  "logout_status": 200
+}

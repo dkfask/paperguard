@@ -1,0 +1,94 @@
+{
+  "observed_at": "2026-10-14T22:42:00.554734+08:00",
+  "failure_class": "ENVIRONMENT",
+  "scope": "local browser-control client; not a PaperGuard site defect",
+  "client": {
+    "CFBundleIdentifier": "com.openai.codex",
+    "CFBundleShortVersionString": "26.1007.30912",
+    "CFBundleVersion": "20156"
+  },
+  "cua_package_version": "0.1.0",
+  "failure": {
+    "action": "cua.getTab({url:production login},{browser:iab})",
+    "result": "js execution timed out; kernel reset",
+    "duration_seconds": 30.0345,
+    "log_error": {
+      "at_utc": "2026-10-14T14:20:19.226Z",
+      "log_name": "codex-desktop-9d83dbb0-a1a8-4507-96dd-c0da31888855-47847-t0-i1-000007-2.log",
+      "line": 1424,
+      "message": "No ChatGPT browser route is available for browser session 01a139c6-0c36-7662-925e-fa89abace3b5"
+    },
+    "matching_log_count": 209
+  },
+  "isolation_checks": [
+    {
+      "check": "generic JavaScript kernel",
+      "result": "runtimeAlive=true",
+      "status": "PASS"
+    },
+    {
+      "check": "Codex browser panel rebind",
+      "result": "queued for calling local thread",
+      "status": "UNVERIFIED"
+    },
+    {
+      "check": "explicit CUA kernel reset",
+      "result": "js kernel reset",
+      "status": "PASS"
+    },
+    {
+      "check": "native control of ChatGPT/Codex app",
+      "result": "denied by tool safety policy; no retry or bypass",
+      "status": "BLOCKED"
+    },
+    {
+      "check": "native Google Chrome getApp",
+      "result": "PaperGuard login form read",
+      "duration_seconds": 1.3027,
+      "status": "PASS"
+    },
+    {
+      "check": "native Chrome login with SYS-A",
+      "result": "normal form sign-in; verified workspace title, UAT identity and logout control",
+      "status": "PASS"
+    },
+    {
+      "check": "native Chrome workspace read",
+      "result": "school operation navigation links read",
+      "duration_seconds": 0.1096,
+      "status": "PASS"
+    }
+  ],
+  "recovery": {
+    "operational_status": "RECOVERED_WITH_NATIVE_CHROME",
+    "iab_status": "route remains unverified/unrepaired",
+    "change": "use documented cua.getApp Chrome native actions directly; avoid browser-wide discovery and IAB getTab calls",
+    "verification": "actual SYS-A browser login reached https://paper.thunderuni.com/workspace",
+    "client_files_modified": false,
+    "production_configuration_modified": false,
+    "app_restart_performed": false
+  },
+  "follow_up": {
+    "recorded_at": "2026-10-15T10:15:41+08:00",
+    "failure_class": "ENVIRONMENT",
+    "scope": "local Codex browser-control route; not a PaperGuard product result",
+    "attempt": {
+      "action": "cua.getTab({url: PaperGuard page}, {browser: 'chrome'})",
+      "result": "js execution timed out; kernel reset",
+      "duration_seconds_approx": 12,
+      "page_result": "target business page content was not obtained; subsequent view showed a blank/new-tab shell"
+    },
+    "interpretation": "The tab-binding/control route remains unavailable or unstable. This does not establish whether PaperGuard page navigation itself succeeded or failed.",
+    "handling": {
+      "stop_repeating_tab_binding": true,
+      "continue_synthetic_business_flows_via_ssh_loopback_api": true,
+      "api_results_are_not_web_ui_passes": true,
+      "previous_native_chrome_sys_a_login_evidence_remains_limited_to_that_login_session": true
+    },
+    "changes": {
+      "application_code_modified": false,
+      "production_configuration_modified": false,
+      "codex_or_chrome_restarted_or_reconfigured": false
+    }
+  }
+}

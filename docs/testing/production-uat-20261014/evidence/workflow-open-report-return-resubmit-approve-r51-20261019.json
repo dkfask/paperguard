@@ -1,0 +1,361 @@
+{
+  "recorded_at": "2026-10-19T03:17:04+00:00",
+  "target": "https://paper.thunderuni.com",
+  "deployment": {
+    "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+    "identity_verified": true,
+    "health": {
+      "/api/health/live": 200,
+      "/api/health/ready": 200,
+      "/api/version": 200
+    }
+  },
+  "scope": "one new synthetic cohort, one S-A/T-A supervision relation, one open stage, one task_book draft, one opening_report submit-return-revise-resubmit-approve cycle",
+  "synthetic_objects": {
+    "cohort_id": "cohort-cc64f6a7e17e",
+    "supervision_id": "supervision-13ae4bb32f00",
+    "stage_id": "stage-504eeea6e643",
+    "participant_id": "participant-f1e500e490eb",
+    "task_book_id": "record-624b97e5ea0d",
+    "opening_report_id": "record-b328542df9c9",
+    "business_record_count": 7
+  },
+  "checks": [
+    {
+      "alias": "COL-A",
+      "expected_role": "college_admin",
+      "login_status": 200,
+      "me_status": 200,
+      "role_matches": true
+    },
+    {
+      "alias": "T-A",
+      "expected_role": "teacher",
+      "login_status": 200,
+      "me_status": 200,
+      "role_matches": true
+    },
+    {
+      "alias": "S-A",
+      "expected_role": "student",
+      "login_status": 200,
+      "me_status": 200,
+      "role_matches": true
+    },
+    {
+      "check": "organization_scope_and_template",
+      "known_cohort_status": 200,
+      "organization_context_present": true,
+      "template_status": 200,
+      "template_id_matches": true
+    },
+    {
+      "check": "cohort_readback",
+      "status": 200,
+      "name_matches": true,
+      "member_count": 0
+    },
+    {
+      "check": "supervision_readback",
+      "status": 200,
+      "active_matching_relations": 1,
+      "member_count": 1
+    },
+    {
+      "check": "stage_preview",
+      "status": 200,
+      "publishable": true,
+      "member_snapshot_count": 1,
+      "assignment_matches": true
+    },
+    {
+      "check": "published_stage_and_participant_readback",
+      "cohort_status": 200,
+      "stages_status": 200,
+      "participant_count": 1,
+      "stage_status": "published",
+      "stage_is_open_by_time": true
+    },
+    {
+      "check": "form_prefill_task_book",
+      "alias": "T-A",
+      "status": 200,
+      "artifact_type_matches": true,
+      "synthetic_topic_ready": true
+    },
+    {
+      "check": "form_prefill_opening_report",
+      "alias": "S-A",
+      "status": 200,
+      "artifact_type_matches": true,
+      "synthetic_topic_ready": true
+    },
+    {
+      "check": "task_book_cross_role_readback",
+      "student_status": 200,
+      "teacher_created": true,
+      "student_sees_same_topic": true,
+      "state": "draft",
+      "submitted_or_approved": false
+    },
+    {
+      "check": "opening_report_first_submission",
+      "student_record_status": 200,
+      "student_state": "submitted",
+      "teacher_inbox_status": 200,
+      "teacher_inbox_match_count": 1
+    },
+    {
+      "check": "final_cross_role_readback",
+      "student_record_status": 200,
+      "teacher_record_status": 200,
+      "student_list_status": 200,
+      "task_book_status": 200,
+      "opening_report_state_student": "approved",
+      "opening_report_state_teacher": "approved",
+      "approval_by_assigned_teacher": true,
+      "return_reason_visible": true,
+      "task_book_remains_draft": true,
+      "exactly_two_process_records": true,
+      "topic_matches_task_book": true
+    },
+    {
+      "check": "task_book_state_boundary",
+      "state": "draft",
+      "submission_attempted": false,
+      "approval_attempted": false
+    }
+  ],
+  "writes": {
+    "business_data_records_created": 7,
+    "business_mutation_operations_succeeded": 11,
+    "business_mutation_operations": [
+      {
+        "operation": "cohort_create",
+        "status": 201,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "supervision_relation",
+        "status": 201,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "stage_create",
+        "status": 201,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "stage_publish",
+        "status": 200,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "task_book_create",
+        "status": 201,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "opening_report_create",
+        "status": 201,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "opening_report_submit_1",
+        "status": 200,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "opening_report_return",
+        "status": 200,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "opening_report_student_revision",
+        "status": 200,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "opening_report_submit_2",
+        "status": 200,
+        "resolved_by_readback": false
+      },
+      {
+        "operation": "opening_report_approve",
+        "status": 200,
+        "resolved_by_readback": false
+      }
+    ],
+    "task_book_submitted": false,
+    "task_book_approved": false,
+    "opening_report_final_state": "approved",
+    "auth_sessions_created": 9,
+    "auth_sessions_logged_out": 9,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "internal_notifications_may_be_generated": true,
+    "deletions": 0,
+    "exports": 0,
+    "archives": 0,
+    "deployment": 0
+  },
+  "logout": [
+    {
+      "alias": "COL-A",
+      "status": 200
+    },
+    {
+      "alias": "T-A",
+      "status": 200
+    },
+    {
+      "alias": "S-A",
+      "status": 200
+    }
+  ],
+  "status": "cycle_passed_partial_scenarios",
+  "stop_reason": null,
+  "post_cycle_readback": {
+    "recorded_at": "2026-10-19T03:18:50+00:00",
+    "checks": [
+      {
+        "alias": "COL-A",
+        "expected_role": "college_admin",
+        "login_status": 200,
+        "me_status": 200,
+        "role_matches": true
+      },
+      {
+        "alias": "T-A",
+        "expected_role": "teacher",
+        "login_status": 200,
+        "me_status": 200,
+        "role_matches": true
+      },
+      {
+        "alias": "S-A",
+        "expected_role": "student",
+        "login_status": 200,
+        "me_status": 200,
+        "role_matches": true
+      },
+      {
+        "role": "COL-A",
+        "cohort_status": 200,
+        "stages_status": 200,
+        "exact_stage_count": 1,
+        "stage_published": true,
+        "member_count": 1,
+        "stage_config": {
+          "open_at": "2026-10-19T03:14:23Z",
+          "deadline_at": "2026-10-26T03:16:23Z",
+          "revision_days": 7,
+          "template_id": "default-gb7713",
+          "required_materials": [
+            "task_book",
+            "opening_report"
+          ],
+          "prerequisite_stage_ids": [],
+          "allow_early_write": false,
+          "is_final": false
+        }
+      },
+      {
+        "role": "T-A",
+        "participant_status": 200,
+        "participant_matches": true,
+        "stage_published": true,
+        "config": {
+          "open_at": "2026-10-19T03:14:23Z",
+          "deadline_at": "2026-10-26T03:16:23Z",
+          "revision_days": 7,
+          "template_id": "default-gb7713",
+          "required_materials": [
+            "task_book",
+            "opening_report"
+          ],
+          "prerequisite_stage_ids": [],
+          "allow_early_write": false,
+          "is_final": false
+        }
+      },
+      {
+        "role": "S-A",
+        "participant_status": 200,
+        "participant_matches": true,
+        "stage_published": true,
+        "config": {
+          "open_at": "2026-10-19T03:14:23Z",
+          "deadline_at": "2026-10-26T03:16:23Z",
+          "revision_days": 7,
+          "template_id": "default-gb7713",
+          "required_materials": [
+            "task_book",
+            "opening_report"
+          ],
+          "prerequisite_stage_ids": [],
+          "allow_early_write": false,
+          "is_final": false
+        }
+      },
+      {
+        "check": "three_role_stage_config_consistency",
+        "consistent": true,
+        "window_open": true,
+        "expected_required_materials_match": true,
+        "template_matches": true
+      },
+      {
+        "check": "records_exact_readback",
+        "task_book_status": 200,
+        "task_book_draft": true,
+        "student_opening_status": 200,
+        "teacher_opening_status": 200,
+        "opening_approved_both_roles": true,
+        "opening_id_match": true,
+        "record_list_status": 200,
+        "record_count": 2,
+        "no_extra_records": true
+      },
+      {
+        "check": "post_cycle_readback_passed",
+        "stage": true,
+        "records": true
+      }
+    ],
+    "logout": [
+      {
+        "alias": "COL-A",
+        "status": 200
+      },
+      {
+        "alias": "T-A",
+        "status": 200
+      },
+      {
+        "alias": "S-A",
+        "status": 200
+      }
+    ],
+    "status": "passed"
+  },
+  "additional_auth_phases": {
+    "initial_read_only_preflight": {
+      "sessions": 3,
+      "logout_200": 3,
+      "untracked": 0
+    },
+    "workflow_execution": {
+      "sessions": 3,
+      "logout_200": 3,
+      "untracked": 0
+    },
+    "post_cycle_readback": {
+      "sessions": 3,
+      "logout_200": 3,
+      "untracked": 0
+    }
+  }
+}

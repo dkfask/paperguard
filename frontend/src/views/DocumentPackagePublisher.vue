@@ -591,7 +591,7 @@ onMounted(loadSavedCandidates)
 .back-link { display: inline-flex; align-items: center; gap: 5px; color: var(--primary); font-size: 13px; text-decoration: none; }
 .back-link .material-symbols-outlined { font-size: 18px; }
 .publisher-header .workspace-kicker { margin-top: 22px; }
-.publisher-header h1 { margin: 4px 0 8px; font-size: 32px; line-height: 1.2; }
+.publisher-header h1 { margin: 4px 0 8px; font-size: 25px; line-height: 1.25; }
 .publisher-header p:not(.workspace-kicker) { max-width: 720px; margin: 0; color: var(--on-surface-variant); line-height: 1.7; }
 .publisher-icon { color: var(--primary); font-size: 48px; }
 .publisher-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; padding: 26px 0; }

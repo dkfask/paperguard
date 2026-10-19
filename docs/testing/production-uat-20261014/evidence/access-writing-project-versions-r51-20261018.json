@@ -1,0 +1,71 @@
+{
+  "recorded_at": "2026-10-18T15:26:13Z",
+  "target": "https://paper.thunderuni.com",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "scenario": "X08 exact known synthetic project versions route access matrix",
+  "project_id": "proj-01c5de3baec6",
+  "path": "/api/projects/proj-01c5de3baec6/versions",
+  "scope": "one exact retained synthetic project only; no resource enumeration",
+  "response_bodies_recorded": false,
+  "checks": [
+    {
+      "role_alias": "S-A",
+      "expected_role": "student",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "versions_status": 200,
+      "version_count": 0,
+      "expected": "allow",
+      "logout_status": 200,
+      "result": "PASS"
+    },
+    {
+      "role_alias": "S-B",
+      "expected_role": "student",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "versions_status": 403,
+      "expected": "deny",
+      "logout_status": 200,
+      "result": "PASS"
+    },
+    {
+      "role_alias": "T-B",
+      "expected_role": "teacher",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "versions_status": 403,
+      "expected": "deny",
+      "logout_status": 200,
+      "result": "PASS"
+    },
+    {
+      "role_alias": "COL-B",
+      "expected_role": "college_admin",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "versions_status": 403,
+      "expected": "deny",
+      "logout_status": 200,
+      "result": "PASS"
+    }
+  ],
+  "writes": {
+    "business_data": 0,
+    "auth_sessions_created": 4,
+    "auth_sessions_logged_out": 4,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0
+  },
+  "limitations": [
+    "The owner-visible version list was empty; no version content or snapshot isolation could be assessed.",
+    "This does not complete the wider X08 resource, download, search/list, or cross-tenant matrix."
+  ]
+}

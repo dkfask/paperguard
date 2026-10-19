@@ -1,0 +1,50 @@
+{
+  "login_status": 200,
+  "method": "production backend loopback over SSH; empty synthetic project preflight only",
+  "preconditions": {
+    "revision": true,
+    "test_participant_in_progress": true,
+    "same_empty_test_project": true
+  },
+  "candidate_create_status": 201,
+  "candidate_id": "candidate-e750dbea8544",
+  "candidate_status": "blocked",
+  "check_status": "succeeded",
+  "warning_count": 2,
+  "gates": [
+    {
+      "key": "automatic_checks",
+      "passed": true,
+      "blocking": false,
+      "detail_count": null
+    },
+    {
+      "key": "requirements_acknowledged",
+      "passed": false,
+      "blocking": true,
+      "detail_count": null
+    },
+    {
+      "key": "completeness",
+      "passed": false,
+      "blocking": true,
+      "detail_count": 14
+    },
+    {
+      "key": "materials",
+      "passed": true,
+      "blocking": false,
+      "detail_count": 0
+    },
+    {
+      "key": "attachments",
+      "passed": true,
+      "blocking": false,
+      "detail_count": 0
+    }
+  ],
+  "observed_at": "2026-10-15T10:09:40.208911+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "ui_verified": false
+}

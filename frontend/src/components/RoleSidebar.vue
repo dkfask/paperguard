@@ -33,8 +33,12 @@
     </div>
 
     <div class="sidebar-footer">
-      <span class="material-symbols-outlined" aria-hidden="true">verified_user</span>
-      <span>{{ t('sidebar.permissionsScope') }}</span>
+      <span class="sidebar-avatar" aria-hidden="true">{{ userInitial }}</span>
+      <div class="sidebar-user">
+        <strong :title="user?.display_name || user?.username">{{ user?.display_name || user?.username }}</strong>
+        <span>{{ roleLabel(user?.role) }}</span>
+        <small>{{ t('sidebar.permissionsScope') }}</small>
+      </div>
     </div>
   </aside>
 </template>
@@ -62,12 +66,13 @@ const scopeName = computed(() => {
   const context = props.user?.organization_context || {}
   return context.college_name || context.school_name || t('shell.schoolWorkspace')
 })
+const userInitial = computed(() => (props.user?.display_name || props.user?.username || '?').trim().charAt(0).toUpperCase())
 
 const groups = computed(() => {
   const role = props.user?.role
   if (role === 'student') {
     return [{ label: t('sidebar.myLearning'), items: [
-      { label: t('sidebar.dashboard'), icon: 'dashboard', to: '/workspace' },
+      { label: t('sidebar.taskCenter'), icon: 'dashboard', to: '/workspace' },
       { label: t('sidebar.documentProjects'), icon: 'description', to: '/document-projects' },
       { label: t('sidebar.theses'), icon: 'edit_document', to: '/' },
       { label: t('sidebar.submissions'), icon: 'history', to: { path: '/workflow', query: { panel: 'submissions' } } },
@@ -77,30 +82,41 @@ const groups = computed(() => {
   }
   if (role === 'teacher') {
     return [{ label: t('sidebar.guidance'), items: [
-      { label: t('sidebar.dashboard'), icon: 'dashboard', to: '/workspace' },
+      { label: t('sidebar.todoCenter'), icon: 'dashboard', to: '/workspace' },
       { label: t('sidebar.documentProjects'), icon: 'description', to: '/document-projects' },
       { label: t('sidebar.publishDocumentPackage'), icon: 'publish', to: '/document-packages/publish' },
       { label: t('sidebar.review'), icon: 'rate_review', to: { path: '/workflow', query: { panel: 'review' } } },
       { label: t('sidebar.progress'), icon: 'groups', to: { path: '/workflow', query: { panel: 'progress' } } },
+      { label: t('sidebar.teacherStudents'), icon: 'school', to: '/teacher/students' },
       { label: t('sidebar.materials'), icon: 'folder_managed', to: { path: '/workflow', query: { panel: 'materials' } } },
       { label: t('sidebar.policies'), icon: 'menu_book', to: '/policies' },
       { label: t('sidebar.messages'), icon: 'notifications', to: { path: '/workflow', query: { panel: 'messages' } } },
     ] }]
   }
+  if (!['admin', 'college_admin'].includes(role)) return []
   const adminItems = [
     { label: t('sidebar.overview'), icon: 'dashboard', to: '/workspace' },
     { label: t('sidebar.workflow'), icon: 'assignment', to: '/workflow' },
+    { label: t('route.cohorts'), icon: 'calendar_month', to: '/cohorts' },
+    { label: t('workflow.reports'), icon: 'monitoring', to: { path: '/workflow', query: { panel: 'reports' } } },
+    { label: t('sidebar.messages'), icon: 'notifications', to: { path: '/workflow', query: { panel: 'messages' } } },
+  ]
+  const resources = [
     { label: t('sidebar.members'), icon: 'groups', to: '/organizations' },
     { label: t('sidebar.templates'), icon: 'library_books', to: '/templates' },
+    { label: t('sidebar.policies'), icon: 'menu_book', to: '/policies' },
     { label: t('sidebar.documentProjects'), icon: 'description', to: '/document-projects' },
     { label: t('sidebar.publishDocumentPackage'), icon: 'publish', to: '/document-packages/publish' },
     { label: t('sidebar.audit'), icon: 'fact_check', to: '/audit' },
-    { label: t('sidebar.messages'), icon: 'notifications', to: { path: '/workflow', query: { panel: 'messages' } } },
+    { label: t('workspace.archiveJobs'), icon: 'inventory_2', to: { path: '/workflow', query: { panel: 'archives' } } },
   ]
   if (role === 'admin') {
-    adminItems.push({ label: t('sidebar.operations'), icon: 'settings', to: '/operations' })
+    resources.push({ label: t('sidebar.operations'), icon: 'settings', to: '/operations' })
   }
-  return [{ label: role === 'admin' ? t('sidebar.schoolOps') : t('sidebar.collegeOps'), items: adminItems }]
+  return [
+    { label: role === 'admin' ? t('sidebar.schoolOps') : t('sidebar.collegeOps'), items: adminItems },
+    { label: t('sidebar.resourcesGovernance'), items: resources },
+  ]
 })
 
 const managerTools = computed(() => {
@@ -108,9 +124,6 @@ const managerTools = computed(() => {
   if (role === 'admin') return [
     { label: t('sidebar.users'), icon: 'manage_accounts', to: '/admin/users' },
     { label: t('sidebar.ai'), icon: 'tune', to: '/admin/ai' },
-  ]
-  if (role === 'teacher') return [
-    { label: t('sidebar.teacherStudents'), icon: 'school', to: '/teacher/students' },
   ]
   return []
 })
@@ -126,3 +139,10 @@ function isActive(item) {
   return route.path === target || route.path.startsWith(`${target}/`)
 }
 </script>
+
+<style scoped>
+.sidebar-avatar { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: #dce6ff; color: #1d43a9; font-size: 13px; font-weight: 700; }
+.sidebar-user { min-width: 0; display: grid; gap: 3px; }
+.sidebar-user strong { color: #fff; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-user small { font-size: 10px; line-height: 1.5; }
+</style>

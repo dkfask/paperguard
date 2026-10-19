@@ -1,0 +1,37 @@
+{
+  "format": "paperguard-production-uat-f01-server-logout-revocation",
+  "format_version": 1,
+  "recorded_at": "2026-10-18T14:41:20Z",
+  "environment": "production",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_identity_rechecked_this_run": false,
+  "accounts": [
+    {
+      "alias": "T-A",
+      "expected_role": "teacher",
+      "login_http": 200,
+      "me_before_logout_http": 200,
+      "role_match": true,
+      "logout_http": 200,
+      "me_after_logout_http": 401,
+      "protected_participant_after_logout_http": 401,
+      "session_invalidated": true
+    },
+    {
+      "alias": "S-A",
+      "expected_role": "student",
+      "login_http": 200,
+      "me_before_logout_http": 200,
+      "role_match": true,
+      "logout_http": 200,
+      "me_after_logout_http": 401,
+      "protected_participant_after_logout_http": 401,
+      "session_invalidated": true
+    }
+  ],
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "status": "PASS_SUBCHECK"
+}

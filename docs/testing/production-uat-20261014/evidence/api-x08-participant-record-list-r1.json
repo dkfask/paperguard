@@ -1,0 +1,54 @@
+{
+  "recorded_at": "2026-10-15T13:56:33+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X08 participant-scoped process-record list direct access",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "resource": {
+    "participant_id": "participant-e7b399a3625e",
+    "target_process_record_id": "record-01b387680b0f",
+    "owner_alias": "S-A"
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/stage-participants/participant-e7b399a3625e/process-records"
+  },
+  "accounts": [
+    {
+      "alias": "S-B",
+      "login_status": 200,
+      "login_role": "student",
+      "expected_role": "student",
+      "me_status": 200,
+      "list_status": 404,
+      "expected_denial": true,
+      "response_body_saved": false,
+      "logout_status": 200
+    },
+    {
+      "alias": "T-B",
+      "login_status": 200,
+      "login_role": "teacher",
+      "expected_role": "teacher",
+      "me_status": 200,
+      "list_status": 404,
+      "expected_denial": true,
+      "response_body_saved": false,
+      "logout_status": 200
+    }
+  ],
+  "response_body_saved": false,
+  "writes": {
+    "business_writes": 0,
+    "auth_sessions_created": 2,
+    "auth_sessions_logged_out": 2,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0
+  },
+  "limitations": [
+    "The response was inspected in memory only for count and target record ID; no content fields were retained.",
+    "Only one known synthetic participant ID was tested.",
+    "Does not cover global list/search, attachments, direct downloads or exports."
+  ]
+}

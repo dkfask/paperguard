@@ -1,0 +1,26 @@
+{
+  "mode": "preflight",
+  "source_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "db_path": "/home/ubuntu/paperguard/backend/data/paperguard.db",
+  "migration_ledger_count": 14,
+  "schema_migration_executed": false,
+  "existing_users_changed": false,
+  "organization_ids": [
+    "uat-20261014-school",
+    "uat-20261014-college-a",
+    "uat-20261014-college-b",
+    "uat-20261014-major-a",
+    "uat-20261014-major-b"
+  ],
+  "account_labels": [
+    "SYS-A",
+    "SCH-A",
+    "COL-A",
+    "COL-B",
+    "T-A",
+    "T-B",
+    "S-A",
+    "S-B",
+    "S-C"
+  ]
+}

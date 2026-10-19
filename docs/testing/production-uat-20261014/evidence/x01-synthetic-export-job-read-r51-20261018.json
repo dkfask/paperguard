@@ -1,0 +1,57 @@
+{
+  "recorded_at": "2026-10-18T15:24:33Z",
+  "target": "https://paper.thunderuni.com",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "scenario": "X01 exact known synthetic project export background-job read access",
+  "project_id": "proj-01c5de3baec6",
+  "export_id": "export-932c3cfdfdaf",
+  "job_id": "job-b12e7157d5bb",
+  "response_bodies_recorded": false,
+  "checks": [
+    {
+      "role_alias": "S-A",
+      "login_status": 200,
+      "path": "/api/projects/proj-01c5de3baec6/export-jobs",
+      "http_status": 200,
+      "exact_project_job_count": 1,
+      "export_status": "succeeded",
+      "job_id_match": true,
+      "logout_status": 200
+    },
+    {
+      "role_alias": "SYS-A",
+      "login_status": 200,
+      "role": "admin",
+      "path": "/api/jobs/job-b12e7157d5bb",
+      "http_status": 200,
+      "returned_job_id_matches": true,
+      "job_type": "project.export",
+      "resource_type": "project_export",
+      "state": "succeeded",
+      "attempt_count": 1,
+      "logout_status": 200
+    }
+  ],
+  "repeat_shape_readback": {
+    "role_alias": "SYS-A",
+    "login_status": 200,
+    "http_status": 200,
+    "state": "succeeded",
+    "logout_status": 200,
+    "reason": "confirm the public job projection uses the state field"
+  },
+  "writes": {
+    "business_data": 0,
+    "auth_sessions_created": 3,
+    "auth_sessions_logged_out": 3,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0
+  },
+  "limitations": [
+    "Only one known synthetic project and its single export job were checked.",
+    "No global job list, retry, cancellation, artifact download, or unrelated job was accessed."
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "recorded_at": "2026-10-15T14:57:58.025213+00:00",
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "input_sha256": "cb85f9c82a3115024ef9441d3b89919ccb539ad77a2a68fca51ae6ea8d25aa8a",
+  "renderer": "bundled LibreOffice through documents/render_docx.py",
+  "pages_rendered": 10,
+  "pages_visually_inspected": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "visual_result": "no clipping, overlap or missing Chinese glyphs after task-local font configuration",
+  "font_mapping": "宋体/SimSun -> macOS Songti SC; 黑体/SimHei -> macOS Heiti SC; no changes to input DOCX or production",
+  "initial_render_classification": "ENVIRONMENT: only renderer FONTCONFIG_FILE change restored Chinese display on identical input",
+  "toc": "field present; visible placeholder asks user to update table of contents; final Word field update/page reconciliation NOT RUN",
+  "microsoft_word_and_print": "NOT RUN",
+  "status": "PASS WITH RESIDUAL RISK"
+}

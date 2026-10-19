@@ -1,0 +1,58 @@
+{
+  "recorded_at": "2026-10-18T15:06:11Z",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_identity_rechecked_this_run": false,
+  "scope": "S-A read-only exact participant stage/config structure; no text values retained",
+  "role_alias": "S-A",
+  "participant_id": "participant-e7b399a3625e",
+  "login_http_status": 200,
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0,
+  "me_http_status": 200,
+  "role": "student",
+  "role_match": true,
+  "participant_http_status": 200,
+  "text_field_keys": [
+    "cohort_name",
+    "content_hash",
+    "name",
+    "requirement_basis_hash",
+    "stage_name",
+    "student_name"
+  ],
+  "text_field_count": 9,
+  "text_lengths_only": [
+    20,
+    25,
+    16,
+    20,
+    25,
+    20,
+    64,
+    64,
+    16
+  ],
+  "instruction_field_named_present": false,
+  "required_material_count": 1,
+  "required_material_entries": [
+    {
+      "structure": "not_assessed",
+      "name_present": null,
+      "description_present": null
+    }
+  ],
+  "stage_status_observed": "published",
+  "date_guidance_field_names_present": null,
+  "heuristic_mentions_when": null,
+  "heuristic_mentions_deliverable": null,
+  "heuristic_mentions_reviewer": null,
+  "heuristic_mentions_revision": null,
+  "text_semantics_are_heuristic_only": true,
+  "status": "read_complete",
+  "logout_http_status": 200,
+  "semantic_probe_status": "inconclusive",
+  "semantic_probe_note": "Initial text traversal did not inspect string elements nested in arrays; semantic keyword booleans and material-entry text were not assessed. Do not infer absence from null values."
+}

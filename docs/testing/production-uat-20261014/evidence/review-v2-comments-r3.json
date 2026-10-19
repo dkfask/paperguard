@@ -1,0 +1,42 @@
+{
+  "observed_at": "2026-10-15T10:20:41+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "production backend loopback over SSH; synthetic UAT submission only",
+  "ui_verified": false,
+  "preflight": {
+    "T-A_get_status": 200,
+    "submission_id": "submission-b6586e251afb",
+    "state": "submitted",
+    "review_cycle": 2,
+    "comments_before": 0
+  },
+  "review": {
+    "status": 200,
+    "decision": "returned",
+    "review_cycle": 2,
+    "participant_state": "needs_revision",
+    "revision_deadline_set": true
+  },
+  "comments": [
+    {
+      "id": "comment-45e0a26adc58",
+      "severity": "info",
+      "status": "open",
+      "block_id": "ch4"
+    },
+    {
+      "id": "comment-808dd0d12d31",
+      "severity": "blocking",
+      "status": "open",
+      "block_id": "ch2_1"
+    }
+  ],
+  "prior_review_preserved": {
+    "submission_id": "submission-691de2599180",
+    "get_status": 200,
+    "state": "returned",
+    "review_cycle": 1,
+    "decision": "returned"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "checked_date": "2026-10-18",
+  "scope": "read-only availability probes; no authenticated scenario execution",
+  "checks": [
+    {
+      "path": "/api/health/live",
+      "status": 200,
+      "response": {"status": "ok", "service": "paperguard", "probe": "live"}
+    },
+    {
+      "path": "/api/health/ready",
+      "status": 200,
+      "response": {"status": "ok", "service": "paperguard", "probe": "ready"}
+    },
+    {
+      "path": "/openapi.json",
+      "status": 200,
+      "content_type": "text/html",
+      "observation": "frontend fallback HTML; not an OpenAPI document"
+    },
+    {
+      "path": "/api/openapi.json",
+      "status": 404
+    },
+    {
+      "path": "/api/docs",
+      "status": 404
+    }
+  ],
+  "authenticated_browser": "unavailable; existing PaperGuard tab read timed out and host reported locked",
+  "online_verification_environment": "required PAPERGUARD_ONLINE_* variables were absent; values were not read or logged",
+  "business_writes": 0,
+  "auth_sessions_created": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0,
+  "deployment": 0,
+  "scenario_matrix_changed": false
+}

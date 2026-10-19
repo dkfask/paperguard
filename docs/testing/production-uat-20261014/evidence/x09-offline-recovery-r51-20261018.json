@@ -1,0 +1,28 @@
+{
+  "recorded_at": "2026-10-18T13:49:24.482Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "local-only offline save/recovery check for one retained synthetic draft; all browser business writes blocked before reaching the server; no restore/retry action",
+  "role_alias": "S-A",
+  "project_id": "proj-01c5de3baec6",
+  "status": "passed",
+  "login_status": 200,
+  "logout_status": 200,
+  "revision_before": 21,
+  "revision_after": 21,
+  "offline_observed": true,
+  "local_recovery_marker_found": true,
+  "recovery_banner_visible": true,
+  "server_marker_absent": true,
+  "blocked_business_writes": [
+    {
+      "method": "PUT",
+      "path": "/api/projects/proj-01c5de3baec6/section/abstract"
+    }
+  ],
+  "external_hosts_blocked": 2,
+  "page_errors": [],
+  "server_revision_unchanged": true,
+  "server_abstract_hash_unchanged": true,
+  "local_recovery_after_reload": true
+}

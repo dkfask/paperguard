@@ -1,0 +1,20 @@
+{
+  "captured_at": "2026-10-14T18:08:51.523802+08:00",
+  "repository": "/Users/a1234/Documents/perpetual/paperguard",
+  "branch": "fix/ui-review-findings-20260929",
+  "local_head": "a64e8cdc56e3db76b691c4d4c054452d9f759173",
+  "dirty_at_start": true,
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "plan_sha256": "ca7cf732621b4a24f34ea30309b51a65d2cc10f89e2e48fc1dc016f70b083116",
+  "source_manifest_sha256": "efd0593a6e9ff0274d6a3ca995c2cc2ac05e0673652c5977f79c04a537c61367",
+  "allowed_actions_this_round": [
+    "public read-only HTTP",
+    "anonymous UI validation",
+    "existing SSH read-only release/services/OpenAPI checks",
+    "local result records"
+  ],
+  "production_business_writes": [],
+  "ai_calls": 0,
+  "test_objects": [],
+  "required_gate_status": "本轮未改应用代码，未重新运行本地测试；生产提交CI另行核验，不替代完整UAT。"
+}

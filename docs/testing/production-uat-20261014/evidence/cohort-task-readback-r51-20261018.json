@@ -1,0 +1,72 @@
+{
+  "recorded_at": "2026-10-18T13:25:44+00:00",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "read-only exact UAT cohort/member/stage/participant readback; only target participant summary retained, no list text/account ID retained",
+  "cohort_id": "cohort-ed0046d38402",
+  "stage_id": "stage-dde2f988be51",
+  "participant_id": "participant-e7b399a3625e",
+  "roles": [
+    {
+      "role_alias": "COL-A",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "cohort",
+          "http_status": 200,
+          "id": "cohort-ed0046d38402",
+          "revision": 3,
+          "member_count": 1,
+          "stage_count": 2,
+          "cohort_status": "published"
+        },
+        {
+          "resource": "members",
+          "http_status": 200,
+          "member_count": 1,
+          "known_student_match_count": 1
+        },
+        {
+          "resource": "stages",
+          "http_status": 200,
+          "known_stage_count": 1,
+          "known_stage_matches": [
+            {
+              "id": "stage-dde2f988be51",
+              "status": "published",
+              "cohort_id": "cohort-ed0046d38402",
+              "revision": 1,
+              "key": "uat-final-20261015"
+            }
+          ]
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "role_alias": "S-A",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "my-tasks",
+          "http_status": 200,
+          "known_participant_found": true,
+          "known_participant_state": "pending_archive"
+        },
+        {
+          "resource": "participant",
+          "http_status": 200,
+          "id": "participant-e7b399a3625e",
+          "state": "pending_archive",
+          "stage_id": null,
+          "cohort_id": null,
+          "project_id": "proj-d148a21068b3",
+          "revision": 6,
+          "review_cycle": 2,
+          "project_id_matches_known_synthetic": true
+        }
+      ],
+      "logout_status": 200
+    }
+  ]
+}

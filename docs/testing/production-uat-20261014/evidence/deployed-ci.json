@@ -1,0 +1,73 @@
+{
+  "observed_at": "2026-10-14",
+  "repo": "dkfask/paperguard",
+  "head_sha": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "total_count": 8,
+  "checks": [
+    {
+      "name": "Disposable production-topology preflight",
+      "head_sha": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38226102022/job/114733885132",
+      "completed_at": "2026-10-12T08:52:15Z"
+    },
+    {
+      "name": "Online verifier contract (loopback)",
+      "head_sha": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38226102007/job/114733874756",
+      "completed_at": "2026-10-12T08:50:59Z"
+    },
+    {
+      "name": "Design gates (tenancy toolchain)",
+      "head_sha": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38226102007/job/114733874744",
+      "completed_at": "2026-10-12T08:55:19Z"
+    },
+    {
+      "name": "Backend tests (Python 3.11)",
+      "head_sha": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38226102007/job/114733874666",
+      "completed_at": "2026-10-12T08:53:13Z"
+    },
+    {
+      "name": "Backend tests (Python 3.12)",
+      "head_sha": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38226102007/job/114733874616",
+      "completed_at": "2026-10-12T08:53:10Z"
+    },
+    {
+      "name": "Generic document browser flow",
+      "head_sha": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38226102006/job/114733874460",
+      "completed_at": "2026-10-12T08:55:28Z"
+    },
+    {
+      "name": "Frontend checks",
+      "head_sha": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38226102007/job/114733874457",
+      "completed_at": "2026-10-12T08:56:25Z"
+    },
+    {
+      "name": "Disposable Docker staging",
+      "head_sha": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38226102009/job/114733874231",
+      "completed_at": "2026-10-12T08:54:00Z"
+    }
+  ],
+  "scope": "CI bound to deployed source revision; does not validate dirty local workspace or full UAT"
+}

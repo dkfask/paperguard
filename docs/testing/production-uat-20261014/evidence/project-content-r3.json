@@ -1,0 +1,114 @@
+{
+  "login_status": 200,
+  "method": "production backend loopback over SSH; synthetic manuscript content; no AI",
+  "preconditions": {
+    "revision": true,
+    "participant_is_test": true,
+    "project_revision_is_zero": true,
+    "new_stage_version_not_yet_acknowledged": true
+  },
+  "requirement_acknowledge_status": 200,
+  "meta_update_status": 200,
+  "section_updates": [
+    {
+      "key": "abstract",
+      "status": 200,
+      "revision": 2,
+      "content_length": 86,
+      "table_count": 0
+    },
+    {
+      "key": "ch1",
+      "status": 200,
+      "revision": 3,
+      "content_length": 41,
+      "table_count": 0
+    },
+    {
+      "key": "ch1_1",
+      "status": 200,
+      "revision": 4,
+      "content_length": 48,
+      "table_count": 0
+    },
+    {
+      "key": "ch1_2",
+      "status": 200,
+      "revision": 5,
+      "content_length": 31,
+      "table_count": 0
+    },
+    {
+      "key": "ch1_3",
+      "status": 200,
+      "revision": 6,
+      "content_length": 40,
+      "table_count": 0
+    },
+    {
+      "key": "ch2",
+      "status": 200,
+      "revision": 7,
+      "content_length": 32,
+      "table_count": 0
+    },
+    {
+      "key": "ch2_1",
+      "status": 200,
+      "revision": 8,
+      "content_length": 34,
+      "table_count": 0
+    },
+    {
+      "key": "ch2_2",
+      "status": 200,
+      "revision": 9,
+      "content_length": 35,
+      "table_count": 0
+    },
+    {
+      "key": "ch3",
+      "status": 200,
+      "revision": 10,
+      "content_length": 33,
+      "table_count": 0
+    },
+    {
+      "key": "ch4",
+      "status": 200,
+      "revision": 11,
+      "content_length": 29,
+      "table_count": 1
+    },
+    {
+      "key": "ch5",
+      "status": 200,
+      "revision": 12,
+      "content_length": 37,
+      "table_count": 0
+    },
+    {
+      "key": "references",
+      "status": 200,
+      "revision": 13,
+      "content_length": 26,
+      "table_count": 0
+    },
+    {
+      "key": "acknowledgement",
+      "status": 200,
+      "revision": 14,
+      "content_length": 26,
+      "table_count": 0
+    }
+  ],
+  "final_project_status": 200,
+  "final_revision": 14,
+  "title_unchanged": true,
+  "section_count": 13,
+  "meta_required_fields_nonempty": true,
+  "observed_at": "2026-10-15T10:11:09.703150+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "ui_verified": false
+}

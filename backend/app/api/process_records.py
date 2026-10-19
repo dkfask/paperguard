@@ -37,6 +37,7 @@ from app.models.process_record import (
     PROCESS_ARTIFACT_CATALOG,
     ProcessDecision,
     ProcessRecordCreate,
+    ProcessRecordTeacherFieldsUpdate,
     ProcessRecordUpdate,
     PROCESS_FORM_SCHEMAS,
     REFERENCE_DOCUMENT_CATALOG,
@@ -58,8 +59,13 @@ router = APIRouter(prefix="/api", tags=["process-records"])
 _STUDENT_WRITABLE = {
     "task_book", "opening_report", "guidance_log", "final_report", "result_package",
     "similarity_report", "defense_presentation", "defense_application", "internship_identification",
-    "excellence_application", "topic_change", "extension_application", "process_cover",
+    "excellence_application", "topic_change", "extension_application", "process_cover", "midterm_check",
 }
+_MIDTERM_TEACHER_FIELDS = {"advisor_comment", "score"}
+_MIDTERM_STUDENT_FIELDS = {
+    field["key"] for field in artifact_form_schema("midterm_check")["fields"]
+    if field.get("owner") != "teacher"
+} | {"title", "content"}
 _READY_STATES = {"submitted", "approved"}
 _ALLOWED_SUFFIXES = {".doc", ".docx", ".pdf", ".zip", ".pptx", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".txt"}
 
@@ -80,6 +86,13 @@ def _canonical_or_422(value: str) -> tuple[str, dict[str, Any]]:
     if item is None:
         raise HTTPException(status_code=422, detail=f"未知过程材料类型: {value}")
     return artifact_type, item
+
+
+def _validate_midterm_student_fields(data: dict[str, Any]) -> None:
+    if set(data) & _MIDTERM_TEACHER_FIELDS:
+        raise HTTPException(status_code=403, detail="学生不能填写指导教师意见或中期评价分数")
+    if set(data) - _MIDTERM_STUDENT_FIELDS:
+        raise HTTPException(status_code=422, detail="中期检查包含不支持的学生填报字段")
 
 
 def _record_view(record: dict) -> dict:
@@ -279,9 +292,12 @@ def process_record_form(artifact_type: str, participant_id: str, store: Store = 
     if item["scope"] != "participant":
         raise HTTPException(status_code=422, detail="该材料必须挂在学院批次上")
     project = store.get_project(participant.get("project_id")) if participant.get("project_id") else None
+    schema = artifact_form_schema(canonical)
+    if user.get("role") == "student" and canonical == "midterm_check":
+        schema = {**schema, "fields": [field for field in schema["fields"] if field.get("owner") != "teacher"]}
     return {
         "artifact_type": canonical,
-        "schema": artifact_form_schema(canonical),
+        "schema": schema,
         "prefill": prefill_artifact_data(canonical, user=store.get_user(participant["student_id"]) or user,
                                           participant=participant, cohort=cohort, project=project),
     }
@@ -312,8 +328,12 @@ def create_participant_record(participant_id: str, req: ProcessRecordCreate, sto
     artifact_type, item = _canonical_or_422(req.artifact_type)
     if item["scope"] != "participant":
         raise HTTPException(status_code=422, detail="该材料必须挂在学院批次上")
+    if artifact_type == "midterm_check" and user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="中期检查由学生填写并提交，指派教师在收件箱补填教师字段")
     if user["role"] == "student" and artifact_type not in _STUDENT_WRITABLE:
         raise HTTPException(status_code=403, detail="学生不能直接创建该类材料")
+    if user["role"] == "student" and artifact_type == "midterm_check":
+        _validate_midterm_student_fields(req.data)
     _ensure_student_material_write(store, user, participant, config)
     data = req.data
     if req.structured_form:
@@ -401,8 +421,19 @@ def get_record(record_id: str, store: Store = Depends(get_store), user: dict = D
 def update_record(record_id: str, req: ProcessRecordUpdate, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     record = _must(store, "process_record", record_id, "过程材料")
     participant, cohort = _ensure_record_editor(store, user, record)
+    if record.get("artifact_type") == "midterm_check":
+        if user.get("role") == "student":
+            _validate_midterm_student_fields(req.data)
+        elif user.get("role") == "teacher":
+            raise HTTPException(status_code=403, detail="教师请通过中期检查的教师字段入口填写意见和评分")
+        else:
+            raise HTTPException(status_code=403, detail="中期检查仅允许学生填写自有字段或指派教师填写教师字段")
     if req.base_revision is not None and req.base_revision != record.get("revision"):
         raise HTTPException(status_code=409, detail={"message": "材料已被更新，请刷新后重试", "revision": record.get("revision")})
+    retained_teacher_fields = {
+        key: value for key, value in (record.get("data") or {}).items()
+        if key in _MIDTERM_TEACHER_FIELDS
+    } if record.get("artifact_type") == "midterm_check" and user.get("role") == "student" else {}
     record.setdefault("history", []).append({
         "version": record.get("version", 1), "data": record.get("data", {}),
         "note": record.get("note", ""), "saved_at": _now(), "saved_by": user["id"],
@@ -416,6 +447,8 @@ def update_record(record_id: str, req: ProcessRecordUpdate, store: Store = Depen
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     else:
         record["data"] = req.data
+    if retained_teacher_fields:
+        record["data"] = {**retained_teacher_fields, **record["data"]}
     record["note"] = req.note.strip()
     expected = record.get("revision", 0)
     with store.workflow_transaction() as conn:
@@ -424,10 +457,60 @@ def update_record(record_id: str, req: ProcessRecordUpdate, store: Store = Depen
     return _record_view(record)
 
 
+@router.patch("/process-records/{record_id}/teacher-fields")
+def update_midterm_teacher_fields(record_id: str, req: ProcessRecordTeacherFieldsUpdate,
+                                  store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
+    record = _must(store, "process_record", record_id, "过程材料")
+    participant, cohort = _ensure_record_access(store, user, record)
+    if user.get("role") != "teacher" or participant is None or participant.get("teacher_id") != user.get("id"):
+        raise HTTPException(status_code=403, detail="只有指派教师可以填写中期检查教师字段")
+    if record.get("scope_type") != "participant" or record.get("artifact_type") != "midterm_check":
+        raise HTTPException(status_code=422, detail="教师字段填写仅支持学生中期检查记录")
+    item = catalog_item("midterm_check")
+    if record.get("state") != "submitted" or _next_approval(record, item) != "teacher":
+        raise HTTPException(status_code=409, detail="只有等待指派教师审批的中期检查可以补填教师字段")
+    if not req.data:
+        raise HTTPException(status_code=422, detail="请至少填写一项教师字段")
+    if set(req.data) - _MIDTERM_TEACHER_FIELDS:
+        raise HTTPException(status_code=403, detail="教师只能填写指导教师意见和中期评价分数")
+    if "advisor_comment" in req.data and not isinstance(req.data["advisor_comment"], str):
+        raise HTTPException(status_code=422, detail="指导教师意见必须是文本")
+    if "advisor_comment" in req.data and len(req.data["advisor_comment"]) > 4000:
+        raise HTTPException(status_code=422, detail="指导教师意见不能超过 4000 字")
+    if "score" in req.data and req.data["score"] is not None:
+        score = req.data["score"]
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 100:
+            raise HTTPException(status_code=422, detail="中期评价分数必须是 0-100 之间的数字")
+    if req.base_revision != record.get("revision"):
+        raise HTTPException(status_code=409, detail={"message": "材料已被更新，请刷新后重试", "revision": record.get("revision")})
+
+    previous_data = dict(record.get("data") or {})
+    record.setdefault("history", []).append({
+        "version": record.get("version", 1), "data": previous_data,
+        "note": record.get("note", ""), "saved_at": _now(), "saved_by": user["id"],
+        "update_scope": "teacher_fields",
+    })
+    merged_data = {**previous_data, **req.data}
+    try:
+        record["data"] = validate_artifact_data("midterm_check", merged_data, allow_partial=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    record["version"] = int(record.get("version", 1)) + 1
+    expected = record.get("revision", 0)
+    with store.workflow_transaction() as conn:
+        _record(store, "process_record", record, expected_revision=expected, conn=conn)
+        _audit(store, conn, actor_id=user["id"], action="process_record.teacher_fields.update",
+               resource_type="process_record", resource_id=record_id,
+               organization_id=cohort["organization_id"])
+    return _record_view(record)
+
+
 @router.post("/process-records/{record_id}/submit")
 def submit_record(record_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     record = _must(store, "process_record", record_id, "过程材料")
     participant, cohort = _ensure_record_editor(store, user, record)
+    if record.get("artifact_type") == "midterm_check" and user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="中期检查只能由学生提交")
     _validate_submission(record)
     if record.get("structured_form"):
         try:

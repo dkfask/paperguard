@@ -1,0 +1,644 @@
+{
+  "observed_at": "2026-10-14T17:53:04.003542+08:00",
+  "target": "production server loopback",
+  "method": "read-only SSH / systemctl show / GET",
+  "services": "ExecMainStartTimestamp=Mon 2026-10-12 20:36:14 CST\nWorkingDirectory=/home/ubuntu/paperguard/backend\nId=paperguard.service\nActiveState=active\nSubState=running\n\nExecMainStartTimestamp=Mon 2026-10-12 20:36:14 CST\nWorkingDirectory=/home/ubuntu/paperguard/backend\nId=paperguard-worker.service\nActiveState=active\nSubState=running",
+  "openapi": {
+    "http_status": 200,
+    "route_count": 197,
+    "paths": {
+      "/api/health": [
+        "get"
+      ],
+      "/api/health/live": [
+        "get"
+      ],
+      "/api/health/ready": [
+        "get"
+      ],
+      "/api/packs": [
+        "get"
+      ],
+      "/api/packs/{pack_id}": [
+        "get"
+      ],
+      "/api/check-template": [
+        "post"
+      ],
+      "/api/check": [
+        "post"
+      ],
+      "/api/fix": [
+        "post"
+      ],
+      "/api/auth/register": [
+        "post"
+      ],
+      "/api/auth/role-certification": [
+        "get",
+        "post"
+      ],
+      "/api/auth/email/code": [
+        "post"
+      ],
+      "/api/auth/login": [
+        "post"
+      ],
+      "/api/auth/mp/login": [
+        "post"
+      ],
+      "/api/auth/mp/bind": [
+        "post"
+      ],
+      "/api/auth/mp/register": [
+        "post"
+      ],
+      "/api/auth/mp/bind-email": [
+        "post"
+      ],
+      "/api/auth/first-login/complete": [
+        "post"
+      ],
+      "/api/auth/logout": [
+        "post"
+      ],
+      "/api/auth/change-password": [
+        "post"
+      ],
+      "/api/auth/mp/unbind": [
+        "post"
+      ],
+      "/api/auth/mp/subscribe": [
+        "post"
+      ],
+      "/api/auth/me": [
+        "get"
+      ],
+      "/api/auth/admin/users": [
+        "get"
+      ],
+      "/api/auth/admin/users/{user_id}/role-status": [
+        "put"
+      ],
+      "/api/auth/admin/users/{user_id}/role-certification": [
+        "post"
+      ],
+      "/api/templates": [
+        "get",
+        "post"
+      ],
+      "/api/templates/{tpl_id}": [
+        "get",
+        "put",
+        "delete"
+      ],
+      "/api/templates/default": [
+        "post"
+      ],
+      "/api/templates/strip-comments": [
+        "post"
+      ],
+      "/api/templates/parse": [
+        "post"
+      ],
+      "/api/templates/parse/candidates": [
+        "get"
+      ],
+      "/api/templates/parse/candidates/{candidate_id}": [
+        "get"
+      ],
+      "/api/templates/parse/confirm": [
+        "post"
+      ],
+      "/api/templates/import": [
+        "post"
+      ],
+      "/api/projects": [
+        "get",
+        "post"
+      ],
+      "/api/projects/trash": [
+        "get"
+      ],
+      "/api/projects/{proj_id}": [
+        "get",
+        "put",
+        "delete"
+      ],
+      "/api/projects/{proj_id}/sections": [
+        "put"
+      ],
+      "/api/projects/{proj_id}/section/{section_key}": [
+        "put"
+      ],
+      "/api/projects/{proj_id}/images": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/import-docx": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/meta": [
+        "put"
+      ],
+      "/api/projects/{proj_id}/restore-local": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/restore": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/template": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/refresh-template": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/template-check": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/check": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/fix": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/requirements/waivers": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/requirements/{item_id}/waiver": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/requirements/waivers/{waiver_id}/decision": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/requirements/waivers/{waiver_id}/revoke": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/requirements/disputes": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/requirements/{item_id}/dispute": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/requirements/disputes/{dispute_id}/decision": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/requirements/acknowledge": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/requirements/{item_id}/assist": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/requirements/upgrade-preview": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/requirements/upgrade": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/check-runs": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/check-runs/{run_id}": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/compliance-report": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/export-jobs": [
+        "post",
+        "get"
+      ],
+      "/api/projects/{proj_id}/export-jobs/{export_id}": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/export-jobs/{export_id}/retry": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/export-jobs/{export_id}/download": [
+        "get"
+      ],
+      "/api/projects/{proj_id}/export": [
+        "post"
+      ],
+      "/api/projects/{proj_id}/export-preview": [
+        "post"
+      ],
+      "/api/ai/status": [
+        "get"
+      ],
+      "/api/ai/disclosure": [
+        "get"
+      ],
+      "/api/ai/config": [
+        "get",
+        "put",
+        "delete"
+      ],
+      "/api/ai/config/test": [
+        "post"
+      ],
+      "/api/ai/admin/config": [
+        "get",
+        "put",
+        "delete"
+      ],
+      "/api/ai/admin/config/test": [
+        "post"
+      ],
+      "/api/ai/assist": [
+        "post"
+      ],
+      "/api/teacher/students": [
+        "get"
+      ],
+      "/api/teacher/students/import": [
+        "post"
+      ],
+      "/api/teacher/students/{student_id}/reset-password": [
+        "post"
+      ],
+      "/api/teacher/students/{student_id}": [
+        "delete"
+      ],
+      "/api/policies": [
+        "get",
+        "post"
+      ],
+      "/api/policies/import": [
+        "post"
+      ],
+      "/api/policies/{policy_id}": [
+        "get",
+        "put"
+      ],
+      "/api/policies/{policy_id}/versions": [
+        "post"
+      ],
+      "/api/policies/{policy_id}/diff": [
+        "get"
+      ],
+      "/api/policies/{policy_id}/submit-review": [
+        "post"
+      ],
+      "/api/policies/{policy_id}/publish": [
+        "post"
+      ],
+      "/api/policies/{policy_id}/archive": [
+        "post"
+      ],
+      "/api/policies/{policy_id}/audit": [
+        "get"
+      ],
+      "/api/policies/{policy_id}/bindings": [
+        "post"
+      ],
+      "/api/policies/{policy_id}/bindings/{binding_id}": [
+        "delete"
+      ],
+      "/api/policies/{policy_id}/documents": [
+        "post"
+      ],
+      "/api/policies/{policy_id}/documents/{document_id}": [
+        "get",
+        "delete"
+      ],
+      "/api/policies/{policy_id}/preview": [
+        "post"
+      ],
+      "/api/policies/{policy_id}/upgrade-projects": [
+        "post"
+      ],
+      "/api/specs/parse": [
+        "post"
+      ],
+      "/api/specs/parse/candidates": [
+        "get"
+      ],
+      "/api/specs/parse/candidates/{candidate_id}": [
+        "get"
+      ],
+      "/api/specs/parse/confirm": [
+        "post"
+      ],
+      "/api/document-packages": [
+        "get",
+        "post"
+      ],
+      "/api/document-packages/{package_id}": [
+        "get"
+      ],
+      "/api/document-projects": [
+        "get",
+        "post"
+      ],
+      "/api/document-projects/{project_id}": [
+        "get",
+        "put"
+      ],
+      "/api/document-projects/{project_id}/editor": [
+        "get"
+      ],
+      "/api/document-projects/{project_id}/images": [
+        "post"
+      ],
+      "/api/document-projects/{project_id}/validate": [
+        "post"
+      ],
+      "/api/document-projects/{project_id}/render": [
+        "post"
+      ],
+      "/api/document-projects/{project_id}/render-jobs": [
+        "post",
+        "get"
+      ],
+      "/api/document-projects/{project_id}/render-jobs/{render_job_id}": [
+        "get"
+      ],
+      "/api/document-projects/{project_id}/render-jobs/{render_job_id}/cancel": [
+        "post"
+      ],
+      "/api/document-projects/{project_id}/render-jobs/{render_job_id}/retry": [
+        "post"
+      ],
+      "/api/document-projects/{project_id}/render-jobs/{render_job_id}/artifact": [
+        "get"
+      ],
+      "/api/document-projects/{project_id}/validations": [
+        "get"
+      ],
+      "/api/document-projects/{project_id}/validations/{run_id}": [
+        "get"
+      ],
+      "/api/organizations": [
+        "get",
+        "post"
+      ],
+      "/api/organizations/{unit_id}": [
+        "get",
+        "put",
+        "delete"
+      ],
+      "/api/organizations/users/{user_id}/context": [
+        "put"
+      ],
+      "/api/cohorts": [
+        "post",
+        "get"
+      ],
+      "/api/cohorts/{cohort_id}": [
+        "get"
+      ],
+      "/api/cohorts/{cohort_id}/members": [
+        "post",
+        "get"
+      ],
+      "/api/cohorts/{cohort_id}/members/import": [
+        "post"
+      ],
+      "/api/cohorts/{cohort_id}/stages": [
+        "post",
+        "get"
+      ],
+      "/api/stages/{stage_id}/preview": [
+        "post"
+      ],
+      "/api/stages/{stage_id}/versions": [
+        "post"
+      ],
+      "/api/stages/{stage_id}/versions/{config_id}/publish": [
+        "post"
+      ],
+      "/api/stages/{stage_id}/publish": [
+        "post"
+      ],
+      "/api/my-tasks": [
+        "get"
+      ],
+      "/api/stage-participants/{participant_id}": [
+        "get"
+      ],
+      "/api/projects/{project_id}/versions": [
+        "get"
+      ],
+      "/api/projects/{project_id}/versions/compare": [
+        "get"
+      ],
+      "/api/project-versions/{version_id}": [
+        "get"
+      ],
+      "/api/projects/{project_id}/restore-version": [
+        "post"
+      ],
+      "/api/stage-participants/{participant_id}/project": [
+        "post"
+      ],
+      "/api/stage-participants/{participant_id}/acknowledge": [
+        "post"
+      ],
+      "/api/stage-participants/{participant_id}/extension": [
+        "put"
+      ],
+      "/api/stage-participants/{participant_id}/exit": [
+        "post"
+      ],
+      "/api/stage-participants/{participant_id}/reopen": [
+        "post"
+      ],
+      "/api/cohorts/{cohort_id}/close": [
+        "post"
+      ],
+      "/api/cohorts/{cohort_id}/reopen": [
+        "post"
+      ],
+      "/api/submission-candidates": [
+        "post"
+      ],
+      "/api/submission-candidates/{candidate_id}": [
+        "get"
+      ],
+      "/api/submissions": [
+        "post",
+        "get"
+      ],
+      "/api/submissions/{submission_id}": [
+        "get"
+      ],
+      "/api/submissions/{submission_id}/withdraw": [
+        "post"
+      ],
+      "/api/submissions/{submission_id}/reviews": [
+        "post"
+      ],
+      "/api/submissions/{submission_id}/comments": [
+        "post"
+      ],
+      "/api/comments/{comment_id}/response": [
+        "post"
+      ],
+      "/api/comments/{comment_id}/status": [
+        "post"
+      ],
+      "/api/archives": [
+        "post",
+        "get"
+      ],
+      "/api/archives/{archive_id}": [
+        "get"
+      ],
+      "/api/archives/{archive_id}/retry": [
+        "post"
+      ],
+      "/api/archives/{archive_id}/download": [
+        "get"
+      ],
+      "/api/jobs/{job_id}": [
+        "get"
+      ],
+      "/api/jobs": [
+        "get"
+      ],
+      "/api/notifications": [
+        "get"
+      ],
+      "/api/notifications/{event_id}/read": [
+        "post"
+      ],
+      "/api/reports/cohorts/{cohort_id}": [
+        "get"
+      ],
+      "/api/notifications/reminders/run": [
+        "post"
+      ],
+      "/api/outbox": [
+        "get"
+      ],
+      "/api/outbox/claim": [
+        "post"
+      ],
+      "/api/outbox/{event_id}/ack": [
+        "post"
+      ],
+      "/api/outbox/{event_id}/fail": [
+        "post"
+      ],
+      "/api/outbox/{event_id}/retry": [
+        "post"
+      ],
+      "/api/audit-events": [
+        "get"
+      ],
+      "/api/process-records/catalog": [
+        "get"
+      ],
+      "/api/process-records/form-schemas": [
+        "get"
+      ],
+      "/api/stage-participants/{participant_id}/process-records/form/{artifact_type}": [
+        "get"
+      ],
+      "/api/cohorts/{cohort_id}/process-records/form/{artifact_type}": [
+        "get"
+      ],
+      "/api/stage-participants/{participant_id}/process-records": [
+        "get",
+        "post"
+      ],
+      "/api/cohorts/{cohort_id}/process-records": [
+        "get",
+        "post"
+      ],
+      "/api/process-records/inbox": [
+        "get"
+      ],
+      "/api/process-records/{record_id}": [
+        "get",
+        "put"
+      ],
+      "/api/process-records/{record_id}/submit": [
+        "post"
+      ],
+      "/api/process-records/{record_id}/decisions": [
+        "post"
+      ],
+      "/api/process-records/{record_id}/attachments": [
+        "post"
+      ],
+      "/api/process-records/{record_id}/export": [
+        "post"
+      ],
+      "/api/process-files/{file_id}/download": [
+        "get"
+      ],
+      "/api/stage-participants/{participant_id}/score-summary": [
+        "get"
+      ],
+      "/api/stage-participants/{participant_id}/qualification": [
+        "get"
+      ],
+      "/api/operations/retention": [
+        "get",
+        "put"
+      ],
+      "/api/operations/backup": [
+        "post"
+      ],
+      "/api/saas/v1/context": [
+        "get"
+      ],
+      "/api/saas/v1/tenants": [
+        "get",
+        "post"
+      ],
+      "/api/saas/v1/tenants/{tenant_id}/memberships": [
+        "get",
+        "post"
+      ],
+      "/api/saas/v1/tenants/{tenant_id}/first-owner": [
+        "post"
+      ],
+      "/api/saas/v1/tenants/{tenant_id}/activate": [
+        "post"
+      ],
+      "/api/saas/v1/projects": [
+        "get",
+        "post"
+      ],
+      "/api/saas/v1/projects/{project_id}": [
+        "get",
+        "patch"
+      ],
+      "/api/saas/v1/projects/{project_id}/exports": [
+        "post"
+      ],
+      "/api/saas/v1/projects/{project_id}/jobs": [
+        "post"
+      ],
+      "/api/saas/v1/ai/requests": [
+        "get"
+      ],
+      "/api/saas/v1/ai/requests/{request_id}/recovery-plan": [
+        "get"
+      ],
+      "/api/saas/v1/ai/requests/{request_id}/reconciliation": [
+        "post"
+      ],
+      "/api/audit": [
+        "get"
+      ],
+      "/api/audit/export": [
+        "get"
+      ],
+      "/api/version": [
+        "get"
+      ],
+      "/media/uploads/{filename}": [
+        "get"
+      ]
+    }
+  },
+  "limits": [
+    "No business database queried",
+    "No worker iteration executed",
+    "No process restarted",
+    "Queue backlog not authenticated or verified"
+  ]
+}

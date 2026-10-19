@@ -1,0 +1,52 @@
+{
+  "observed_at": "2026-10-15T10:27:59+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "COL-A archive creation and S-A authenticated archive download over SSH loopback; no local artifact retained",
+  "ui_verified": false,
+  "submission_id": "submission-fdac25a57359",
+  "version_id": "version-3ddb03acf618",
+  "create_status": 202,
+  "archive_id": "archive-64e549d38829",
+  "archive_status": "succeeded",
+  "attempt": 1,
+  "job_id": "job-223e36f2eb99",
+  "job_state": "succeeded",
+  "manifest_hash": "5edcbbae92c400cb28c7f41910cdb32d564e1b243632f496583ac1e2031aad0e",
+  "download": {
+    "S-A_status": 200,
+    "T-B_archive_get_status": 404,
+    "T-B_download_status": 404,
+    "content_type": "application/zip",
+    "bytes": 57872,
+    "sha256": "d5d9b52c22edf9fd1366a0c2841ebb5fe3b8dbefdd09d368fbc621184c94eaee",
+    "zip_valid": true
+  },
+  "entries": [
+    "final.docx",
+    "content.json",
+    "check-report.json",
+    "submission.json",
+    "template.json",
+    "requirements.json",
+    "stage-requirements.json",
+    "reviews.json",
+    "comments.json",
+    "materials.json",
+    "process-records.json",
+    "manifest.json"
+  ],
+  "manifest_matches": {
+    "submission_id": true,
+    "project_version_id": true,
+    "content_hash": true
+  },
+  "embedded_docx": {
+    "zip_valid": true,
+    "table_count": 1,
+    "synthetic_title_present": true,
+    "v2_revision_present": true,
+    "v3_revision_present": true
+  },
+  "note": "Only the authorized synthetic UAT submission was archived; no real student material was read or exported."
+}

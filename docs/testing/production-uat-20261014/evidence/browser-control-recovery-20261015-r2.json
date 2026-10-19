@@ -1,0 +1,56 @@
+{
+  "recorded_at": "2026-10-15T12:04:37+08:00",
+  "target": "https://paper.thunderuni.com",
+  "issue": "本机 CUA 屏幕/标签桥接超时与浏览器等待器误报",
+  "observations": [
+    {
+      "path": "cua.getState",
+      "timeout_seconds": 20,
+      "result": "js execution timed out; kernel reset"
+    },
+    {
+      "path": "cua.getApp(\"Google Chrome\")",
+      "result": "Mac locked; automatic unlock could not unlock the Mac; native app control requires manual unlock"
+    },
+    {
+      "path": "node_repl fetch /login",
+      "elapsed_seconds_approx": 1.3,
+      "status": 200
+    },
+    {
+      "path": "/api/health/live and /api/health/ready",
+      "status_each": 200
+    },
+    {
+      "path": "isolated Playwright Chromium login UI",
+      "elapsed_seconds_approx": 2.7,
+      "result": "visible PaperGuard login form; all observed JS/CSS assets HTTP 200; no page/console errors"
+    },
+    {
+      "path": "login redirect",
+      "result": "/login?redirect=/ navigates to /; a test wait that incorrectly required /workspace and load timed out after 12s; corrected to wait for visible authenticated UI state"
+    },
+    {
+      "path": "workflow data readiness",
+      "result": "page heading appears before task data; waiting for the synthetic task title and archived state confirms the loaded card; do not read immediately or wait for networkidle"
+    },
+    {
+      "path": "browser navigation transient",
+      "result": "one Chromium navigation returned ERR_CONNECTION_CLOSED while a direct bounded fetch returned 200; a fresh isolated Chromium run succeeded in about 4.4s; classify as intermittent client/network behavior"
+    }
+  ],
+  "resolution": {
+    "operational": "Headless Playwright with bounded, content-based waits is stable enough to continue production UI UAT. Use DOMContentLoaded, then wait for the actual heading/task/history state; avoid networkidle and assumed redirect paths.",
+    "native_cua": "Not repaired. Current CUA native app path is blocked by the locked Mac. The older getTab browser-route failure remains unverified; do not claim the bridge itself is fixed.",
+    "next_user_action": "Manually unlock the Mac before retrying native Chrome/CUA control."
+  },
+  "scope": {
+    "business_writes": 0,
+    "authentication_events": "multiple synthetic-account sign-ins; only /api/auth/login business endpoint was POSTed",
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "real_user_data_exported": false,
+    "application_code_changed": false,
+    "production_configuration_changed": false
+  }
+}

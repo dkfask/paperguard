@@ -1,0 +1,83 @@
+{
+  "recorded_at": "2026-10-18T15:35:11Z",
+  "target": "https://paper.thunderuni.com",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "scenario": "X08 exact known synthetic archive non-owner download denial recheck",
+  "archive_id": "archive-64e549d38829",
+  "scope": "one exact previously known synthetic archive; no list enumeration; metadata positive control plus exact download denials",
+  "checks": [
+    {
+      "role_alias": "COL-A",
+      "login_status": 200,
+      "metadata_status": 200,
+      "archive_id_match": true,
+      "archive_status": "succeeded",
+      "manifest_hash_present": true,
+      "logout_status": 200,
+      "purpose": "metadata existence control only"
+    },
+    {
+      "role_alias": "T-B",
+      "expected_role": "teacher",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "download_status": 404,
+      "expected": "deny",
+      "result": "PASS",
+      "download_body_read": false,
+      "logout_status": 200
+    },
+    {
+      "role_alias": "S-B",
+      "expected_role": "student",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "download_status": 404,
+      "expected": "deny",
+      "result": "PASS",
+      "download_body_read": false,
+      "logout_status": 200
+    },
+    {
+      "role_alias": "S-C",
+      "expected_role": "student",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "download_status": 404,
+      "expected": "deny",
+      "result": "PASS",
+      "download_body_read": false,
+      "logout_status": 200
+    },
+    {
+      "role_alias": "COL-B",
+      "expected_role": "college_admin",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "download_status": 404,
+      "expected": "deny",
+      "result": "PASS",
+      "download_body_read": false,
+      "logout_status": 200
+    }
+  ],
+  "writes": {
+    "business_data": 0,
+    "auth_sessions_created": 5,
+    "auth_sessions_logged_out": 5,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0
+  },
+  "archive_body_read_or_saved": false,
+  "limitations": [
+    "Only one exact known synthetic archive and four non-owner roles were tested.",
+    "No owner download, archive generation, manifest/body inspection, search/list, or broader resource matrix was executed."
+  ]
+}

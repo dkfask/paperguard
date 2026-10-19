@@ -1,0 +1,62 @@
+{
+  "format": "paperguard-online-verification",
+  "format_version": 3,
+  "result": "passed",
+  "non_destructive": true,
+  "session_metadata_written": true,
+  "target_base_url": "https://paper.thunderuni.com",
+  "completed_at": "2026-10-18T02:15:54Z",
+  "verifier_source_revision": "37a87af0ec5f299917c1a4de2f4cfe666767119d",
+  "expected_backend_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "deployed_backend": {
+    "component": "backend",
+    "product_version": null,
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+    "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+    "build_id": "20261016T080636Z",
+    "built_at": "2026-10-16T08:06:36Z",
+    "identity_status": "declared"
+  },
+  "checks": [
+    {
+      "name": "frontend.logo",
+      "status": "passed"
+    },
+    {
+      "name": "frontend.avatar",
+      "status": "passed"
+    },
+    {
+      "name": "health.live",
+      "status": "passed"
+    },
+    {
+      "name": "health.ready",
+      "status": "passed"
+    },
+    {
+      "name": "version.backend",
+      "status": "passed"
+    },
+    {
+      "name": "version.expected_revision",
+      "status": "passed"
+    },
+    {
+      "name": "auth.login",
+      "status": "passed"
+    },
+    {
+      "name": "auth.me",
+      "status": "passed"
+    },
+    {
+      "name": "document-packages.list",
+      "status": "passed"
+    },
+    {
+      "name": "audit.list",
+      "status": "passed"
+    }
+  ]
+}

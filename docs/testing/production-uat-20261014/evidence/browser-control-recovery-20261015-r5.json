@@ -1,0 +1,72 @@
+{
+  "recorded_at": "2026-10-15T13:29:25+08:00",
+  "target": "https://paper.thunderuni.com",
+  "issue": "Codex in-app browser page-content capture still times out after the user unlocked the Mac.",
+  "user_confirmed_mac_unlocked": true,
+  "browser_inventory": {
+    "cua_getState_elapsed_ms": 31357,
+    "result": "inventory returned; Codex In-app Browser type=iab id=3; four login tabs reported",
+    "inventory_error": "Browser 1 extension reported nodeRepl.fetch request failed; this was separate from the in-app browser inventory"
+  },
+  "metadata_checks": {
+    "cua_listBrowsers_elapsed_ms": 513,
+    "result": "success",
+    "browser_tabs_list_elapsed_ms": 515,
+    "tab_id": "1",
+    "tab_url": "https://paper.thunderuni.com/login?redirect=/",
+    "tab_title": "登录 · PaperGuard",
+    "tab_metadata_elapsed_ms": 9
+  },
+  "content_capture": {
+    "method": "selected in-app tab Playwright DOM snapshot",
+    "timeout_seconds": 20,
+    "tool_result": "js execution timed out; kernel reset",
+    "second_attempt": {
+      "method": "cua.getTab existing tab id 1 bound to in-app browser id 3",
+      "timeout_seconds": 20,
+      "tool_result": "js execution timed out; kernel reset"
+    },
+    "fresh_tab_probe": {
+      "tab_id": "6",
+      "creation_and_navigation": "completed to the login URL",
+      "lightweight_read_only_evaluate_timeout_seconds": 20,
+      "tool_result": "js execution timed out; kernel reset",
+      "final_metadata_readback": {
+        "url": "https://paper.thunderuni.com/login?redirect=/",
+        "title": "登录 · PaperGuard",
+        "tab_id": "6"
+      },
+      "marked_for_handoff": true
+    }
+  },
+  "read_only_service_probe": {
+    "login_page": {
+      "http_status": 200,
+      "elapsed_ms": 825
+    },
+    "health_ready": {
+      "http_status": 200,
+      "elapsed_ms": 1086
+    }
+  },
+  "diagnosis": "After the user unlocked the Mac, browser inventory and tab metadata remained readable. DOM snapshot, direct tab binding, and a lightweight read-only page evaluation on a fresh tab each timed out and reset the CUA kernel. The fresh tab reached the expected login URL and is preserved for continuation. HTTP login and readiness probes were fast and returned 200. Evidence points to the local browser content-capture/control bridge, not a slow PaperGuard login endpoint.",
+  "resolution_status": "UNRESOLVED",
+  "next_step": "The in-app browser control bridge needs recovery/reinitialization before UI UAT can continue; the fresh login tab is preserved for the next attempt.",
+  "scope": {
+    "browser_form_submissions": 0,
+    "ui_business_writes": 0,
+    "project_api_uat_writes_recorded_separately": true,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "credentials_or_tokens_recorded": false
+  },
+  "browser_capabilities": {
+    "available": [
+      "visibility",
+      "viewport"
+    ],
+    "cdp": false,
+    "detail": "Selected in-app browser did not advertise the documented CDP capability."
+  },
+  "last_observed_at": "2026-10-15T13:34:30+08:00"
+}

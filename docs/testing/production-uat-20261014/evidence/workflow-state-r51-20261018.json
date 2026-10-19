@@ -1,0 +1,179 @@
+{
+  "recorded_at": "2026-10-18T13:20:07+00:00",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "read-only state rebind for exact known synthetic participant, project versions and submissions; no body text retained",
+  "checks": [
+    {
+      "role_alias": "S-A",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "participant",
+          "status": 200,
+          "matched_records": [
+            {
+              "id": "participant-e7b399a3625e",
+              "state": "pending_archive",
+              "review_cycle": 2,
+              "revision": 6,
+              "project_id": "proj-d148a21068b3"
+            },
+            {
+              "id": "submission-dd4e694e69c5",
+              "state": "approved",
+              "review_cycle": 2
+            }
+          ]
+        },
+        {
+          "resource": "project-versions",
+          "status": 200,
+          "matched_records": [
+            {
+              "id": "proj-d148a21068b3",
+              "revision": 10
+            },
+            {
+              "id": "proj-d148a21068b3",
+              "revision": 9
+            }
+          ]
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "role_alias": "T-A",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "submission-v1",
+          "status": 200,
+          "matched_records": [
+            {
+              "id": "submission-8c801db35e7c",
+              "state": "returned",
+              "review_cycle": 1,
+              "revision": 1,
+              "participant_id": "participant-e7b399a3625e",
+              "candidate_id": "candidate-db77ef77e6ab"
+            },
+            {
+              "id": "participant-e7b399a3625e",
+              "state": "pending_archive",
+              "review_cycle": 2,
+              "revision": 6,
+              "project_id": "proj-d148a21068b3"
+            },
+            {
+              "id": "submission-dd4e694e69c5",
+              "state": "approved",
+              "review_cycle": 2
+            },
+            {
+              "id": "proj-d148a21068b3",
+              "revision": 9
+            },
+            {
+              "id": "candidate-db77ef77e6ab",
+              "status": "confirmed",
+              "revision": 1,
+              "project_id": "proj-d148a21068b3",
+              "participant_id": "participant-e7b399a3625e",
+              "submission_id": "submission-8c801db35e7c"
+            }
+          ]
+        },
+        {
+          "resource": "submission-v2",
+          "status": 200,
+          "matched_records": [
+            {
+              "id": "submission-dd4e694e69c5",
+              "state": "approved",
+              "review_cycle": 2,
+              "revision": 1,
+              "participant_id": "participant-e7b399a3625e",
+              "candidate_id": "candidate-c7ba5186dffd"
+            },
+            {
+              "id": "participant-e7b399a3625e",
+              "state": "pending_archive",
+              "review_cycle": 2,
+              "revision": 6,
+              "project_id": "proj-d148a21068b3"
+            },
+            {
+              "id": "submission-dd4e694e69c5",
+              "state": "approved",
+              "review_cycle": 2
+            },
+            {
+              "id": "proj-d148a21068b3",
+              "revision": 10
+            },
+            {
+              "id": "candidate-c7ba5186dffd",
+              "status": "confirmed",
+              "revision": 1,
+              "project_id": "proj-d148a21068b3",
+              "participant_id": "participant-e7b399a3625e",
+              "submission_id": "submission-dd4e694e69c5"
+            }
+          ]
+        }
+      ],
+      "logout_status": 200
+    }
+  ],
+  "cohort_id": "cohort-ed0046d38402",
+  "stage_id": "stage-dde2f988be51",
+  "participant_id": "participant-e7b399a3625e",
+  "project_id": "proj-d148a21068b3",
+  "cohort_stage_readback": {
+    "recorded_at": "2026-10-18T13:21:14+00:00",
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+    "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+    "role_alias": "COL-A",
+    "login_status": 200,
+    "checks": [
+      {
+        "resource": "cohort",
+        "status": 200,
+        "known_stage_matches": [
+          {
+            "id": "stage-dde2f988be51",
+            "key": "uat-final-20261015",
+            "name": "UAT-20261015-主论文提交审核",
+            "status": "published",
+            "cohort_id": "cohort-ed0046d38402"
+          }
+        ]
+      },
+      {
+        "resource": "stages",
+        "status": 200,
+        "known_stage_matches": [
+          {
+            "id": "stage-dde2f988be51",
+            "key": "uat-final-20261015",
+            "name": "UAT-20261015-主论文提交审核",
+            "status": "published",
+            "cohort_id": "cohort-ed0046d38402"
+          }
+        ]
+      }
+    ],
+    "logout_status": 200
+  },
+  "project_summary": {
+    "resource": "project",
+    "status": 200,
+    "id_matches": true,
+    "revision": 10,
+    "template_id": "default-gb7713",
+    "section_count": 13,
+    "required_section_count": 7
+  }
+}

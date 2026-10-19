@@ -1,0 +1,39 @@
+{
+  "recorded_at": "2026-10-15T13:45:44+08:00",
+  "target": "https://paper.thunderuni.com/login?redirect=/",
+  "surface": "Google Chrome native accessibility tree (CUA); not the Codex in-app browser DOM bridge",
+  "observation": {
+    "title": "登录 · PaperGuard",
+    "page_heading": "欢迎登录 PaperGuard",
+    "controls": [
+      {
+        "role": "text field",
+        "accessible_name": "学号 / 工号 / 用户名"
+      },
+      {
+        "role": "secure text field",
+        "accessible_name": "登录密码"
+      },
+      {
+        "role": "button",
+        "accessible_name": "登 录"
+      },
+      {
+        "role": "link",
+        "accessible_name": "立即注册"
+      }
+    ],
+    "keyboard_focus": "One Tab moved focus from username to password; the next Tab did not produce a focus change in the observed tree, so full order is inconclusive."
+  },
+  "result": "PARTIAL",
+  "business_data_changed": false,
+  "login_submitted": false,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "secret_material_recorded": false,
+  "limitations": [
+    "Only the login page was observed.",
+    "This does not complete X12 or any authenticated role scenario.",
+    "Visual page capture was not used as evidence."
+  ]
+}

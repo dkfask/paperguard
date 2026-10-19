@@ -1,0 +1,45 @@
+{
+  "recorded_at": "2026-10-15T11:20:22+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0 headless Chromium; S-A synthetic account",
+  "scenario": "F09 partial: read-only UI presentation of cover, table, and references",
+  "project_id": "proj-dfde4747c750",
+  "writer_title": "校园图书借阅服务体验研究",
+  "outline_count_including_cover": 14,
+  "cover": {
+    "field_count": 7,
+    "labels": [
+      "学校名称",
+      "论文题目",
+      "作者",
+      "学号",
+      "专业",
+      "指导教师",
+      "日期"
+    ],
+    "title_matches_project_title": true
+  },
+  "table": {
+    "section": "第四章 系统实现与测试",
+    "table_blocks": 1,
+    "cell_count": 6,
+    "non_empty_cells": 6,
+    "caption_length": 15
+  },
+  "references": {
+    "section": "参考文献",
+    "rendered_as_paragraph_editor": true,
+    "paragraph_count": 1,
+    "text_utf16_length": 26,
+    "sha256": "5ae56cd490e3621eb658e5097f8a56c5e468b17de32c75c6607f8a41508e0a11"
+  },
+  "non_auth_write_requests_in_precise_component_reads": 0,
+  "ai_generation_calls": 0,
+  "status": "PARTIAL",
+  "limitations": [
+    "No image/figure block exists in this project; only the existing table was verified.",
+    "No UI content edit or explicit UI save was performed.",
+    "An earlier probe used a reference-specific selector that did not match this page renderer; its zero count was inconclusive, and this paragraph-editor check supersedes it."
+  ]
+}

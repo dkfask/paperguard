@@ -1,0 +1,76 @@
+{
+  "recorded_at": "2026-10-18T13:52:05.741Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "read-only exact-ID check of field keys in the r51 midterm form response; no prefill values retained and no form update submitted",
+  "participant_id": "participant-e7b399a3625e",
+  "artifact_type": "midterm_check",
+  "teacher_field_keys": [
+    "advisor_comment",
+    "score"
+  ],
+  "r51_release_schema_copy": {
+    "file_sha256": "5240e5981ea73544ffe59fa50265e4b366e02f623109e6af521bbc84d2573562",
+    "teacher_fields_define_owner_metadata": false
+  },
+  "roles": [
+    {
+      "role_alias": "S-A",
+      "role": "student",
+      "login_status": 200,
+      "form_status": 200,
+      "field_count": 8,
+      "field_keys": [
+        "student_id",
+        "student_name",
+        "topic",
+        "progress",
+        "problems",
+        "next_plan",
+        "advisor_comment",
+        "score"
+      ],
+      "owner_marked_teacher_keys": [],
+      "teacher_keys_present": [
+        "advisor_comment",
+        "score"
+      ],
+      "prefill_values_retained": false,
+      "logout_status": 200
+    },
+    {
+      "role_alias": "T-A",
+      "role": "teacher",
+      "login_status": 200,
+      "form_status": 200,
+      "field_count": 8,
+      "field_keys": [
+        "student_id",
+        "student_name",
+        "topic",
+        "progress",
+        "problems",
+        "next_plan",
+        "advisor_comment",
+        "score"
+      ],
+      "owner_marked_teacher_keys": [],
+      "teacher_keys_present": [
+        "advisor_comment",
+        "score"
+      ],
+      "prefill_values_retained": false,
+      "logout_status": 200
+    }
+  ],
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "status": "observed",
+  "expectations": {
+    "both_readable": true,
+    "student_schema_contains_teacher_keys": true,
+    "teacher_schema_contains_teacher_keys": true,
+    "no_student_prefill_retained": true
+  }
+}

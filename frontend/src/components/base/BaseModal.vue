@@ -3,22 +3,28 @@
     <Transition name="modal">
       <div
         v-if="open"
-        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+        class="modal-mask base-modal-mask"
         @click.self="handleClose"
       >
         <div
-          class="relative max-h-[90vh] w-full overflow-y-auto rounded-lg bg-white shadow-xl"
+          ref="dialog"
+          class="modal base-modal"
           :class="sizeClasses"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="title || t('dialog.confirmation')"
+          tabindex="-1"
           @click.stop
         >
           <button
-            class="absolute right-4 top-4 rounded-md p-1 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary"
+            class="base-modal-close icon-button"
+            type="button"
             @click="handleClose"
             :aria-label="t('common.close')"
           >
             <span class="text-xl leading-none">&times;</span>
           </button>
-          <div class="p-6">
+          <div class="base-modal-body">
             <slot />
           </div>
         </div>
@@ -28,11 +34,13 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import { useI18n } from '../../i18n'
+import { useDialogFocus } from '../../shared/useDialogFocus'
 
 const props = defineProps({
   open: Boolean,
+  title: String,
   size: {
     type: String,
     default: 'default',
@@ -42,13 +50,15 @@ const props = defineProps({
 
 const emit = defineEmits(['close'])
 const { t } = useI18n()
+const dialog = ref(null)
+useDialogFocus(toRef(props, 'open'), dialog, handleClose)
 
 const sizeClasses = computed(() => {
   const sizes = {
-    small: 'max-w-md',
-    default: 'max-w-2xl',
-    large: 'max-w-4xl',
-    full: 'max-w-7xl',
+    small: 'modal-small',
+    default: 'modal-default',
+    large: 'modal-large',
+    full: 'modal-full',
   }
   return sizes[props.size]
 })
@@ -59,6 +69,15 @@ function handleClose() {
 </script>
 
 <style scoped>
+.base-modal-mask { z-index: 100; padding: 20px; }
+.base-modal { position: relative; width: 100%; max-height: 90dvh; overflow-y: auto; margin: 0; padding: 0; background: var(--surface-container-lowest); }
+.base-modal.modal-small { max-width: 448px; }
+.base-modal.modal-default { max-width: 580px; }
+.base-modal.modal-large { max-width: 896px; }
+.base-modal.modal-full { max-width: 1280px; }
+.base-modal-close { position: absolute; right: 16px; top: 16px; }
+.base-modal-body { padding: 24px; }
+.base-modal-body :deep(h2:first-child) { padding-right: 32px; font-size: 18px; margin-bottom: 20px; }
 .modal-enter-active,
 .modal-leave-active {
   transition: opacity 0.2s ease;
@@ -69,14 +88,15 @@ function handleClose() {
   opacity: 0;
 }
 
-.modal-enter-active .rounded-lg,
-.modal-leave-active .rounded-lg {
+.modal-enter-active .base-modal,
+.modal-leave-active .base-modal {
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
-.modal-enter-from .rounded-lg,
-.modal-leave-to .rounded-lg {
+.modal-enter-from .base-modal,
+.modal-leave-to .base-modal {
   transform: scale(0.96) translateY(4px);
   opacity: 0;
 }
+@media (prefers-reduced-motion: reduce) { .modal-enter-active, .modal-leave-active, .modal-enter-active .base-modal, .modal-leave-active .base-modal { transition: none; } }
 </style>

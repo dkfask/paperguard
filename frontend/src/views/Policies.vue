@@ -549,7 +549,7 @@ onMounted(loadPolicies)
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--inverse-on-surface);
+  color: var(--on-surface-variant);
   font-size: 12px;
 }
 

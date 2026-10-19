@@ -2,7 +2,7 @@
   <div class="workflow-page">
     <section class="workflow-hero">
       <div>
-        <h1>{{ t('workflow.title') }}</h1>
+        <h1>{{ sectionTitle }}</h1>
         <p class="workflow-subtitle">{{ t('workflow.description') }}</p>
       </div>
       <div class="workflow-identity">
@@ -56,7 +56,20 @@
           <button class="icon-button" :title="t('workflow.refresh')" :aria-label="t('workflow.refresh')" @click="loadAll" :disabled="loading"><span class="material-symbols-outlined" aria-hidden="true">refresh</span></button>
         </div>
 
-        <section v-if="processInbox.length && activeSection === 'overview'" class="panel process-inbox"><div class="panel-heading"><div><h3>{{ t('workflow.processInboxTitle') }}</h3><p>{{ t('workflow.processInboxDetail') }}</p></div><span class="unread-count">{{ processInbox.length }}</span></div><label class="process-reason-field">{{ t('workflow.returnReason') }}<input v-model="processDecisionReason" :placeholder="t('workflow.returnReasonPlaceholder')" /></label><div class="process-inbox-list"><div v-for="record in processInbox" :key="record.id" class="process-inbox-row"><div><strong>{{ record.artifact_name }}</strong><span>{{ record.student_id || record.cohort_id }} · {{ t('workflow.waitingApproval') }} {{ record.pending_approvals?.join(' / ') || t('workflow.waitingApproval') }}</span></div><div class="stage-row-actions"><button class="tiny" @click="handleProcessDecision(record, 'returned')"><span class="material-symbols-outlined" aria-hidden="true">undo</span>{{ t('workflow.return') }}</button><button class="tiny primary" @click="handleProcessDecision(record, 'approved')"><span class="material-symbols-outlined" aria-hidden="true">verified</span>{{ t('workflow.approve') }}</button></div></div></div></section>
+        <section v-if="processInbox.length && activeSection === 'overview'" class="panel process-inbox">
+          <div class="panel-heading"><div><h3>{{ t('workflow.processInboxTitle') }}</h3><p>{{ t('workflow.processInboxDetail') }}</p></div><span class="unread-count">{{ processInbox.length }}</span></div>
+          <label class="process-reason-field">{{ t('workflow.returnReason') }}<input v-model="processDecisionReason" :placeholder="t('workflow.returnReasonPlaceholder')" /></label>
+          <div class="process-inbox-list">
+            <div v-for="record in processInbox" :key="record.id" class="process-inbox-row">
+              <div><strong>{{ record.artifact_name }}</strong><span>{{ record.data?.student_id || record.student_id || record.cohort_id }} · {{ t('workflow.waitingApproval') }} {{ record.pending_approvals?.join(' / ') || t('workflow.waitingApproval') }}</span></div>
+              <div class="stage-row-actions">
+                <button v-if="record.artifact_type === 'midterm_check'" class="tiny" @click="openMidtermTeacherFields(record)"><span class="material-symbols-outlined" aria-hidden="true">edit_note</span>{{ t('workflow.fillMidtermTeacherFields') }}</button>
+                <button class="tiny" @click="handleProcessDecision(record, 'returned')"><span class="material-symbols-outlined" aria-hidden="true">undo</span>{{ t('workflow.return') }}</button>
+                <button class="tiny primary" @click="handleProcessDecision(record, 'approved')"><span class="material-symbols-outlined" aria-hidden="true">verified</span>{{ t('workflow.approve') }}</button>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <template v-if="canConfigure && !panelFocused">
           <section v-if="activeSection === 'overview' && !panelFocused" class="panel create-panel">
@@ -158,6 +171,15 @@
     </div>
 
     <div v-if="bindTarget" class="modal-mask" @click.self="bindTarget = null"><div class="modal card"><div class="modal-head"><h3>{{ t('workflow.bindThesisTitle') }}</h3><button class="icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="bindTarget = null"><span class="material-symbols-outlined" aria-hidden="true">close</span></button></div><p class="hint">{{ t('workflow.stageTemplate') }}：{{ bindTarget.config?.template_id }}</p><label class="field">{{ t('workflow.thesisTitle') }}<input v-model="bindTitle" :placeholder="t('workflow.thesisTitlePlaceholder')" /></label><div class="form-actions"><button class="primary" :disabled="saving" @click="confirmBind"><span class="material-symbols-outlined" aria-hidden="true">link</span>{{ t('workflow.createBind') }}</button></div></div></div>
+    <div v-if="teacherFieldsRecord" class="modal-mask" @click.self="closeMidtermTeacherFields">
+      <section class="modal card midterm-teacher-fields-modal" role="dialog" aria-modal="true" :aria-label="t('workflow.midtermTeacherFieldsTitle')">
+        <div class="modal-head"><h3>{{ t('workflow.midtermTeacherFieldsTitle') }}</h3><button class="icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="closeMidtermTeacherFields"><span class="material-symbols-outlined" aria-hidden="true">close</span></button></div>
+        <p class="hint">{{ teacherFieldsRecord.student_id }} · {{ teacherFieldsRecord.data?.topic || '' }}</p>
+        <label class="structured-field"><span>{{ t('workflow.midtermTeacherOpinion') }}</span><textarea v-model="midtermTeacherFields.advisor_comment" rows="4" maxlength="4000" /></label>
+        <label class="structured-field"><span>{{ t('workflow.midtermTeacherScore') }}</span><input v-model.number="midtermTeacherFields.score" type="number" min="0" max="100" step="1" /></label>
+        <div class="form-actions teacher-fields-actions"><button class="primary" :disabled="saving" @click="saveMidtermTeacherFields"><span class="material-symbols-outlined" aria-hidden="true">save</span>{{ t('workflow.saveMidtermTeacherFields') }}</button></div>
+      </section>
+    </div>
     <ReasonDialog
       :open="reasonDialog.open"
       :title="reasonDialog.title"
@@ -199,12 +221,13 @@ import ReasonDialog from '../components/ReasonDialog.vue'
 import ReviewEvidence from '../components/ReviewEvidence.vue'
 import StageConfigForm from '../components/StageConfigForm.vue'
 import StatusBadge from '../components/StatusBadge.vue'
+import { workflowPageTitle } from '../shared/pageTitles'
 import { useI18n } from '../i18n'
 import {
   addCohortMember, acknowledgeTaskRequirements, bindTaskProject, confirmSubmission, createArchive,
   extendTaskDeadline,
   createCohort, createCohortProcessRecord, createCohortStage, createParticipantProcessRecord, createSubmissionCandidate, createSubmissionComment,
-  decideProcessRecord, downloadProcessRecordAttachment,
+  decideProcessRecord, downloadProcessRecordAttachment, updateMidtermTeacherFields,
   exportProcessRecord, fetchProcessRecordForm, fetchCohortProcessRecordForm, fetchParticipantScoreSummary,
   fetchCohort, fetchCohortProcessRecords, fetchCohorts, fetchMyTasks, fetchOrganizations, fetchProjectVersions, fetchSubmission, fetchSubmissions,
   compareProjectVersions,
@@ -275,6 +298,8 @@ const extensionForm = reactive({ deadline: '', reason: '' })
 const materialForm = reactive({ artifact_type: 'task_book', title: '', content: '' })
 const managementForm = reactive({ artifact_type: 'topic_review_summary', title: '', content: '' })
 const processDecisionReason = ref('')
+const teacherFieldsRecord = ref(null)
+const midtermTeacherFields = reactive({ advisor_comment: '', score: '' })
 const reasonDialog = reactive({ open: false, title: '', description: '', defaultValue: '', confirmLabel: '', action: null })
 const confirmBusy = ref(false)
 const confirmDialog = reactive({ open: false, title: '', description: '', confirmLabel: '', danger: false, action: null })
@@ -329,7 +354,7 @@ const workflowTabs = computed(() => {
   return tabs
 })
 const sectionKicker = computed(() => activeSection.value === 'reports' ? t('workflow.reports') : activeSection.value === 'messages' ? t('workflow.messages') : activeSection.value === 'submissions' ? t('workflow.submissionsArchives') : panelTarget.value === 'review' ? t('review.pending') : panelTarget.value === 'progress' ? t('workspace.studentProgressKicker') : panelTarget.value === 'materials' ? t('workflow.processInboxTitle') : canConfigure.value ? t('workflow.cohortsStages') : isTeacher.value ? t('workflow.teacherTodo') : t('workflow.myTasks'))
-const sectionTitle = computed(() => activeSection.value === 'reports' ? t('workflow.reports') : activeSection.value === 'messages' ? t('workflow.messages') : activeSection.value === 'submissions' ? t('workflow.submissionsArchives') : panelTarget.value === 'review' ? t('workspace.reviewDesk') : panelTarget.value === 'progress' ? t('workspace.studentProgress') : panelTarget.value === 'materials' ? t('sidebar.materials') : canConfigure.value ? t('workflow.cohortsStages') : isTeacher.value ? t('workflow.teacherTodo') : t('workflow.myStageTasks'))
+const sectionTitle = computed(() => workflowPageTitle(panelTarget.value, auth.user, t))
 const openTaskCount = computed(() => tasks.value.filter((item) => !['approved', 'archived'].includes(item.state)).length)
 const reviewQueue = computed(() => tasks.value.filter((item) => item.state === 'submitted'))
 // 归档接口为管理员专属（_ensure_manager），教师角色点下去必然 403，因此按钮只对管理者渲染。
@@ -562,6 +587,35 @@ async function handleProcessDecision(record, decision) {
   } catch (e) { error.value = e.message } finally { saving.value = false }
 }
 
+function openMidtermTeacherFields(record) {
+  teacherFieldsRecord.value = record
+  midtermTeacherFields.advisor_comment = record.data?.advisor_comment || ''
+  midtermTeacherFields.score = record.data?.score ?? ''
+  error.value = ''
+}
+
+function closeMidtermTeacherFields() {
+  if (saving.value) return
+  teacherFieldsRecord.value = null
+}
+
+async function saveMidtermTeacherFields() {
+  const record = teacherFieldsRecord.value
+  if (!record) return
+  const data = { advisor_comment: midtermTeacherFields.advisor_comment.trim() }
+  if (midtermTeacherFields.score !== '' && midtermTeacherFields.score !== null) {
+    data.score = Number(midtermTeacherFields.score)
+  }
+  saving.value = true
+  error.value = ''
+  try {
+    const updated = await updateMidtermTeacherFields(record.id, { data, base_revision: record.revision })
+    processInbox.value = processInbox.value.map((item) => item.id === updated.id ? updated : item)
+    teacherFieldsRecord.value = null
+    notice.value = t('workflow.midtermTeacherFieldsSaved')
+  } catch (e) { error.value = e.message } finally { saving.value = false }
+}
+
 async function previewAndPublish(stage) {
   try {
     const result = await previewCohortStage(stage.id); preview.value = result
@@ -765,9 +819,14 @@ async function saveMaterial() {
       if (field.type !== 'json') continue
       try { data[field.key] = JSON.parse(materialJsonDrafts[field.key] || 'null') } catch (e) { error.value = t('workflow.invalidJson', { label: field.label }); saving.value = false; return }
     }
+    const submissionData = auth.user?.role === 'student' && materialForm.artifact_type === 'midterm_check'
+      ? Object.fromEntries(Object.entries(data).filter(([key]) => (
+        (materialSchema.value?.fields || []).some((field) => field.key === key) || key === 'title' || key === 'content'
+      )))
+      : data
     const record = await createParticipantProcessRecord(materialsTask.value.id, {
       artifact_type: materialForm.artifact_type,
-      data,
+      data: submissionData,
       structured_form: Boolean(materialSchema.value?.fields?.length),
     })
     if (materialFile.value) await uploadProcessRecordAttachment(record.id, materialFile.value)
@@ -874,16 +933,16 @@ onMounted(loadAll)
 
 <style scoped>
 .workflow-page { max-width: 1360px; margin: 0 auto; padding: 24px 0 56px; }
-.workflow-hero { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 26px 28px; background: var(--inverse-surface); color: var(--inverse-on-surface); border-radius: var(--radius-lg); }
+.workflow-hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 22px; color: var(--on-surface); }
 .workflow-kicker { color: var(--primary); font-size: 10px; letter-spacing: .09em; font-weight: 700; margin: 0 0 6px; }
-.workflow-hero .workflow-kicker { color: var(--primary-fixed-dim); }
-.workflow-hero h1 { font-family: "Source Serif 4", Georgia, serif; font-size: 30px; line-height: 1.2; margin: 0 0 7px; }
-.workflow-subtitle { color: #c9d4e7; margin: 0; max-width: 650px; }
-.workflow-identity { display: flex; align-items: center; gap: 10px; min-width: 180px; padding: 10px 12px; border-left: 1px solid rgba(255,255,255,.18); }
-.workflow-identity .material-symbols-outlined { color: var(--primary-fixed-dim); font-size: 26px; }
-.workflow-identity div { display: grid; gap: 2px; }.workflow-identity span { color: #b9c6db; font-size: 12px; }
-.workflow-summary { display: grid; grid-template-columns: repeat(4, 1fr); margin: 18px 0 24px; border-bottom: 1px solid var(--border); }
-.workflow-summary > div { padding: 0 18px 16px; border-right: 1px solid var(--border); display: grid; gap: 2px; }.workflow-summary > div:first-child { padding-left: 0; }.workflow-summary > div:last-child { border-right: 0; }
+.workflow-hero .workflow-kicker { color: var(--primary); }
+.workflow-hero h1 { font: 700 25px/1.25 var(--font-ui); margin: 0 0 7px; letter-spacing: -.02em; }
+.workflow-subtitle { color: var(--on-surface-variant); margin: 0; max-width: 650px; line-height: 1.65; }
+.workflow-identity { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-left: 1px solid var(--border); }
+.workflow-identity .material-symbols-outlined { color: var(--primary); font-size: 24px; }
+.workflow-identity div { display: grid; gap: 2px; }.workflow-identity span { color: var(--on-surface-variant); font-size: 12px; }
+.workflow-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 18px 0 24px; }
+.workflow-summary > div { padding: 17px 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-container-lowest); box-shadow: var(--shadow-card); display: grid; gap: 8px; }
 .workflow-summary span { color: var(--on-surface-variant); font-size: 12px; }.workflow-summary strong { font-size: 26px; color: var(--on-surface); }
 .workflow-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; }.workflow-main, .workflow-side { min-width: 0; }
 .section-title-row, .panel-heading, .task-topline, .preview-heading, .candidate-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -897,8 +956,8 @@ onMounted(loadAll)
 .notification-panel, .history-panel, .report-panel { position: sticky; top: 78px; }.notification-row { width: 100%; justify-content: flex-start; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 10px 0; background: transparent; text-align: left; }.notification-row:last-child { border-bottom: 0; }.notification-row > span:first-child { color: var(--outline); }.notification-row.unread > span:first-child { color: var(--primary); }.notification-row > span:nth-child(2) { display: grid; gap: 2px; text-align: left; min-width: 0; }.notification-row strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }.notification-row small { color: var(--on-surface-variant); font-size: 11px; }.unread-count { min-width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; background: var(--primary-fixed); color: var(--on-primary-fixed); font-size: 11px; }.report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }.report-grid div { padding: 10px; background: var(--surface-container-low); }.report-grid strong, .report-grid span { display: block; }.report-grid strong { font-size: 20px; }.report-grid span { color: var(--on-surface-variant); font-size: 11px; }.history-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }.history-row:last-child { border-bottom: 0; }.history-row strong, .history-row span { display: block; }.history-row div span { color: var(--on-surface-variant); font-size: 11px; margin-top: 2px; }
 .empty-state { text-align: center; border: 1px dashed var(--border); padding: 42px 20px; color: var(--on-surface-variant); }.empty-state .material-symbols-outlined { font-size: 34px; color: var(--outline); }.empty-state h3 { color: var(--on-surface); margin: 8px 0 4px; }.empty-state p { font-size: 12px; margin: 0; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; }.modal-head h3 { margin: 0; }.hint { color: var(--on-surface-variant); font-size: 12px; }
-@media (max-width: 900px) { .workflow-page { padding: 16px 0 40px; }.workflow-hero { padding: 20px; align-items: flex-start; flex-direction: column; }.workflow-hero h1 { font-size: 26px; }.workflow-identity { border-left: 0; border-top: 1px solid rgba(255,255,255,.18); width: 100%; padding: 12px 0 0; }.workflow-summary { grid-template-columns: repeat(2, 1fr); gap: 14px 0; }.workflow-summary > div:nth-child(2) { border-right: 0; }.workflow-summary > div:nth-child(3), .workflow-summary > div:nth-child(4) { padding-top: 4px; }.workflow-layout { grid-template-columns: 1fr; }.notification-panel, .history-panel, .report-panel { position: static; }.form-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 560px) { .workflow-summary > div { padding-left: 9px; padding-right: 9px; }.workflow-summary > div:first-child { padding-left: 0; }.form-grid { grid-template-columns: 1fr; }.stage-row, .task-row { align-items: flex-start; flex-direction: column; }.stage-row-actions, .task-side { width: 100%; justify-items: start; display: flex; justify-content: space-between; }.gate-strip { grid-template-columns: 1fr; }.review-compose-actions, .review-decision-actions { flex-wrap: wrap; }.review-compose-actions input { flex-basis: 100%; }.panel { padding: 14px; }.cohort-stages { margin-left: -14px; margin-right: -14px; }.workflow-hero { border-radius: 0; margin-left: -24px; margin-right: -24px; }.workflow-page { overflow: hidden; } }
+@media (max-width: 900px) { .workflow-page { padding: 16px 0 40px; }.workflow-hero { align-items: flex-start; flex-direction: column; }.workflow-hero h1 { font-size: 21px; }.workflow-identity { border-left: 0; border-top: 1px solid var(--border); width: 100%; padding: 12px 0 0; }.workflow-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }.workflow-layout { grid-template-columns: 1fr; }.notification-panel, .history-panel, .report-panel { position: static; }.form-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .workflow-summary { grid-template-columns: 1fr; }.workflow-summary > div { padding: 16px; }.form-grid { grid-template-columns: 1fr; }.stage-row, .task-row { align-items: flex-start; flex-direction: column; }.stage-row-actions, .task-side { width: 100%; justify-items: start; display: flex; justify-content: space-between; }.gate-strip { grid-template-columns: 1fr; }.review-compose-actions, .review-decision-actions { flex-wrap: wrap; }.review-compose-actions input { flex-basis: 100%; }.panel { padding: 14px; }.cohort-stages { margin-left: -14px; margin-right: -14px; }.workflow-hero { margin-left: 0; margin-right: 0; }.workflow-page { overflow: hidden; } }
 .manual-check-panel { border-left: 3px solid var(--tertiary); }.manual-checks { display: grid; gap: 8px; }.manual-checks label { display: flex; align-items: flex-start; gap: 7px; color: var(--on-surface-variant); font-size: 12px; }.manual-checks input { accent-color: var(--primary); }
 .archive-panel { border-left: 3px solid var(--primary); }.archive-list { display: grid; gap: 0; margin-top: 14px; border-top: 1px solid var(--border); }.archive-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }.archive-row strong, .archive-row span { display: block; }.archive-row span { color: var(--on-surface-variant); font-size: 11px; margin-top: 3px; }
 .materials-panel { border-left: 3px solid var(--tertiary); }.qualification-strip { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin: 15px 0; padding: 11px 12px; background: var(--surface-container-low); color: var(--on-surface-variant); font-size: 12px; }.qualification-strip span, .qualification-strip strong { display: block; }.qualification-strip strong { margin-top: 3px; }.qualification-ok { color: #087f5b; }.qualification-warn { color: var(--tertiary); }.material-catalog { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }.material-catalog-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 9px; border: 1px solid var(--border); background: #fff; }.material-catalog-row strong, .material-catalog-row small { display: block; }.material-catalog-row strong { font-size: 12px; }.material-catalog-row small { color: var(--on-surface-variant); font-size: 10px; margin-top: 3px; }.material-compose { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 15px; }.material-content-field, .file-picker { display: grid; gap: 5px; color: var(--on-surface-variant); font-size: 12px; margin-top: 12px; }.material-content-field textarea { width: 100%; resize: vertical; }.file-picker input { font: inherit; }.file-picker small { color: var(--on-surface-variant); }.material-compose > button { margin-top: 13px; }.record-history { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 14px; }.record-history h4 { margin: 0 0 8px; font-size: 13px; }.record-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }.record-row strong, .record-row span { display: block; }.record-row span { color: var(--on-surface-variant); font-size: 11px; margin-top: 3px; }.record-attachments { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
@@ -913,10 +972,11 @@ onMounted(loadAll)
 .stage-upgrade-box { margin: 0 18px 14px; padding: 14px; border: 1px solid var(--primary); background: var(--surface-container-low); }.stage-upgrade-box .panel-heading p { max-width: 620px; }.upgrade-diff { display: inline-block; margin-right: 14px !important; }.migration-list { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; display: grid; gap: 7px; }.migration-list-heading { display: flex; justify-content: space-between; gap: 10px; align-items: center; }.migration-list label { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; color: var(--on-surface-variant); }.migration-list input { accent-color: var(--primary); }
 .history-detail { margin-top: 14px; }.history-detail .gate-strip { margin-bottom: 10px; }.history-snapshot { border-top: 1px solid var(--border); padding-top: 14px; }.history-snapshot > h4 { margin: 0; font-size: 18px; }.version-compare { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }.version-compare h4 { margin: 0; font-size: 14px; }.compare-selects { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }.compare-selects label { display: grid; gap: 5px; color: var(--on-surface-variant); font-size: 11px; }.compare-selects select { min-width: 0; }.compare-result { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; color: var(--on-surface-variant); font-size: 12px; }.compare-result > p { margin: 0 0 8px; }.compare-section { padding: 8px 0; border-bottom: 1px solid var(--border); }.compare-section > strong { color: var(--on-surface); }.compare-block { padding: 5px 0 0 12px; }.compare-block span { font-size: 11px; }.compare-block p { margin: 3px 0 0; white-space: pre-wrap; }.compare-attachments { margin-top: 9px; }.history-restore { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; color: var(--on-surface-variant); font-size: 12px; }
 .workflow-summary { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-.workflow-tabs { display: flex; gap: 4px; align-items: stretch; overflow-x: auto; margin: 0 0 22px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-container-low); }
+@media (max-width: 560px) { .workflow-summary { grid-template-columns: 1fr; } }
+.workflow-tabs { display: flex; gap: 4px; align-items: stretch; overflow-x: auto; margin: 0 0 22px; border-bottom: 1px solid var(--border); }
 .workflow-tab { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 0 16px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--on-surface-variant); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .workflow-tab:hover { color: var(--on-surface); background: var(--surface-container); }
-.workflow-tab.active { background: var(--surface-container-lowest); color: var(--primary); font-weight: 700; box-shadow: var(--shadow-card); }
+.workflow-tab.active { color: var(--primary); font-weight: 700; box-shadow: inset 0 -2px var(--primary); }
 .workflow-tab .material-symbols-outlined { font-size: 18px; }
 .workflow-tab-count { min-width: 19px; height: 19px; display: grid; place-items: center; padding: 0 5px; border-radius: 50%; background: var(--primary-fixed); color: var(--on-primary-fixed); font-size: 10px; }
 .workflow-layout-single .workflow-main { min-width: 0; }
@@ -931,4 +991,7 @@ onMounted(loadAll)
 .report-metrics strong { margin-left: 5px; color: var(--on-surface); font-size: 16px; }
 .history-row-button { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .history-row-button:hover { background: var(--surface-container-low); }
+.process-inbox-row > div:first-child { min-width: 0; flex: 1; }.process-inbox-row .stage-row-actions { flex-wrap: wrap; justify-content: flex-end; }
+.midterm-teacher-fields-modal { width: min(640px, 100%); max-height: calc(100vh - 32px); overflow: auto; }.teacher-fields-actions { flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 560px) { .process-inbox-row { align-items: flex-start; flex-direction: column; }.process-inbox-row .stage-row-actions { width: 100%; justify-content: flex-start; }.midterm-teacher-fields-modal { margin: 12px; width: calc(100% - 24px); } }
 </style>

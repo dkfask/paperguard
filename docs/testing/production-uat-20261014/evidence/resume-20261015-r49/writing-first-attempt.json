@@ -1,0 +1,418 @@
+{
+  "recorded_at": "2026-10-15T14:51:19.150Z",
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "release_id": "4b79f96-simple-writing-b20261015T104714Z",
+  "role_alias": "S-A",
+  "allowed_writes": "known synthetic UAT accounts and newly created UAT writing projects only; retain objects, no AI/provider/external sends",
+  "checks": [
+    {
+      "id": "R49-01-version-and-student-login",
+      "status": "PASS"
+    }
+  ],
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/packs",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/templates",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/trash",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects",
+      "status": 201
+    },
+    {
+      "method": "GET",
+      "path": "/api/packs",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/templates",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/trash",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/proj-57adb8300efa",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/ai/status",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/proj-57adb8300efa/check",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/proj-57adb8300efa/template-check",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/proj-57adb8300efa/requirements/waivers",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/proj-57adb8300efa/export-jobs",
+      "status": 409
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/proj-57adb8300efa/requirements/disputes",
+      "status": 200
+    }
+  ],
+  "blocked_requests": [],
+  "page_errors": [],
+  "console_errors": [
+    "Failed to load resource: the server responded with a status of 409 ()"
+  ],
+  "project_id": "proj-57adb8300efa",
+  "external_ai_calls": 0,
+  "external_notifications": 0,
+  "status": "failed",
+  "title": "UAT-20261015-模板闭环-mv9npqjp",
+  "template_id": "default-gb7713",
+  "required_sections": [
+    {
+      "key": "abstract",
+      "type": "abstract",
+      "title": "摘要"
+    },
+    {
+      "key": "ch1",
+      "type": "heading1",
+      "title": "第一章 绪论"
+    },
+    {
+      "key": "ch2",
+      "type": "heading1",
+      "title": "第二章 相关技术"
+    },
+    {
+      "key": "ch3",
+      "type": "heading1",
+      "title": "第三章 系统设计"
+    },
+    {
+      "key": "ch4",
+      "type": "heading1",
+      "title": "第四章 系统实现与测试"
+    },
+    {
+      "key": "ch5",
+      "type": "heading1",
+      "title": "第五章 总结与展望"
+    },
+    {
+      "key": "references",
+      "type": "references",
+      "title": "参考文献"
+    }
+  ],
+  "expected_styles": {
+    "cover_title": {
+      "font_zh": "黑体",
+      "font_en": "Times New Roman",
+      "size_pt": 22,
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "align": "center",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 24,
+      "space_after_pt": 24,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": false
+    },
+    "cover_meta": {
+      "font_zh": "宋体",
+      "font_en": "Times New Roman",
+      "size_pt": 16,
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "align": "center",
+      "line_spacing": 2,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 0,
+      "space_after_pt": 0,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": false
+    },
+    "abstract": {
+      "font_zh": "黑体",
+      "font_en": "Times New Roman",
+      "size_pt": 18,
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "align": "center",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 24,
+      "space_after_pt": 18,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": true
+    },
+    "toc": {
+      "font_zh": "黑体",
+      "font_en": "Times New Roman",
+      "size_pt": 18,
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "align": "center",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 24,
+      "space_after_pt": 18,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": true
+    },
+    "heading1": {
+      "font_zh": "黑体",
+      "font_en": "Times New Roman",
+      "size_pt": 18,
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "align": "center",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 24,
+      "space_after_pt": 18,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": true
+    },
+    "heading2": {
+      "font_zh": "黑体",
+      "font_en": "Times New Roman",
+      "size_pt": 15,
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "align": "left",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 18,
+      "space_after_pt": 12,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": false
+    },
+    "heading3": {
+      "font_zh": "黑体",
+      "font_en": "Times New Roman",
+      "size_pt": 14,
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "align": "left",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 12,
+      "space_after_pt": 6,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": false
+    },
+    "body": {
+      "font_zh": "宋体",
+      "font_en": "Times New Roman",
+      "size_pt": 12,
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "align": "justify",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 0,
+      "space_after_pt": 0,
+      "first_line_indent_chars": 2,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": false
+    },
+    "references": {
+      "font_zh": "宋体",
+      "font_en": "Times New Roman",
+      "size_pt": 12,
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "align": "justify",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 0,
+      "space_after_pt": 0,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": true
+    },
+    "acknowledgement": {
+      "font_zh": "宋体",
+      "font_en": "Times New Roman",
+      "size_pt": 12,
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "align": "justify",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 0,
+      "space_after_pt": 0,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": true
+    },
+    "appendix": {
+      "font_zh": "宋体",
+      "font_en": "Times New Roman",
+      "size_pt": 12,
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "align": "justify",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 0,
+      "space_after_pt": 0,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": true
+    },
+    "figure_caption": {
+      "font_zh": "宋体",
+      "font_en": "Times New Roman",
+      "size_pt": 10.5,
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "align": "center",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 6,
+      "space_after_pt": 12,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": false
+    },
+    "table_caption": {
+      "font_zh": "宋体",
+      "font_en": "Times New Roman",
+      "size_pt": 10.5,
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "align": "center",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 12,
+      "space_after_pt": 6,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": false
+    },
+    "table_cell": {
+      "font_zh": "宋体",
+      "font_en": "Times New Roman",
+      "size_pt": 10.5,
+      "bold": false,
+      "italic": false,
+      "underline": false,
+      "align": "center",
+      "line_spacing": 1.5,
+      "line_spacing_rule": "auto",
+      "space_before_pt": 0,
+      "space_after_pt": 0,
+      "first_line_indent_chars": 0,
+      "hanging_indent_cm": 0,
+      "color": "",
+      "highlight": null,
+      "vert_align": null,
+      "page_break_before": false
+    }
+  },
+  "error": "page.waitForResponse: Timeout 20000ms exceeded while waiting for event \"response\"\n    at WritingPage.exportMissing (/private/tmp/pg-uat-resume-20261015-oc9fx04c/writing.mjs:41:30)\n    at /private/tmp/pg-uat-resume-20261015-oc9fx04c/writing.mjs:92:14\n    at async step (/private/tmp/pg-uat-resume-20261015-oc9fx04c/writing.mjs:13:57)\n    at async file:///private/tmp/pg-uat-resume-20261015-oc9fx04c/writing.mjs:81:3",
+  "logout_status": 200
+}

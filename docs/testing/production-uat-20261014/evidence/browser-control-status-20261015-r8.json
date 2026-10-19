@@ -1,0 +1,41 @@
+{
+  "recorded_at": "2026-10-15T14:08:49+08:00",
+  "target": "https://paper.thunderuni.com",
+  "kind": "browser_control_recovery",
+  "results": [
+    {
+      "surface": "Codex In-app Browser",
+      "method": "list tabs using browser ID 3",
+      "result": "success",
+      "observed_tab": {
+        "id": "6",
+        "title": "登录 · PaperGuard",
+        "url": "https://paper.thunderuni.com/login?redirect=/"
+      }
+    },
+    {
+      "surface": "Codex In-app Browser",
+      "method": "bind tab ID 6 using browser ID 3 and read accessibility state",
+      "timeout_seconds": 15,
+      "result": "timeout"
+    },
+    {
+      "surface": "Codex In-app Browser",
+      "method": "alternate browser DOM snapshot using listed browser and tab IDs",
+      "timeout_seconds": 15,
+      "result": "timeout",
+      "limitation": "The combined call timed out, so the exact failing sub-operation is unknown."
+    },
+    {
+      "surface": "Separate Node REPL",
+      "method": "check for a browser-agent global",
+      "result": "unavailable"
+    }
+  ],
+  "native_chrome_accessibility": "continues to work for the existing PaperGuard tab",
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "credentials_entered": false,
+  "limitations": "The built-in browser can enumerate its tab but cannot bind/read the page in this session. Native Chrome accessibility remains the usable UI fallback."
+}

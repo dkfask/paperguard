@@ -6,6 +6,7 @@
     </section>
     <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
     <AsyncState v-if="loading" state="loading" :title="t('workspace.syncingGuidance')" :detail="t('workspace.teacherLoading')" />
+    <AsyncState v-else-if="loadError" state="error" :title="t('workspace.loadFailed')" :detail="loadError" :action-label="t('common.retry')" @action="load" />
     <template v-else>
       <section class="workspace-stats" :aria-label="t('workspace.guidanceSummary')"><div><span>{{ t('workspace.pendingSubmissions') }}</span><strong>{{ reviewTasks.length }}</strong><small>{{ t('workspace.thesesToReview') }}</small></div><div><span>{{ t('workspace.materialsPending') }}</span><strong>{{ processInbox.length }}</strong><small>{{ t('workspace.processInbox') }}</small></div><div><span>{{ t('workspace.activeStages') }}</span><strong>{{ activeTasks.length }}</strong><small>{{ t('workspace.currentStudentTasks') }}</small></div><div><span>{{ t('workspace.unreadMessages') }}</span><strong>{{ notifications.unread || 0 }}</strong><small>{{ t('workspace.inboxReminder') }}</small></div></section>
       <div class="workspace-layout">
@@ -36,6 +37,7 @@ const { t } = useI18n()
 
 const loading = ref(true)
 const error = ref('')
+const loadError = ref('')
 const tasks = ref([])
 const processInbox = ref([])
 const notifications = ref({ items: [], unread: 0 })
@@ -43,11 +45,11 @@ const reviewTasks = computed(() => tasks.value.filter((item) => item.state === '
 const activeTasks = computed(() => tasks.value.filter((item) => !['approved', 'archived', 'exited', 'withdrawn'].includes(item.state)))
 
 async function load() {
-  loading.value = true; error.value = ''
+  loading.value = true; error.value = ''; loadError.value = ''
   try {
     const [taskData, inboxData, notificationData] = await Promise.all([fetchMyTasks(), fetchProcessRecordInbox(), fetchWorkflowNotifications()])
     tasks.value = taskData; processInbox.value = inboxData; notifications.value = notificationData
-  } catch (exception) { error.value = exception.message } finally { loading.value = false }
+  } catch (exception) { loadError.value = exception.message } finally { loading.value = false }
 }
 
 async function readNotification(item) {

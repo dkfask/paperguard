@@ -1,0 +1,50 @@
+{
+  "recorded_at": "2026-10-18T10:28:33+08:00",
+  "scope": "local miniprogram flow and WeChat UAT preflight; does not access production or device",
+  "test_flow": {
+    "command": "npm run test:flow",
+    "exit_code": 0,
+    "tests": 45,
+    "passed": 45,
+    "failed": 0
+  },
+  "wechat_uat_preflight": {
+    "command": "npm run check:wechat-uat",
+    "exit_code": 2,
+    "result": "BLOCKED (expected by repository AGENTS.md)",
+    "gates": [
+      {
+        "id": "UAT-MP-DOMAIN",
+        "status": "BLOCKED",
+        "reason": "No verified HTTPS legal domain in build configuration"
+      },
+      {
+        "id": "UAT-MP-APPID",
+        "status": "BLOCKED",
+        "reason": "Real WeChat AppID is not present in manifest"
+      },
+      {
+        "id": "UAT-MP-SERVER",
+        "status": "BLOCKED",
+        "reason": "Server WeChat credentials and binding secret must be supplied by controlled environment"
+      },
+      {
+        "id": "UAT-MP-SUBSCRIBE",
+        "status": "BLOCKED",
+        "reason": "Subscribe-message template IDs are not configured"
+      },
+      {
+        "id": "UAT-MP-DEVICE",
+        "status": "BLOCKED",
+        "reason": "Real developer-tool/device interaction required; preflight cannot replace it"
+      }
+    ]
+  },
+  "scenario_disposition": "X11 remains BLOCKED. Local logic passing and expected preflight blocks do not prove production mini-program UAT.",
+  "test_worktree": {
+    "head": "a64e8cdc56e3db76b691c4d4c054452d9f759173",
+    "branch": "fix/ui-review-findings-20260929",
+    "miniprogram_paths_clean": true
+  },
+  "production_target_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8"
+}

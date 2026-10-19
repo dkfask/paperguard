@@ -1,0 +1,34 @@
+{
+  "method": "production backend loopback over SSH; synthetic midterm record only",
+  "student_login_status": 200,
+  "student_create_status": 403,
+  "teacher_login_status": 200,
+  "preconditions": {
+    "revision": true,
+    "participant": true,
+    "no_duplicate": true,
+    "student_denied": true
+  },
+  "record_id": "record-45db7ad1e2f5",
+  "create_status": 201,
+  "submit_status": 200,
+  "approval_status": 200,
+  "final_state": "approved",
+  "role_checks": {
+    "S-A": {
+      "login_status": 200,
+      "read_status": 200,
+      "state": "approved"
+    },
+    "COL-B": {
+      "login_status": 200,
+      "read_status": 404,
+      "state": null
+    }
+  },
+  "student_cannot_author_midterm": true,
+  "ui_verified": false,
+  "observed_at": "2026-10-15T10:07:23.269785+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046"
+}

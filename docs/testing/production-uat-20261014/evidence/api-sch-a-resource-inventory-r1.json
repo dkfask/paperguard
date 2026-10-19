@@ -1,0 +1,34 @@
+{
+  "recorded_at": "2026-10-15T12:58:27+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X02 partial school-admin template and policy list visibility",
+  "release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "role_account": "SCH-A (synthetic school-admin UAT account)",
+  "requests": {
+    "POST /api/auth/login": 200,
+    "GET /api/templates": 200,
+    "GET /api/policies": 200
+  },
+  "templates": {
+    "visible_count": 4,
+    "version_distribution": {
+      "1": 4
+    }
+  },
+  "policies": {
+    "visible_count": 1,
+    "level_distribution": {
+      "school": 1
+    },
+    "state_distribution": {
+      "published": 1
+    }
+  },
+  "scope_limit": "Recorded counts only; policy/template titles and bodies were not retained. Does not test draft create/edit, publish, version upgrade, or cross-college authorization boundaries.",
+  "writes": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "credentials_or_tokens_recorded": false
+  }
+}

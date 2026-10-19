@@ -1,0 +1,25 @@
+{
+  "recorded_at": "2026-10-15T12:58:56+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X03/X08 partial direct cross-college report boundary",
+  "release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "role_account": "COL-B (synthetic college-admin UAT account)",
+  "known_synthetic_resource": {
+    "type": "cohort",
+    "owner_scope": "COL-A",
+    "id": "cohort-ed0046d38402"
+  },
+  "requests": {
+    "POST /api/auth/login": 200,
+    "GET /api/reports/cohorts/cohort-ed0046d38402": 404
+  },
+  "result": "COL-B could not retrieve the known COL-A synthetic cohort report by direct ID; no response body was retained.",
+  "cross_check": "Existing ui-cohorts-col-b-isolation-r1.json also records the same COL-A test cohort absent from COL-B list results.",
+  "scope_limit": "One synthetic cohort and one report endpoint only; does not prove all cross-college resources, search/list endpoints, attachments, submissions, or exports are isolated.",
+  "writes": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "credentials_or_tokens_recorded": false
+  }
+}

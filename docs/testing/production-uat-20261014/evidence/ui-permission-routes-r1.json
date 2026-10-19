@@ -1,0 +1,225 @@
+{
+  "recorded_at": "2026-10-15T02:56:29.287Z",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0 headless Chromium",
+  "scenario": "F01/X08 partial: direct route guard and known synthetic project access",
+  "project_id": "proj-dfde4747c750",
+  "allowed_scope": "role route checks and the named synthetic project only",
+  "role_route_results": [
+    {
+      "tag": "SYS-A",
+      "role": "admin",
+      "login_http": 200,
+      "allowed_routes": [
+        {
+          "requested": "/operations",
+          "expected": "allowed",
+          "final_path": "/operations",
+          "pass": true,
+          "protected_api_requests": [],
+          "api_request_count": 0
+        }
+      ],
+      "denied_routes": [],
+      "logout_http": 200,
+      "status": "PASS"
+    },
+    {
+      "tag": "COL-A",
+      "role": "college_admin",
+      "login_http": 200,
+      "allowed_routes": [],
+      "denied_routes": [
+        {
+          "requested": "/operations",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 4,
+          "api_requests_during_navigation": []
+        },
+        {
+          "requested": "/admin/users",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 3,
+          "api_requests_during_navigation": [
+            {
+              "method": "GET",
+              "path": "/api/cohorts"
+            }
+          ]
+        },
+        {
+          "requested": "/teacher/students",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 5,
+          "api_requests_during_navigation": [
+            {
+              "method": "GET",
+              "path": "/api/cohorts"
+            }
+          ]
+        }
+      ],
+      "logout_http": 200,
+      "status": "PASS"
+    },
+    {
+      "tag": "T-A",
+      "role": "teacher",
+      "login_http": 200,
+      "allowed_routes": [
+        {
+          "requested": "/teacher/students",
+          "expected": "allowed",
+          "final_path": "/teacher/students",
+          "pass": true,
+          "protected_api_requests": [],
+          "api_request_count": 4
+        }
+      ],
+      "denied_routes": [
+        {
+          "requested": "/cohorts",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 1,
+          "api_requests_during_navigation": [
+            {
+              "method": "GET",
+              "path": "/api/teacher/students"
+            }
+          ]
+        },
+        {
+          "requested": "/audit",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 3,
+          "api_requests_during_navigation": []
+        },
+        {
+          "requested": "/operations",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 3,
+          "api_requests_during_navigation": []
+        },
+        {
+          "requested": "/admin/users",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 3,
+          "api_requests_during_navigation": []
+        }
+      ],
+      "logout_http": 200,
+      "status": "PASS"
+    },
+    {
+      "tag": "S-A",
+      "role": "student",
+      "login_http": 200,
+      "allowed_routes": [],
+      "denied_routes": [
+        {
+          "requested": "/cohorts",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 4,
+          "api_requests_during_navigation": []
+        },
+        {
+          "requested": "/audit",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 3,
+          "api_requests_during_navigation": []
+        },
+        {
+          "requested": "/operations",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 3,
+          "api_requests_during_navigation": []
+        },
+        {
+          "requested": "/admin/users",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 3,
+          "api_requests_during_navigation": []
+        },
+        {
+          "requested": "/teacher/students",
+          "expected": "denied",
+          "final_path": "/workspace",
+          "pass": true,
+          "api_request_count": 3,
+          "api_requests_during_navigation": []
+        }
+      ],
+      "logout_http": 200,
+      "status": "PASS"
+    }
+  ],
+  "known_project_results": [
+    {
+      "tag": "S-A",
+      "role": "student",
+      "login_http": 200,
+      "project_read_http": 200,
+      "expected": 200,
+      "final_path": "/write/proj-dfde4747c750",
+      "status": "PASS",
+      "logout_http": 200
+    },
+    {
+      "tag": "S-B",
+      "role": "student",
+      "login_http": 200,
+      "project_read_http": 403,
+      "expected": "403_or_404",
+      "final_path": "/write/proj-dfde4747c750",
+      "status": "PASS",
+      "logout_http": 200
+    },
+    {
+      "tag": "S-C",
+      "role": "student",
+      "login_http": 200,
+      "project_read_http": 403,
+      "expected": "403_or_404",
+      "final_path": "/write/proj-dfde4747c750",
+      "status": "PASS",
+      "logout_http": 200
+    },
+    {
+      "tag": "T-B",
+      "role": "teacher",
+      "login_http": 200,
+      "project_read_http": 403,
+      "expected": "403_or_404",
+      "final_path": "/write/proj-dfde4747c750",
+      "status": "PASS",
+      "logout_http": 200
+    }
+  ],
+  "api_non_auth_mutations": [],
+  "ai_calls": 0,
+  "business_data_writes": 0,
+  "route_guard_note": "Denied direct UI routes settled at /workspace. The read-only API paths recorded during those navigations are retained as observations and are not treated as proof that the requested page loaded; the result is based on final route plus no corresponding forbidden-page endpoint being listed. Only named UAT project responses were inspected by status; response bodies were not read."
+}

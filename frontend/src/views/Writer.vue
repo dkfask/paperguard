@@ -36,7 +36,7 @@
           <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
           <span>{{ t('writer.switchTemplate') }}</span>
         </button>
-        <button class="writer-review-action" :title="t('writer.check')" :aria-label="t('writer.check')" @click="checkOpen = !checkOpen">
+        <button class="writer-review-action" :disabled="checking || fixing" :title="t('writer.check')" :aria-label="t('writer.check')" @click="checkOpen = true; runCheckNow()">
           <span class="material-symbols-outlined" aria-hidden="true">rule</span>
           <span>{{ t('writer.check') }}</span>
         </button>
@@ -140,7 +140,7 @@
           <li v-for="(m, i) in missing" :key="i">{{ m }}</li>
         </ul>
         <div class="form-row" style="margin-top: 8px">
-          <button @click="exportDocx(true)" :disabled="exporting">{{ t('writer.exportAnyway') }}</button>
+          <button v-if="isManager()" @click="exportDocx(true)" :disabled="exporting">{{ t('writer.exportAnyway') }}</button>
           <button @click="missing = []">{{ t('writer.acknowledged') }}</button>
         </div>
       </div>
@@ -641,7 +641,7 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth, isManager } from '../auth'
 import {
   fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, restoreProjectSnapshot, createProjectExportJob, fetchProjectExportJob, downloadProjectExportJob, retryProjectExportJob, previewProjectExport,
-  checkProject, fixProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
+  checkProject, checkProjectTemplate, fixProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
   importProjectDocx,
   acknowledgeRequirements, assistRequirement, listRequirementWaivers, listRequirementDisputes, previewRequirementUpgrade,
   requestRequirementWaiver, requestRequirementDispute, upgradeRequirements, decideRequirementWaiver, revokeRequirementWaiver, decideRequirementDispute,
@@ -654,6 +654,7 @@ import ReasonDialog from '../components/ReasonDialog.vue'
 import SectionTextEditor from '../components/SectionTextEditor.vue'
 import { useI18n } from '../i18n'
 import { createTextBlocks, mergeTextBlocksWithMedia, textBlocksToSectionText } from '../utils/paragraphSplitter.js'
+import { isWritingSectionComplete, mergeWritingChecks } from '../utils/writingCompleteness.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -1325,9 +1326,15 @@ function computeChapterNumbers() {
 function chapterOf(key) { return chapterMap.value[key] || 0 }
 
 // ---------- 字数统计与完成度 ----------
-const requiredSections = computed(() =>
-  (project.value?.sections || []).filter((s) => s.required && s.type !== 'cover' && s.type !== 'toc'),
-)
+const requiredSections = computed(() => {
+  const sections = project.value?.sections || []
+  const required = new Map(flatTemplateSections.value.filter(s => s.required).map(s => {
+    const section = sections.find(item => item.key === s.key && item.type === s.type)
+    return [s.key, section || { ...s, paragraphs: [] }]
+  }))
+  for (const section of sections) if (section.required && !required.has(section.key)) required.set(section.key, section)
+  return [...required.values()].filter(s => s.type !== 'cover' && s.type !== 'toc')
+})
 const doneCount = computed(() => requiredSections.value.filter((s) => isDoneForSec(s)).length)
 const requiredCount = computed(() => requiredSections.value.length)
 const progressPct = computed(() => requiredCount.value ? Math.round((doneCount.value / requiredCount.value) * 100) : 0)
@@ -1349,15 +1356,7 @@ function sectionCharsOf(sec) {
 }
 
 function isDoneForSec(sec) {
-  if (sec.type === 'cover' || sec.type === 'toc') return true
-  if (sec.paragraphs && sec.paragraphs.length) {
-    return sec.paragraphs.some((p) => {
-      if (p.type === 'image') return !!(p.image && p.image.url)
-      if (p.type === 'table') return !!p.table && p.table.cells.flat().some((c) => String(c).trim())
-      return (p.text || '').trim()
-    })
-  }
-  return !!sec.title && sec.title.trim() !== ''
+  return isWritingSectionComplete(sec, project.value?.sections || [])
 }
 
 function label(node) { return node.title || node.key }
@@ -1690,9 +1689,9 @@ async function runCheckNow() {
   checking.value = true
   checkError.value = ''
   try {
-    const result = await checkProject(projectId)
+    const [result, templateResult] = await Promise.all([checkProject(projectId), checkProjectTemplate(projectId)])
     if (generation !== checkGeneration) return
-    checkResult.value = result
+    checkResult.value = mergeWritingChecks(result, templateResult)
     checkStale.value = false
   } catch (e) {
     if (generation === checkGeneration) checkError.value = e.message || t('writer.checkFailedFallback')
@@ -1713,13 +1712,14 @@ async function runOneClickFix() {
     const result = await fixProject(projectId, project.value.revision)
     project.value = result.project
     if (result.project.template_snapshot) template.value = result.project.template_snapshot
-    checkResult.value = result.report
+    checkStale.value = true
+    checkResult.value = mergeWritingChecks(result.report, await checkProjectTemplate(projectId))
     checkStale.value = false
     checkOpen.value = true
     savedAt.value = new Date().toLocaleTimeString()
     if (result.fixed_count > 0) {
       fixNotice.value = t('writer.fixedNotice', { count: result.fixed_count })
-    } else if (result.report?.findings?.length) {
+    } else if (checkResult.value.findings.length) {
       fixNotice.value = t('writer.fixUnavailable')
     } else {
       fixNotice.value = t('writer.noFixNeeded')
@@ -2265,18 +2265,19 @@ button.tiny.danger { color: var(--error); }
   top: 60px;
   z-index: 40;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
   min-height: 60px;
-  margin: 0 -24px;
-  padding: 10px 24px;
-  background: rgba(248, 249, 255, .94);
+  margin: 0 calc(-1 * var(--page-gutter));
+  padding: 10px var(--page-gutter);
+  background: var(--surface-container-lowest);
   border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 5px rgba(15, 23, 42, .04);
 }
 .writer-command-leading, .writer-command-actions, .writer-command-metrics { display: flex; align-items: center; gap: 10px; }
-.writer-command-leading { min-width: 0; }
+.writer-command-leading { min-width: 0; flex-shrink: 0; }
 .writer-command-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .writer-command-title span { color: var(--on-surface-variant); font-size: 10px; }
 .writer-command-title strong { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
@@ -2289,21 +2290,23 @@ button.tiny.danger { color: var(--error); }
 .writer-review-action, .writer-fix-action, .writer-import-action, .writer-preview-action, .writer-export-action { display: inline-flex; align-items: center; gap: 5px; }
 .writer-preview-action { border: 1px solid var(--border); }
 .export-preview-stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
-.export-preview-stats span { padding: 8px 10px; background: var(--surface-container-low); color: var(--on-surface-variant); }
+.export-preview-stats span { padding: 8px 10px; background: var(--background); color: var(--on-surface-variant); }
 .export-preview-stats b { color: var(--on-surface); margin-left: 4px; }
-.writer-review-action { color: var(--primary); border-color: var(--primary-fixed); background: var(--surface-container-low); }
+.writer-review-action { color: var(--primary); border-color: var(--primary-fixed); background: var(--background); }
 .writer-fix-action { color: #b45309; border-color: #fcd34d; background: #fffbeb; }
 .writer-import-action { color: #0f766e; border-color: #99f6e4; background: #f0fdfa; }
 .writer-command-bar .icon-action { flex-shrink: 0; }
+.writer-command-actions { flex-shrink: 0; flex-wrap: wrap; }
+.writer-command-bar button { white-space: nowrap; }
 
 .writer-columns {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 320px;
+  grid-template-columns: 225px minmax(0, 1fr) 300px;
   align-items: start;
   gap: 0;
-  margin: 0 -24px -40px;
+  margin: 0 calc(-1 * var(--page-gutter)) -40px;
   min-height: calc(100vh - 120px);
-  background: var(--surface-container-low);
+  background: var(--background);
 }
 .writer-columns > .sidebar {
   width: auto;
@@ -2329,10 +2332,13 @@ button.tiny.danger { color: var(--error); }
   min-width: 0;
   min-height: calc(100vh - 120px);
   padding: 28px clamp(24px, 5vw, 72px) 64px;
-  background: var(--surface-container-low);
+  background: var(--background);
 }
 .editor-pane > .error-banner, .editor-pane > .notice-banner, .editor-pane > .missing-panel { max-width: 840px; margin-left: auto; margin-right: auto; }
-.editor-head { max-width: 840px; margin: 0 auto 12px; }
+.editor-head { max-width: 840px; margin: 0 auto 12px; flex-wrap: wrap; align-items: flex-start; }
+.editor-head .type-tag { flex-shrink: 0; white-space: nowrap; }
+.editor-head .hint { flex: 1 1 180px; min-width: 0; }
+.editor-head button { flex-shrink: 0; white-space: nowrap; }
 .heading-input { display: block; max-width: 840px; margin: 0 auto 20px; background: var(--surface-container-lowest); border-radius: var(--radius-xs); }
 .editor-pane > div:not(.error-banner):not(.notice-banner):not(.missing-panel) { max-width: 840px; margin-left: auto; margin-right: auto; }
 .editor-pane > div > .para-block, .editor-pane > div > .section-text-editor { max-width: 840px; }
@@ -2372,6 +2378,12 @@ button.tiny.danger { color: var(--error); }
 .context-panel .check-action-btn { padding-right: 7px; padding-left: 7px; }
 .context-panel .waived-list, .context-panel .not-checked-list { font-size: 11px; }
 
+@media (max-width: 1360px) {
+  .writer-command-bar { flex-wrap: wrap; gap: 10px 18px; }
+  .writer-command-leading { flex: 1; }
+  .writer-command-actions { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+}
+
 @media (max-width: 1180px) {
   .writer-columns { grid-template-columns: 220px minmax(0, 1fr); }
   .writer-context { grid-column: 2; min-height: auto; max-height: none; position: static; border-left: 0; border-top: 1px solid var(--border); padding: 18px 24px 28px; }
@@ -2379,9 +2391,11 @@ button.tiny.danger { color: var(--error); }
 }
 
 @media (max-width: 768px) {
-  .writer-command-bar { top: 60px; margin: 0 -24px; padding: 9px 14px; gap: 8px; }
+  .writer-command-bar { top: 60px; margin: 0 calc(-1 * var(--page-gutter)); padding: 9px 14px; gap: 8px; }
+  .writer-command-leading { flex: 1; min-width: 0; }
   .writer-command-title strong { max-width: 180px; }
-  .writer-command-metrics { display: none; }
+  .writer-command-metrics > span:not(.writer-save-status) { display: none; }
+  .writer-command-actions { gap: 8px; justify-content: flex-start; }
   .writer-review-action span:last-child { display: none; }
   .writer-review-action { width: 34px; padding: 6px 8px; justify-content: center; }
   .writer-fix-action span:last-child { display: none; }
@@ -2389,10 +2403,18 @@ button.tiny.danger { color: var(--error); }
   .writer-import-action span:last-child { display: none; }
   .writer-import-action { width: 34px; padding: 6px 8px; justify-content: center; }
   .writer-export-action { padding: 6px 10px; }
-  .writer-columns { display: flex; flex-direction: column; margin: 0 -24px -40px; }
+  .writer-columns { display: flex; flex-direction: column; margin: 0 calc(-1 * var(--page-gutter)) -40px; }
   .writer-columns > .sidebar { width: 100%; min-height: auto; max-height: none; position: static; border-right: 0; border-bottom: 1px solid var(--border); padding: 14px 16px; }
   .writer-columns > .sidebar .tree-nav { max-height: 220px; }
   .editor-pane { width: 100%; min-height: auto; padding: 22px 16px 40px; }
   .writer-context { width: 100%; padding: 16px; }
+}
+
+@media (max-width: 480px) {
+  .writer-command-title strong { max-width: 150px; }
+  .writer-command-actions > .small span:last-child,
+  .writer-preview-action span:last-child,
+  .writer-export-action span:last-child { display: none; }
+  .writer-command-actions > button { min-width: 34px; min-height: 34px; padding: 6px 8px; justify-content: center; }
 }
 </style>

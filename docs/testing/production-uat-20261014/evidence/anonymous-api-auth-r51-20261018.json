@@ -1,0 +1,41 @@
+{
+  "recorded_at": "2026-10-18T10:29:57+08:00",
+  "environment": "production",
+  "base_url": "https://paper.thunderuni.com",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "deployed_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "method": "anonymous unauthenticated GET; response bodies discarded; statuses only",
+  "credentials_or_cookies_sent": false,
+  "business_writes": 0,
+  "checks": [
+    {
+      "path": "/api/auth/me",
+      "status": 401
+    },
+    {
+      "path": "/api/templates",
+      "status": 401
+    },
+    {
+      "path": "/api/policies",
+      "status": 401
+    },
+    {
+      "path": "/api/organizations",
+      "status": 401
+    },
+    {
+      "path": "/api/cohorts",
+      "status": 401
+    },
+    {
+      "path": "/api/teacher/students",
+      "status": 401
+    },
+    {
+      "path": "/api/audit?limit=1",
+      "status": 401
+    }
+  ],
+  "result": "7/7 protected API probes returned HTTP 401; this confirms anonymous denial only and does not verify any authenticated role permissions."
+}

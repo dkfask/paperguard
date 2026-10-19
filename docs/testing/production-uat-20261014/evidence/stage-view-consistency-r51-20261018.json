@@ -1,0 +1,78 @@
+{
+  "recorded_at": "2026-10-18T13:30:18+00:00",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "read-only compare of the same synthetic published stage projection across COL-A, assigned T-A and S-A; content hashed, not retained",
+  "cohort_id": "cohort-ed0046d38402",
+  "stage_id": "stage-dde2f988be51",
+  "participant_id": "participant-e7b399a3625e",
+  "results": [
+    {
+      "role_alias": "COL-A",
+      "login_status": 200,
+      "http_status": 200,
+      "candidate_count": 1,
+      "projection_sha256": "1f3e2393486faa3e35c3bafffde6a6cfb9474ff30795ce34a168ac24b4b16f18",
+      "projection_keys": [],
+      "stage_status": "published",
+      "logout_status": 200,
+      "comparison_to_participant_endpoint": "not_compared_different_response_shape"
+    },
+    {
+      "role_alias": "T-A",
+      "login_status": 200,
+      "http_status": 200,
+      "candidate_count": 1,
+      "projection_sha256": "2869cd04d08c93d9803e3b5e12a04df9c32204b7cc98eb03682dde8c86a79cec",
+      "projection_keys": [
+        "cohort_id",
+        "config_version",
+        "config_version_id",
+        "id",
+        "key",
+        "name",
+        "revision",
+        "status"
+      ],
+      "stage_status": "published",
+      "logout_status": 200,
+      "projection_matches_college_admin": false,
+      "projection_matches_colleague": true
+    },
+    {
+      "role_alias": "S-A",
+      "login_status": 200,
+      "http_status": 200,
+      "candidate_count": 1,
+      "projection_sha256": "2869cd04d08c93d9803e3b5e12a04df9c32204b7cc98eb03682dde8c86a79cec",
+      "projection_keys": [
+        "cohort_id",
+        "config_version",
+        "config_version_id",
+        "id",
+        "key",
+        "name",
+        "revision",
+        "status"
+      ],
+      "stage_status": "published",
+      "logout_status": 200,
+      "projection_matches_college_admin": false,
+      "projection_matches_colleague": true
+    }
+  ],
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "college_admin_retry": {
+    "recorded_at": "2026-10-18T13:30:33+00:00",
+    "role_alias": "COL-A",
+    "login_status": 200,
+    "http_status": 200,
+    "stage_found": true,
+    "stage_status": "published",
+    "projection_sha256": "1f3e2393486faa3e35c3bafffde6a6cfb9474ff30795ce34a168ac24b4b16f18",
+    "logout_status": 200
+  },
+  "comparison_note": "T-A and S-A used the same exact participant endpoint; their non-identity stage projections match. COL-A read the cohort stage list successfully on retry and saw the same published stage, but its endpoint returns a different projection shape, so full hash equality is not inferred."
+}

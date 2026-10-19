@@ -1,0 +1,45 @@
+{
+  "recorded_at": "2026-10-18T15:04:00Z",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_identity_rechecked_this_run": false,
+  "scope": "COL-A read-only exact cohort stages endpoint; output stores IDs/status/structural counts only",
+  "role_alias": "COL-A",
+  "cohort_id": "cohort-ed0046d38402",
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0,
+  "login_http_status": 200,
+  "me_http_status": 200,
+  "role_match": true,
+  "role": "college_admin",
+  "stages_http_status": 200,
+  "stage_count": 2,
+  "stages_in_api_order": [
+    {
+      "id": "stage-dde2f988be51",
+      "status": "published",
+      "is_final": true,
+      "open_at_present": true,
+      "deadline_at_present": true,
+      "required_material_count": 1,
+      "prerequisite_count": 0
+    },
+    {
+      "id": "stage-f8ddadcb7167",
+      "status": "published",
+      "is_final": true,
+      "open_at_present": true,
+      "deadline_at_present": true,
+      "required_material_count": 0,
+      "prerequisite_count": 0
+    }
+  ],
+  "unique_stage_ids": true,
+  "all_published": true,
+  "all_stages_marked_final": true,
+  "all_stages_have_no_prerequisites": true,
+  "status": "read_complete",
+  "logout_http_status": 200
+}

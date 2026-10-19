@@ -345,6 +345,17 @@ def test_project_owner_can_retry_own_failed_export(monkeypatch):
     assert created.status_code == 201, created.text
     project_id = created.json()["id"]
 
+    # 作者仍可重试自己的导出，但学生必须先完成模板必填项。
+    project = created.json()
+    meta = {field["key"]: f"回归{field['label']}" for field in project["template_snapshot"]["meta_fields"]}
+    assert client.put(f"/api/projects/{project_id}/meta", json={"meta": meta}, headers=owner).status_code == 200
+    for section in project["sections"]:
+        if section["required"]:
+            saved = client.put(f"/api/projects/{project_id}/section/{section['key']}", json={
+                "paragraphs": [{"id": f"{section['key']}-p1", "text": "模板要求的回归正文。"}],
+            }, headers=owner)
+            assert saved.status_code == 200, saved.text
+
     queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true", headers=owner)
     assert queued.status_code == 202, queued.text
     task = queued.json()
