@@ -51,6 +51,19 @@ def test_template_required_section_cannot_be_removed_or_made_optional(sections):
     assert validate_project_completeness(project, template)
 
 
+def test_template_check_rejects_required_section_type_mismatch():
+    template = _template()
+    project = WritingProject(
+        id="mismatched-outline", template_id=template.id,
+        sections=[ProjectSection(key="abstract", type="body", title="摘要", paragraphs=[ParagraphBlock(id="p1", text="正文")])],
+    )
+    findings, _ = compare_project_to_template(project, template)
+    mismatch = next(finding for finding in findings if finding.rule_id.endswith("abstract.type-mismatch"))
+    assert mismatch.severity.value == "error"
+    assert mismatch.actual == "body"
+    assert mismatch.expected == "abstract"
+
+
 def test_heading_can_use_real_child_content_but_not_an_empty_child_title():
     template = PaperTemplate(id="chapter-template", name="章节模板")
     project = WritingProject(id="child-paper", template_id=template.id, sections=[

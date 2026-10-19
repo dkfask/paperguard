@@ -86,6 +86,16 @@ def compare_project_to_template(
                     expected=True,
                 ))
             continue
+        if section.type != node.type.value:
+            findings.append(Finding(
+                rule_id=f"TPL.{template.id}.section.{node.key}.type-mismatch",
+                severity=Severity.ERROR,
+                message=f"章节类型与模板不一致: {node.title}",
+                location=Location(section_key=node.key),
+                actual=section.type,
+                expected=node.type.value,
+            ))
+            continue
         if node.required and not section_complete_with_children(section_indices[node.key], project.sections):
             findings.append(Finding(
                 rule_id=f"TPL.{template.id}.section.{node.key}.empty",
