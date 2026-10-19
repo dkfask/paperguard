@@ -1,0 +1,11 @@
+{
+  "recorded_at": "2026-10-15T14:54:21.094Z",
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "project_id": "proj-57adb8300efa",
+  "check": "R49-09-relogin-persistence",
+  "business_writes": 0,
+  "page_errors": [],
+  "unexpected_api_errors": [],
+  "status": "passed",
+  "logout_status": 200
+}

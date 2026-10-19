@@ -1,0 +1,31 @@
+{
+  "recorded_at": "2026-10-18T13:12:18+00:00",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "read-only post-export verification of the retained synthetic UAT writing project",
+  "role_alias": "S-A",
+  "project_id": "proj-01c5de3baec6",
+  "login_status": 200,
+  "project_status": 200,
+  "project": {
+    "id_matches": true,
+    "title_matches": true,
+    "section_count": 13,
+    "required_section_count": 7,
+    "nonempty_required_count": 7
+  },
+  "export_list_status": 200,
+  "export_jobs": [
+    {
+      "id": "export-932c3cfdfdaf",
+      "status": "succeeded"
+    }
+  ],
+  "template_check_status": 200,
+  "template_findings": {
+    "count": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "logout_status": 200
+}

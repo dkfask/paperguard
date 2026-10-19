@@ -1,0 +1,34 @@
+{
+  "recorded_at": "2026-10-15T11:41:21+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0, isolated headless Chromium",
+  "role_account": "COL-A (college_admin; synthetic UAT account)",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "route": "/cohorts",
+  "scenario": "F02/F03 partial: read the named test cohort stage configuration",
+  "known_test_cohort_id": "cohort-ed0046d38402",
+  "observed": {
+    "login_http": 200,
+    "route_http": 200,
+    "cohort_detail_http": 200,
+    "configuration_panel_visible": true,
+    "stage_detail_count": 1,
+    "published_stage_count": 1,
+    "stage_with_template_id_count": 1,
+    "visible_stage_row_count": 1,
+    "visible_stage_state": "published",
+    "visible_stage_config_version": 2,
+    "visible_deadline": "2026/10/29",
+    "page_errors": 0,
+    "api_errors": 0
+  },
+  "scope": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0
+  }
+}

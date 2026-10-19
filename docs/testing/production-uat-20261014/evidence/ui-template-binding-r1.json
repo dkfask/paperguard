@@ -1,0 +1,26 @@
+{
+  "recorded_at": "2026-10-15T11:42:30+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0, isolated headless Chromium",
+  "role_account": "COL-A (college_admin; synthetic UAT account)",
+  "scenario": "F03 partial: confirm the configured stage template appears in template management UI",
+  "observed": {
+    "login_http": 200,
+    "cohort_detail_http": 200,
+    "templates_page_http": 200,
+    "configured_stage_has_template_id": true,
+    "templates_api_count": 4,
+    "templates_traversed_across_pages": 4,
+    "unique_template_rows_seen": 4,
+    "bound_template_visible_after_pagination": true,
+    "api_errors": 0,
+    "page_errors": 0
+  },
+  "pagination_note": "The desktop template list is paginated. The bound template was not on the initial page, but appeared after traversing the second page; this was normal pagination, not a missing-template defect.",
+  "scope": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "recorded_at": "2026-10-19T10:58:29+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X03 exact synthetic cohort organization-scope read boundary",
+  "deployment": {
+    "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+    "identity_verified": true,
+    "health": {
+      "/api/health/live": 200,
+      "/api/health/ready": 200,
+      "/api/version": 200
+    }
+  },
+  "synthetic_object": {
+    "cohort_id": "cohort-ed0046d38402"
+  },
+  "checks": [
+    {
+      "alias": "COL-A",
+      "role": "college_admin",
+      "login_status": 200,
+      "me_status": 200,
+      "role_matches": true,
+      "organization_context_present": true,
+      "cohort_get_status": 200,
+      "logout_status": 200,
+      "expected": "visible synthetic cohort"
+    },
+    {
+      "alias": "COL-B",
+      "role": "college_admin",
+      "login_status": 200,
+      "me_status": 200,
+      "role_matches": true,
+      "organization_context_present": true,
+      "cohort_get_status": 404,
+      "logout_status": 200,
+      "expected": "inaccessible exact cohort"
+    }
+  ],
+  "scope_comparison": {
+    "public_organization_contexts_differ": true,
+    "raw_context_values_recorded": false,
+    "direct_root_id_equality_used_as_scope_proof": false
+  },
+  "method": "Authenticated exact-ID GET /api/cohorts/{cohort_id} as COL-A and COL-B; the 404 response body was canceled without reading. For the allowed response, only HTTP status and the fact that scope metadata was present were retained; members, stage payload, and raw organization IDs were not recorded.",
+  "writes": {
+    "business_data": 0,
+    "auth_sessions_created": 2,
+    "auth_sessions_logged_out": 2,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0,
+    "deployment": 0
+  },
+  "status": "partial_evidence_only"
+}

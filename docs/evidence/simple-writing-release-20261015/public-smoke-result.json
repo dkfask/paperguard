@@ -1,0 +1,39 @@
+{
+  "status": "passed",
+  "release_id": "4b79f96-simple-writing-b20261015T104714Z",
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "probes": [
+    {
+      "route": "/api/health/live",
+      "status": 200,
+      "source_revision": null
+    },
+    {
+      "route": "/api/health/ready",
+      "status": 200,
+      "source_revision": null
+    },
+    {
+      "route": "/api/version",
+      "status": 200,
+      "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa"
+    }
+  ],
+  "font_requests": 4,
+  "fonts_same_origin": true,
+  "font_state": {
+    "icons": true,
+    "geist": true
+  },
+  "console_errors": 0,
+  "business_writes": 0,
+  "edge_telemetry": [
+    {
+      "method": "POST",
+      "hostname": "paper.thunderuni.com",
+      "path": "/cdn-cgi/rum"
+    }
+  ],
+  "password_recovery_entry": "visible",
+  "mobile_overflow": false
+}

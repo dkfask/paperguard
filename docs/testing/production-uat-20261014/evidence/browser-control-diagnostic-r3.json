@@ -1,0 +1,83 @@
+{
+  "recorded_at": "2026-10-15T11:04:01+08:00",
+  "failure_class": "LOCAL_BROWSER_CONTROL_BRIDGE",
+  "target": "https://paper.thunderuni.com/login?redirect=%2F",
+  "diagnostics": [
+    {
+      "check": "CUA JS kernel reset",
+      "result": "success"
+    },
+    {
+      "check": "native app selection",
+      "result": "Google Chrome selected in 6.56s; selected window was not the PaperGuard UAT page; no interaction performed"
+    },
+    {
+      "check": "browser inventory",
+      "result": "Chrome extension, Codex MCP Apps, and Codex In-app Browser entries returned in 0.52s"
+    },
+    {
+      "check": "create browser tab through Chrome extension",
+      "result": "nodeRepl.fetch request failed in about 1.1s"
+    },
+    {
+      "check": "list Chrome extension tabs",
+      "result": "nodeRepl.fetch request failed in about 0.6s"
+    },
+    {
+      "check": "open target in Codex panel",
+      "result": "queued; panel display not confirmed"
+    }
+  ],
+  "production_page_check": {
+    "executor": "Playwright 1.63.0; mobile-chrome project",
+    "command": "TEST_BASE_URL=https://paper.thunderuni.com npm run test:e2e -- e2e/smoke.spec.ts --project=mobile-chrome --reporter=line",
+    "passed": 3,
+    "failed": 0,
+    "duration_seconds": 12.4,
+    "cases": [
+      "unauthenticated login surface",
+      "protected route redirects to login",
+      "mobile login has no horizontal overflow"
+    ],
+    "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046"
+  },
+  "conclusion": "The production login page and protected-route smoke are reachable. The local CUA browser-tab bridge still fails, but native Chrome window accessibility control opens and reads the target page in about one second; this bypass keeps page UAT operable. Playwright remains a second working channel. This does not restore the underlying getTab bridge.",
+  "scope": {
+    "production_business_writes": 0,
+    "ai_calls": 0,
+    "credentials_entered_in_cua": false,
+    "production_configuration_changed": false,
+    "application_code_changed": false
+  },
+  "native_chrome_control": {
+    "result": "PASS FOR PAGE OPEN; CUA tab bridge remains unavailable",
+    "method": "selected the native Google Chrome app, opened a new tab, set the address-bar value through accessibility control, and read the resulting page state",
+    "duration_seconds_approx": 1.0,
+    "page_title": "登录 · PaperGuard",
+    "visible_controls": [
+      "欢迎登录 PaperGuard",
+      "学号 / 工号 / 用户名",
+      "登录密码",
+      "立即注册"
+    ],
+    "existing_tabs_modified": false,
+    "credentials_entered": false
+  },
+  "additional_navigation_check": {
+    "recorded_at": "2026-10-15T11:10:46+08:00",
+    "headless_playwright_login_attempt": "page.goto waitUntil=commit timed out at 10s before document response; page remained blank; login was not attempted",
+    "direct_http_checks": {
+      "login_page": {
+        "status": 200,
+        "time_to_first_byte_seconds": 0.99,
+        "total_seconds": 0.99
+      },
+      "ready_endpoint": {
+        "status": 200,
+        "time_to_first_byte_seconds": 0.92,
+        "total_seconds": 0.92
+      }
+    },
+    "interpretation": "One fresh headless navigation attempt timed out despite successful immediate HTTP checks and the native Chrome page load. This is intermittent browser-navigation behavior; it does not establish a production service outage."
+  }
+}

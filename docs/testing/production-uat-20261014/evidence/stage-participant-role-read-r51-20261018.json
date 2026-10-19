@@ -1,0 +1,92 @@
+{
+  "format": "paperguard-production-uat-f02-participant-detail-read",
+  "format_version": 1,
+  "recorded_at": "2026-10-18T14:37:05Z",
+  "environment": "production",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_identity_rechecked_this_run": false,
+  "health": {
+    "live_http": 200,
+    "ready_http": 200
+  },
+  "scope": {
+    "cohort_id": "cohort-ed0046d38402",
+    "stage_id": "stage-dde2f988be51",
+    "participant_id": "participant-e7b399a3625e",
+    "endpoint": "GET /api/stage-participants/{participant_id}",
+    "exact_ids_only": true
+  },
+  "accounts": [
+    {
+      "alias": "T-A",
+      "expected_role": "teacher",
+      "login_http": 200,
+      "me_http": 200,
+      "role_match": true,
+      "participant_read_http": 200,
+      "exact_cohort_stage_participant_ids": true,
+      "participant_access_allowed": true,
+      "stage_status": "published",
+      "logout_http": 200
+    },
+    {
+      "alias": "S-A",
+      "expected_role": "student",
+      "login_http": 200,
+      "me_http": 200,
+      "role_match": true,
+      "participant_read_http": 200,
+      "exact_cohort_stage_participant_ids": true,
+      "own_participant_match": true,
+      "stage_status": "published",
+      "logout_http": 200
+    }
+  ],
+  "config_observation": {
+    "fields": [
+      "allow_early_write",
+      "created_at",
+      "deadline_at",
+      "id",
+      "is_final",
+      "key",
+      "member_snapshot",
+      "name",
+      "open_at",
+      "prerequisite_stage_ids",
+      "required_manual_checks",
+      "required_materials",
+      "requirement_basis_hash",
+      "requirement_set_ids",
+      "requirement_snapshot",
+      "revision",
+      "revision_days",
+      "rule_packs",
+      "stage_id",
+      "status",
+      "template_id",
+      "updated_at",
+      "version"
+    ],
+    "name_present": true,
+    "open_at_present": true,
+    "deadline_at_present": true,
+    "required_materials_count": 1,
+    "prerequisite_stage_count": 0,
+    "selected_projection_equal_between_roles": true,
+    "selected_projection_sha256_prefix": "0de984f05b9f"
+  },
+  "route_correction": {
+    "initial_wrong_prefix": "/api/workflow/stage-participants/{participant_id}",
+    "initial_http": 404,
+    "correct_prefix": "/api/stage-participants/{participant_id}",
+    "correct_http": 200,
+    "effect": "read-only; all sessions logged out"
+  },
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0,
+  "status": "PASS_SUBCHECK"
+}

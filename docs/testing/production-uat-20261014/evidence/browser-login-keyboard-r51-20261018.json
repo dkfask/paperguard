@@ -1,0 +1,49 @@
+{
+  "recorded_at": "2026-10-18T15:19:38Z",
+  "target": "https://paper.thunderuni.com",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scenario_ids": [
+    "F01",
+    "X12"
+  ],
+  "scope": "anonymous production login page route, visible controls, and a limited keyboard-focus smoke check",
+  "browser_observation": {
+    "browser": "Google Chrome on macOS",
+    "url_path": "/login?redirect=/first-login?redirect=/workspace",
+    "window_title": "登录 · PaperGuard",
+    "visible_accessible_controls": [
+      "username text field",
+      "password field",
+      "forgot password button",
+      "login button",
+      "register link"
+    ],
+    "page_screenshot_retained": false
+  },
+  "http_probe": {
+    "method": "GET",
+    "status": 200,
+    "content_type": "text/html",
+    "response_bytes": 1154,
+    "html_title": "PaperGuard — 毕业论文格式合规引擎与工作台"
+  },
+  "keyboard_check": {
+    "prior_observation_in_current_session": "A previous native UI pass observed username → password → forgot password → login → register, then Shift+Tab back to login; no credentials were entered or form submitted, and no screenshot was retained.",
+    "current_recheck": "Clicking username then Tab moved focus to password. Subsequent Tab and Shift+Tab calls left the reported focus on password, so the full sequence was not reproducible in this recheck. Sending Escape followed by Tab also left focus reported on the password field.",
+    "result": "inconclusive",
+    "submitted": false,
+    "credentials_entered": false
+  },
+  "side_effects": {
+    "auth_sessions_created": 0,
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0
+  },
+  "limitations": [
+    "Does not cover authenticated roles, first-login onboarding, protected deep links, or complete logout behavior.",
+    "Accessibility-tree names do not establish every semantic HTML label association.",
+    "Keyboard sequence is mixed across the earlier observation and current recheck; F01/X12 remain partial."
+  ]
+}

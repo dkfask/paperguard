@@ -1,0 +1,18 @@
+{
+  "login_status": 200,
+  "preconditions": {
+    "revision": true,
+    "participant": true,
+    "no_duplicate": true
+  },
+  "record_id": "record-e4ce97c3b417",
+  "create_status": 201,
+  "submit_status": 200,
+  "approval_status": 200,
+  "final_state": "approved",
+  "observed_at": "2026-10-15T10:07:07.171074+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "production backend loopback over SSH; synthetic guidance record; session revoked",
+  "ui_verified": false
+}

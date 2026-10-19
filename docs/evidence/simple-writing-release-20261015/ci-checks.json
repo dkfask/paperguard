@@ -1,0 +1,61 @@
+{
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "checks": [
+    {
+      "name": "Disposable Docker staging",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38722695820/job/116380896944"
+    },
+    {
+      "name": "Frontend checks",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38722695799/job/116380896362"
+    },
+    {
+      "name": "Backend tests (Python 3.12)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38722695799/job/116380896276"
+    },
+    {
+      "name": "Design gates (tenancy toolchain)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38722695799/job/116380896256"
+    },
+    {
+      "name": "Backend tests (Python 3.11)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38722695799/job/116380896219"
+    },
+    {
+      "name": "Online verifier contract (loopback)",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38722695799/job/116380896156"
+    },
+    {
+      "name": "Disposable production-topology preflight",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38722695759/job/116380895823"
+    },
+    {
+      "name": "Generic document browser flow",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+      "url": "https://github.com/dkfask/paperguard/actions/runs/38722695765/job/116380895553"
+    }
+  ]
+}

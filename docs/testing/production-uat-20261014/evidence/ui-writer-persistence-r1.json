@@ -1,0 +1,37 @@
+{
+  "recorded_at": "2026-10-15T11:18:01+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0 headless Chromium; S-A synthetic account",
+  "scenario": "F09 partial: verify saved draft paragraph through refresh and same-account logout/login",
+  "project_id": "proj-dfde4747c750",
+  "route": "/write/proj-dfde4747c750",
+  "steps": [
+    "login S-A",
+    "select the section by its text label (not the full row)",
+    "read the existing paragraph without editing",
+    "refresh and read again",
+    "logout, login S-A again, reopen writer, and read again"
+  ],
+  "login_statuses": [
+    200,
+    200
+  ],
+  "logout_status": 200,
+  "project_title": "校园图书借阅服务体验研究",
+  "outline_count_including_cover": 14,
+  "selected_section": "摘要",
+  "paragraph_count": 1,
+  "paragraph_utf16_length": 86,
+  "paragraph_sha256_before_refresh": "7d83a17a04c14bdf0e7593990e835c1d71b757638243e6499a96634d2051e65b",
+  "paragraph_after_refresh": "same synthetic paragraph; SHA-256 independently matched",
+  "paragraph_sha256_after_relogin": "7d83a17a04c14bdf0e7593990e835c1d71b757638243e6499a96634d2051e65b",
+  "title_and_outline_stable_across_steps": true,
+  "non_auth_write_requests_in_this_precise_check": 0,
+  "ai_generation_calls": 0,
+  "status": "PARTIAL; selected paragraph persisted across refresh and re-login",
+  "limitations": [
+    "Only the abstract paragraph was compared; remaining body sections, chart/reference editing UI, user-initiated UI save, and title/cover consistency remain incomplete.",
+    "Writer page automatically reads the read-only AI status endpoint; no AI generation or feature action was performed."
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "recorded_at": "2026-10-15T13:55:19+08:00",
+  "target": "https://paper.thunderuni.com",
+  "kind": "anonymous read-only production health check",
+  "checks": [
+    {
+      "path": "/api/health/live",
+      "http_status": 200,
+      "elapsed_ms": 776,
+      "reported_status": "ok"
+    },
+    {
+      "path": "/api/health/ready",
+      "http_status": 200,
+      "elapsed_ms": 934,
+      "reported_status": "ok"
+    }
+  ],
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0
+}

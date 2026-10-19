@@ -1,0 +1,27 @@
+{
+  "recorded_at": "2026-10-15T11:38:22+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0, isolated headless Chromium",
+  "role_account": "S-A (student; synthetic UAT account)",
+  "route": "/workflow?panel=submissions",
+  "scenario": "F15 partial: traverse the student submission history UI",
+  "observed": {
+    "login_http": 200,
+    "route_http": 200,
+    "submissions_api_http": 200,
+    "named_project_submission_count_from_api": 3,
+    "pages_visited": 3,
+    "visible_history_rows_across_pages": 3,
+    "unique_history_rows_across_pages": 3,
+    "final_pager": "第 3/3 页 · 共 3 项",
+    "api_errors": 0,
+    "page_errors": 0
+  },
+  "interpretation": "The initial viewport renders one row because the deployed page uses paginated ScreenCollection. Advancing through all pages exposed three distinct rows, matching the three API records. No missing-history defect observed in this check.",
+  "scope": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0
+  }
+}

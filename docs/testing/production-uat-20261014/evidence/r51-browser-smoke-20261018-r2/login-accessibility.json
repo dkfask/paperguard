@@ -1,0 +1,88 @@
+{
+  "recorded_at": "2026-10-18T02:19:56.402Z",
+  "url": "https://paper.thunderuni.com/login",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "account": "anonymous",
+  "writes": [],
+  "checks": [
+    {
+      "id": "form_label_association",
+      "passed": true
+    },
+    {
+      "id": "login_language_toggle",
+      "passed": true,
+      "english_copy_visible": true
+    }
+  ],
+  "label_associations": [
+    {
+      "id": "username",
+      "type": "text",
+      "labels": [
+        "学号 / 工号 / 用户名"
+      ]
+    },
+    {
+      "id": "password",
+      "type": "password",
+      "labels": [
+        "登录密码"
+      ]
+    }
+  ],
+  "keyboard_tab_order": [
+    {
+      "tag": "BUTTON",
+      "id": "",
+      "text": "English",
+      "href": ""
+    },
+    {
+      "tag": "INPUT",
+      "id": "username",
+      "text": "",
+      "href": ""
+    },
+    {
+      "tag": "INPUT",
+      "id": "password",
+      "text": "",
+      "href": ""
+    },
+    {
+      "tag": "BUTTON",
+      "id": "",
+      "text": "忘记密码？",
+      "href": ""
+    },
+    {
+      "tag": "BUTTON",
+      "id": "",
+      "text": "登 录",
+      "href": ""
+    },
+    {
+      "tag": "A",
+      "id": "",
+      "text": "立即注册",
+      "href": "/register"
+    },
+    {
+      "tag": "BODY",
+      "id": "",
+      "text": "PaperGuard\nEnglish\n欢迎登录 PaperGuard\n\n从章节结构到正文表达，集中完成毕业论文写作，并在需要时查看模板与规范。\n\n学号 / 工号",
+      "href": ""
+    },
+    {
+      "tag": "BUTTON",
+      "id": "",
+      "text": "English",
+      "href": ""
+    }
+  ],
+  "console_errors": [],
+  "status": "PASS WITH RESIDUAL RISK",
+  "residual": "The anonymous route guard intentionally calls /api/auth/me and receives 401; no credentials were entered. Keyboard order was recorded for full X12 review."
+}

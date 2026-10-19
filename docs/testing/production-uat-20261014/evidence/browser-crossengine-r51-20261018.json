@@ -1,0 +1,88 @@
+{
+  "recorded_at": "2026-10-18T10:26:49+08:00",
+  "environment": "production",
+  "url": "https://paper.thunderuni.com/login",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "deployed_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "scope": "anonymous login-page smoke only; partial X12 evidence",
+  "credentials_entered": false,
+  "business_writes": 0,
+  "checks": [
+    {
+      "browser": "Chromium",
+      "version": "153.0.8010.12",
+      "viewport_widths": [
+        1440,
+        390
+      ],
+      "login_form_visible": true,
+      "no_horizontal_overflow": true,
+      "result": "PASS WITH RESIDUAL RISK",
+      "evidence": "r51-browser-smoke-20261018-r2/login-smoke.json"
+    },
+    {
+      "browser": "Firefox",
+      "version": "155.0",
+      "viewport_widths": [
+        1440,
+        390
+      ],
+      "login_form_visible": true,
+      "no_horizontal_overflow": true,
+      "result": "PASS WITH RESIDUAL RISK",
+      "navigation_note": "Initial domcontentloaded wait timed out; retry using waitUntil=commit loaded HTTP 200 and both viewports passed.",
+      "console_errors": []
+    },
+    {
+      "browser": "WebKit",
+      "version": "26.6",
+      "viewport_widths": [
+        1440,
+        390
+      ],
+      "login_form_visible": true,
+      "no_horizontal_overflow": true,
+      "result": "PASS WITH RESIDUAL RISK",
+      "http_status": 200,
+      "console_errors": []
+    }
+  ],
+  "scenario_disposition": "X12 remains NOT RUN/partial. Core authenticated pages, long titles and summaries, Chinese time display, and full supported-browser coverage are still unverified.",
+  "keyboard_traversal_followup": {
+    "scope": "anonymous login page; keyboard Tab only; no credentials entered and no business writes",
+    "firefox_155": {
+      "result": "PASS WITH RESIDUAL RISK",
+      "sequence": [
+        "username",
+        "password",
+        "忘记密码？",
+        "登 录",
+        "立即注册"
+      ],
+      "username_and_password_have_associated_labels": true
+    },
+    "webkit_26_6": {
+      "result": "ENVIRONMENT / NOT JUDGED",
+      "sequence": [
+        "username",
+        "password",
+        "BODY",
+        "username",
+        "password",
+        "BODY",
+        "username"
+      ],
+      "username_and_password_have_associated_labels": true,
+      "control_properties": "Buttons and link report tabIndex=0, enabled, and not aria-hidden.",
+      "note": "The browser did not traverse buttons/links in this Playwright WebKit session. Browser/system full-keyboard-access preference was not independently controlled; verify in target Safari/macOS configuration before product attribution."
+    },
+    "chromium_153": "Tab sequence and labels passed in r2 login-accessibility.json.",
+    "disposition": "Cross-engine keyboard accessibility remains incomplete; do not mark X12 pass or product fail from the WebKit harness observation alone."
+  },
+  "test_harness_worktree": {
+    "head": "a64e8cdc56e3db76b691c4d4c054452d9f759173",
+    "branch": "fix/ui-review-findings-20260929",
+    "worktree_had_other_uncommitted_changes": true,
+    "note": "Browser checks ran from the local frontend Playwright package; target remains the separately recorded production revision."
+  }
+}

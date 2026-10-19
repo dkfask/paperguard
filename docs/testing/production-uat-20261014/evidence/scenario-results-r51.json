@@ -1,0 +1,686 @@
+{
+  "recorded_at": "2026-10-19T03:18:50+00:00",
+  "round": 51,
+  "deployed_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "deployment_release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "deployment_identity_verified": true,
+  "release_identity_evidence": "runtime-release-r51-20261018.json",
+  "previous_round": "scenario-results-r50.json",
+  "business_totals": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 10,
+    "GAP": 0,
+    "NOT RUN": 25,
+    "N/A": 0,
+    "total": 36
+  },
+  "business_result": "IN_PROGRESS",
+  "note": "r51发布身份不变。本轮新增S-A与COL-A合成账号只读复测：F08历史已批准变更对象仍与项目标题不一致，但未重放变更；X10已知批次接口/UI一致，旧200%及时率异常未复现，归档完成率50%与1/2对象状态相符。两项场景包仍为partial/NOT RUN，不提升状态。AI01–AI09继续暂缓，X11等待真机。 r51追加S-A/S-B/T-B/COL-B四角色登录及已知合成项目/导出下载边界检查，12/12符合预期、退出均200；F01与X08仍partial且不提升完整包状态。 r51补充S-A只读重登既有合成写作项目，摘要和7/7必填章节可读，无写入；F09仍partial/NOT RUN。 r51九合成角色逐个完成身份、工作台可见、菜单采集、登出与登出后受保护路由跳转，全部无非认证写请求；F01仍partial/NOT RUN。 r51续测新增一个授权保留的合成论文写作闭环：7封面字段、7个必填章节、桌面刷新与390×844移动视口保存/重载通过；模板检查0错误/0警告，DOCX下载成功且格式抽检通过，重登后导出任务状态succeeded。只补充F09/X12子项，场景状态仍NOT RUN/partial；AI01–AI09继续暂缓，X11待真机。 r51追加最新合成写作项目的X08精确ID读权限检查：4个角色对项目/导出列表/详情/下载共16项GET均符合预期，四会话登出200；未枚举资源、无业务写入。另有一次早期探测脚本输出未捕获，最多可能额外触发8次认证请求，不纳入证据结论。 r51只读重绑既有主流程合成对象：participant仍pending_archive，V1 returned、V2 approved；X08新增项目/participant/材料/V2候选/V2提交4角色共20项精确ID访问检查均符合预期。没有执行V3、导出归档或任何业务写入。 r51新增九个合成角色的退出后重登认证子项：9/9角色两轮登录和身份匹配均通过，18/18会话退出200；未打开业务列表或产生业务写入。F01仍partial。 r51补充合成批次/成员/阶段/学生任务精确回读：COL-A看到1名匹配S-A的测试成员、2个阶段及published终稿阶段；S-A任务入口可见既有participant。仅只读子项。 r51追加学生写作页键盘/表单名称审计：桌面Tab可达主要控件，移动390px无横向溢出；可见可聚焦控件均有可计算名称，摘要编辑框使用占位符但无显式label。仅X12子项，完整场景仍partial。 r51核对阶段配置：T-A/S-A对同一participant阶段投影哈希一致；COL-A阶段列表重试200并确认同一阶段published，但因接口投影结构不同未宣称全字段三端一致。 r51对既有教师级合成规范草稿只读复核：T-A owner读取200且仍为draft/v1，T-B精确ID返回404；未发布/修改。 r51对获准保留的S-A写作草稿回查到1个持久化合成图片节点；插图尝试的业务写入请求数未捕获，不纳入已确认写入数。随后唯一一次参考文献段落PUT返回200，revision 20→21，刷新后UI/API读回成功，S-A退出200；未再次导出。已确认成功业务写入API操作累计13次，不含请求数未知的插图尝试。确认成功认证会话79次，其中76次退出200、3次早期中断会话无退出证据；另有插图/早期引用尝试以及早期X08探测的会话请求不确定性，均不计入确认值，未批量撤销。F09仍NOT RUN/partial。 r51新增F02精确ID配置只读检查：COL-A、指派教师T-A、学生S-A的目标合成阶段响应均200且ID匹配，状态均published；去除身份字段后的配置投影哈希一致，开放/截止/修订字段和1项必需材料字段存在。无业务写入、无说明正文留存；完整页面说明及阶段顺序仍未核验。认证累计82次已确认成功登录，79次退出200；3次早期探索会话仍无退出响应，另有中断脚本的不确定认证记录不计入确认值。 r51对已知participant的过程材料列表以S-A/T-A授权、S-B/T-B非授权角色执行4项精确ID GET：授权读200、非授权404，退出均200。授权材料各1条且附件数0，因此直接下载4角色矩阵因前置样本缺失而未执行；没有上传生产附件。确认成功认证会话累计86次，其中83次退出200。 r51新增X09本地恢复只读副作用验证：对留存合成稿模拟客户端离线编辑；本地恢复marker刷新后仍存在，服务端revision和摘要段落投影未变，唯一自动保存写请求由浏览器本地拦截，未到生产服务。退出200；未恢复、重试或重复提交。认证累计87次成功登录、84次退出200。 r51新增F07中期表单角色只读回查：S-A与T-A的精确participant表单GET均200、各返回8字段；学生响应含advisor_comment/score，字段无owner标记，r51发布包表单定义也无owner配置。本轮没有提交/更新任何业务记录，未验证服务端写入拒绝逻辑；原F07生产失败保持不变。认证累计91次已确认成功登录、88次退出200。 R51补充COL-A批次阶段列表只读重查，返回2个published阶段，均标记终稿且无前置阶段；只确认接口对象可读，不证明业务顺序。F02保持partial/NOT RUN；完整状态仍为0 PASS、1 FAIL、10 BLOCKED、25 NOT RUN。 S-A精确回读本人participant：阶段published、材料计数1；语义探测不完整，按无法判断处理，不据此作缺失/合格结论。 r51附件续测：S-A按授权尝试向现有submitted过程材料添加固定文本附件，接口409；重读确认附件数仍0，两个会话均退出200。未创建记录/附件、无业务数据写入；下载矩阵未发起，X08仍partial。 r51匿名登录页键盘续测记录可见控件与路由；重复键盘路径结果不一致，按inconclusive保留，F01/X12继续partial。 r51 F02补做stage/config递归字段遍历：嵌套数组已检查，接口没有独立说明正文键，必需材料仅一个字符串标识，日期字段存在但未检查值/页面呈现；说明充分性仍未知，F02保持partial。 登录页键盘重放补按Escape后Tab仍未移动焦点，结果继续标记inconclusive。 r51 X01增加SYS-A精确自身actor审计查询200/0条；平台运维保留策略403符合该管理员没有显式platform能力的边界，未作配置变更。 r51 X01以已知合成项目唯一导出任务补齐S-A所有者与SYS-A精确任务读取：均200，state=succeeded，未访问全局任务列表/重试/下载；3个会话均退出200。 r51 X08增加写作项目版本列表角色矩阵4/4符合预期：S-A 200/0版本，S-B/T-B/COL-B 403；X08仍partial。该空版本列表同时提示F09快照隔离尚未获得证据。 r51 F03/X02补充阶段绑定模板精确读取：S-A/T-A/COL-A均200，版本1、15个章节节点；未保存正文、未修改模板或枚举列表。 r51 F03/X02读到精确阶段配置requirement_set_ids与rule_packs计数均0；不据此推断规则缺失，尚未执行格式/规范检查或发布变更。 r51 X08对既有已知合成归档做精确下载拒绝续测：COL-A元数据200/succeeded，4个非所有者角色下载均404、未读取归档正文。另有一次失败探测脚本的认证响应解析异常，登录结果及是否创建会话无法确认，不计入确认登录/登出数，留作认证清理不确定项。 r51 10/19 X06以T-A/COL-A完成评阅与答辩目录/表单只读探测：10/10精确表单GET均200，2/2登出200；无业务写入。此前一次输出截断的探测最多可能另有2个会话，结果未知且未计入确认数。X06保持NOT RUN/partial。 r51 10/19 X08补充单个精确participant过程材料列表角色矩阵：S-A/T-A 200并看到既有guidance_log及固定附件ID，S-B/T-B 404且未读响应正文，4/4会话登出200；无业务写入。X08仍NOT RUN/partial，因全局搜索/列表与更多资源组合未覆盖。 r51 10/19 X03针对单一合成cohort执行学院管理员精确详情访问：COL-A 200、COL-B 404，拒绝正文未读取；两次认证均退出200，无业务写入。仅为范围边界子项，X03保持NOT RUN/partial。 r51 10/19 X03追加精确批次的详情/阶段/批次材料列表子矩阵：COL-A 3/3为200，COL-B 3/3为404且拒绝正文未读取；阶段2项均published、批次材料0项，2次登出200。仅单一批次，不提升X03整体状态。 截至2026-10-19本轮，确认成功认证会话累计168次，其中165次HTTP 200登出；另有3个较早成功会话未捕获登出，X12一次网页登录和早先X06一次输出截断最多另涉及3个未确认会话，均未计入确认数，未执行账号级批量撤销。 r51 10/19 获准的开题闭环：创建1批次、1条指导关系、1个开放阶段、1份教师创建且保持draft的task_book、1份opening_report；开题完成提交→退回→学生修订重提→指派教师批准。共7条业务记录、11次成功业务写入操作；初始化只读预检3个会话、业务执行3个会话、完成后的精确只读回查3个会话，9/9均HTTP 200退出。internal notifications可能产生，0 AI、0站外通知、0删除/导出/归档/部署。F02/F04/F05/F06均只补充部分API证据，36场景统计仍为0 PASS、1 FAIL、10 BLOCKED、25 NOT RUN。 F03增加新合成阶段模板绑定子项：COL-A/T-A/S-A精确回读一致；不提升完整场景。",
+  "writes": {
+    "business_data": 26,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "auth_session_metadata": 177,
+    "deletions": 0,
+    "deployment": 0
+  },
+  "scenarios": [
+    {
+      "id": "F01",
+      "role": "各角色",
+      "scope": "登录、首次引导、工作台、退出后重新登录",
+      "expected": "身份及组织正确；菜单与权限一致；深链接可达；退出后受保护页面不可继续操作",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "匿名登录页、未登录身份拒绝、受保护路由跳转与390×844窄屏布局检查通过；未登录任何角色，场景包不完整。 未登录GET /api/auth/me、/api/templates、/api/policies、/api/organizations、/api/cohorts、/api/teacher/students、/api/audit?limit=1均返回401；仅为匿名认证边界子项，角色登录/权限仍未验。 r51以S-A、S-B、T-B、COL-B登录，/api/auth/me角色均匹配受控合成账号；S-A可读已知项目及两个导出，其他三角色按预期被拒；4个会话退出均200。仍未核验首次引导、全角色菜单与工作台深链。 r51逐一登录SYS-A、SCH-A、COL-A、COL-B、T-A、T-B、S-A、S-B、S-C，9/9账号ID/服务端角色匹配且工作台可见；退出后访问/workspace均跳回登录页。可见菜单链接已采集；首次引导、菜单链接逐项访问及退出后的再次登录未测。 r51补测9个合成角色，各执行初次登录、身份读取、退出、再次登录、身份读取、再次退出；18/18身份ID与角色匹配，登录/退出共36次接口状态均200，无业务写入。 r51新增T-A/S-A逐会话退出失效检查：登录、身份核验、退出均200；退出后同一旧令牌访问/me及指定participant均401。首次使用引导和逐角色浏览器菜单深链仍未覆盖。 九角色只读/onboarding回查均200并登出200：onboarding_required=false、must_change_password=false、password_set=true，现有账号均不能触发首次引导表单；没有重置或新建生产账号。首次引导页面/验证码/完成后跳转仍未测。 本轮新增未登录生产登录页桌面键盘子项：表单控件可见，用户名→密码→忘记密码→登录→注册，反向从注册回到登录；未填凭据、未提交。完整登录、首次引导与登录后逐角色页面仍未验证。 r51匿名登录页子项：Chrome中仍显示 /login?redirect=/first-login?redirect=/workspace；HTML直GET为200、text/html、1154字节，页面标题与PaperGuard一致。AX树暴露用户名/密码字段、忘记密码、登录及注册链接。此前同会话观察到用户名→密码→忘记密码→登录→注册→Shift+Tab回登录；本次重放仅确认用户名Tab到密码，后续Tab/Shift+Tab未移动焦点，结果标为inconclusive。未填凭据、未提交、未创建认证会话。F01/X12仍为partial。 补充：Escape后再按Tab仍停留在密码字段，故本轮键盘序列重放保持inconclusive。 R51全角色浏览器续测：9/9合成账号角色匹配；9/9侧栏必需菜单存在且禁止菜单缺席；9/9从地址栏直达本人/workspace成功；9/9访问角色保护深链时重定向回/workspace；9/9退出HTTP 200，退出后直访/workspace回到/login。SYS-A与T-A在等待网络空闲后的专项复核未见API错误，角色显示分别为学校管理员/指导教师。首轮快速检查记录到38个未分阶段HTTP 401，留作夹具时序残余。当前轮确认成功认证会话11个、退出200为11个；另有一次SYS-A浏览器登录响应未捕获，未计入成功统计，可能仍有一个未跟踪会话。首次引导表单及所有菜单深链仍未全覆盖。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "仍缺首次使用引导，以及逐角色菜单深链实际打开后的权限/页面行为复核；本轮重登测试仅调用认证接口，不关闭F01完整场景。 九个现有合成账号均无需首次引导且无需强制改密；要测试首次引导表单需另有初始状态测试账号，或明确授权生产端账号状态变更/新建。本轮未执行该写操作。 本轮补充的是每角色工作台及一个越权深链，不覆盖所有菜单深链；首次引导表单、验证码/完成跳转和窄屏登录后导航仍未验证，故F01继续NOT RUN/partial。",
+      "evidence": [
+        "r51-browser-smoke-20261018-r2/login-smoke.json",
+        "r51-browser-smoke-20261018-r2/login-accessibility.json",
+        "anonymous-api-auth-r51-20261018.json",
+        "access-r51-20261018.json",
+        "role-matrix-r51-20261018.json",
+        "auth-relogin-r51-20261018.json",
+        "logout-revocation-r51-20261018.json",
+        "测试报告_R51服务端退出令牌失效续测_20261018.md",
+        "onboarding-flags-r51-20261018.json",
+        "测试报告_R51九角色首次引导状态只读回查_20261018.md",
+        "login-form-keyboard-smoke-r51-20261018.json",
+        "测试报告_R51登录页桌面键盘冒烟_20261018.md",
+        "browser-login-keyboard-r51-20261018.json",
+        "role-deep-links-r51-20261018.json",
+        "测试报告_R51全角色菜单深链浏览器续测_20261018.md"
+      ],
+      "current_version_observation": "r51下九个合成角色此前均已通过浏览器登录、工作台可见和退出保护子项；本轮逐个完成退出后的再次登录与GET /api/auth/me身份回读，18次认证会话均登录/身份查询/退出200，账号ID和角色与受控映射一致。 r51新增T-A/S-A逐会话退出失效检查：登录、身份核验、退出均200；退出后同一旧令牌访问/me及指定participant均401。首次使用引导和逐角色浏览器菜单深链仍未覆盖。 九角色只读/onboarding回查均200并登出200：onboarding_required=false、must_change_password=false、password_set=true，现有账号均不能触发首次引导表单；没有重置或新建生产账号。首次引导页面/验证码/完成后跳转仍未测。 本轮新增未登录生产登录页桌面键盘子项：表单控件可见，用户名→密码→忘记密码→登录→注册，反向从注册回到登录；未填凭据、未提交。完整登录、首次引导与登录后逐角色页面仍未验证。 r51匿名登录页子项：Chrome中仍显示 /login?redirect=/first-login?redirect=/workspace；HTML直GET为200、text/html、1154字节，页面标题与PaperGuard一致。AX树暴露用户名/密码字段、忘记密码、登录及注册链接。此前同会话观察到用户名→密码→忘记密码→登录→注册→Shift+Tab回登录；本次重放仅确认用户名Tab到密码，后续Tab/Shift+Tab未移动焦点，结果标为inconclusive。未填凭据、未提交、未创建认证会话。F01/X12仍为partial。 补充：Escape后再按Tab仍停留在密码字段，故本轮键盘序列重放保持inconclusive。"
+    },
+    {
+      "id": "F02",
+      "role": "学校管理员、学院管理员",
+      "scope": "发布论文工作流程解释、阶段顺序、截止日期、材料清单及提交要求",
+      "expected": "教师和学生可看到同一有效版本；说明明确“何时、交什么、谁审核、退回后怎么改”；未发布草稿不提前生效",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。 COL-A在r51可读已知合成批次、阶段列表与成员（HTTP 200）；批次含1名合成测试成员和2个阶段，指定终稿阶段published。未检查说明正文或T-A/S-A视图一致性。 T-A与S-A对同一已知participant执行GET，阶段配置非身份字段投影哈希一致；COL-A阶段列表首次522、一次短重试200，能看到同一published阶段。因管理端列表与participant详情响应结构不同，不宣称三端完整字段哈希一致。 r51按已知合成ID补做精确GET：COL-A读取批次阶段列表，T-A/S-A各读取指定participant阶段；三个请求均200、目标ID匹配、阶段均published。去除身份字段后的配置投影哈希三方一致；开放时间、截止时间、修订天数和必需材料字段均存在，必需材料数组计数1。未保留说明正文。 r51新增T-A/S-A对精确participant详情接口回读：正确路由均200、角色匹配、目标ID匹配且阶段published；选定配置投影字段集合和值相同，退出均200。初始误用/api/workflow前缀的两次GET为404，改用项目实际/api路由后通过；4次新增会话全有退出200。完整说明正文、材料名称页面呈现和阶段顺序仍待验证。 R51再次以COL-A读取已知批次阶段列表：登录/身份/列表/退出均200，返回2个published阶段；两者均标记is_final且无前置阶段，API顺序本身不证明预期门控顺序。无业务写入。 S-A再次精确读取本人已知participant，登录/身份/详情/退出均200；阶段published、必需材料计数1。只留字段结构和长度，不保留正文；因文本遍历未覆盖字符串数组，说明语义与材料名称均标记无法判断，不能推断缺失或合格。 r51递归语义结构复核：S-A对精确participant详情再次GET 200，遍历stage/config下24个嵌套字符串叶（含数组项）。接口payload未见独立instruction/description说明正文；required_materials有1个标量字符串标识，open_at/deadline_at字段存在；日期值正确性、材料名称/描述页面呈现未测。说明充分性仍无法判断，不推断页面缺失或合格。登录/身份/退出均200，无业务写入。 r51学生端只读续测：S-A在`/api/my-tasks`找到精确participant，`/workflow?panel=progress`有4张卡且目标匹配0；目标状态为pending_archive，不据此直接判为缺陷。`/workspace`阶段任务抽屉8张卡中精确目标唯一可见，呈现阶段、批次、题目、截止、状态、提交状态；卡片未显示流程说明/必交材料名称。已知合成批次当前仅有2个阶段任务（pending_archive 1、archived 1），无开放中任务，故无法完成运行中阶段说明与要求验收。F02保持NOT RUN/partial。 r51 10/19按获准范围新建合成批次、S-A/T-A指导关系及一个开放阶段。COL-A、T-A、S-A对精确阶段配置回读一致：default-gb7713模板、task_book与opening_report两项必交材料、无前置阶段；回查时处于开放时间窗，participant/批次/阶段绑定匹配。新对象仅覆盖API配置与阶段开放子项；未核验页面说明全文、材料名称呈现、阶段顺序或草稿/发布的跨角色可见性。整体仍 NOT RUN/partial。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "教师和学生页面对流程说明、截止时间及必交材料的实际呈现/充分性仍未逐项核对；阶段顺序与草稿未发布时的可见性也未验证。",
+      "evidence": [
+        "workflow-state-r51-20261018.json",
+        "cohort-task-readback-r51-20261018.json",
+        "stage-view-consistency-r51-20261018.json",
+        "stage-config-exact-read-r51-20261018.json",
+        "测试报告_R51阶段配置精确ID三角色一致性续测_20261018.md",
+        "stage-participant-role-read-r51-20261018.json",
+        "测试报告_R51阶段任务详情教师学生回读续测_20261018.md",
+        "stage-list-order-read-r51-20261018.json",
+        "测试报告_R51批次阶段列表只读续测_20261018.md",
+        "stage-instruction-structure-r51-20261018.json",
+        "测试报告_R51学生阶段说明材料字段只读复核_20261018.md",
+        "stage-instruction-semantic-r51-20261018.json",
+        "f02-x12-student-workspace-read-r51-20261019.json",
+        "测试报告_R51学生任务阶段信息与窄屏工作台续测_20261019.md",
+        "workflow-open-report-return-resubmit-approve-r51-20261019.json"
+      ],
+      "current_version_observation": "r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。 当前r51只读核实已知合成批次revision 3、1名合成成员和2个阶段，终稿阶段published；尚未比较教师与学生看到的说明全文。 r51下T-A指派教师和S-A学生通过同一participant读取接口获得完全相同的阶段配置非身份字段哈希；COL-A阶段列表重试HTTP 200，指定阶段同为published。未保留配置正文。 r51精确ID读取的T-A、S-A与COL-A配置投影哈希相同；阶段均published/v1，配置响应含开放/截止/修订天数字段及1项必需材料。仅保留字段存在性和哈希，不留正文和值。 r51新增T-A/S-A对精确participant详情接口回读：正确路由均200、角色匹配、目标ID匹配且阶段published；选定配置投影字段集合和值相同，退出均200。初始误用/api/workflow前缀的两次GET为404，改用项目实际/api路由后通过；4次新增会话全有退出200。完整说明正文、材料名称页面呈现和阶段顺序仍待验证。 R51再次以COL-A读取已知批次阶段列表：登录/身份/列表/退出均200，返回2个published阶段；两者均标记is_final且无前置阶段，API顺序本身不证明预期门控顺序。无业务写入。 S-A再次精确读取本人已知participant，登录/身份/详情/退出均200；阶段published、必需材料计数1。只留字段结构和长度，不保留正文；因文本遍历未覆盖字符串数组，说明语义与材料名称均标记无法判断，不能推断缺失或合格。 r51递归语义结构复核：S-A对精确participant详情再次GET 200，遍历stage/config下24个嵌套字符串叶（含数组项）。接口payload未见独立instruction/description说明正文；required_materials有1个标量字符串标识，open_at/deadline_at字段存在；日期值正确性、材料名称/描述页面呈现未测。说明充分性仍无法判断，不推断页面缺失或合格。登录/身份/退出均200，无业务写入。 r51学生端只读续测：S-A在`/api/my-tasks`找到精确participant，`/workflow?panel=progress`有4张卡且目标匹配0；目标状态为pending_archive，不据此直接判为缺陷。`/workspace`阶段任务抽屉8张卡中精确目标唯一可见，呈现阶段、批次、题目、截止、状态、提交状态；卡片未显示流程说明/必交材料名称。已知合成批次当前仅有2个阶段任务（pending_archive 1、archived 1），无开放中任务，故无法完成运行中阶段说明与要求验收。F02保持NOT RUN/partial。 r51 10/19：新合成阶段由COL-A发布；COL-A/T-A/S-A精确回读的配置字段一致，template_id=default-gb7713，required_materials含task_book与opening_report，回查时处于开放窗口。教师/学生浏览器页面说明与草稿不可见规则仍待核验。"
+    },
+    {
+      "id": "F03",
+      "role": "管理员",
+      "scope": "建立测试批次、绑定模板/规范、导入或分配师生关系",
+      "expected": "导入错误可定位；重复导入不重复建任务；任务落到指定学生和教师；组织范围正确",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。 r51只读复核批次详情、成员、阶段和S-A已知participant：成员列表1项且与S-A匹配；2个阶段中指定终稿阶段published；学生任务入口返回该participant。没有重新导入、分配或测试重复导入错误。 r51对participant-e7b399a3625e阶段配置明确引用的单个模板执行精确ID读取：S-A/T-A/COL-A读取均200、绑定ID匹配；版本1，顶层10章、递归共15章、rule_packs计数0。只记录结构计数，不留标题或正文；无模板库枚举、写入或源文件下载。 r51对同一精确participant阶段配置只读复核：requirement_set_ids字段存在但计数0，rule_packs字段存在但计数0，必需材料计数1；只保留字段存在性/数量与basis-hash字段存在性，不保留任何ID或正文。此结果不证明检查规则缺失，因为模板默认规则或解析快照尚未执行验证。 r51 10/19获准合成批次续测：新批次阶段精确绑定default-gb7713模板；COL-A、T-A、S-A回读模板ID及阶段配置一致。只补充模板绑定子项；规范集合/默认规则效果、导入错误定位及重复导入未测，整体仍NOT RUN/partial。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "新批次模板绑定已由三角色精确回读；阶段规范集合/默认规则效果尚未验证，导入错误定位与重复导入去重也未执行。",
+      "evidence": [
+        "workflow-state-r51-20261018.json",
+        "cohort-task-readback-r51-20261018.json",
+        "stage-template-bound-read-r51-20261018.json",
+        "stage-policy-binding-structure-r51-20261018.json",
+        "workflow-open-report-return-resubmit-approve-r51-20261019.json"
+      ],
+      "current_version_observation": "r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。 r51读取既有合成批次revision 3、仅1名成员（与S-A受控合成账号匹配）、2阶段；S-A的my-tasks含既有participant，状态pending_archive。未重新创建批次、导入或分配关系。 r51对participant-e7b399a3625e阶段配置明确引用的单个模板执行精确ID读取：S-A/T-A/COL-A读取均200、绑定ID匹配；版本1，顶层10章、递归共15章、rule_packs计数0。只记录结构计数，不留标题或正文；无模板库枚举、写入或源文件下载。 r51对同一精确participant阶段配置只读复核：requirement_set_ids字段存在但计数0，rule_packs字段存在但计数0，必需材料计数1；只保留字段存在性/数量与basis-hash字段存在性，不保留任何ID或正文。此结果不证明检查规则缺失，因为模板默认规则或解析快照尚未执行验证。 r51 10/19获准合成批次阶段绑定default-gb7713模板，COL-A/T-A/S-A精确回读配置一致；没有导入、重复导入或规则执行。"
+    },
+    {
+      "id": "F04",
+      "role": "教师",
+      "scope": "设置题目、任务标题、研究目标、内容要求、预期成果，填写并发出任务书",
+      "expected": "区分流程名称、任务标题和论文题目；任务书与学生、阶段绑定；学生可读取正确版本；不能误发给其他学生",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51 10/19：T-A在获准新participant下创建一份结构化task_book草稿；S-A精确读取HTTP 200，题目与开题报告相同，记录仍为draft且没有提交/审批。仅验证绑定和跨角色可读子项；未提交/发出任务书、核对其他学生隔离，也未验证流程名称、任务标题与论文题目的区分。整体仍 NOT RUN/partial。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "任务书只保留为获准草稿；“发出”后的学生版本、错误学生不可见、任务标题/论文题目区分和教师端回读尚未验证。",
+      "evidence": [
+        "workflow-open-report-return-resubmit-approve-r51-20261019.json"
+      ],
+      "current_version_observation": "r51 10/19：T-A创建的新task_book绑定participant，S-A精确读取同一合成题目HTTP 200；状态仍为draft，未提交或审批。跨学生隔离及字段语义仍待核验。"
+    },
+    {
+      "id": "F05",
+      "role": "学生",
+      "scope": "领取或查看题目、确认要求、完成任务书相关填写",
+      "expected": "教师端可核对学生收到的内容；必填项和附件约束有效；学生不能改教师审核结论。若无“领取”机制，记录实际可达方式及需求差异",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51下S-A登录后读取任务入口，已知合成participant存在且与项目/批次/阶段ID匹配，状态pending_archive；未编辑或提交任务书。 r51 10/19：学生S-A读取T-A创建的task_book草稿，HTTP 200，题目与开题报告一致；该记录仍为draft。学生填写任务书字段、附件约束及学生无法改写教师审核结论均未测试，因此整体仍 NOT RUN/partial。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "未执行学生填写/保存任务书、附件约束或教师审核结论保护检查；也未确认是否存在单独领取机制。",
+      "evidence": [
+        "cohort-task-readback-r51-20261018.json",
+        "workflow-open-report-return-resubmit-approve-r51-20261019.json"
+      ],
+      "current_version_observation": "S-A在r51的任务入口可读到既有合成participant，状态pending_archive；只有可见/关联子项，未验证任务书必填字段、附件要求或教师端内容对照。 r51 10/19：S-A对唯一获准task_book草稿精确读取HTTP 200并看到相同合成题目；无学生编辑、附件或审批操作。"
+    },
+    {
+      "id": "F06",
+      "role": "学生、教师",
+      "scope": "填写开题报告，提交、审核、退回后修订",
+      "expected": "题目、目标、研究方法与任务书一致；材料状态与审批人正确；退回原因可见；完成后按前置规则进入下一阶段",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51 10/19：新开题报告与任务书使用同一合成题目。S-A结构化提交后T-A收件箱可见；T-A退回，S-A读到退回原因并修订研究目标/方法后重提；T-A再次从收件箱批准。S-A与T-A精确回读均为approved，审批人为指派T-A；同一participant下仅有task_book与opening_report两条记录。未测试完成后的下一阶段门控或浏览器UI，整体仍 NOT RUN/partial。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "状态闭环和指派教师审批已验证；下一阶段前置规则、浏览器端填写/退回呈现及附件/导出等不在本次授权范围内，仍待后续测试。",
+      "evidence": [
+        "workflow-open-report-return-resubmit-approve-r51-20261019.json"
+      ],
+      "current_version_observation": "r51 10/19：S-A→T-A→S-A→T-A完成开题报告提交、退回、修订重提、批准；退回原因对S-A可见，最终两角色均读到approved，approval actor匹配指派教师。题目与task_book一致；仅API子项，下一阶段门控与UI未测。"
+    },
+    {
+      "id": "F07",
+      "role": "学生、教师、学院管理员",
+      "scope": "记录指导过程，填报中期进度、问题与计划，提交中期检查",
+      "expected": "教师负责字段不能被学生越权填写；检查材料、审批顺序和批次汇总一致；未通过不得绕过阶段门禁",
+      "previous_round_status": "FAIL",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "生产指派教师填写中期意见/评分的409由用户报告；r51生产源码未提供独立教师字段路由且仍锁定已提交记录。无本轮认证生产重放。F07本地候选回归通过，不代表生产通过。 r51只读GET中期表单：S-A学生与指派教师T-A均200，均返回8个字段；学生响应含advisor_comment、score且未含owner标记。r51发布包的表单定义也未给这两个字段配置owner元数据。该子项没有提交表单或调用任何业务写接口，不能证明服务端是否拒绝学生写教师字段。",
+      "status": "FAIL",
+      "execution_state": "reported_and_source_corroborated",
+      "blocker": "F07生产端此前教师补填已确认409，且r51表单GET将advisor_comment/score一并返回给学生、没有owner元数据。修复候选尚未部署；仍需在获批版本部署后，对合成中期记录验证学生教师字段拒绝、指派教师专用更新和学生字段不被覆盖。",
+      "evidence": [
+        "source-f07-r51-20261018.json",
+        "../../测试报告_F07本地中期教师字段_20261018.md",
+        "midterm-form-owner-read-r51-20261018.json",
+        "midterm-form-field-keys-r51-20261018.json",
+        "测试报告_R51中期表单字段schema角色回查_20261018.md"
+      ]
+    },
+    {
+      "id": "F08",
+      "role": "学生、教师、学院管理员",
+      "scope": "复核正式论文题目；另走课题变更申请、退回/批准分支",
+      "expected": "课题变更审批通过后，主论文标题自动同步为新题目；同时对照任务书、开题、项目标题、提交封面与导出题目，历史快照保留当时题目。",
+      "current_version_observation": "r51下只读复核一个历史已批准课题变更：record状态approved、new_topic与原project标题不一致；该对象为旧对象且未重放审批动作，不能据此单独判断r51新审批行为。",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "S-A只读GET record-e44d8b5928b5与proj-dfde4747c750：记录approved，新题目“校园图书借阅服务体验研究（UAT主题变更）”，项目仍为“校园图书借阅服务体验研究”，不一致；replayed_approval=false。完整申请/退回/批准流程、任务书/开题/封面/导出一致性和历史快照未测。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "只读证据确认旧合成对象仍不一致，但无法验证r51新审批后的同步行为；需要在获准的新合成对象上完成完整变更流程。",
+      "evidence": [
+        "history-r51-20261018.json"
+      ]
+    },
+    {
+      "id": "F09",
+      "role": "学生",
+      "scope": "基于模板写正文、插入图表与引用、保存、刷新和重新登录",
+      "expected": "内容不丢失；结构和格式约束生效；标题及封面一致；草稿与历史提交互不覆盖；AI 场景按第 7 节插入",
+      "current_version_observation": "r51生产端S-A在授权保留的合成项目proj-01c5de3baec6完成写作子集：初始缺摘要符合预期；填写7个封面字段和7个必填章节后，桌面重载、390×844移动视口编辑/保存/重载均保持内容；模板检查0错误/0警告。导出任务export-932c3cfdfdaf状态succeeded，DOCX抽检确认标题/正文、宋体12pt、1.5倍行距、Heading 1、页边距、目录与页码域。重登只读回查确认7/7必填章节非空，退出200。 r51项目回查显示第1章及项目树各有1个合成图片节点；引用区是普通段落编辑器，并非结构化文献列表。单条合成引用保存PUT返回200，刷新及项目GET均读回成功，项目revision 20→21；未再生成导出文件，因此图表在DOCX中的渲染尚未验证。 对已保留导出DOCX逐页渲染检查10页，中文文字在DOCX结构中存在并声明宋体/黑体，但打包渲染器将中文字显示为方框、中文独占页不可见；该环境结果不能归因为生产缺陷，需在支持中文字体的Word/Office复核。该文件早于引用保存，未覆盖引用最终导出。 同一r51合成写作项目的版本列表精确回读HTTP 200但返回0个版本；因此未能据此验证提交快照与草稿隔离。",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "在r51以S-A创建并保留一个纯合成写作项目，UI填写封面及7个必填章节，桌面和390×844移动视口均保存并重载验证；模板完整性检查通过，导出DOCX下载并完成格式检查；之后只读重登确认草稿和唯一导出任务仍在且导出成功。无AI调用、站外通知或删除。另有3次中断探索会话未采集到退出响应，不据此声称会话已撤销。 r51只读回查确认该保留项目存在1个合成图片节点；此前插图尝试中断，未捕获请求数。随后对参考文献普通段落执行一次获准保存：PUT /api/projects/proj-01c5de3baec6/section/references 返回200，revision 20→21；刷新后UI与项目GET均确认合成引用存在，退出200。未再次导出。 对已保留导出DOCX逐页渲染检查10页，中文文字在DOCX结构中存在并声明宋体/黑体，但打包渲染器将中文字显示为方框、中文独占页不可见；该环境结果不能归因为生产缺陷，需在支持中文字体的Word/Office复核。该文件早于引用保存，未覆盖引用最终导出。 同一r51合成写作项目的版本列表精确回读HTTP 200但返回0个版本；因此未能据此验证提交快照与草稿隔离。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "完整场景仍缺图表与引用在最终导出中的渲染核验、提交版本快照与当前草稿隔离以及更广设备覆盖；当前模板的参考文献区是普通段落编辑器，结构化文献管理预期尚未澄清。AI子项按用户要求继续暂缓。 DOCX打包渲染器缺少可用的中文视觉输出；已存导出件也早于引用保存，需在支持中文的Office复核并重新导出覆盖图表/引用。 已知草稿项目的版本列表为空，仍需在获准的合成提交流程中验证快照隔离。",
+      "evidence": [
+        "writing-r51-simple-loop-20261018.json",
+        "writing-r51-post-export-state-20261018.json",
+        "writing-r51-final-20261018.docx",
+        "writing-r51-desktop-20261018.png",
+        "writing-r51-mobile-20261018.png",
+        "writer-figure-reference-affordances-r51-20261018.json",
+        "writer-reference-affordance-r51-20261018.json",
+        "writing-figure-reference-r51-post-attempt-state-20261018.json",
+        "writing-reference-save-r51-20261018.json",
+        "测试报告_R51图表引用保存续测_20261018.md",
+        "docx-visual-review-r51-20261018.json",
+        "测试报告_R51合成DOCX导出视觉复核_20261018.md",
+        "access-writing-project-versions-r51-20261018.json"
+      ]
+    },
+    {
+      "id": "F10",
+      "role": "学生",
+      "scope": "绑定必交材料、生成候选版本、预检、确认提交 V1",
+      "expected": "缺材料、格式阻断、过期正文、截止限制和前置阶段可识别；重复点击只形成一次有效提交；学生和教师看到同一提交编号",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。",
+      "status": "NOT RUN",
+      "execution_state": "not_run",
+      "blocker": "当前读回的既有记录已到V2批准状态；本轮未重跑V1候选生成、缺项/格式/截止门禁、重复点击幂等和学生/教师同提交编号核对。",
+      "evidence": [
+        "workflow-state-r51-20261018.json"
+      ],
+      "current_version_observation": "r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。"
+    },
+    {
+      "id": "F11",
+      "role": "教师",
+      "scope": "打开 V1，定位段落并添加普通建议与阻断意见，填写退回原因和修订截止",
+      "expected": "批注绑定正确段落、原文及版本；教师阅读期间学生改草稿不改变 V1；退回后通知、队列和状态一致",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。",
+      "status": "NOT RUN",
+      "execution_state": "not_run",
+      "blocker": "既有V1退回状态在r51可读；本轮未用页面定位段落、写普通/阻断批注，未验证学生编辑草稿不改变V1快照及站内通知队列。",
+      "evidence": [
+        "workflow-state-r51-20261018.json"
+      ],
+      "current_version_observation": "r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。"
+    },
+    {
+      "id": "F12",
+      "role": "学生",
+      "scope": "查看退回意见，逐条修改和回复，使用 AI 辅助部分修订，提交 V2",
+      "expected": "区分未处理、已回应和教师已解决；保存修改说明；旧意见仍可追踪；AI 采纳不自动关闭批注",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。",
+      "status": "NOT RUN",
+      "execution_state": "not_run",
+      "blocker": "既有V2批准状态可读，但未执行逐条批注回复、人工修订及重提；AI子项按用户确认继续暂缓，因此F12完整场景不能关闭。",
+      "evidence": [
+        "workflow-state-r51-20261018.json"
+      ],
+      "current_version_observation": "r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。"
+    },
+    {
+      "id": "F13",
+      "role": "教师、学生",
+      "scope": "教师复核 V2，保留一项未解决问题再退回；学生再修订提交 V3",
+      "expected": "完成第二轮循环；历史意见与版本不串；第二轮新增意见可追踪；已通过旧记录不得被覆盖",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "NOT RUN",
+      "execution_state": "not_run",
+      "blocker": "需要绑定当前 r51 的完整角色/业务流程证据。",
+      "evidence": []
+    },
+    {
+      "id": "F14",
+      "role": "教师",
+      "scope": "检查 V3，核对必交材料、人工确认项和阻断批注，作出通过决定",
+      "expected": "有阻断项时不能提前通过；正式决定由教师执行；通过后历史审阅按权限只读；未授权角色不能代审",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。",
+      "status": "NOT RUN",
+      "execution_state": "not_run",
+      "blocker": "r51只读可见V2已批准；F14要求审核V3及阻断项负向门禁，本轮未创建V3或作出新的教师决定。",
+      "evidence": [
+        "workflow-state-r51-20261018.json"
+      ],
+      "current_version_observation": "r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。"
+    },
+    {
+      "id": "F15",
+      "role": "学生、管理员",
+      "scope": "导出终稿、下载并打开文件，生成归档包，核对进度和审计",
+      "expected": "DOCX 可读、图表/题目/格式正确；归档包含正确版本与材料；任务状态与实际文件一致；报表可与本轮对象对账",
+      "current_version_observation": "r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。 r51只读回查一个先前已知合成归档archive-64e549d38829：COL-A元数据200、状态succeeded、manifest_hash存在；未下载正文或重新核对内容。",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51下对既有合成批次、项目、participant、V1/V2候选与提交执行定向GET：COL-A可读已发布终稿阶段；S-A读取participant仍为pending_archive、项目修订10；T-A读取V1为returned、V2为approved，均与既有合成对象ID匹配。相关会话均退出200；只读回查不证明上述状态转移由r51新执行。 r51只读回查一个先前已知合成归档archive-64e549d38829：COL-A元数据200、状态succeeded、manifest_hash存在；未下载正文或重新核对内容。",
+      "status": "NOT RUN",
+      "execution_state": "not_run",
+      "blocker": "既有participant仍为pending_archive；本轮未创建归档包、下载核对归档内容或对账归档审计。归档会改变生产端合成业务状态，需明确授权后再执行。",
+      "evidence": [
+        "workflow-state-r51-20261018.json",
+        "x08-archive-deny-r51-20261018.json"
+      ]
+    },
+    {
+      "id": "AI01",
+      "role": "学校/系统管理员，流程发布前",
+      "scope": "依据已确认的阶段、材料、截止日期生成流程解释和公告草稿，人工修改后向测试对象发布",
+      "expected": "时间、对象、材料及责任人不被编造；发布前可审阅；草稿生成不自动发布。专用入口待核实",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "BLOCKED",
+      "execution_state": "deferred_by_user_confirmed_20261018",
+      "blocker": "用户于2026-10-18再次明确继续暂缓AI；本轮无供应商调用、无文本外发。",
+      "evidence": [
+        "ai-deferral-20261018.json"
+      ]
+    },
+    {
+      "id": "AI02",
+      "role": "管理员，流程管理",
+      "scope": "请求解释现有阶段顺序、指出配置遗漏或生成配置建议",
+      "expected": "建议基于当前流程；如支持应用配置，必须预览影响并由有权限者确认；AI 不自行变更已发布流程。能力待核实",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "BLOCKED",
+      "execution_state": "deferred_by_user_confirmed_20261018",
+      "blocker": "用户于2026-10-18再次明确继续暂缓AI；本轮无供应商调用、无文本外发。",
+      "evidence": [
+        "ai-deferral-20261018.json"
+      ]
+    },
+    {
+      "id": "AI03",
+      "role": "教师，任务书与开题指导",
+      "scope": "基于已定题目整理任务要求或指导建议",
+      "expected": "不改变学校硬性要求，不虚构研究结果；教师确认后保存。能力待核实",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "BLOCKED",
+      "execution_state": "deferred_by_user_confirmed_20261018",
+      "blocker": "用户于2026-10-18再次明确继续暂缓AI；本轮无供应商调用、无文本外发。",
+      "evidence": [
+        "ai-deferral-20261018.json"
+      ]
+    },
+    {
+      "id": "AI04",
+      "role": "教师，审阅 V1/V2",
+      "scope": "选择测试段落与问题，生成批注建议；教师编辑后发布为正式意见",
+      "expected": "明确对应哪个版本和段落；建议可编辑/放弃；不得自动退回、通过或直接改写学生正文。能力待核实",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "BLOCKED",
+      "execution_state": "deferred_by_user_confirmed_20261018",
+      "blocker": "用户于2026-10-18再次明确继续暂缓AI；本轮无供应商调用、无文本外发。",
+      "evidence": [
+        "ai-deferral-20261018.json"
+      ]
+    },
+    {
+      "id": "AI05",
+      "role": "学生，正文润色",
+      "scope": "对指定段落执行润色，比较前后内容，再接受或放弃",
+      "expected": "原意、术语、数字、引用不被改变；仅作用于所选范围；放弃后原文保留",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "BLOCKED",
+      "execution_state": "deferred_by_user_confirmed_20261018",
+      "blocker": "用户于2026-10-18再次明确继续暂缓AI；本轮无供应商调用、无文本外发。",
+      "evidence": [
+        "ai-deferral-20261018.json"
+      ]
+    },
+    {
+      "id": "AI06",
+      "role": "学生，续写与补写",
+      "scope": "基于已有提纲和事实执行续写/扩写",
+      "expected": "与上文连贯；不凭空增加实验结果、样本量或文献；人工核对后插入正确位置。是否有独立“补写”入口待核实",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "BLOCKED",
+      "execution_state": "deferred_by_user_confirmed_20261018",
+      "blocker": "用户于2026-10-18再次明确继续暂缓AI；本轮无供应商调用、无文本外发。",
+      "evidence": [
+        "ai-deferral-20261018.json"
+      ]
+    },
+    {
+      "id": "AI07",
+      "role": "学生，按批注修改",
+      "scope": "选定某条教师批注及关联段落，生成修改建议，确认后回复该意见",
+      "expected": "建议回应具体问题，保留未采纳内容；不误改其他段落；不能因采纳而自动完成教师验收。定向入口待核实",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "BLOCKED",
+      "execution_state": "deferred_by_user_confirmed_20261018",
+      "blocker": "用户于2026-10-18再次明确继续暂缓AI；本轮无供应商调用、无文本外发。",
+      "evidence": [
+        "ai-deferral-20261018.json"
+      ]
+    },
+    {
+      "id": "AI08",
+      "role": "学生，定稿",
+      "scope": "根据当前正文生成中文摘要、英文摘要和关键词",
+      "expected": "内容与正文一致，不出现正文没有的结果；中英文关键结论一致；写入目标位置并可再次编辑",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "BLOCKED",
+      "execution_state": "deferred_by_user_confirmed_20261018",
+      "blocker": "用户于2026-10-18再次明确继续暂缓AI；本轮无供应商调用、无文本外发。",
+      "evidence": [
+        "ai-deferral-20261018.json"
+      ]
+    },
+    {
+      "id": "AI09",
+      "role": "系统管理员、各使用者",
+      "scope": "核对供应商披露、可用状态、权限、运行用量、失败提示",
+      "expected": "展示配置来源和必要披露；不暴露密钥或完整正文；用量记录不冒充财务账单；AI 不可用时保留人工流程",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "BLOCKED",
+      "execution_state": "deferred_by_user_confirmed_20261018",
+      "blocker": "用户于2026-10-18再次明确继续暂缓AI；本轮无供应商调用、无文本外发。",
+      "evidence": [
+        "ai-deferral-20261018.json"
+      ]
+    },
+    {
+      "id": "X01",
+      "role": "系统管理员",
+      "scope": "用户审核与角色认证、禁用测试账号后的访问、AI 设置只读检查、审计查询、运行与后台任务；配置修改和真实恢复单独确认",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 未登录访问审计接口 /api/audit?limit=1 返回401；管理员登录、审计内容、后台任务及其他管理行为未验。 r51新增SYS-A合成管理员只读探测：登录/身份/登出200，角色admin。审计接口按认证SYS-A自身ID过滤返回200、0条，不保存正文或其他角色事件；/api/operations/retention返回403，因为该账户没有明确平台运维actor/capability。未改配置、无业务写入。 r51再补SYS-A精确后台任务读取：S-A对已知合成项目proj-01c5de3baec6的唯一导出任务GET 200且状态succeeded；SYS-A通过/api/jobs/{精确job_id}直访返回200，job_type=project.export、state=succeeded、attempt_count=1；所有3个认证会话均退出200。未读全局任务列表、未重试/取消/下载任务。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "仍缺账号治理、业务页面和更多后台任务链路；高影响运维配置、账号禁用、备份恢复、全局任务列表及任务重试/取消未执行，需按场景授权。SYS-A应用管理员读取平台运维保留策略返回403，按角色能力边界记录。",
+      "evidence": [
+        "anonymous-api-auth-r51-20261018.json",
+        "x01-admin-audit-operations-read-r51-20261018.json",
+        "x01-synthetic-export-job-read-r51-20261018.json"
+      ],
+      "current_version_observation": " r51新增SYS-A合成管理员只读探测：登录/身份/登出200，角色admin。审计接口按认证SYS-A自身ID过滤返回200、0条，不保存正文或其他角色事件；/api/operations/retention返回403，因为该账户没有明确平台运维actor/capability。未改配置、无业务写入。 r51再补SYS-A精确后台任务读取：S-A对已知合成项目proj-01c5de3baec6的唯一导出任务GET 200且状态succeeded；SYS-A通过/api/jobs/{精确job_id}直访返回200，job_type=project.export、state=succeeded、attempt_count=1；所有3个认证会话均退出200。未读全局任务列表、未重试/取消/下载任务。"
+    },
+    {
+      "id": "X02",
+      "role": "学校管理员",
+      "scope": "学校流程说明、模板与规范发布、版本变更、批次管理、跨学院授权范围内的进度与材料统计",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 未登录访问模板与批次接口 /api/templates、/api/cohorts 均返回401；学校管理员认证及配置行为未验。 r51对participant-e7b399a3625e阶段配置明确引用的单个模板执行精确ID读取：S-A/T-A/COL-A读取均200、绑定ID匹配；版本1，顶层10章、递归共15章、rule_packs计数0。只记录结构计数，不留标题或正文；无模板库枚举、写入或源文件下载。 r51对同一精确participant阶段配置只读复核：requirement_set_ids字段存在但计数0，rule_packs字段存在但计数0，必需材料计数1；只保留字段存在性/数量与basis-hash字段存在性，不保留任何ID或正文。此结果不证明检查规则缺失，因为模板默认规则或解析快照尚未执行验证。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "匿名拒绝已核验；仍需合成角色会话完成正向权限、业务页面与操作链路验证。",
+      "evidence": [
+        "anonymous-api-auth-r51-20261018.json",
+        "stage-template-bound-read-r51-20261018.json",
+        "stage-policy-binding-structure-r51-20261018.json"
+      ],
+      "current_version_observation": " r51对participant-e7b399a3625e阶段配置明确引用的单个模板执行精确ID读取：S-A/T-A/COL-A读取均200、绑定ID匹配；版本1，顶层10章、递归共15章、rule_packs计数0。只记录结构计数，不留标题或正文；无模板库枚举、写入或源文件下载。 r51对同一精确participant阶段配置只读复核：requirement_set_ids字段存在但计数0，rule_packs字段存在但计数0，必需材料计数1；只保留字段存在性/数量与basis-hash字段存在性，不保留任何ID或正文。此结果不证明检查规则缺失，因为模板默认规则或解析快照尚未执行验证。"
+    },
+    {
+      "id": "X03",
+      "role": "学院管理员",
+      "scope": "本院组织、规范、批次、师生关系、选题汇总、中期汇总、归档；不能越权操作兄弟学院",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 未登录访问组织与批次接口 /api/organizations、/api/cohorts 均返回401；学院范围权限及越界拒绝未验。 r51 10/19使用COL-A/COL-B对唯一已知合成批次cohort-ed0046d38402执行精确详情GET：COL-A为200，COL-B为404；两个账号身份匹配且均退出200，拒绝正文未读取。只证明该批次精确读取边界，不覆盖本院组织、规范、师生关系、汇总/归档或更多兄弟学院对象。 r51 10/19再对同一合成批次的cohort详情、阶段列表、批次材料列表做精确GET：COL-A分别200/200/200（阶段2项且均published，批次材料0项），COL-B三项均404且未读响应正文；两个会话均退出200。只覆盖一个批次范围。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "已覆盖一个合成批次的详情、阶段列表和批次材料列表精确范围：COL-A 3/3可读，COL-B 3/3返回404。仍缺其他兄弟学院对象、组织/规范/师生关系配置、选题与中期汇总及归档流程。",
+      "evidence": [
+        "anonymous-api-auth-r51-20261018.json",
+        "x03-cohort-exact-scope-read-r51-20261019.json",
+        "x03-cohort-resource-list-scope-r51-20261019.json"
+      ]
+    },
+    {
+      "id": "X04",
+      "role": "教师",
+      "scope": "指导学生、任务书、材料审核、批注、延期、申诉/豁免、历史审阅、消息；非指导学生数据拒绝访问",
+      "expected": "教师可以创建并编辑写作规范草稿；其余教师职责和数据范围按计划书第8节盘点。",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 未登录访问教师学生列表 /api/teacher/students 返回401；教师指导关系与非指导学生权限未验。 r51以T-A读取获准规范草稿policy-uat1015-08d4f3af为200，level=teacher/status=draft/version=1且owner匹配；T-B读取同一ID为404；两个会话均登出200。未发布/编辑，无业务写入。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "只补充教师草稿的所有者可读/非所有者拒绝子项；学生指导、任务书、材料审核、批注、延期/申诉、历史与消息生命周期及完整UI仍未覆盖。",
+      "evidence": [
+        "anonymous-api-auth-r51-20261018.json",
+        "policy-draft-r51-readback-20261018.json"
+      ],
+      "current_version_observation": "r51下T-A可读本人既有教师级合成规范草稿，状态仍draft、版本1、owner匹配；T-B对同一精确ID返回404。没有修改或发布。"
+    },
+    {
+      "id": "X05",
+      "role": "学生",
+      "scope": "任务与要求、个人草稿、过程材料、格式检查/修复、撤回、重提、课题变更、延期申请、申诉、导出及历史记录",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 未登录访问本人身份 /api/auth/me 返回401；学生登录及个人数据范围未验。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "匿名拒绝已核验；仍需合成角色会话完成正向权限、业务页面与操作链路验证。",
+      "evidence": [
+        "anonymous-api-auth-r51-20261018.json"
+      ]
+    },
+    {
+      "id": "X06",
+      "role": "评阅与答辩扩展",
+      "scope": "盘点评阅教师、答辩审批职责是否为实际登录角色；核对评阅材料、答辩申请/安排/记录、成绩汇总与评优入口。材料审批标签不自动等同独立角色",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51 10/19只读续测：T-A对精确participant的reviewer_score、defense_application、defense_record、defense_score、comprehensive_score、excellence_application表单GET共6/6为200；COL-A对精确cohort的defense_schedule、defense_inspection、grade_summary、college_excellence_application共4/4为200。两账号身份匹配且均登出200。仅核对目录/表单结构，未读业务记录、审批、成绩汇总或评优流程，也未证明存在独立评阅/答辩登录账号。X06仍NOT RUN/partial。此前一次同类只读尝试输出被截断，最多可能创建2个会话但登录/登出结果未知，未计入确认统计。",
+      "status": "NOT RUN",
+      "execution_state": "not_run",
+      "blocker": "尚未盘点生产用户目录中的独立评阅/答辩账号，也未用相应职责账号验证材料列表、评阅/答辩审批、成绩汇总及评优流程；本轮仅证实T-A和COL-A对10个精确表单结构的读取入口可用。",
+      "evidence": [
+        "x06-review-defense-catalog-r51-20261019.json"
+      ]
+    },
+    {
+      "id": "X07",
+      "role": "规范与流程异常",
+      "scope": "未开放/逾期/前置未通过、必填缺失、附件不符、格式阻断、规范升级、已发布阶段变更对在途任务的影响；使用测试配置，禁止改系统时间",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。",
+      "status": "NOT RUN",
+      "execution_state": "not_run",
+      "blocker": "需要绑定当前 r51 的完整角色/业务流程证据。",
+      "evidence": []
+    },
+    {
+      "id": "X08",
+      "role": "权限与数据隔离",
+      "scope": "学生互换项目/附件/提交 ID，非指导教师访问，学院越界，深链接和直接下载；只使用已知测试对象 ID，不枚举真实数据",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "current_version_observation": "r51已知合成项目proj-01c5de3baec6新增16项精确ID访问检查：项目、导出列表、导出详情、下载；S-A所有者4/4为200，S-B、未绑定T-B及COL-B各4/4为403/404，四会话登录与登出均200。未枚举资源，仅GET；此前项目与下载入口的12项检查仍有效。 r51另对授权主流程既有合成项目、participant、材料、V2候选、V2提交执行4角色×5精确ID GET共20项：S-A/T-A全部200，S-B/T-B对项目403、其余资源404；四会话登录/退出均200。 r51已知participant过程材料列表访问矩阵符合预期；样本记录attachment_count为0，直接下载场景因缺少合成附件前置未执行。 r51再次以正确精确路由验证S-B无关学生与T-B非指导教师读取participant详情均404，角色匹配且退出均200；未访问列表/搜索/导出。 r51附件续测：用户授权的固定文本附件仅尝试添加到既有合成记录record-01b387680b0f。S-A登录/身份/精确记录读取均200；记录为submitted且附件数0，上传接口返回409；随后回读仍为submitted、附件数0，两个S-A会话退出均200。附件未创建，未发下载请求，未创建其他记录或绕过状态保护。 r51对已知合成项目proj-01c5de3baec6的版本列表路由执行4角色精确ID GET：S-A所有者200但版本数0；S-B/T-B/COL-B均403；角色匹配、4次退出均200。只记录计数，不留版本内容。该子项4/4符合放行/拒绝预期；完整X08仍partial。 r51对既有已知合成归档archive-64e549d38829补做元数据与下载拒绝检查：COL-A精确元数据GET 200且归档状态succeeded；S-B/S-C/T-B/COL-B同一精确下载GET均404，角色匹配、五个会话均退出200。未读取/保存归档正文，未生成、重试或枚举归档。 r51授权合成附件续测：T-A在participant-e7b399a3625e下创建空guidance_log草稿record-8695cee6c5b3，状态draft、data为空；一个附件file-2d18bff0dda4保留，内容固定文本的40字节摘要匹配。文件名r51-synthetic-attachment.txt两次返回400“附件名不合法”，且回读均无附件；文件名改为file.txt后同一内容上传201。下载矩阵S-A/T-A记录与下载均200、字节摘要匹配；S-B/T-B记录与下载均404，未读取拒绝响应正文。四角色会话均登出200。本轮共7次成功会话且均登出200，新增2次业务写入；没有提交/审批/删除。附件下载子矩阵4/4通过，但文件名校验问题仍待分诊，X08整体仍partial。",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "S-A、S-B、T-B、COL-B分别登录；对已知项目和两个导出下载入口共12项GET检查全部符合预期（S-A 3项200，其余9项403/404），4个会话退出200。教师T-A绑定、附件/提交/搜索列表及更多角色/资源组合未测。；本轮另对最新合成项目及其已知导出任务执行4角色×4入口共16项GET，结果均符合所有者放行/非所有者拒绝预期；所有者4/4为200，其他角色项目403、导出列表/详情/下载404；4次登出均200。；另以S-A、指派教师T-A、同学院无关学生S-B、非指导教师T-B对既有主流程项目/participant/材料/V2候选/V2提交执行20项精确ID GET，全部符合预期；无响应正文留存、无业务写入。 r51对已知合成participant的过程材料列表按4个精确角色读取：S-A/T-A各200且各返回1条记录，S-B/T-B各404；四会话退出均200。授权记录均无附件，因此未执行直接下载请求，也未为测试上传附件。 r51再次以正确精确路由验证S-B无关学生与T-B非指导教师读取participant详情均404，角色匹配且退出均200；未访问列表/搜索/导出。 r51附件续测：用户授权的固定文本附件仅尝试添加到既有合成记录record-01b387680b0f。S-A登录/身份/精确记录读取均200；记录为submitted且附件数0，上传接口返回409；随后回读仍为submitted、附件数0，两个S-A会话退出均200。附件未创建，未发下载请求，未创建其他记录或绕过状态保护。 r51对已知合成项目proj-01c5de3baec6的版本列表路由执行4角色精确ID GET：S-A所有者200但版本数0；S-B/T-B/COL-B均403；角色匹配、4次退出均200。只记录计数，不留版本内容。该子项4/4符合放行/拒绝预期；完整X08仍partial。 r51对既有已知合成归档archive-64e549d38829补做元数据与下载拒绝检查：COL-A精确元数据GET 200且归档状态succeeded；S-B/S-C/T-B/COL-B同一精确下载GET均404，角色匹配、五个会话均退出200。未读取/保存归档正文，未生成、重试或枚举归档。 r51授权合成附件续测：T-A在participant-e7b399a3625e下创建空guidance_log草稿record-8695cee6c5b3，状态draft、data为空；一个附件file-2d18bff0dda4保留，内容固定文本的40字节摘要匹配。文件名r51-synthetic-attachment.txt两次返回400“附件名不合法”，且回读均无附件；文件名改为file.txt后同一内容上传201。下载矩阵S-A/T-A记录与下载均200、字节摘要匹配；S-B/T-B记录与下载均404，未读取拒绝响应正文。四角色会话均登出200。本轮共7次成功会话且均登出200，新增2次业务写入；没有提交/审批/删除。附件下载子矩阵4/4通过，但文件名校验问题仍待分诊，X08整体仍partial。 r51 10/19补充精确participant过程材料列表GET：S-A/T-A均200，返回2项（guidance_log与final_report），目标guidance_log及已知附件ID均在授权列表中；S-B/T-B均404且未读取拒绝正文，4/4会话均退出200。该结果只覆盖单个participant的材料列表，不覆盖全局搜索/列表与其他资源类型。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "附件直接下载角色子矩阵4/4及单个participant过程材料列表角色子矩阵4/4均符合预期；完整X08仍缺全局搜索/列表入口与更多资源类型、角色组合。普通文件名被拒绝的缺陷候选DEF-X08-ATTACHMENT-FILENAME-001仍需核验R51源码并修复后回归。",
+      "evidence": [
+        "access-r51-20261018.json",
+        "access-writing-project-r51-20261018.json",
+        "access-workflow-objects-r51-20261018.json",
+        "access-workflow-attachments-r51-20261018.json",
+        "测试报告_R51合成材料附件访问续测_20261018.md",
+        "access-participant-deny-r51-20261018.json",
+        "测试报告_R51无关角色participant直访拒绝续测_20261018.md",
+        "access-workflow-attachment-upload-attempt-r51-20261018.json",
+        "access-writing-project-versions-r51-20261018.json",
+        "x08-archive-deny-r51-20261018.json",
+        "x08-attachment-fixture-create-r51-20261018.json",
+        "x08-attachment-download-matrix-r51-20261018.json",
+        "defect-X08-attachment-filename-r51-20261018.json",
+        "测试报告_R51合成材料附件直接下载权限矩阵续测_20261018.md",
+        "x08-process-record-list-access-r51-20261019.json"
+      ]
+    },
+    {
+      "id": "X09",
+      "role": "中断与重试",
+      "scope": "刷新、重新登录、客户端断网后的未保存提示、重复提交/审批/导出；恢复后明确哪些内容已保存、哪些需重试",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "本轮未完成该场景包的全量验证。 r51使用独立浏览器上下文对合成写作草稿模拟客户端断网；摘要自动保存PUT在浏览器侧被拦截，未发到服务端。探测文字进入本地恢复存储，恢复浏览器联网并刷新后恢复提示可见；服务端revision与摘要投影保持不变。未点击恢复或重试。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "仅验证单次离线自动保存失败后的本地恢复提示与服务端未改变；未执行恢复草稿写回、重新登录后的恢复、断网恢复后重试，以及重复提交/审批/导出幂等。其余X09场景仍待获准的合成对象和具体流程验证。",
+      "evidence": [
+        "x09-offline-recovery-r51-20261018.json",
+        "测试报告_R51离线草稿恢复续测_20261018.md"
+      ],
+      "current_version_observation": " r51离线编辑子项验证本地恢复提示：本地marker刷新后仍在，服务器GET未包含marker且revision/摘要投影未变；1次自动保存写请求在浏览器侧拦截，登出200。"
+    },
+    {
+      "id": "X10",
+      "role": "消息与统计",
+      "scope": "任务发布、退回、重提、通过、截止提醒与已读状态；按测试对象核对人数、提交数和归档数，避免汇总口径混淆",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "current_version_observation": "r51只读复测UAT主流程批次：报告接口与报表UI一致，首次提交及时率100%、归档完成率50%；首次提交200%异常未复现。1/2参与对象处于已归档，1个待归档，与50%相符。 r51当日COL-A精确批次报表GET 200：1名成员/2个任务，1归档+1待归档；及时率1.0、归档完成率0.5，与当前对象状态计数相符，未复现超界及时率。消息生命周期和完整对象事件对账仍未测。 S-A合成学生收件箱只读GET 200，57条事件、未读53，按read_at重算也是53；未保存正文或标记已读。消息产生事件关联、页面展示与已读写回仍未验证。",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "COL-A只读GET /api/reports/cohorts/cohort-ed0046d38402并打开报表页：1成员、2参与者、首次提交计数2、及时率1.0、修订提交3、归档数1、归档完成率0.5；UI显示100%/50%，与接口一致，未超界。仅覆盖一个已知批次报表；消息发布/退回/重提/通过/提醒/已读状态及完整统计口径未测。 r51当日COL-A精确批次报表GET 200：1名成员/2个任务，1归档+1待归档；及时率1.0、归档完成率0.5，与当前对象状态计数相符，未复现超界及时率。消息生命周期和完整对象事件对账仍未测。 S-A合成学生收件箱只读GET 200，57条事件、未读53，按read_at重算也是53；未保存正文或标记已读。消息产生事件关联、页面展示与已读写回仍未验证。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "已知报表缺陷子项未复现，但完整消息生命周期、跨对象核对和报表口径矩阵仍未执行。",
+      "evidence": [
+        "history-r51-20261018.json",
+        "report-r51-20261018.png",
+        "report-recheck-r51-20261018.json",
+        "测试报告_R51合成批次报表当日回查_20261018.md",
+        "notifications-inbox-r51-readonly-20261018.json",
+        "测试报告_R51合成学生站内收件箱只读续测_20261018.md"
+      ]
+    },
+    {
+      "id": "X11",
+      "role": "微信小程序",
+      "scope": "若纳入本轮，使用真机完成身份绑定、任务、提交、教师审阅和消息交接；长篇写作继续桌面端；前置门禁不能代替真机",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "previous_round_status": "BLOCKED",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "仓库小程序本地flow测试45/45通过；微信真机前置门禁按预期exit 2，DOMAIN、APPID、SERVER、SUBSCRIBE、DEVICE五项均BLOCKED。该证据不替代生产/真机UAT。",
+      "status": "BLOCKED",
+      "execution_state": "blocked",
+      "blocker": "需要受控生产参数和微信开发者工具/真实设备完成合法域名配置、身份绑定、任务提交、教师审阅和消息交接；不得把预期BLOCKED门禁修绿。",
+      "evidence": [
+        "miniprogram-preflight-r51-20261018.json"
+      ]
+    },
+    {
+      "id": "X12",
+      "role": "浏览器与可访问性",
+      "scope": "确认实际支持的浏览器/设备，检查核心页布局、错误状态、键盘焦点、表单标签、长标题及中英文摘要；中文时间显示与有效截止一致",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "current_version_observation": "r51生产端390×844移动写作页完成合成内容编辑、保存、重载和DOCX下载；documentElement.scrollWidth=390，无横向溢出，工具栏换行至第二行且各控件无重叠。完整真机、辅助技术、长文中英文与中文时间范围仍未覆盖。 r51写作页键盘子项：桌面Tab序列到达跳过链接、导航、写作工具与封面字段；可见可聚焦控件均可计算名称。摘要textarea使用占位符提供名称但没有显式label；390px移动布局仍无横向溢出/控件重叠。 本轮以Chrome桌面2880×1638检查登录页键盘焦点，未见明显横向溢出；DevTools警告计数来源不明，窄屏/核心业务页与控制台结论仍未覆盖。 r51匿名登录页子项：Chrome中仍显示 /login?redirect=/first-login?redirect=/workspace；HTML直GET为200、text/html、1154字节，页面标题与PaperGuard一致。AX树暴露用户名/密码字段、忘记密码、登录及注册链接。此前同会话观察到用户名→密码→忘记密码→登录→注册→Shift+Tab回登录；本次重放仅确认用户名Tab到密码，后续Tab/Shift+Tab未移动焦点，结果标为inconclusive。未填凭据、未提交、未创建认证会话。F01/X12仍为partial。 补充：Escape后再按Tab仍停留在密码字段，故本轮键盘序列重放保持inconclusive。 r51新增S-A学生工作台窄屏子项：390×844无横向溢出（document/body宽度均390），Tab后焦点可见；仅覆盖`/workspace`单页，不代表完整X12。",
+      "previous_round_status": "NOT RUN",
+      "previous_round": "r50; deployment facd7ebc1561bfa9d43dee98a66223d6708227f8",
+      "actual": "Chromium、Firefox与WebKit下的匿名登录页均在1440px及390×844视口显示表单且无横向溢出；Chromium另验证标签、Tab顺序和语言切换。Firefox首次导航等待超时，改用commit条件重试后HTTP 200且通过。核心业务页、长标题/摘要和中文时间仍未覆盖。 Firefox 155下标签和Tab可达用户名、密码、忘记密码、登录及注册链接；Playwright WebKit 26.6中Tab在文本框与BODY间循环，按钮/链接未进入序列，但浏览器全键盘访问设置未控制，故环境原因待核，不据此判产品失败或通过。；追加学生写作页移动视口实测：390×844保存/重载成功，scrollWidth=390，工具栏换行，无控件重叠。 桌面写作页24次Tab移动可见跳过链接、导航、写作工具、封面输入和保存按钮，焦点均可见；焦点最终回到跳过链接属于序列循环。精确可见性/名称审计未发现无名称的可见可聚焦控件；摘要编辑框无显式label，依赖占位符名称。 本轮以Chrome桌面2880×1638检查登录页键盘焦点，未见明显横向溢出；DevTools警告计数来源不明，窄屏/核心业务页与控制台结论仍未覆盖。 r51匿名登录页子项：Chrome中仍显示 /login?redirect=/first-login?redirect=/workspace；HTML直GET为200、text/html、1154字节，页面标题与PaperGuard一致。AX树暴露用户名/密码字段、忘记密码、登录及注册链接。此前同会话观察到用户名→密码→忘记密码→登录→注册→Shift+Tab回登录；本次重放仅确认用户名Tab到密码，后续Tab/Shift+Tab未移动焦点，结果标为inconclusive。未填凭据、未提交、未创建认证会话。F01/X12仍为partial。 补充：Escape后再按Tab仍停留在密码字段，故本轮键盘序列重放保持inconclusive。 r51新增S-A学生工作台窄屏子项：390×844无横向溢出（document/body宽度均390），Tab后焦点可见；仅覆盖`/workspace`单页，不代表完整X12。",
+      "status": "NOT RUN",
+      "execution_state": "partial",
+      "blocker": "仍未覆盖目标真机、完整辅助技术设置、长标题与中英文长摘要、中文时间及其他核心业务页；WebKit键盘访问需在目标Safari设置下复核。移动写作仅为X12子项，保持NOT RUN/partial。 本轮窄屏仅检查学生工作台；Safari、辅助技术、长标题/双语长摘要和其他核心页面仍待测。",
+      "evidence": [
+        "r51-browser-smoke-20261018-r2/login-accessibility.json",
+        "r51-browser-smoke-20261018-r2/login-smoke.json",
+        "browser-crossengine-r51-20261018.json",
+        "writing-r51-mobile-layout-20261018.json",
+        "writing-r51-mobile-layout-20261018.png",
+        "writing-r51-mobile-20261018.png",
+        "writer-keyboard-r51-20261018.json",
+        "writer-label-audit-r51-20261018.json",
+        "login-form-keyboard-smoke-r51-20261018.json",
+        "测试报告_R51登录页桌面键盘冒烟_20261018.md",
+        "browser-login-keyboard-r51-20261018.json",
+        "f02-x12-student-workspace-read-r51-20261019.json",
+        "测试报告_R51学生任务阶段信息与窄屏工作台续测_20261019.md"
+      ]
+    }
+  ],
+  "session_cleanup_note": "158 successful login sessions have stored evidence; 155 ended with captured logout HTTP 200 and 3 earlier interrupted sessions lack a captured logout. One interrupted F09 figure-edit session likely authenticated but has no captured logout response. A separate earlier F09 citation-save attempt has no durable execution record; whether it created an auth request is unknown. An early X08 probe may have issued up to 8 more login requests with unknown outcomes/logout. These uncertain attempts are excluded from confirmed counts. No account-wide revocation was performed; the user authorization question remains pending. Latest F02 exact participant-detail subtest added four successful test sessions; all four captured logout HTTP 200. Latest X08 exact participant-denial subtest added two successful test sessions; both captured logout HTTP 200. Latest F01 server-side logout-revocation subtest added two successful sessions; both captured logout HTTP 200 and subsequent protected requests returned 401. Latest F01 onboarding-flag readback added nine successful role sessions; all nine were logged out with captured HTTP 200. Latest X10 exact-cohort report recheck added one successful session; it captured logout HTTP 200. Latest X10 exact synthetic-inbox read added one successful session; it captured logout HTTP 200. Latest F02 cohort stage-list readback added one successful COL-A session with captured logout HTTP 200; its retained evidence is stage-list-order-read-r51-20261018.json. The earlier exploratory stage-list request from the preceding turn is also included in the confirmed session count; it is superseded by the retained rerun result. Latest S-A exact participant field-structure reread added one successful session with logout HTTP 200; evidence stage-instruction-structure-r51-20261018.json records semantic inspection as inconclusive because nested string arrays were not traversed. Latest X08 authorized attachment upload precondition attempt used two S-A sessions; both logins succeeded and both captured logout HTTP 200. The existing record remained submitted with zero attachments after the upload endpoint returned 409; no attachment download request was possible. Latest F02 recursive stage/config structure readback added one S-A login session with logout HTTP 200; the read-only payload traversal reviewed nested string leaves without retaining text values. Latest X01 SYS-A retention/audit probes added two successful admin sessions; both captured logout HTTP 200. The audit query was filtered to the exact synthetic actor ID and retained only the returned-row count. Latest X01 synthetic export-job readback used three successful sessions (S-A once, SYS-A twice); all three captured logout HTTP 200. The exact project/job routes were used; no global job list or job mutation was performed. Latest X08 exact project-versions route matrix added four synthetic-role sessions; all four captured logout HTTP 200. S-A received an empty version list; S-B, T-B and COL-B received 403. No version content was recorded. Latest F03/X02 bound-template read used four successful sessions (S-A twice, T-A and COL-A once); all four captured logout HTTP 200. Only the template referenced by one exact synthetic participant was requested; no content values or template-list results were retained. Latest F03/X02 exact stage-config policy-binding structure check added one S-A login session with captured logout HTTP 200; it retained only field presence and counts. Latest X08 exact synthetic archive check added five confirmed sessions; all five captured logout HTTP 200. One separate malformed archive-probe harness discarded the login response body before parsing; the login status and whether a session was created are unknown, so this attempt is excluded from confirmed counts and may be an untracked session. Current F01 role-navigation continuation added 11 confirmed logins, all with captured logout HTTP 200. One separate SYS-A browser-login attempt had no captured response and is excluded from counts; it may have left an untracked session. No account-wide revocation was performed. Latest X08 attachment access subtest added seven successful sessions (T-A 3 and S-A/T-A/S-B/T-B matrix 4); all seven captured logout HTTP 200. One empty guidance_log draft and one exact synthetic attachment were retained. The direct download matrix passed for all four roles; nonowner response bodies were not read. Latest F02/X12 read-only student workspace check added five confirmed S-A sessions; all five captured logout HTTP 200. One separate S-A login-form attempt timed out before response capture and may have created a session; it is excluded from confirmed counts, and no bulk revocation was performed.",
+  "auth_session_metadata_capture_gap": "158 successful login sessions are evidenced; 155 have captured logout HTTP 200 and 3 earlier exploratory sessions lack a captured logout. One interrupted F09 figure-edit session likely logged in without a captured logout; a separate earlier F09 citation-save attempt may have generated an auth request but has no durable record. An early X08 probe may have issued up to 8 more login requests. These uncertain requests are excluded from the confirmed count; no bulk revocation was performed. Latest F02 exact participant-detail subtest added four successful test sessions; all four captured logout HTTP 200. Latest X08 exact participant-denial subtest added two successful test sessions; both captured logout HTTP 200. Latest F01 server-side logout-revocation subtest added two successful sessions; both captured logout HTTP 200 and subsequent protected requests returned 401. Latest F01 onboarding-flag readback added nine successful role sessions; all nine were logged out with captured HTTP 200. Latest X10 exact-cohort report recheck added one successful session; it captured logout HTTP 200. Latest X10 exact synthetic-inbox read added one successful session; it captured logout HTTP 200. Latest F02 cohort stage-list readback added one successful COL-A session with captured logout HTTP 200; its retained evidence is stage-list-order-read-r51-20261018.json. The earlier exploratory stage-list request from the preceding turn is also included in the confirmed session count; it is superseded by the retained rerun result. Latest S-A exact participant field-structure reread added one successful session with logout HTTP 200; evidence stage-instruction-structure-r51-20261018.json records semantic inspection as inconclusive because nested string arrays were not traversed. Latest X08 authorized attachment upload precondition attempt used two S-A sessions; both logins succeeded and both captured logout HTTP 200. The existing record remained submitted with zero attachments after the upload endpoint returned 409; no attachment download request was possible. Latest F02 recursive stage/config structure readback added one S-A login session with logout HTTP 200; the read-only payload traversal reviewed nested string leaves without retaining text values. Latest X01 SYS-A retention/audit probes added two successful admin sessions; both captured logout HTTP 200. The audit query was filtered to the exact synthetic actor ID and retained only the returned-row count. Latest X01 synthetic export-job readback used three successful sessions (S-A once, SYS-A twice); all three captured logout HTTP 200. The exact project/job routes were used; no global job list or job mutation was performed. Latest X08 exact project-versions route matrix added four synthetic-role sessions; all four captured logout HTTP 200. S-A received an empty version list; S-B, T-B and COL-B received 403. No version content was recorded. Latest F03/X02 bound-template read used four successful sessions (S-A twice, T-A and COL-A once); all four captured logout HTTP 200. Only the template referenced by one exact synthetic participant was requested; no content values or template-list results were retained. Latest F03/X02 exact stage-config policy-binding structure check added one S-A login session with captured logout HTTP 200; it retained only field presence and counts. Latest X08 exact synthetic archive check added five confirmed sessions; all five captured logout HTTP 200. One separate malformed archive-probe harness discarded the login response body before parsing; the login status and whether a session was created are unknown, so this attempt is excluded from confirmed counts and may be an untracked session. Current F01 role-navigation continuation: 11 confirmed logins and 11 logout HTTP 200; one separate SYS-A browser login attempt timed out before response capture and may have created an untracked session, so it is not counted. Latest X08 attachment access subtest added seven successful sessions (T-A 3 and S-A/T-A/S-B/T-B matrix 4); all seven captured logout HTTP 200. One empty guidance_log draft and one exact synthetic attachment were retained. The direct download matrix passed for all four roles; nonowner response bodies were not read. Latest F02/X12 read-only student workspace check added five confirmed S-A sessions; all five captured logout HTTP 200. One separate S-A login-form attempt timed out before response capture and may have created a session; it is excluded from confirmed counts, and no bulk revocation was performed.",
+  "business_write_capture_gap": {
+    "scenario": "F09",
+    "project_id": "proj-01c5de3baec6",
+    "confirmed_effect": "one synthetic image node is present in the chapter and project readback",
+    "request_count": null,
+    "included_in_writes_business_data": false,
+    "reason": "the browser context closed while the image/reference attempt was waiting for a response; no complete request/response log was captured",
+    "follow_up": "do not repeat image insertion; verify rendering only in a separately authorized export/run"
+  }
+}

@@ -1,0 +1,249 @@
+{
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "Authenticated GET-only role matrix over SSH loopback; sessions logged out after each role",
+  "ui_verified": false,
+  "cohort_id": "cohort-ed0046d38402",
+  "participant_id": "participant-3b9434807b06",
+  "project_id": "proj-dfde4747c750",
+  "v3_submission_id": "submission-fdac25a57359",
+  "archive_id": "archive-64e549d38829",
+  "roles": {
+    "SYS-A": {
+      "login": 200,
+      "role": "admin",
+      "cohort": 200,
+      "participant": 200,
+      "participant_state": "archived",
+      "project": 200,
+      "v3": 200,
+      "archive": 200,
+      "archive_job": 200,
+      "export_job": 200,
+      "report": 200,
+      "v3_audit": 200
+    },
+    "SCH-A": {
+      "login": 200,
+      "role": "admin",
+      "cohort": 200,
+      "participant": 200,
+      "participant_state": "archived",
+      "project": 200,
+      "v3": 200,
+      "archive": 200,
+      "archive_job": 200,
+      "export_job": 200,
+      "report": 200,
+      "v3_audit": 200
+    },
+    "COL-A": {
+      "login": 200,
+      "role": "college_admin",
+      "cohort": 200,
+      "participant": 200,
+      "participant_state": "archived",
+      "project": 200,
+      "v3": 200,
+      "archive": 200,
+      "archive_job": 200,
+      "export_job": 200,
+      "report": 200,
+      "v3_audit": 200,
+      "process_inbox_count": 0
+    },
+    "COL-B": {
+      "login": 200,
+      "role": "college_admin",
+      "cohort": 404,
+      "members": 404,
+      "participant": 404,
+      "project": 403,
+      "v3": 404,
+      "archive": 404,
+      "archive_job": 404,
+      "export_job": 404,
+      "report": 404,
+      "v3_audit": 200,
+      "v3_audit_event_count": 0,
+      "process_inbox_count": 0
+    },
+    "T-A": {
+      "login": 200,
+      "role": "teacher",
+      "cohort": 200,
+      "participant": 200,
+      "participant_state": "archived",
+      "project": 200,
+      "v3": 200,
+      "archive": 200,
+      "archive_job": 200,
+      "export_job": 200,
+      "notifications": {
+        "count": 4,
+        "unread": 4,
+        "event_types": {
+          "submission.created": 3,
+          "stage.published": 1
+        }
+      },
+      "process_inbox_count": 0
+    },
+    "T-B": {
+      "login": 200,
+      "role": "teacher",
+      "cohort": 404,
+      "members": 404,
+      "participant": 404,
+      "project": 403,
+      "v3": 404,
+      "archive": 404,
+      "archive_job": 404,
+      "export_job": 404,
+      "notifications": {
+        "count": 0,
+        "unread": 0
+      },
+      "process_inbox_count": 0
+    },
+    "S-A": {
+      "login": 200,
+      "role": "student",
+      "cohort": 200,
+      "participant": 200,
+      "participant_state": "archived",
+      "project": 200,
+      "project_revision": 16,
+      "v3": 200,
+      "v3_state": "approved",
+      "v3_cycle": 3,
+      "archive": 200,
+      "archive_state": "succeeded",
+      "archive_job": 200,
+      "archive_job_state": "succeeded",
+      "export_job": 200,
+      "export_job_state": "succeeded",
+      "versions_get": 200,
+      "version_count": 4,
+      "notifications": {
+        "count": 17,
+        "unread": 17,
+        "event_types": {
+          "archive.succeeded": 1,
+          "submission.approved": 1,
+          "comment.created": 3,
+          "comment.responded": 2,
+          "submission.returned": 2,
+          "stage.config_migrated": 1,
+          "process_record.updated": 5,
+          "stage.published": 1,
+          "supervision.transferred": 1
+        }
+      },
+      "audit_as_student": 403
+    },
+    "S-B": {
+      "login": 200,
+      "role": "student",
+      "cohort": 404,
+      "members": 404,
+      "participant": 404,
+      "project": 403,
+      "v3": 404,
+      "archive": 404,
+      "archive_job": 404,
+      "export_job": 404,
+      "notifications": {
+        "count": 0,
+        "unread": 0
+      }
+    },
+    "S-C": {
+      "login": 200,
+      "role": "student",
+      "cohort": 404,
+      "members": 404,
+      "participant": 404,
+      "project": 403,
+      "v3": 404,
+      "archive": 404,
+      "archive_job": 404,
+      "export_job": 404,
+      "notifications": {
+        "count": 0,
+        "unread": 0
+      }
+    }
+  },
+  "cohort_report": {
+    "SYS-A_status": 200,
+    "SCH-A_status": 200,
+    "COL-A_status": 200,
+    "COL-B_status": 404,
+    "member_count": 1,
+    "participant_count": 1,
+    "state_counts": {
+      "archived": 1
+    },
+    "pending_review_count": 0,
+    "archive_count": 1,
+    "revision_submission_count": 2,
+    "archive_completion_rate": 1.0,
+    "eligible_member_count": 1
+  },
+  "audit": {
+    "authorized_admin_actions_for_v3": [
+      "submission.approved",
+      "comment.create",
+      "submission.confirm"
+    ],
+    "COL-B_filtered_event_count": 0,
+    "student_status": 403
+  },
+  "version_history": [
+    {
+      "id": "version-36024a5be3b3",
+      "source_revision": 0
+    },
+    {
+      "id": "version-85a5c8892768",
+      "source_revision": 14
+    },
+    {
+      "id": "version-57fe21340fa2",
+      "source_revision": 15
+    },
+    {
+      "id": "version-3ddb03acf618",
+      "source_revision": 16
+    }
+  ],
+  "version_comparisons": [
+    {
+      "from": "version-85a5c8892768",
+      "to": "version-57fe21340fa2",
+      "status": 200,
+      "changed": true,
+      "sections": [
+        "ch4"
+      ],
+      "attachments_changed": false
+    },
+    {
+      "from": "version-57fe21340fa2",
+      "to": "version-3ddb03acf618",
+      "status": 200,
+      "changed": true,
+      "sections": [
+        "ch2_1"
+      ],
+      "attachments_changed": false
+    }
+  ],
+  "notes": [
+    "SYS-A and SCH-A both resolve to service role admin; role separation is not established.",
+    "Cross-scope denials are exact API results: workflow resources mostly 404; project reads return 403.",
+    "Only known UAT IDs were queried; no real user content or unfiltered audit list was read."
+  ],
+  "observed_at": "2026-10-15T10:36:13+08:00"
+}

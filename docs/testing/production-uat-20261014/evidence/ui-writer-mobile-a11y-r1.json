@@ -1,0 +1,71 @@
+{
+  "recorded_at": "2026-10-15T12:41:30+08:00",
+  "target": "https://paper.thunderuni.com",
+  "environment": "production",
+  "identity": {
+    "role": "S-A",
+    "account_type": "synthetic student"
+  },
+  "flow": "首页“继续写作”打开既有合成论文，再将已加载写作页调整为390×844视口",
+  "project_title": "校园图书借阅服务体验研究",
+  "viewport": {
+    "width": 390,
+    "height": 844,
+    "document_width": 390,
+    "body_width": 390,
+    "horizontal_overflow": false
+  },
+  "save_state": "已保存",
+  "keyboard_focus_order": [
+    "返回我的论文",
+    "章节大纲",
+    "写作辅助",
+    "AI写作助手（未触发）",
+    "检查（未触发）",
+    "导入正文",
+    "预览",
+    "导出",
+    "添加章节",
+    "章节导航",
+    "封面字段（名称为空）"
+  ],
+  "form_accessibility": {
+    "visible_field_labels": [
+      "学校名称",
+      "论文题目",
+      "作者",
+      "学号",
+      "专业",
+      "指导教师",
+      "日期"
+    ],
+    "text_input_count": 7,
+    "associated_native_labels": 0,
+    "aria_labelled_fields": 0,
+    "aria_labelledby_fields": 0,
+    "placeholder_for_all_text_inputs": "必填",
+    "keyboard_focused_text_inputs_without_name": 2,
+    "observation": "可见中文字段标题未绑定到输入框；输入框仅有通用占位词，作为可访问名称不足。"
+  },
+  "network": {
+    "POST /api/auth/login": 200,
+    "GET /api/projects/{synthetic project id}": 200,
+    "GET /api/ai/status": 200,
+    "ai_generation_requests": 0
+  },
+  "ai_scope": {
+    "automatic_read_only_status_get": true,
+    "status_handler_verified_from_deployed_source_as_configuration_lookup_only": true,
+    "ai_controls_clicked": 0,
+    "provider_generation_called": 0
+  },
+  "scope": {
+    "text_fields_edited": 0,
+    "save_or_export_clicked": 0,
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "document_body_recorded": false
+  },
+  "result": "PARTIAL / ACCESSIBILITY GAP CANDIDATE：窄视口布局通过；封面字段缺少程序化可访问名称，需按验收标准确认严重度。长中英文摘要和真机辅助技术仍未覆盖。"
+}

@@ -1,0 +1,52 @@
+{
+  "recorded_at": "2026-10-18T15:22:14Z",
+  "target": "https://paper.thunderuni.com",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "scenario": "X01 SYS-A authenticated read-only system and audit checks",
+  "role_alias": "SYS-A",
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0,
+  "response_bodies_recorded": false,
+  "runtime_probes": [
+    {
+      "path": "/api/health/live",
+      "status": 200,
+      "status_value": "ok"
+    },
+    {
+      "path": "/api/health/ready",
+      "status": 200,
+      "status_value": "ok"
+    }
+  ],
+  "session": {
+    "login_status": 200,
+    "me_status": 200,
+    "role": "admin",
+    "active": true,
+    "logout_status": 200
+  },
+  "checks": [
+    {
+      "method": "GET",
+      "path": "/api/operations/retention",
+      "status": 403,
+      "interpretation": "SYS-A is application admin but lacks the explicit platform actor/capability required by approved_operator; no configuration was changed."
+    },
+    {
+      "method": "GET",
+      "path": "/api/audit?limit=5&actor_id=<authenticated SYS-A id>",
+      "status": 200,
+      "result_count": 0,
+      "returned_rows_match_exact_requested_actor": true,
+      "interpretation": "the admin audit route accepted an exact synthetic-actor filter; no other actor rows or response bodies were retained."
+    }
+  ],
+  "limitations": [
+    "Does not cover disabling an account, mutation of operational settings, backup/restore, AI calls or background-task replay.",
+    "The retention 403 is an access-control boundary observation and is not treated as an unexpected failure without an approved platform-operator fixture."
+  ]
+}

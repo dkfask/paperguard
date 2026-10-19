@@ -1,0 +1,15 @@
+{
+  "observed_at": "2026-10-15T07:47:12.570632+08:00",
+  "target": "https://paper.thunderuni.com",
+  "method": "read-only authenticated preflight before UAT stage creation; TLS verification enabled; session revoked after read",
+  "login_status": 200,
+  "version_status": 200,
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "expected_revision_matches_prior_evidence": true,
+  "cohort_status": 200,
+  "cohort_matches_test_fixture": true,
+  "members_status": 200,
+  "visible_member_count": 1,
+  "visible_members_are_only_expected_test_pair": true,
+  "mutation_performed": false
+}

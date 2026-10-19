@@ -1,0 +1,87 @@
+{
+  "recorded_at": "2026-10-18T15:30:54Z",
+  "target": "https://paper.thunderuni.com",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "scenario_ids": [
+    "F03",
+    "X02"
+  ],
+  "scenario": "read exact template ID referenced by one known synthetic participant stage configuration",
+  "participant_id": "participant-e7b399a3625e",
+  "template_id_source": "config.template_id returned by exact participant detail; ID value omitted from evidence",
+  "checks": [
+    {
+      "role_alias": "S-A",
+      "expected_role": "student",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "participant_status": 200,
+      "template_status": 200,
+      "template_id_matches_binding": true,
+      "template_version": "1",
+      "top_level_section_count": 10,
+      "total_section_count": 15,
+      "rule_pack_count": 0,
+      "logout_status": 200
+    },
+    {
+      "role_alias": "T-A",
+      "expected_role": "teacher",
+      "login_status": 200,
+      "role_match": true,
+      "template_status": 200,
+      "template_id_matches_binding": true,
+      "template_version": "1",
+      "top_level_section_count": 10,
+      "total_section_count": 15,
+      "rule_pack_count": 0,
+      "logout_status": 200
+    },
+    {
+      "role_alias": "COL-A",
+      "expected_role": "college_admin",
+      "login_status": 200,
+      "role_match": true,
+      "template_status": 200,
+      "template_id_matches_binding": true,
+      "template_version": "1",
+      "top_level_section_count": 10,
+      "total_section_count": 15,
+      "rule_pack_count": 0,
+      "logout_status": 200
+    },
+    {
+      "role_alias": "S-A",
+      "expected_role": "student",
+      "login_status": 200,
+      "me_status": 200,
+      "role_match": true,
+      "participant_status": 200,
+      "template_status": 200,
+      "template_id_matches_binding": true,
+      "template_version": "1",
+      "top_level_section_count": 10,
+      "total_section_count": 15,
+      "rule_pack_count": 0,
+      "logout_status": 200,
+      "note": "read-only repeat to confirm recursive section count"
+    }
+  ],
+  "writes": {
+    "business_data": 0,
+    "auth_sessions_created": 4,
+    "auth_sessions_logged_out": 4,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0
+  },
+  "content_values_recorded": false,
+  "limitations": [
+    "Only one exact template bound to one known synthetic participant was read.",
+    "No template collection enumeration, version change, source-document download, render/format inspection, policy import or publication was performed.",
+    "A rule_pack_count of zero is structural metadata only; it does not prove that formatting checks are absent."
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "observed_at": "2026-10-15T10:15:41+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "browser": "Google Chrome native macOS cua.getApp",
+  "account_label": "SYS-A",
+  "observations": [
+    {
+      "id": "UI-R2-01",
+      "scope": "normal login form using existing dedicated test account",
+      "expected": "reach role workspace and show the test identity",
+      "actual": "school operations dashboard; /workspace; UAT-20261014-SYS-A; logout control visible",
+      "status": "PASS"
+    },
+    {
+      "id": "UI-R2-02",
+      "scope": "school operation navigation inventory only",
+      "actual": [
+        "运行仪表盘 /workspace",
+        "批次工作台 /workflow",
+        "批次与阶段配置 /cohorts",
+        "统计报表 /workflow?panel=reports",
+        "消息 /workflow?panel=messages"
+      ],
+      "status": "OBSERVED",
+      "remaining": [
+        "资源与治理 group",
+        "管理工具 group",
+        "menu destinations and remaining roles"
+      ]
+    },
+    {
+      "id": "UI-R2-03",
+      "scope": "follow-up attempt to bind the Chrome tab to the PaperGuard business page",
+      "actual": "getTab timed out and reset the JavaScript kernel; target page content was not obtained",
+      "status": "BLOCKED",
+      "evidence": "browser-control-followup-20261015.json"
+    }
+  ],
+  "limitations": [
+    "No first-login email/OTP onboarding claim from internal no-email fixture provisioning.",
+    "No broad F01 or whole-UAT PASS claim.",
+    "No raw browser screenshot with unrelated tabs or credential data persisted.",
+    "2026-10-15 Chrome tab binding timed out; no business-page UI result is inferred from the blank/new-tab shell."
+  ]
+}

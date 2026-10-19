@@ -1,0 +1,42 @@
+{
+  "format": "paperguard-production-uat-x08-participant-deny-read",
+  "format_version": 1,
+  "recorded_at": "2026-10-18T14:39:30Z",
+  "environment": "production",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_identity_rechecked_this_run": false,
+  "scope": {
+    "participant_id": "participant-e7b399a3625e",
+    "endpoint": "GET /api/stage-participants/{participant_id}",
+    "exact_id_only": true,
+    "no_collection_or_search": true
+  },
+  "roles": [
+    {
+      "alias": "S-B",
+      "expected_role": "student",
+      "login_http": 200,
+      "me_http": 200,
+      "role_match": true,
+      "participant_http": 404,
+      "expected_denial": true,
+      "logout_http": 200
+    },
+    {
+      "alias": "T-B",
+      "expected_role": "teacher",
+      "login_http": 200,
+      "me_http": 200,
+      "role_match": true,
+      "participant_http": 404,
+      "expected_denial": true,
+      "logout_http": 200
+    }
+  ],
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0,
+  "status": "PASS_SUBCHECK"
+}

@@ -56,7 +56,7 @@
           <button class="icon-button" :title="t('workflow.refresh')" :aria-label="t('workflow.refresh')" @click="loadAll" :disabled="loading"><span class="material-symbols-outlined" aria-hidden="true">refresh</span></button>
         </div></template>
 
-        <section v-if="processInbox.length && activeSection === 'overview'" class="panel process-inbox"><div class="panel-heading"><div><h3>{{ t('workflow.processInboxTitle') }}</h3><p>{{ t('workflow.processInboxDetail') }}</p></div><span class="unread-count">{{ processInbox.length }}</span></div><label class="process-reason-field">{{ t('workflow.returnReason') }}<input v-model="processDecisionReason" :placeholder="t('workflow.returnReasonPlaceholder')" /></label><div class="process-inbox-list"><ScreenCollection :items="processInbox" :row-height="72" v-slot="{ items: visibleItems }"><div v-for="record in visibleItems" :key="record.id" class="process-inbox-row"><div><strong>{{ record.artifact_name }}</strong><span>{{ record.student_id || record.cohort_id }} · {{ t('workflow.waitingApproval') }} {{ record.pending_approvals?.join(' / ') || t('workflow.waitingApproval') }}</span></div><div class="stage-row-actions"><button class="tiny" @click="handleProcessDecision(record, 'returned')"><span class="material-symbols-outlined" aria-hidden="true">undo</span>{{ t('workflow.return') }}</button><button class="tiny primary" @click="handleProcessDecision(record, 'approved')"><span class="material-symbols-outlined" aria-hidden="true">verified</span>{{ t('workflow.approve') }}</button></div></div></ScreenCollection></div></section>
+        <section v-if="processInbox.length && activeSection === 'overview'" class="panel process-inbox"><div class="panel-heading"><div><h3>{{ t('workflow.processInboxTitle') }}</h3><p>{{ t('workflow.processInboxDetail') }}</p></div><span class="unread-count">{{ processInbox.length }}</span></div><label class="process-reason-field">{{ t('workflow.returnReason') }}<input v-model="processDecisionReason" :placeholder="t('workflow.returnReasonPlaceholder')" /></label><div class="process-inbox-list"><ScreenCollection :items="processInbox" :row-height="72" v-slot="{ items: visibleItems }"><div v-for="record in visibleItems" :key="record.id" class="process-inbox-row"><div><strong>{{ record.artifact_name }}</strong><span>{{ record.data?.student_id || record.student_id || record.cohort_id }} · {{ t('workflow.waitingApproval') }} {{ record.pending_approvals?.join(' / ') || t('workflow.waitingApproval') }}</span></div><div class="stage-row-actions"><button v-if="isTeacher && record.artifact_type === 'midterm_check'" class="tiny" @click="openMidtermTeacherFields(record)"><span class="material-symbols-outlined" aria-hidden="true">edit_note</span>{{ t('workflow.fillMidtermTeacherFields') }}</button><button class="tiny" @click="handleProcessDecision(record, 'returned')"><span class="material-symbols-outlined" aria-hidden="true">undo</span>{{ t('workflow.return') }}</button><button class="tiny primary" @click="handleProcessDecision(record, 'approved')"><span class="material-symbols-outlined" aria-hidden="true">verified</span>{{ t('workflow.approve') }}</button></div></div></ScreenCollection></div></section>
 
         <template v-if="canConfigure && !panelFocused">
 
@@ -159,6 +159,16 @@
             <div class="form-actions"><button class="primary" :disabled="saving || !cohortForm.name || !cohortForm.organization_id" @click="handleCreateCohort"><span class="material-symbols-outlined" aria-hidden="true">add</span>{{ t('workflow.createCohort') }}</button></div>
           </section></BaseModal>
     <BaseModal :open="Boolean(bindTarget)" size="small" :title="t('workflow.bindThesisTitle')" @close="bindTarget = null"><form v-if="bindTarget" @submit.prevent="confirmBind"><label class="field">{{ t('workflow.thesisTitle') }}<input v-model="bindTitle" :placeholder="t('workflow.thesisTitlePlaceholder')" required /></label><div class="form-actions"><button class="primary" :disabled="saving"><span class="material-symbols-outlined" aria-hidden="true">link</span>{{ t('workflow.createBind') }}</button></div></form></BaseModal>
+
+    <BaseModal :open="Boolean(teacherFieldsRecord)" :title="t('workflow.midtermTeacherFieldsTitle')" @close="closeMidtermTeacherFields">
+      <section v-if="teacherFieldsRecord">
+        <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
+        <p class="hint">{{ teacherFieldsRecord.student_id }} · {{ teacherFieldsRecord.data?.topic || '' }}</p>
+        <label class="structured-field"><span>{{ t('workflow.midtermTeacherOpinion') }}</span><textarea v-model="midtermTeacherFields.advisor_comment" rows="4" maxlength="4000" /></label>
+        <label class="structured-field"><span>{{ t('workflow.midtermTeacherScore') }}</span><input v-model.number="midtermTeacherFields.score" type="number" min="0" max="100" step="1" /></label>
+        <div class="form-actions teacher-fields-actions"><button class="primary" :disabled="saving" @click="saveMidtermTeacherFields"><span class="material-symbols-outlined" aria-hidden="true">save</span>{{ t('workflow.saveMidtermTeacherFields') }}</button></div>
+      </section>
+    </BaseModal>
     <ReasonDialog
       :open="reasonDialog.open"
       :title="reasonDialog.title"
@@ -211,7 +221,7 @@ import {
   addCohortMember, acknowledgeTaskRequirements, bindTaskProject, confirmSubmission, createArchive,
   extendTaskDeadline,
   createCohort, createCohortProcessRecord, createCohortStage, createParticipantProcessRecord, createSubmissionCandidate, createSubmissionComment,
-  decideProcessRecord, downloadProcessRecordAttachment,
+  decideProcessRecord, downloadProcessRecordAttachment, updateMidtermTeacherFields,
   exportProcessRecord, fetchProcessRecordForm, fetchCohortProcessRecordForm, fetchParticipantScoreSummary,
   fetchCohort, fetchCohortProcessRecords, fetchCohorts, fetchMyTasks, fetchOrganizations, fetchProjectVersions, fetchSubmission, fetchSubmissions,
   compareProjectVersions,
@@ -285,6 +295,8 @@ const extensionForm = reactive({ deadline: '', reason: '' })
 const materialForm = reactive({ artifact_type: 'task_book', title: '', content: '' })
 const managementForm = reactive({ artifact_type: 'topic_review_summary', title: '', content: '' })
 const processDecisionReason = ref('')
+const teacherFieldsRecord = ref(null)
+const midtermTeacherFields = reactive({ advisor_comment: '', score: '' })
 const reasonDialog = reactive({ open: false, title: '', description: '', defaultValue: '', confirmLabel: '', action: null })
 const confirmBusy = ref(false)
 const confirmDialog = reactive({ open: false, title: '', description: '', confirmLabel: '', danger: false, action: null })
@@ -576,6 +588,36 @@ async function handleProcessDecision(record, decision) {
   } catch (e) { error.value = e.message } finally { saving.value = false }
 }
 
+function openMidtermTeacherFields(record) {
+  teacherFieldsRecord.value = record
+  midtermTeacherFields.advisor_comment = record.data?.advisor_comment || ''
+  midtermTeacherFields.score = record.data?.score ?? ''
+  error.value = ''
+}
+
+function closeMidtermTeacherFields() {
+  if (saving.value) return
+  teacherFieldsRecord.value = null
+}
+
+async function saveMidtermTeacherFields() {
+  const record = teacherFieldsRecord.value
+  if (!record) return
+  const data = {
+    advisor_comment: midtermTeacherFields.advisor_comment.trim(),
+    score: midtermTeacherFields.score === '' || midtermTeacherFields.score === null
+      ? null : Number(midtermTeacherFields.score),
+  }
+  saving.value = true
+  error.value = ''
+  try {
+    const updated = await updateMidtermTeacherFields(record.id, { data, base_revision: record.revision })
+    processInbox.value = processInbox.value.map((item) => item.id === updated.id ? updated : item)
+    teacherFieldsRecord.value = null
+    notice.value = t('workflow.midtermTeacherFieldsSaved')
+  } catch (e) { error.value = e.message } finally { saving.value = false }
+}
+
 async function previewAndPublish(stage) {
   try {
     const result = await previewCohortStage(stage.id); preview.value = result
@@ -781,9 +823,14 @@ async function saveMaterial() {
       if (field.type !== 'json') continue
       try { data[field.key] = JSON.parse(materialJsonDrafts[field.key] || 'null') } catch (e) { error.value = t('workflow.invalidJson', { label: field.label }); saving.value = false; return }
     }
+    const submissionData = auth.user?.role === 'student' && materialForm.artifact_type === 'midterm_check'
+      ? Object.fromEntries(Object.entries(data).filter(([key]) => (
+        (materialSchema.value?.fields || []).some((field) => field.key === key) || key === 'title' || key === 'content'
+      )))
+      : data
     const record = await createParticipantProcessRecord(materialsTask.value.id, {
       artifact_type: materialForm.artifact_type,
-      data,
+      data: submissionData,
       structured_form: Boolean(materialSchema.value?.fields?.length),
     })
     if (materialFile.value) await uploadProcessRecordAttachment(record.id, materialFile.value)
@@ -973,6 +1020,9 @@ onMounted(async () => {
 .report-metrics strong { margin-left: 5px; color: var(--on-surface); font-size: 16px; }
 .history-row-button { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .history-row-button:hover { background: var(--surface-container-low); }
+.process-inbox-row > div:first-child { min-width: 0; flex: 1; }.process-inbox-row .stage-row-actions { flex-wrap: wrap; justify-content: flex-end; }
+.teacher-fields-actions { flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 560px) { .process-inbox-row { align-items: flex-start; flex-direction: column; }.process-inbox-row .stage-row-actions { width: 100%; justify-content: flex-start; } }
 .cohort-create-fields { grid-template-columns: 1fr; }
 .comment-response { margin-top: 10px; padding-left: 12px; border-left: 2px solid var(--border); }
 </style>

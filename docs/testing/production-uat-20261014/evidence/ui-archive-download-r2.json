@@ -1,0 +1,50 @@
+{
+  "recorded_at": "2026-10-15T12:08:52+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Repository frontend Playwright 1.63.0; isolated headless Chromium with acceptDownloads enabled",
+  "role_account": "COL-A (college_admin; synthetic UAT account)",
+  "viewport": {
+    "width": 1365,
+    "height": 900
+  },
+  "route": "/workflow?panel=archives",
+  "scenario": "F15 partial: download the exact synthetic archive and validate its package structure",
+  "known_test_archive_id": "archive-64e549d38829",
+  "observed": {
+    "login_http": 200,
+    "archive_route_http": 200,
+    "synthetic_project_row_visible": true,
+    "row_locator": "Exact synthetic paper title; observed card ancestor contained one enabled download button",
+    "download_button_enabled": true,
+    "browser_download_event_observed": true,
+    "download_endpoint_http": 200,
+    "content_type": "application/zip",
+    "content_length_bytes": 57872,
+    "download_failure": null,
+    "saved_to_temporary_file": true,
+    "temporary_file": "/var/folders/tg/h8_hq_fx0wj87_2z51gd_zzr0000gn/T/pg-uat-archive-1792037304494.zip",
+    "archive_sha256": "d5d9b52c22edf9fd136a0c2841ebb5fe3b8dbefdd09d368fbc621184c94eaee",
+    "outer_zip_valid": true,
+    "archive_entry_count": 12,
+    "entry_extension_counts": {
+      ".docx": 1,
+      ".json": 11
+    },
+    "embedded_docx_count": 1,
+    "embedded_docx_zip_valid": true,
+    "embedded_docx_has_ooxml_core": true,
+    "embedded_docx_document_xml_parses": true,
+    "embedded_docx_paragraph_count": 53,
+    "page_errors": 0,
+    "api_errors": 0
+  },
+  "result_boundary": "The UI download and local package parsing succeeded. The DOCX was not visually opened in Word/Office; report and audit reconciliation remain unverified.",
+  "scope": {
+    "business_writes": 0,
+    "auth_posts": 1,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "real_user_data_exported": false
+  }
+}

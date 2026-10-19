@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from app.core.ir import Document, Finding, Location, Severity
 from app.models.project import WritingProject
 from app.models.template import PaperTemplate, TemplateSection, TextStyle
+from app.services.project_validation import section_complete_with_children
 
 _TOLERANCE = 0.05
 _SYSTEM_GENERATED_SECTION_TYPES = {"cover", "toc"}
@@ -58,6 +59,17 @@ def compare_project_to_template(
     """Check project content against its template without injecting template styles."""
     findings: list[Finding] = []
     project_sections = {section.key: section for section in project.sections}
+    section_indices = {section.key: index for index, section in enumerate(project.sections)}
+    for field in template.meta_fields:
+        if field.required and not project.meta.get(field.key, "").strip():
+            findings.append(Finding(
+                rule_id=f"TPL.{template.id}.meta.{field.key}.missing",
+                severity=Severity.ERROR,
+                message=f"封面「{field.label}」未填写",
+                location=Location(section_key="cover"),
+                actual=False,
+                expected=True,
+            ))
     section_nodes = _flatten_sections(template.sections)
     for node in section_nodes:
         if node.type.value in _SYSTEM_GENERATED_SECTION_TYPES:
@@ -74,7 +86,17 @@ def compare_project_to_template(
                     expected=True,
                 ))
             continue
-        if node.required and not _project_section_has_content(section):
+        if section.type != node.type.value:
+            findings.append(Finding(
+                rule_id=f"TPL.{template.id}.section.{node.key}.type-mismatch",
+                severity=Severity.ERROR,
+                message=f"章节类型与模板不一致: {node.title}",
+                location=Location(section_key=node.key),
+                actual=section.type,
+                expected=node.type.value,
+            ))
+            continue
+        if node.required and not section_complete_with_children(section_indices[node.key], project.sections):
             findings.append(Finding(
                 rule_id=f"TPL.{template.id}.section.{node.key}.empty",
                 severity=Severity.ERROR,
@@ -93,13 +115,6 @@ def compare_project_to_template(
             if block.underline and not _style_for_node(node, template).underline:
                 findings.append(_project_inline_finding(template, node, section.key, block_index, "underline", True, False, "下划线"))
     return findings, TemplateCheckContext(len(section_nodes), len(template.styles))
-
-
-def _project_section_has_content(section) -> bool:
-    return bool((section.title or "").strip() or any(
-        (block.text or "").strip() or block.type.value in {"image", "table"}
-        for block in section.paragraphs
-    ))
 
 
 def _style_for_node(node: TemplateSection, template: PaperTemplate) -> TextStyle:

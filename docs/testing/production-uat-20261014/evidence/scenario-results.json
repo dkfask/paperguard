@@ -1,0 +1,470 @@
+{
+  "recorded_at": "2026-10-14T18:08:51.523802+08:00",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "scenarios": [
+    {
+      "id": "F01",
+      "role": "各角色",
+      "scope": "登录、首次引导、工作台、退出后重新登录",
+      "expected": "身份及组织正确；菜单与权限一致；深链接可达；退出后受保护页面不可继续操作",
+      "actual": "已查未登录表单和管理员深链接；各角色登录、工作台、退出和首次引导尚未执行。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "ui-observations.json",
+        "public-http-checks.json"
+      ]
+    },
+    {
+      "id": "F02",
+      "role": "学校管理员、学院管理员",
+      "scope": "发布论文工作流程解释、阶段顺序、截止日期、材料清单及提交要求",
+      "expected": "教师和学生可看到同一有效版本；说明明确“何时、交什么、谁审核、退回后怎么改”；未发布草稿不提前生效",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F03",
+      "role": "管理员",
+      "scope": "建立测试批次、绑定模板/规范、导入或分配师生关系",
+      "expected": "导入错误可定位；重复导入不重复建任务；任务落到指定学生和教师；组织范围正确",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F04",
+      "role": "教师",
+      "scope": "设置题目、任务标题、研究目标、内容要求、预期成果，填写并发出任务书",
+      "expected": "区分流程名称、任务标题和论文题目；任务书与学生、阶段绑定；学生可读取正确版本；不能误发给其他学生",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F05",
+      "role": "学生",
+      "scope": "领取或查看题目、确认要求、完成任务书相关填写",
+      "expected": "教师端可核对学生收到的内容；必填项和附件约束有效；学生不能改教师审核结论。若无“领取”机制，记录实际可达方式及需求差异",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F06",
+      "role": "学生、教师",
+      "scope": "填写开题报告，提交、审核、退回后修订",
+      "expected": "题目、目标、研究方法与任务书一致；材料状态与审批人正确；退回原因可见；完成后按前置规则进入下一阶段",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F07",
+      "role": "学生、教师、学院管理员",
+      "scope": "记录指导过程，填报中期进度、问题与计划，提交中期检查",
+      "expected": "教师负责字段不能被学生越权填写；检查材料、审批顺序和批次汇总一致；未通过不得绕过阶段门禁",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F08",
+      "role": "学生、教师、学院管理员",
+      "scope": "复核正式论文题目；另走课题变更申请、退回/批准分支",
+      "expected": "对照任务书、开题、项目标题、提交封面、导出题目；变更按规则影响后续版本，历史快照保留当时题目",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F09",
+      "role": "学生",
+      "scope": "基于模板写正文、插入图表与引用、保存、刷新和重新登录",
+      "expected": "内容不丢失；结构和格式约束生效；标题及封面一致；草稿与历史提交互不覆盖；AI 场景按第 7 节插入",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F10",
+      "role": "学生",
+      "scope": "绑定必交材料、生成候选版本、预检、确认提交 V1",
+      "expected": "缺材料、格式阻断、过期正文、截止限制和前置阶段可识别；重复点击只形成一次有效提交；学生和教师看到同一提交编号",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F11",
+      "role": "教师",
+      "scope": "打开 V1，定位段落并添加普通建议与阻断意见，填写退回原因和修订截止",
+      "expected": "批注绑定正确段落、原文及版本；教师阅读期间学生改草稿不改变 V1；退回后通知、队列和状态一致",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F12",
+      "role": "学生",
+      "scope": "查看退回意见，逐条修改和回复，使用 AI 辅助部分修订，提交 V2",
+      "expected": "区分未处理、已回应和教师已解决；保存修改说明；旧意见仍可追踪；AI 采纳不自动关闭批注",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F13",
+      "role": "教师、学生",
+      "scope": "教师复核 V2，保留一项未解决问题再退回；学生再修订提交 V3",
+      "expected": "完成第二轮循环；历史意见与版本不串；第二轮新增意见可追踪；已通过旧记录不得被覆盖",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F14",
+      "role": "教师",
+      "scope": "检查 V3，核对必交材料、人工确认项和阻断批注，作出通过决定",
+      "expected": "有阻断项时不能提前通过；正式决定由教师执行；通过后历史审阅按权限只读；未授权角色不能代审",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "F15",
+      "role": "学生、管理员",
+      "scope": "导出终稿、下载并打开文件，生成归档包，核对进度和审计",
+      "expected": "DOCX 可读、图表/题目/格式正确；归档包含正确版本与材料；任务状态与实际文件一致；报表可与本轮对象对账",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "AI01",
+      "role": "学校/系统管理员，流程发布前",
+      "scope": "依据已确认的阶段、材料、截止日期生成流程解释和公告草稿，人工修改后向测试对象发布",
+      "expected": "时间、对象、材料及责任人不被编造；发布前可审阅；草稿生成不自动发布。专用入口待核实",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B03 AI外发/调用/费用边界（AI09只读先受B01阻塞）",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "AI02",
+      "role": "管理员，流程管理",
+      "scope": "请求解释现有阶段顺序、指出配置遗漏或生成配置建议",
+      "expected": "建议基于当前流程；如支持应用配置，必须预览影响并由有权限者确认；AI 不自行变更已发布流程。能力待核实",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B03 AI外发/调用/费用边界（AI09只读先受B01阻塞）",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "AI03",
+      "role": "教师，任务书与开题指导",
+      "scope": "基于已定题目整理任务要求或指导建议",
+      "expected": "不改变学校硬性要求，不虚构研究结果；教师确认后保存。能力待核实",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B03 AI外发/调用/费用边界（AI09只读先受B01阻塞）",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "AI04",
+      "role": "教师，审阅 V1/V2",
+      "scope": "选择测试段落与问题，生成批注建议；教师编辑后发布为正式意见",
+      "expected": "明确对应哪个版本和段落；建议可编辑/放弃；不得自动退回、通过或直接改写学生正文。能力待核实",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B03 AI外发/调用/费用边界（AI09只读先受B01阻塞）",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "AI05",
+      "role": "学生，正文润色",
+      "scope": "对指定段落执行润色，比较前后内容，再接受或放弃",
+      "expected": "原意、术语、数字、引用不被改变；仅作用于所选范围；放弃后原文保留",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B03 AI外发/调用/费用边界（AI09只读先受B01阻塞）",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "AI06",
+      "role": "学生，续写与补写",
+      "scope": "基于已有提纲和事实执行续写/扩写",
+      "expected": "与上文连贯；不凭空增加实验结果、样本量或文献；人工核对后插入正确位置。是否有独立“补写”入口待核实",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B03 AI外发/调用/费用边界（AI09只读先受B01阻塞）",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "AI07",
+      "role": "学生，按批注修改",
+      "scope": "选定某条教师批注及关联段落，生成修改建议，确认后回复该意见",
+      "expected": "建议回应具体问题，保留未采纳内容；不误改其他段落；不能因采纳而自动完成教师验收。定向入口待核实",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B03 AI外发/调用/费用边界（AI09只读先受B01阻塞）",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "AI08",
+      "role": "学生，定稿",
+      "scope": "根据当前正文生成中文摘要、英文摘要和关键词",
+      "expected": "内容与正文一致，不出现正文没有的结果；中英文关键结论一致；写入目标位置并可再次编辑",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B03 AI外发/调用/费用边界（AI09只读先受B01阻塞）",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "AI09",
+      "role": "系统管理员、各使用者",
+      "scope": "核对供应商披露、可用状态、权限、运行用量、失败提示",
+      "expected": "展示配置来源和必要披露；不暴露密钥或完整正文；用量记录不冒充财务账单；AI 不可用时保留人工流程",
+      "actual": "匿名AI状态入口返回401；真实供应商、披露、额度和用量未核验。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B03 AI外发/调用/费用边界（AI09只读先受B01阻塞）",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "ui-observations.json",
+        "public-http-checks.json"
+      ]
+    },
+    {
+      "id": "X01",
+      "role": "系统管理员",
+      "scope": "用户审核与角色认证、禁用测试账号后的访问、AI 设置只读检查、审计查询、运行与后台任务；配置修改和真实恢复单独确认",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "Web/worker、OpenAPI、部署身份已核验；管理员页面、AI配置、审计和任务积压尚未登录核验。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "ui-observations.json",
+        "public-http-checks.json"
+      ]
+    },
+    {
+      "id": "X02",
+      "role": "学校管理员",
+      "scope": "学校流程说明、模板与规范发布、版本变更、批次管理、跨学院授权范围内的进度与材料统计",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "X03",
+      "role": "学院管理员",
+      "scope": "本院组织、规范、批次、师生关系、选题汇总、中期汇总、归档；不能越权操作兄弟学院",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "X04",
+      "role": "教师",
+      "scope": "指导学生、任务书、材料审核、批注、延期、申诉/豁免、历史审阅、消息；非指导学生数据拒绝访问",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "X05",
+      "role": "学生",
+      "scope": "任务与要求、个人草稿、过程材料、格式检查/修复、撤回、重提、课题变更、延期申请、申诉、导出及历史记录",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "X06",
+      "role": "评阅与答辩扩展",
+      "scope": "盘点评阅教师、答辩审批职责是否为实际登录角色；核对评阅材料、答辩申请/安排/记录、成绩汇总与评优入口。材料审批标签不自动等同独立角色",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "评阅/答辩真实角色、入口与本轮范围待负责人确认。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "ui-observations.json",
+        "public-http-checks.json"
+      ]
+    },
+    {
+      "id": "X07",
+      "role": "规范与流程异常",
+      "scope": "未开放/逾期/前置未通过、必填缺失、附件不符、格式阻断、规范升级、已发布阶段变更对在途任务的影响；使用测试配置，禁止改系统时间",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "X08",
+      "role": "权限与数据隔离",
+      "scope": "学生互换项目/附件/提交 ID，非指导教师访问，学院越界，深链接和直接下载；只使用已知测试对象 ID，不枚举真实数据",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "5个已确认受保护接口对匿名请求返回401；角色间测试ID互换未执行。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "ui-observations.json",
+        "public-http-checks.json"
+      ]
+    },
+    {
+      "id": "X09",
+      "role": "中断与重试",
+      "scope": "刷新、重新登录、客户端断网后的未保存提示、重复提交/审批/导出；恢复后明确哪些内容已保存、哪些需重试",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "X10",
+      "role": "消息与统计",
+      "scope": "任务发布、退回、重提、通过、截止提醒与已读状态；按测试对象核对人数、提交数和归档数，避免汇总口径混淆",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "缺少前置条件，尚未执行业务操作；没有创建测试对象或调用AI。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试账号；B02 测试对象/业务规则范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": []
+    },
+    {
+      "id": "X11",
+      "role": "微信小程序",
+      "scope": "若纳入本轮，使用真机完成身份绑定、任务、提交、教师审阅和消息交接；长篇写作继续桌面端；前置门禁不能代替真机",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "没有微信真机、受控会话和本轮范围确认；Web检查不能替代真机。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试会话；B04 浏览器/真机/设备和语言范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "ui-observations.json",
+        "public-http-checks.json"
+      ]
+    },
+    {
+      "id": "X12",
+      "role": "浏览器与可访问性",
+      "scope": "确认实际支持的浏览器/设备，检查核心页布局、错误状态、键盘焦点、表单标签、长标题及中英文摘要；中文时间显示与有效截止一致",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "已观察桌面登录表单、必填焦点和中英文切换；角色核心页、设备矩阵、完整无障碍及时间核对未执行。",
+      "status": "BLOCKED",
+      "blocker": "B01 测试会话；B04 浏览器/真机/设备和语言范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "ui-observations.json",
+        "public-http-checks.json"
+      ]
+    }
+  ],
+  "business_totals": {
+    "total": 36,
+    "passed": 0,
+    "failed": 0,
+    "blocked": 36,
+    "gap": 0,
+    "not_run": 0,
+    "not_applicable": 0
+  },
+  "business_result": "ZERO-PASS / BLOCKED",
+  "note": "场景包统计，不冒充已审查的原子用例数；准入检查独立统计。未登录检查不关闭完整F01/X08。"
+}

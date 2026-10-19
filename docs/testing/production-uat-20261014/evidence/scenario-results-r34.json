@@ -1,0 +1,641 @@
+{
+  "recorded_at": "2026-10-15T13:45:44+08:00",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "scenarios": [
+    {
+      "id": "F01",
+      "role": "各角色",
+      "scope": "登录、首次引导、工作台、退出后重新登录",
+      "expected": "身份及组织正确；菜单与权限一致；深链接可达；退出后受保护页面不可继续操作",
+      "actual": "9个合成账号经复核均实际落到首页(/)，账号ID、服务端角色、页面角色标签和登录响应中的组织上下文与夹具一致；每个账号完成菜单分组采集、/workspace登录态直达、退出后保护路由重定向、同账号重新登录并再次退出。早期ui-login-r1因路由切换前读取URL已标记为SUPERSEDED，不能作为通过依据。首次引导标志均为false，因此真实首次引导仍未执行；菜单入口已采集但各业务页权限点尚待验证。 代表性直达路由核验中，SYS-A的/operations和T-A的/teacher/students可达；COL-A、T-A、S-A访问各自无权路由均回到/workspace。 Playwright只读检查补充：T-A打开`/workflow?panel=review`显示“审核台”，S-A打开`/workflow`显示“我的阶段任务”；登录及页面均200，无API/页面错误和非认证写请求。 2026-10-15补测：隔离headless Playwright使用S-A再次登录，登录页HTTP 200，提交后到达首页(/)，标题“首页 · PaperGuard”，耗时约4.4秒，页面错误0；这验证了替代测试路径，不关闭F01的其他未测范围。",
+      "status": "NOT RUN",
+      "blocker": "首次登录引导及各角色其余菜单/深链尚未全量核验；桌面CUA受Mac锁屏影响，但headless Playwright登录路径已验证可用。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "role-auth-precheck.json",
+        "ui-observations-r2.json",
+        "browser-control-followup-20261015.json",
+        "ui-login-r1.json",
+        "ui-role-matrix-r1.json",
+        "ui-permission-routes-r1.json",
+        "ui-workflow-role-smoke-r1.json",
+        "browser-control-recovery-20261015-r2.json",
+        "browser-control-recovery-20261015-r3.json",
+        "browser-control-recovery-20261015-r5.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F02",
+      "role": "学校管理员、学院管理员",
+      "scope": "发布论文工作流程解释、阶段顺序、截止日期、材料清单及提交要求",
+      "expected": "教师和学生可看到同一有效版本；说明明确“何时、交什么、谁审核、退回后怎么改”；未发布草稿不提前生效",
+      "actual": "测试阶段“开题报告”已创建、预览并发布；阶段版本升级到v2并仅迁移本轮测试参与者；S-A/T-A可见任务，非指导师生和COL-B不可见。流程说明页面及各角色同版字段仍未核验。 COL-A在生产批次配置页打开专用批次后看到“开题报告 proposal”阶段为已发布v2，页面显示截止时间；目标详情有1个阶段且绑定template_id。学生端同版要求字段/规范版本仍未对照。 T-A和S-A规范页均展示同一份策略列表；学生端为只读。教师端额外显示创建和AI导入操作入口，本轮未点击，用户已确认教师可以创建和编辑规范草稿；此前仅看到教师端创建入口，未执行保存/编辑。 S-A通过学生工作台打开已发布测试阶段详情和材料目录，可见批次、项目、阶段及截止时间；材料目录包含20项。学生视图未显示配置版本，尚未与教师端v2字段逐项对照。归档阶段的材料提交表单仍启用，是否符合业务规则待确认。\n\n2026-10-15 API续测：T-A通过生产API创建并编辑了一份教师级规范草稿，读回确认编辑内容持久化、状态仍为draft且归属T-A；未发布、未使用AI导入。教师/学生页面同版字段及流程说明页面仍未核验，本次草稿仅做API验证。",
+      "status": "NOT RUN",
+      "blocker": "学生端与教师端发布版本逐字段一致性、流程说明页面同步、归档后材料表单权限仍未核验；草稿UI操作未验证。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "stage-create-preview-r3.json",
+        "stage-publish-role-views-r3.json",
+        "stage-version-upgrade-r3.json",
+        "ui-cohort-stage-config-r1.json",
+        "ui-policy-role-consistency-r1.json",
+        "ui-student-stage-details-r2.json",
+        "acceptance-oracle-update-20261015-r1.json",
+        "api-policy-draft-create-edit-r1.json",
+        "api-production-workflow-closure-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F03",
+      "role": "管理员",
+      "scope": "建立测试批次、绑定模板/规范、导入或分配师生关系",
+      "expected": "导入错误可定位；重复导入不重复建任务；任务落到指定学生和教师；组织范围正确",
+      "actual": "已建专用批次及S-A/T-A关系；导入干跑定位重复和不存在账号，重试保持单一关系。阶段配置、模板/规范页面与完整学院端绑定核验仍待完成。 COL-A通过生产页面看到专用测试批次，等待列表异步渲染后可见该行；选择后批次详情GET为200，页面无错误。模板/规范页面及完整学院端绑定对账仍待完成。 COL-B可打开批次页，但专用COL-A测试批次在列表响应及页面行中均不存在，页面无错误；与既有组织范围核验一致。 COL-A阶段配置页可打开目标批次详情，唯一阶段显示已发布v2、截止时间和绑定template_id；详情与页面均无错误。具体模板/规范版本及学院端完整成员绑定仍未核对。 阶段绑定的template_id可在模板管理UI中找到；桌面列表共4个模板、分2页，逐页核对后目标绑定模板可见，页面/API无错误。\n\n2026-10-15 API续测：本轮未新建批次或师生关系。COL-A在既有合成批次中新增并发布一个终稿测试阶段；发布后为S-A生成新参与任务，继续使用已核验的T-A指导关系。只验证了该阶段/任务API子项，不能代表批次创建、成员导入与关系分配全覆盖。",
+      "status": "NOT RUN",
+      "blocker": "未在页面验收批次创建、成员导入及教师分配；本轮仅复用既有合成批次和指导关系。",
+      "object_id": "cohort-ed0046d38402",
+      "submission_version": null,
+      "evidence": [
+        "workflow-setup.json",
+        "pre-stage-preflight-r3.json",
+        "ui-cohorts-col-a-r1.json",
+        "ui-cohorts-col-b-isolation-r1.json",
+        "ui-cohort-stage-config-r1.json",
+        "ui-template-binding-r1.json",
+        "api-production-workflow-closure-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F04",
+      "role": "教师",
+      "scope": "设置题目、任务标题、研究目标、内容要求、预期成果，填写并发出任务书",
+      "expected": "区分流程名称、任务标题和论文题目；任务书与学生、阶段绑定；学生可读取正确版本；不能误发给其他学生",
+      "actual": "T-A创建并审批任务书；S-A可读取正确测试题目，审批后尝试修改返回409，记录保持不变。页面填表和批次/学生绑定展示未验证。 T-A的“指导学生”页可见两名本轮关系学生S-A/S-B，未见无关的S-C；页面与学生列表接口均200、无错误。任务书字段/发布操作及学生收到的版本仍未UI核验。",
+      "status": "NOT RUN",
+      "blocker": "教师任务书字段填写/发布以及学生端同版任务内容仍未通过UI核验。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "process-record-taskbook-r3.json",
+        "ui-teacher-students-scope-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F05",
+      "role": "学生",
+      "scope": "领取或查看题目、确认要求、完成任务书相关填写",
+      "expected": "教师端可核对学生收到的内容；必填项和附件约束有效；学生不能改教师审核结论。若无“领取”机制，记录实际可达方式及需求差异",
+      "actual": "S-A读取已审批任务书；在开题材料中先缺字段提交得到422，补齐后可更新并提交。是否存在独立“领取题目”入口尚未通过页面盘点。 S-A学生工作台显示1个对应合成项目的阶段任务，状态为“已归档”；因主线对象已归档，该页面未显示继续写作和查看记录操作。 归档任务卡没有任何按钮或链接；过程材料按钮定位未命中，未执行点击。 S-A可打开测试任务详情并进入过程材料清单，20项均显示未提交；表单控件和“保存并提交材料”按钮可见且启用。本轮未提交任何字段或附件。",
+      "status": "NOT RUN",
+      "blocker": "主线任务已归档；已验证详情/材料目录可见，但未在活跃阶段验证填写、附件约束和教师端同版内容。归档后提交表单是否应启用待业务确认。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "process-record-taskbook-r3.json",
+        "process-record-opening-report-r3.json",
+        "ui-workflow-role-smoke-r1.json",
+        "ui-student-archived-task-actions-r1.json",
+        "ui-student-stage-details-r2.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F06",
+      "role": "学生、教师",
+      "scope": "填写开题报告，提交、审核、退回后修订",
+      "expected": "题目、目标、研究方法与任务书一致；材料状态与审批人正确；退回原因可见；完成后按前置规则进入下一阶段",
+      "actual": "S-A提交开题报告后由T-A审批成功；T-B读取为404。空必填提交得到422，补齐字段后提交成功。页面退回、修改原因可见性未验证。 S-A归档任务页无过程材料入口，当前夹具无法继续UI操作；既有过程材料API证据不替代活跃阶段表单。 已验证归档测试任务仍能打开过程材料表单（20项未提交，保存按钮启用）；没有写入，尚未验证开题填写、提交、教师审核/退回和再次提交。",
+      "status": "NOT RUN",
+      "blocker": "需活跃阶段夹具执行学生填写、提交、教师审核/退回及修订UI；归档状态表单的可提交规则待业务确认。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "process-record-opening-report-r3.json",
+        "ui-student-archived-task-actions-r1.json",
+        "ui-student-stage-details-r2.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F07",
+      "role": "学生、教师、学院管理员",
+      "scope": "记录指导过程，填报中期进度、问题与计划，提交中期检查",
+      "expected": "教师负责字段不能被学生越权填写；检查材料、审批顺序和批次汇总一致；未通过不得绕过阶段门禁",
+      "actual": "T-A指导记录三阶段完成并审批；学生创建中期检查返回403，教师创建、提交、审批通过；跨学院读取为404。学院汇总页面及角色按钮未验收。",
+      "status": "NOT RUN",
+      "blocker": "教师过程材料审批页和学院中期汇总UI仍未完成；当前学生主线材料任务已归档。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "process-record-guidance-r3.json",
+        "process-record-midterm-r3.json",
+        "ui-student-archived-task-actions-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F08",
+      "role": "学生、教师、学院管理员",
+      "scope": "复核正式论文题目；另走课题变更申请、退回/批准分支",
+      "expected": "课题变更审批通过后，主论文标题自动同步为新题目；同时对照任务书、开题、项目标题、提交封面与导出题目，历史快照保留当时题目。",
+      "actual": "此前合成课题变更由教师与学院管理员审批通过；API证据显示项目标题仍为原题“校园图书借阅服务体验研究”，project_title_synced=false，审批后项目版本数为0。现已通过当前生产发布标记及后端/前端文件摘要核验，证据记录版本与当前部署相同；按用户确认口径，当前已核验版本的F08为FAIL。UI、任务书/开题/封面/导出一致性及历史快照保留未验证。",
+      "status": "FAIL",
+      "blocker": "需修复并复测；UI、任务书/开题/封面/导出一致性及历史快照保留仍未验证。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "process-record-topic-change-r3.json",
+        "acceptance-oracle-update-20261015-r1.json",
+        "defect-F08-topic-title-sync-r1.json",
+        "production-release-identity-20261015-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F09",
+      "role": "学生",
+      "scope": "基于模板写正文、插入图表与引用、保存、刷新和重新登录",
+      "expected": "内容不丢失；结构和格式约束生效；标题及封面一致；草稿与历史提交互不覆盖；AI 场景按第 7 节插入",
+      "actual": "主论文模板13节和必填封面字段已确认；合成正文修订16含13节及1个表格。写作页标题与封面论文题目一致；“摘要”单段长度86，刷新和退出重登后哈希一致。第四章UI呈现1个含6个非空单元格的表格；“参考文献”以段落编辑器呈现1段、长度26。此前整行点击产生6次结构PUT尝试但未留响应码；项目复核仍为修订16、章节顺序未变，没有发现持久结构变更。\n\n2026-10-15 API续测：在新合成项目中通过API填写封面字段并保存7个必需章节；候选版本完整性门禁及自动格式检查通过。页面编辑、刷新/重登持久化与图表/引用UI仍未核验。",
+      "status": "NOT RUN",
+      "blocker": "写作编辑器页面及刷新/重登验证尚未完成；本轮正文仅以合成占位内容通过API保存。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "project-structure-r3.json",
+        "project-content-r3.json",
+        "ui-writer-r2.json",
+        "ui-workflow-r1.json",
+        "ui-writer-persistence-r1.json",
+        "project-integrity-audit-r1.json",
+        "ui-writer-components-r1.json",
+        "api-production-workflow-closure-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F10",
+      "role": "学生",
+      "scope": "绑定必交材料、生成候选版本、预检、确认提交 V1",
+      "expected": "缺材料、格式阻断、过期正文、截止限制和前置阶段可识别；重复点击只形成一次有效提交；学生和教师看到同一提交编号",
+      "actual": "空项目候选提交被门禁拦截；完整合成草稿候选状态ready，五项门禁通过、两条警告未确认时409，确认后V1提交成功，幂等重放返回同一提交。必交材料/格式错误和页面双击未完整覆盖。\n\n2026-10-15 API续测：S-A绑定新合成主论文并提交final_report材料；候选V1自动检查、规范确认、完整性、必交材料与附件门禁全通过，2条格式警告经确认后提交成功。接口结果不能代替页面提交路径验收。",
+      "status": "NOT RUN",
+      "blocker": "浏览器候选预检与提交页面未验证；完整场景仍未完成。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "submission-empty-preflight-r3.json",
+        "submission-v1-r3.json",
+        "api-production-workflow-closure-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F11",
+      "role": "教师",
+      "scope": "打开 V1，定位段落并添加普通建议与阻断意见，填写退回原因和修订截止",
+      "expected": "批注绑定正确段落、原文及版本；教师阅读期间学生改草稿不改变 V1；退回后通知、队列和状态一致",
+      "actual": "教师已退回V1并留下1条信息意见和1条阻断意见；T-A可读，学生视角读取与后续回复另有证据。页面查看未验证。 T-A浏览器可打开`/workflow?panel=review`并看到“审核台”，页面GET正常；本次只读检查未执行批注或审核。 T-A审核台可打开并显示同一条已归档合成任务；待审核页显示“暂无批次”，尚无活跃提交供教师批注/退回UI验收。\n\n2026-10-15 API续测：T-A对V1执行退回，填写合成UAT退回原因；提交状态变为returned，任务进入needs_revision。未创建行内普通/阻断批注，也未核验修订截止页面。",
+      "status": "NOT RUN",
+      "blocker": "行内批注、阻断意见、修订截止及对应UI入口尚未验证。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "review-v1-comments-r3.json",
+        "ui-workflow-role-smoke-r1.json",
+        "ui-teacher-review-readonly-r1.json",
+        "api-production-workflow-closure-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F12",
+      "role": "学生",
+      "scope": "查看退回意见，逐条修改和回复，使用 AI 辅助部分修订，提交 V2",
+      "expected": "区分未处理、已回应和教师已解决；保存修改说明；旧意见仍可追踪；AI 采纳不自动关闭批注",
+      "actual": "学生手工修订合成论文并回应V1阻断意见；V2候选六项门禁通过，警告确认后提交成功，形成修订15快照；AI步骤按用户要求暂缓。页面写作/提交未验证。 学生提交历史UI经分页可逐页查看本项目3条提交记录，数量与接口一致；具体回复/正文对照仍以接口证据为主。\n\n2026-10-15 API续测：S-A按退回意见修改一段合成正文并提交V2；自动检查、完整性、材料、附件和批注回应门禁全通过，2条格式警告确认后提交。按用户指示未运行AI；未测试批注回复和页面流程。",
+      "status": "NOT RUN",
+      "blocker": "AI辅助按用户要求暂不测试；批注回复与浏览器重提路径未核验。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "student-revision-v2-r3.json",
+        "ui-student-history-pagination-r1.json",
+        "api-production-workflow-closure-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F13",
+      "role": "教师、学生",
+      "scope": "教师复核 V2，保留一项未解决问题再退回；学生再修订提交 V3",
+      "expected": "完成第二轮循环；历史意见与版本不串；第二轮新增意见可追踪；已通过旧记录不得被覆盖",
+      "actual": "教师退回V2并新增阻断意见；学生修订后提交V3。V1/V2/V3快照分别绑定修订14/15/16，T-B读V3为404。页面流程未验证。 S-A提交历史UI通过3页呈现3条不同版本提交记录，刷新视图未见遗漏；详细页面比较与通知交接仍待核验。 S-A历史页当前可见3条唯一提交：1条“已通过”、2条“已退回”；批注内容、版本比较和通知交接未验证。 T-A读取SUB-20261015-D12484的只读详情接口返回state=approved，与学生历史状态一致；教师详情UI的状态徽标未稳定确认。",
+      "status": "NOT RUN",
+      "blocker": "页面版本比较、批注解决状态和通知交接仍待验证。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "review-v2-comments-r3.json",
+        "student-revision-v3-r3.json",
+        "ui-student-history-pagination-r1.json",
+        "ui-student-submission-history-r2.json",
+        "ui-teacher-review-readonly-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F14",
+      "role": "教师",
+      "scope": "检查 V3，核对必交材料、人工确认项和阻断批注，作出通过决定",
+      "expected": "有阻断项时不能提前通过；正式决定由教师执行；通过后历史审阅按权限只读；未授权角色不能代审",
+      "actual": "V3存在未解决阻断意见时审核通过返回409且未生成审核决定；教师解决意见后通过V3，阶段任务进入pending_archive。页面流程未验证。 T-A审核台可见已归档任务；对SUB-20261015-D12484的只读详情接口返回approved、revision 1，未执行通过/退回动作。\n\n2026-10-15 API续测：对V2执行T-A批准；无必需人工确认项、无阻断批注，接口返回approved，任务进入pending_archive。计划中的V3复核分支和归档未执行。",
+      "status": "NOT RUN",
+      "blocker": "F13的V2退回/V3再提交未执行；V3终审、导出与归档仍未覆盖。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "review-v3-approval-gate-r3.json",
+        "ui-teacher-review-readonly-r1.json",
+        "api-production-workflow-closure-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "F15",
+      "role": "学生、管理员",
+      "scope": "导出终稿、下载并打开文件，生成归档包，核对进度和审计",
+      "expected": "DOCX 可读、图表/题目/格式正确；归档包含正确版本与材料；任务状态与实际文件一致；报表可与本轮对象对账",
+      "actual": "归档worker完成后参与任务状态为archived；SYS-A/SCH-A/COL-A报表均显示1名成员、3次提交、2次修订、0待审、1归档，归档率100%，与对象状态一致。DOCX和归档包哈希/版本已核验；UI仍未验收。 COL-A归档页显示目标测试归档并提供下载按钮；点击后下载接口HTTP 200、Content-Type为application/zip。Playwright本次未观察到浏览器下载事件/本地文件打开，故UI下载完成仍未确认；既有API侧ZIP校验不替代该步骤。 S-A提交历史页使用分页；逐页遍历3页后看到3条不同提交，与API数量一致。首屏仅1行是分页结果，不是记录丢失。 学生端历史页显示3条提交状态；学院端归档包UI下载事件、DOCX打开与审计报表仍未完成验证。 COL-A归档页复测捕获实际浏览器下载事件，落地ZIP为12项（1个DOCX、11个JSON）；外层ZIP与嵌入DOCX的OOXML主文档均可解析。尚未在Office界面视觉打开，报表/审计对账未完成。",
+      "status": "NOT RUN",
+      "blocker": "Office界面视觉打开、归档内容与提交版本/材料对账、报表与审计UI仍待核验。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "submission-export-r3.json",
+        "archive-package-r3.json",
+        "role-matrix-r4.json",
+        "runtime-current-r4.json",
+        "ui-archive-download-r1.json",
+        "ui-student-history-pagination-r1.json",
+        "ui-student-submission-history-r2.json",
+        "ui-archive-download-r2.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "AI01",
+      "role": "学校/系统管理员，流程发布前",
+      "scope": "依据已确认的阶段、材料、截止日期生成流程解释和公告草稿，人工修改后向测试对象发布",
+      "expected": "时间、对象、材料及责任人不被编造；发布前可审阅；草稿生成不自动发布。专用入口待核实",
+      "actual": "用户明确要求先不测试AI；本轮未执行。",
+      "status": "NOT RUN",
+      "blocker": "用户暂缓AI范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "deferred_by_user"
+    },
+    {
+      "id": "AI02",
+      "role": "管理员，流程管理",
+      "scope": "请求解释现有阶段顺序、指出配置遗漏或生成配置建议",
+      "expected": "建议基于当前流程；如支持应用配置，必须预览影响并由有权限者确认；AI 不自行变更已发布流程。能力待核实",
+      "actual": "用户明确要求先不测试AI；本轮未执行。",
+      "status": "NOT RUN",
+      "blocker": "用户暂缓AI范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "deferred_by_user"
+    },
+    {
+      "id": "AI03",
+      "role": "教师，任务书与开题指导",
+      "scope": "基于已定题目整理任务要求或指导建议",
+      "expected": "不改变学校硬性要求，不虚构研究结果；教师确认后保存。能力待核实",
+      "actual": "用户明确要求先不测试AI；本轮未执行。",
+      "status": "NOT RUN",
+      "blocker": "用户暂缓AI范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "deferred_by_user"
+    },
+    {
+      "id": "AI04",
+      "role": "教师，审阅 V1/V2",
+      "scope": "选择测试段落与问题，生成批注建议；教师编辑后发布为正式意见",
+      "expected": "明确对应哪个版本和段落；建议可编辑/放弃；不得自动退回、通过或直接改写学生正文。能力待核实",
+      "actual": "用户明确要求先不测试AI；本轮未执行。",
+      "status": "NOT RUN",
+      "blocker": "用户暂缓AI范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "deferred_by_user"
+    },
+    {
+      "id": "AI05",
+      "role": "学生，正文润色",
+      "scope": "对指定段落执行润色，比较前后内容，再接受或放弃",
+      "expected": "原意、术语、数字、引用不被改变；仅作用于所选范围；放弃后原文保留",
+      "actual": "用户明确要求先不测试AI；本轮未执行。",
+      "status": "NOT RUN",
+      "blocker": "用户暂缓AI范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "deferred_by_user"
+    },
+    {
+      "id": "AI06",
+      "role": "学生，续写与补写",
+      "scope": "基于已有提纲和事实执行续写/扩写",
+      "expected": "与上文连贯；不凭空增加实验结果、样本量或文献；人工核对后插入正确位置。是否有独立“补写”入口待核实",
+      "actual": "用户明确要求先不测试AI；本轮未执行。",
+      "status": "NOT RUN",
+      "blocker": "用户暂缓AI范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "deferred_by_user"
+    },
+    {
+      "id": "AI07",
+      "role": "学生，按批注修改",
+      "scope": "选定某条教师批注及关联段落，生成修改建议，确认后回复该意见",
+      "expected": "建议回应具体问题，保留未采纳内容；不误改其他段落；不能因采纳而自动完成教师验收。定向入口待核实",
+      "actual": "用户明确要求先不测试AI；本轮未执行。",
+      "status": "NOT RUN",
+      "blocker": "用户暂缓AI范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "deferred_by_user"
+    },
+    {
+      "id": "AI08",
+      "role": "学生，定稿",
+      "scope": "根据当前正文生成中文摘要、英文摘要和关键词",
+      "expected": "内容与正文一致，不出现正文没有的结果；中英文关键结论一致；写入目标位置并可再次编辑",
+      "actual": "用户明确要求先不测试AI；本轮未执行。",
+      "status": "NOT RUN",
+      "blocker": "用户暂缓AI范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "deferred_by_user"
+    },
+    {
+      "id": "AI09",
+      "role": "系统管理员、各使用者",
+      "scope": "核对供应商披露、可用状态、权限、运行用量、失败提示",
+      "expected": "展示配置来源和必要披露；不暴露密钥或完整正文；用量记录不冒充财务账单；AI 不可用时保留人工流程",
+      "actual": "用户明确要求先不测试AI；本轮未执行。",
+      "status": "NOT RUN",
+      "blocker": "用户暂缓AI范围",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "deferred_by_user"
+    },
+    {
+      "id": "X01",
+      "role": "系统管理员",
+      "scope": "用户审核与角色认证、禁用测试账号后的访问、AI 设置只读检查、审计查询、运行与后台任务；配置修改和真实恢复单独确认",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "SYS-A实际打开/operations成功；学生、教师、学院管理员的直接管理员路由被路由守卫退回/workspace。运行页面只记录路径未读取正文；用户审核/审计列表、AI设置均未打开（AI按用户要求不测）。 SYS-A经实际菜单进入运行与治理页；live/ready均正常，GET /api/jobs返回7项（6成功、1条archive.generate失败，attempt 5/5）。失败资源ID不在已记录UAT对象证据中，未留原始ID/错误或重试。GET /api/operations/retention为403，页面提示缺少有效成员租户上下文；未打开AI设置。 SYS-A对已知合成归档执行过滤审计查询，GET /api/audit返回2条；COL-A同样2条，事件为归档创建/成功；未导出、未记录正文。运行页失败任务与租户保留策略问题仍待处置。",
+      "status": "NOT RUN",
+      "blocker": "平台管理员与学校管理员能否由独立权限角色承担仍未证实；本轮账号只有系统管理员和学院管理员职责。 另有一条未能匹配到已记录UAT对象的失败归档任务，需确认对象后再读原始错误或处置；保留策略接口的租户上下文要求待解释。 审计UI与更广筛选项未核验；失败后台任务对象仍不明。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "runtime-r2.json",
+        "ui-observations-r2.json",
+        "role-matrix-r4.json",
+        "ui-permission-routes-r1.json",
+        "ui-role-matrix-r1.json",
+        "ui-admin-operations-runtime-r1.json",
+        "audit-known-archive-scope-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "X02",
+      "role": "学校管理员",
+      "scope": "学校流程说明、模板与规范发布、版本变更、批次管理、跨学院授权范围内的进度与材料统计",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "SCH-A登录后对已知COL-A合成UAT批次调用报表接口返回200：成员1、参与者1、已归档1、待审0、首次提交1、修订2、归档1、首次提交及时率/归档完成率100%。与COL-A此前页面/API记录一致。只覆盖一个已知测试批次，不能据此推断完整学校级或跨学院授权边界；模板/规范发布、版本变更和管理页面职责仍未核验。 SCH-A的资源列表接口另返回4个模板（均为版本1）和1个学校级已发布规范；只记录了数量/类型，未读取名称或正文。 SCH-A另可通过实际路由`/api/cohorts`看到该批次（列表共2项，已知批次存在），读取详情HTTP 200、状态published。此前误用`/api/workflow/cohorts`得到404的探测因路径错误排除。",
+      "status": "NOT RUN",
+      "blocker": "已验证一个已知合成批次的学校管理员列表/详情/报表可见性；模板/规范发布与版本变更、管理页面职责，以及更广的跨学院授权范围仍未覆盖。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "role-matrix-r4.json",
+        "ui-role-matrix-r1.json",
+        "api-sch-a-report-r1.json",
+        "production-release-identity-20261015-r1.json",
+        "api-sch-a-resource-inventory-r1.json",
+        "api-cohort-admin-scope-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "X03",
+      "role": "学院管理员",
+      "scope": "本院组织、规范、批次、师生关系、选题汇总、中期汇总、归档；不能越权操作兄弟学院",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "COL-A/COL-B均显示college_admin，两组菜单各2个分组/12个入口；代表性权限页显示学院账号不能访问/operations。受限组织范围仍以合成对象API证据为主，未逐页检查真实业务列表。 页面只读对照：COL-A能看到并打开专用测试批次；COL-B同页HTTP 200，但该批次不在列表响应或页面中。其他规范、选题和中期汇总仍未逐页验证。 T-A/S-A规范页面列表一致；教师侧显示策略创建/AI导入操作，学生侧只读。该角色差异已记录但未按功能缺陷定性。 对已知合成归档查询审计：COL-A返回2条归档事件，COL-B返回0条；本院与兄弟学院范围符合预期。 COL-B对已知COL-A合成批次直接调用报表接口返回404；此前COL-B列表中也未见该批次。 按正确路由，COL-B读取已知COL-A合成批次详情返回404；对该批次报表也返回404。错误前缀`/api/workflow/cohorts`的结果已排除。",
+      "status": "NOT RUN",
+      "blocker": "目前只验证一个已知合成批次的列表/详情/报表边界；本院组织、规范、师生关系、其他对象和搜索/附件/提交/导出越界仍未完成。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "role-matrix-r4.json",
+        "ui-role-matrix-r1.json",
+        "ui-permission-routes-r1.json",
+        "ui-cohorts-col-b-isolation-r1.json",
+        "ui-policy-role-consistency-r1.json",
+        "audit-known-archive-scope-r1.json",
+        "api-col-b-direct-report-boundary-r1.json",
+        "api-cohort-admin-scope-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "X04",
+      "role": "教师",
+      "scope": "指导学生、任务书、材料审核、批注、延期、申诉/豁免、历史审阅、消息；非指导学生数据拒绝访问",
+      "expected": "教师可以创建并编辑写作规范草稿；其余教师职责和数据范围按计划书第8节盘点。",
+      "actual": "T-A/T-B均显示teacher，两组菜单各2个分组/10个入口；T-A可打开/teacher/students，不能打开/cohorts、/audit、/operations、/admin/users；教师账号访问S-A项目的结果仍按对象权限证据记录。T-A的指导学生页面只显示两名已授权合成学生S-A/S-B，未显示对照学生S-C；这证明一个指导关系列表切片，延期/申诉/历史入口仍未逐页盘点。T-A规范页显示创建及AI导入操作入口，S-A相同内容页显示只读；用户已确认教师可以创建和编辑规范草稿。未创建、编辑或保存草稿，AI入口未触发。\n\n2026-10-15 API续测：T-A创建并编辑一份未发布的教师级规范草稿；GET读回确认status=draft、owner仍为T-A、版本1。仅API路径通过，教师规范页UI、延期、申诉/豁免及历史入口仍未完整盘点。",
+      "status": "NOT RUN",
+      "blocker": "教师规范草稿UI未验证；延期、申诉/豁免和历史入口仍未覆盖。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "role-matrix-r4.json",
+        "ui-role-matrix-r1.json",
+        "ui-permission-routes-r1.json",
+        "ui-teacher-students-scope-r1.json",
+        "ui-policy-role-consistency-r1.json",
+        "acceptance-oracle-update-20261015-r1.json",
+        "api-policy-draft-create-edit-r1.json",
+        "browser-control-recovery-20261015-r5.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "X05",
+      "role": "学生",
+      "scope": "任务与要求、个人草稿、过程材料、格式检查/修复、撤回、重提、课题变更、延期申请、申诉、导出及历史记录",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "S-A/S-B/S-C均显示student，菜单各含6个入口。S-A打开自己的合成论文项目GET 200；S-B、S-C访问同一已知项目ID均为403。论文编写、撤回、规范修复和附件下载等菜单功能尚未逐项操作。",
+      "status": "NOT RUN",
+      "blocker": "页面刷新重登、附件/下载界面、撤回、延期和申诉入口未验证。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "role-matrix-r4.json",
+        "ui-role-matrix-r1.json",
+        "ui-permission-routes-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "X06",
+      "role": "评阅与答辩扩展",
+      "scope": "盘点评阅教师、答辩审批职责是否为实际登录角色；核对评阅材料、答辩申请/安排/记录、成绩汇总与评优入口。材料审批标签不自动等同独立角色",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "基于九个合成账号的认证/菜单证据：T-A、T-B为教师角色，菜单含“审阅工作台”；T-A的 /workflow?panel=review 显示“审核台”。本轮测试账号中未发现独立评阅/答辩角色，但不据此推断生产用户目录不存在此类角色。未执行评阅或答辩业务动作；评阅材料、答辩申请/安排/记录、成绩汇总和评优入口均未覆盖。",
+      "status": "NOT RUN",
+      "blocker": "尚无独立评阅/答辩账号与对应测试对象；现有证据只覆盖教师审阅入口展示，实际职责及流程仍需业务确认和数据准备。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "ui-review-defense-role-inventory-r1.json",
+        "ui-role-matrix-r1.json",
+        "ui-workflow-role-smoke-r1.json",
+        "role-auth-precheck.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "X07",
+      "role": "规范与流程异常",
+      "scope": "未开放/逾期/前置未通过、必填缺失、附件不符、格式阻断、规范升级、已发布阶段变更对在途任务的影响；使用测试配置，禁止改系统时间",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "本场景包尚未完成，继续按计划执行。",
+      "status": "NOT RUN",
+      "blocker": "",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "pending"
+    },
+    {
+      "id": "X08",
+      "role": "权限与数据隔离",
+      "scope": "学生互换项目/附件/提交 ID，非指导教师访问，学院越界，深链接和直接下载；只使用已知测试对象 ID，不枚举真实数据",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "浏览器端路由守卫拒绝代表性无权菜单直链；S-A自己的论文项目GET 200，S-B/S-C/T-B对该已知合成项目ID均GET 403。尚未覆盖附件/下载互换ID和列表/搜索矩阵。 已知合成归档ID的直接下载权限补测：T-B、S-B、S-C、COL-B在同页会话认证基线均为200，但下载端点均返回404；COL-A此前通过页面下载同一归档为200。该项支持当前对象范围拒绝，但附件/列表/搜索矩阵仍缺。 同一已知归档在审计查询中COL-A为2条、COL-B为0条，与直接下载权限结果一致。",
+      "status": "NOT RUN",
+      "blocker": "附件/下载互换ID、列表/搜索以及更多资源类型矩阵未完成。 仍未覆盖附件/其他资源ID、列表与搜索入口。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "role-auth-precheck.json",
+        "workflow-setup.json",
+        "role-matrix-r4.json",
+        "ui-permission-routes-r1.json",
+        "ui-archive-download-access-r1.json",
+        "audit-known-archive-scope-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "X09",
+      "role": "中断与重试",
+      "scope": "刷新、重新登录、客户端断网后的未保存提示、重复提交/审批/导出；恢复后明确哪些内容已保存、哪些需重试",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "本场景包尚未完成，继续按计划执行。",
+      "status": "NOT RUN",
+      "blocker": "",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "pending"
+    },
+    {
+      "id": "X10",
+      "role": "消息与统计",
+      "scope": "任务发布、退回、重提、通过、截止提醒与已读状态；按测试对象核对人数、提交数和归档数，避免汇总口径混淆",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "管理角色报表与测试对象核对一致：1成员、3提交、2轮修订、0待审、1归档；S-A和T-A分别有17/4条未读站内事件，非主线测试身份为0。站内通知页面与已读操作未测。 本轮UI补测：S-A消息接口17项/未读16项，学生端逐页遍历17/17条，页头未读徽标16与接口一致；T-A接口4项/未读4项，教师端4/4条可遍历，徽标一致。COL-A报告页选中专用UAT批次，显示成员1、待审批0、需修改0、已归档1；报表接口显示首次提交1、修订提交2（共3次提交）、归档1、首次提交及时率100%、归档完成率100%。消息行未点击，未改变已读状态。\n\n2026-10-15 API续测：COL-A报表GET 200显示member_count=1、participant_count=2、state_counts为archived=1和pending_archive=1；first_submission_count=2但on_time_first_submission_rate=2.0，archive_count=1但archive_completion_rate=1.0。源码格式化器会将2.0显示为200%（源码推断，页面未见）。登记DEF-X10-REPORT-001。站内消息API按read_at为null核对：T-A 7/7未读、S-A 21/20未读；本次测试事件仅T-A 3条、S-A 4条，S-B/T-B均0。消息列表只读，未标记已读。",
+      "status": "FAIL",
+      "blocker": "报表比例分子/分母和归档完成口径需修复并复测；报表页面、站内消息页面及标记已读写回仍未核验。",
+      "object_id": "cohort-ed0046d38402",
+      "submission_version": null,
+      "evidence": [
+        "role-matrix-r4.json",
+        "ui-messages-and-reports-r1.json",
+        "api-cohort-report-notifications-r1.json",
+        "defect-X10-report-rates-r1.json"
+      ],
+      "execution_state": "partial"
+    },
+    {
+      "id": "X11",
+      "role": "微信小程序",
+      "scope": "若纳入本轮，使用真机完成身份绑定、任务、提交、教师审阅和消息交接；长篇写作继续桌面端；前置门禁不能代替真机",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "尚无微信真机操作证据；Web及API不能关闭真机项。",
+      "status": "BLOCKED",
+      "blocker": "微信真机与会话未具备",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [],
+      "execution_state": "blocked"
+    },
+    {
+      "id": "X12",
+      "role": "浏览器与可访问性",
+      "scope": "确认实际支持的浏览器/设备，检查核心页布局、错误状态、键盘焦点、表单标签、长标题及中英文摘要；中文时间显示与有效截止一致",
+      "expected": "按计划书第8节盘点权限、入口与异常",
+      "actual": "Pixel 5移动设备模拟下，登录页、未登录受保护路由重定向、无横向溢出均通过；用户名/密码标签关联有效，Tab依次到语言切换、用户名、密码、登录、注册链接。仅登录页已覆盖，论文编辑器长标题/中英文摘要/时间与多核心页布局仍未验证；未做真机测试。 在390×844模拟视口下，学生归档任务卡可见、截止时间可见，document/body宽度均为390px，无水平溢出。 S-A从现有合成论文工作台进入写作页，390×844下document/body均390px，无横向溢出，标题和“已保存”状态正确；键盘焦点能到达工具栏、章节导航和封面输入框。7个可见封面输入框旁有中文标题，但没有关联label、aria-label或aria-labelledby，只有通用“必填”占位词；记为可访问性差距候选。页面加载自动GET /api/ai/status为200（部署源码对应只读配置查询）；未点AI按钮、无生成请求。 2026-10-15：使用 Chrome 原生无障碍树只读核对生产登录页，读到用户名/密码字段、登录按钮与注册链接；用户名后按 Tab 到密码字段，下一次 Tab 焦点未变化，完整顺序结论不确定。没有登录或写入。Codex 内置标签读取仍超时，X12整体仍未完成。",
+      "status": "NOT RUN",
+      "blocker": "真机与辅助技术未覆盖；长中英文摘要未核验；封面输入框的程序化名称缺失为可访问性差距候选，需对照验收标准定性。",
+      "object_id": null,
+      "submission_version": null,
+      "evidence": [
+        "mobile-login-smoke-r1.json",
+        "ui-student-workflow-mobile-r1.json",
+        "ui-writer-mobile-a11y-r1.json",
+        "ui-login-page-native-ax-r1.json",
+        "browser-control-recovery-20261015-r6.json"
+      ],
+      "execution_state": "partial"
+    }
+  ],
+  "business_totals": {
+    "PASS": 0,
+    "FAIL": 2,
+    "BLOCKED": 1,
+    "GAP": 0,
+    "NOT RUN": 33,
+    "N/A": 0,
+    "total": 36
+  },
+  "business_result": "IN_PROGRESS",
+  "note": "r33补记：X10生产批次报表出现首次提交及时率2.0（对应200%）及归档率100%但仍有1个阶段任务待归档的矛盾，登记DEF-X10-REPORT-001；站内消息只读范围核对完成。浏览器UI仍受CUA内容捕获超时影响。 r34 adds only the Chrome-native login-page accessibility observation; it does not complete X12 or the full UAT.",
+  "round": "r34",
+  "deployment_release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "deployment_identity_verified": true,
+  "release_identity_evidence": "production-release-identity-20261015-r1.json"
+}

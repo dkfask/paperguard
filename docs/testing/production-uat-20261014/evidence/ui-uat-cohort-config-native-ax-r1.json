@@ -1,0 +1,52 @@
+{
+  "recorded_at": "2026-10-15T14:05:37+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Chrome native accessibility tree",
+  "session": {
+    "preexisting": true,
+    "account_alias": "UAT-20261014-SYS-A",
+    "visible_role_label": "学校管理员",
+    "role_mapping_note": "This observation confirms the UI label only; it does not independently verify server authorization in this browser session."
+  },
+  "scenario": "F02/F03/X12 partial read-only inspection of the named synthetic UAT cohort configuration",
+  "known_test_object": {
+    "cohort_id": "cohort-ed0046d38402",
+    "name": "UAT-20261014-01a139c6-主流程"
+  },
+  "observed": {
+    "route": "/cohorts",
+    "cohort_list_count": 1,
+    "stage_config_modal_opened": true,
+    "published_stages": [
+      {
+        "name": "UAT-20261015-主论文提交审核",
+        "key": "uat-final-20261015",
+        "version": 1,
+        "displayed_due_date": "2026/10/29",
+        "status": "published"
+      },
+      {
+        "name": "UAT-20261014-开题报告",
+        "key": "proposal",
+        "version": 2,
+        "displayed_due_date": "2026/10/29",
+        "status": "published"
+      }
+    ],
+    "empty_stage_form_save_button_disabled": true,
+    "member_import_view": {
+      "heading": "批量导入指导关系",
+      "textarea_accessible_name_visible": "student_ref,teacher_ref,reason and example text",
+      "preflight_button_disabled": true,
+      "import_button_disabled": true,
+      "submitted": false
+    },
+    "keyboard_focus_order": "inconclusive; intermediate tab-control interactions returned errors, so the later focus state cannot be attributed to a single Tab key"
+  },
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0,
+  "limitations": "Read-only inspection of one existing synthetic cohort under a preexisting SYS-A session. This does not verify student, teacher, or college-admin views; member import behavior; field consistency across roles; or full keyboard focus order."
+}

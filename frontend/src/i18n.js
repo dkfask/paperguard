@@ -397,6 +397,24 @@ Object.assign(translations.en, {
 })
 
 Object.assign(translations.zh, {
+  'workflow.fillMidtermTeacherFields': '填写意见/评分',
+  'workflow.midtermTeacherFieldsTitle': '填写中期检查教师字段',
+  'workflow.midtermTeacherOpinion': '指导教师意见',
+  'workflow.midtermTeacherScore': '中期评价分数',
+  'workflow.saveMidtermTeacherFields': '保存教师字段',
+  'workflow.midtermTeacherFieldsSaved': '教师意见和评分已保存',
+})
+
+Object.assign(translations.en, {
+  'workflow.fillMidtermTeacherFields': 'Add opinion and score',
+  'workflow.midtermTeacherFieldsTitle': 'Complete midterm review',
+  'workflow.midtermTeacherOpinion': 'Advisor opinion',
+  'workflow.midtermTeacherScore': 'Midterm score',
+  'workflow.saveMidtermTeacherFields': 'Save teacher fields',
+  'workflow.midtermTeacherFieldsSaved': 'Teacher opinion and score saved',
+})
+
+Object.assign(translations.zh, {
   'sidebar.studentGuidance': "学生指导",
   'documentProjects.templateLabel': "使用模板：",
   'documentProjects.defaultField.summary': "摘要",

@@ -1,0 +1,14 @@
+{
+  "recorded_at": "2026-10-18T12:42:58.075Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "project_id": "proj-57adb8300efa",
+  "check": "R49-09-relogin-persistence",
+  "business_writes": 0,
+  "page_errors": [],
+  "unexpected_api_errors": [],
+  "status": "passed",
+  "logout_status": 200,
+  "error_present": false,
+  "exit_code": 0
+}

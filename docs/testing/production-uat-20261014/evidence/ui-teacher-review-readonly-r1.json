@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-10-15T12:13:37+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Repository frontend Playwright 1.63.0; isolated headless Chromium",
+  "role_account": "T-A (teacher; synthetic UAT account)",
+  "viewport": {
+    "width": 1365,
+    "height": 900
+  },
+  "route": "/workflow?panel=review",
+  "scenario": "F11/F13/F14 partial: read the teacher review desk and inspect the approved synthetic submission state",
+  "known_test_cohort_id": "cohort-ed0046d38402",
+  "observed": {
+    "login_http": 200,
+    "review_route_http": 200,
+    "review_heading_visible": true,
+    "synthetic_task_visible": true,
+    "synthetic_task_state": "archived",
+    "pending_review_tab_enabled": true,
+    "pending_review_tab_result_heading": "教师待办",
+    "pending_review_empty_batch_state": "暂无批次",
+    "target_submission_visible_in_pending_list": false,
+    "submission_detail_get": {
+      "http": 200,
+      "submission_number": "SUB-20261015-D12484",
+      "state": "approved",
+      "revision": 1
+    },
+    "student_history_status_for_same_submission": "已通过",
+    "teacher_record_panel_status_visible": false,
+    "transient_label_note": "一次未稳定快照出现“待审批”，后续未复现；提交详情GET返回approved，未据此定性缺陷。",
+    "approval_or_return_action_clicked": false,
+    "page_errors": 0,
+    "api_errors": 0,
+    "business_writes": 0
+  },
+  "interpretation": "教师审核入口可打开，已归档任务不在待审核列表；同一提交的只读接口状态为approved，和学生历史一致。由于当前夹具已归档，教师UI内的审批动作、批注与稳定状态徽标尚未验收。",
+  "scope": {
+    "auth_posts": 1,
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "real_user_data_exported": false
+  }
+}

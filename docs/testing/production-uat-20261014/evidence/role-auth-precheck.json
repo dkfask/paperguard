@@ -1,0 +1,262 @@
+{
+  "observed_at": "2026-10-14T22:09:59.927717+08:00",
+  "target": "https://paper.thunderuni.com",
+  "source_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "HTTP role authentication and GET access checks limited to synthetic UAT organization IDs; not a UI result",
+  "accounts": [
+    {
+      "label": "SYS-A",
+      "login_status": 200,
+      "role_match": true,
+      "user_id_match": true,
+      "context_match": true,
+      "teacher_link_match": true,
+      "org_checks": [
+        {
+          "unit": "school",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        }
+      ],
+      "me_status": 200,
+      "logout_status": 200,
+      "login_role": "admin",
+      "me_role_match": true
+    },
+    {
+      "label": "SCH-A",
+      "login_status": 200,
+      "role_match": true,
+      "user_id_match": true,
+      "context_match": true,
+      "teacher_link_match": true,
+      "org_checks": [
+        {
+          "unit": "school",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        }
+      ],
+      "me_status": 200,
+      "logout_status": 200,
+      "login_role": "admin",
+      "me_role_match": true
+    },
+    {
+      "label": "COL-A",
+      "login_status": 200,
+      "role_match": true,
+      "user_id_match": true,
+      "context_match": true,
+      "teacher_link_match": true,
+      "org_checks": [
+        {
+          "unit": "college_a",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        },
+        {
+          "unit": "major_a",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        },
+        {
+          "unit": "college_b",
+          "status": 404,
+          "expected": 404,
+          "pass": true
+        },
+        {
+          "unit": "major_b",
+          "status": 404,
+          "expected": 404,
+          "pass": true
+        }
+      ],
+      "me_status": 200,
+      "logout_status": 200,
+      "login_role": "college_admin",
+      "me_role_match": true
+    },
+    {
+      "label": "COL-B",
+      "login_status": 200,
+      "role_match": true,
+      "user_id_match": true,
+      "context_match": true,
+      "teacher_link_match": true,
+      "org_checks": [
+        {
+          "unit": "college_b",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        },
+        {
+          "unit": "major_b",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        },
+        {
+          "unit": "college_a",
+          "status": 404,
+          "expected": 404,
+          "pass": true
+        },
+        {
+          "unit": "major_a",
+          "status": 404,
+          "expected": 404,
+          "pass": true
+        }
+      ],
+      "me_status": 200,
+      "logout_status": 200,
+      "login_role": "college_admin",
+      "me_role_match": true
+    },
+    {
+      "label": "T-A",
+      "login_status": 200,
+      "role_match": true,
+      "user_id_match": true,
+      "context_match": true,
+      "teacher_link_match": true,
+      "org_checks": [
+        {
+          "unit": "major_a",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        },
+        {
+          "unit": "major_b",
+          "status": 404,
+          "expected": 404,
+          "pass": true
+        }
+      ],
+      "me_status": 200,
+      "logout_status": 200,
+      "login_role": "teacher",
+      "me_role_match": true
+    },
+    {
+      "label": "T-B",
+      "login_status": 200,
+      "role_match": true,
+      "user_id_match": true,
+      "context_match": true,
+      "teacher_link_match": true,
+      "org_checks": [
+        {
+          "unit": "major_b",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        },
+        {
+          "unit": "major_a",
+          "status": 404,
+          "expected": 404,
+          "pass": true
+        }
+      ],
+      "me_status": 200,
+      "logout_status": 200,
+      "login_role": "teacher",
+      "me_role_match": true
+    },
+    {
+      "label": "S-A",
+      "login_status": 200,
+      "role_match": true,
+      "user_id_match": true,
+      "context_match": true,
+      "teacher_link_match": true,
+      "org_checks": [
+        {
+          "unit": "major_a",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        },
+        {
+          "unit": "major_b",
+          "status": 404,
+          "expected": 404,
+          "pass": true
+        }
+      ],
+      "me_status": 200,
+      "logout_status": 200,
+      "login_role": "student",
+      "me_role_match": true
+    },
+    {
+      "label": "S-B",
+      "login_status": 200,
+      "role_match": true,
+      "user_id_match": true,
+      "context_match": true,
+      "teacher_link_match": true,
+      "org_checks": [
+        {
+          "unit": "major_a",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        },
+        {
+          "unit": "major_b",
+          "status": 404,
+          "expected": 404,
+          "pass": true
+        }
+      ],
+      "me_status": 200,
+      "logout_status": 200,
+      "login_role": "student",
+      "me_role_match": true
+    },
+    {
+      "label": "S-C",
+      "login_status": 200,
+      "role_match": true,
+      "user_id_match": true,
+      "context_match": true,
+      "teacher_link_match": true,
+      "org_checks": [
+        {
+          "unit": "major_b",
+          "status": 200,
+          "expected": 200,
+          "pass": true
+        },
+        {
+          "unit": "major_a",
+          "status": 404,
+          "expected": 404,
+          "pass": true
+        }
+      ],
+      "me_status": 200,
+      "logout_status": 200,
+      "login_role": "student",
+      "me_role_match": true
+    }
+  ],
+  "counts": {
+    "total": 9,
+    "login_pass": 9,
+    "identity_pass": 9,
+    "org_checks": 20,
+    "org_pass": 20,
+    "logout_pass": 9
+  }
+}

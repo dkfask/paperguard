@@ -1,0 +1,44 @@
+{
+  "recorded_at": "2026-10-15T12:49:58+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X06 partial role and menu inventory for review/defense extension",
+  "method": "Read-only reconciliation of existing production UAT role-auth and menu evidence; no additional login or page action in this supplement.",
+  "source_evidence": [
+    "role-auth-precheck.json",
+    "ui-role-matrix-r1.json",
+    "ui-workflow-role-smoke-r1.json"
+  ],
+  "observations": {
+    "synthetic_account_roles": [
+      "SYS-A: admin",
+      "SCH-A: admin",
+      "COL-A: college_admin",
+      "COL-B: college_admin",
+      "T-A: teacher",
+      "T-B: teacher",
+      "S-A: student",
+      "S-B: student",
+      "S-C: student"
+    ],
+    "teacher_review_entry": {
+      "T-A": "menu contains 审阅工作台; /workflow?panel=review rendered 审核台",
+      "T-B": "menu contains 审阅工作台"
+    },
+    "dedicated_reviewer_or_defense_role": "none found among these nine synthetic UAT accounts; this does not establish absence from the production user directory",
+    "review_or_defense_actions": "none performed"
+  },
+  "not_covered": [
+    "review materials and assignments",
+    "defense applications, scheduling, and records",
+    "grade aggregation",
+    "awards/recommendations",
+    "whether production has additional reviewer/defense accounts"
+  ],
+  "scope": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "production_configuration_changed": false,
+    "credentials_or_tokens_recorded": false
+  }
+}

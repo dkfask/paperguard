@@ -1,0 +1,33 @@
+{
+  "recorded_at": "2026-10-15T11:35:41+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0, isolated headless Chromium",
+  "role_account": "COL-A (college_admin; synthetic UAT account)",
+  "scenario": "F15 partial: activate download for the named synthetic archive from the UI",
+  "known_test_archive_id": "archive-64e549d38829",
+  "route": "/workflow?panel=archives",
+  "observed": {
+    "login_http": 200,
+    "route_http": 200,
+    "named_archive_in_list_response": true,
+    "named_archive_row_visible": true,
+    "download_button_enabled": true,
+    "click_completed": true,
+    "download_endpoint_http": 200,
+    "content_type": "application/zip",
+    "content_length_header_bytes": 57872,
+    "browser_download_event_observed": false,
+    "file_opened_from_browser_download": false,
+    "page_errors": 0,
+    "api_errors": 0
+  },
+  "locator_note": "The UI row presents human-readable project/stage/submission information instead of the internal submission ID; an earlier selector using the internal ID did not match. The corrected exact synthetic project row exposed one enabled download button.",
+  "result_boundary": "The UI click reached the archive endpoint and received HTTP 200 application/zip. This headless run did not observe a browser download event or open the downloaded file. Prior authenticated API evidence independently verified the archive ZIP structure; the browser download/open part remains unverified.",
+  "scope": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "real_user_data_exported": false
+  }
+}

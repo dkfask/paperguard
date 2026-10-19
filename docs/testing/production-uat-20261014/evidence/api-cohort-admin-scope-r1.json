@@ -1,0 +1,34 @@
+{
+  "recorded_at": "2026-10-15T13:00:02+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X02/X03 known synthetic cohort list/detail access by school and college administrators",
+  "release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "resource": {
+    "type": "cohort",
+    "owning_scope": "COL-A",
+    "id": "cohort-ed0046d38402"
+  },
+  "verified_routes": {
+    "GET /api/cohorts (SCH-A)": 200,
+    "GET /api/cohorts/cohort-ed0046d38402 (SCH-A)": 200,
+    "GET /api/cohorts/cohort-ed0046d38402 (COL-B)": 404
+  },
+  "observations": {
+    "SCH-A_visible_cohort_count": 2,
+    "SCH-A_known_cohort_listed": true,
+    "SCH-A_cohort_status": "published",
+    "COL-B_known_cohort_detail_denied": true
+  },
+  "probe_correction": {
+    "excluded_path": "/api/workflow/cohorts",
+    "observed_status": 404,
+    "reason": "The deployed route is /api/cohorts (router prefix /api); this was an incorrect test path, not an authorization result."
+  },
+  "scope_limit": "One known synthetic cohort and list/detail routes only; does not prove all cross-college resources, memberships, attachments, submissions, search, or exports are isolated.",
+  "writes": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "credentials_or_tokens_recorded": false
+  }
+}

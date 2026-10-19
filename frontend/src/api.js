@@ -749,6 +749,12 @@ export async function decideProcessRecord(recordId, payload) {
   }, '处理材料审批失败')
 }
 
+export async function updateMidtermTeacherFields(recordId, payload) {
+  return workflowJson(`${API_BASE}/process-records/${recordId}/teacher-fields`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  }, '保存中期检查教师意见失败')
+}
+
 export async function uploadProcessRecordAttachment(recordId, file) {
   const form = new FormData()
   form.append('file', file)

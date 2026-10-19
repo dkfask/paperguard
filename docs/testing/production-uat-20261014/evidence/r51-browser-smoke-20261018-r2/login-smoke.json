@@ -1,0 +1,86 @@
+{
+  "recorded_at": "2026-10-18T02:18:18.949Z",
+  "url": "https://paper.thunderuni.com",
+  "environment": "production",
+  "deployed_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "browser": "Chromium 153.0.8010.12",
+  "account": "anonymous; no credentials entered",
+  "allowed_writes": [],
+  "checks": [
+    {
+      "id": "desktop_login_form",
+      "passed": true,
+      "details": {
+        "href": "https://paper.thunderuni.com/login",
+        "title": "登录 · PaperGuard",
+        "bodyText": "PaperGuard\nEnglish\n欢迎登录 PaperGuard\n\n从章节结构到正文表达，集中完成毕业论文写作，并在需要时查看模板与规范。\n\n学号 / 工号 / 用户名\n登录密码\n忘记密码？\n登 录\n还没有账号？\n立即注册\n\n高校安全可信访问 · 严格遵从 GB/T 7713 国标规范 · 论文内容内存隔离处理\n\nPaperGuard © 2026. All rights reserved.\n毕业论文写作工作台\n·\nGB/T 7713-1987 / 2006",
+        "inputs": [
+          {
+            "type": "text",
+            "id": "username",
+            "required": true
+          },
+          {
+            "type": "password",
+            "id": "password",
+            "required": true
+          }
+        ],
+        "loginButtonVisible": true,
+        "viewport": {
+          "width": 1440,
+          "height": 900,
+          "documentWidth": 1440,
+          "bodyWidth": 1440
+        }
+      }
+    },
+    {
+      "id": "anonymous_auth_me_denied",
+      "passed": true,
+      "status": 401,
+      "content_type": "application/json"
+    },
+    {
+      "id": "protected_route_redirects",
+      "passed": true,
+      "final_path": "/login",
+      "query_present": true
+    },
+    {
+      "id": "narrow_login_layout_390x844",
+      "passed": true,
+      "no_horizontal_overflow": true,
+      "details": {
+        "href": "https://paper.thunderuni.com/login",
+        "inputsVisible": 2,
+        "loginVisible": true,
+        "viewport": {
+          "width": 390,
+          "height": 844,
+          "documentWidth": 390,
+          "bodyWidth": 390
+        }
+      }
+    }
+  ],
+  "console_errors": [
+    "Failed to load resource: the server responded with a status of 401 ()"
+  ],
+  "request_failures": [],
+  "status": "PASS WITH RESIDUAL RISK",
+  "assessment": {
+    "scope": "anonymous login-page smoke only; partial evidence for F01 and X12",
+    "product_result": "PASS for listed checks; scenario packages remain incomplete",
+    "business_writes": 0,
+    "credential_entry": false,
+    "residual_risk": "No authenticated role flow, login submission, or business page was exercised."
+  },
+  "test_harness_worktree": {
+    "head": "a64e8cdc56e3db76b691c4d4c054452d9f759173",
+    "branch": "fix/ui-review-findings-20260929",
+    "worktree_had_other_uncommitted_changes": true,
+    "note": "Playwright checks ran from the local frontend package; this does not change the production target revision recorded separately."
+  }
+}

@@ -1,0 +1,17 @@
+handoff:
+  axis: "兼容性"
+  date: "2026-10-14"
+  status: "blocked"
+  plan_ref: "生产环境全角色测试计划书.md"
+  strategy_ref: "测试策略.md"
+  goal: "补齐本轴执行条件后按计划验收"
+  blocker: "支持矩阵与设备尚未确认"
+  requested_from: "业务负责人及设备负责人（具体人员待确认）"
+  executor: "agent"
+  parameters_to_confirm: "浏览器、操作系统、屏幕、微信真机及受控配置"
+  scenarios: "确认矩阵逐项跑角色主线；微信独立真机链路"
+  acceptance_proposal: "关键操作可达；设备缺失保留 BLOCKED；Web 不替代微信"
+  numeric_thresholds: "未约定；不编造 SLA、费用上限或性能合格值"
+  execution_boundary: "生产仅使用已批准测试对象；故障制造在可重置环境；部署、配置、删除、迁移逐项确认"
+  required_evidence: ["被测部署版本", "角色与测试对象编号", "实际结果与脱敏证据", "受阻/失败原因及后续动作"]
+  execution_result: "尚未执行"

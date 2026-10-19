@@ -1,0 +1,47 @@
+{
+  "recorded_at": "2026-10-15T12:21:13+08:00",
+  "target": "https://paper.thunderuni.com",
+  "issue": "生产 UAT 登录阶段的 js execution timed out / kernel reset",
+  "reproduction": {
+    "cua_getTab_by_url": {
+      "result": "匹配到两个同 URL 登录标签，无法唯一选择",
+      "timed_out": false
+    },
+    "cua_getTab_by_id": {
+      "timeout_seconds": 10,
+      "result": "js execution timed out; kernel reset"
+    },
+    "service_probe": {
+      "login_http_status": 200,
+      "login_total_seconds": 0.979,
+      "ready_http_status": 200,
+      "ready_total_seconds": 0.938
+    }
+  },
+  "workaround_verification": {
+    "method": "独立无界面 Chromium / Playwright；导航等待 DOMContentLoaded 和真实可见标题；禁止等待 networkidle；页面导航设有限时并允许一次受限重试",
+    "playwright_version": "1.63.0",
+    "identity": "S-A 合成学生测试账号（凭据留在受控配置）",
+    "login_http_status": 200,
+    "final_path": "/",
+    "page_title": "首页 · PaperGuard",
+    "redirected_from_login": true,
+    "page_error_count": 0,
+    "elapsed_ms": 4409,
+    "result": "PASS：网页登录表单提交后进入 PaperGuard 首页"
+  },
+  "resolution": {
+    "uat_execution_path": "已恢复；后续 UI 检查使用隔离 headless Playwright 的有界调用和页面内容条件等待。一次任务拆成短进程，外层工具返回 session 后轮询，不让长脚本占住 JS 执行内核。",
+    "desktop_cua": "未修复；先前诊断显示 Mac 锁屏，桌面应用控制要求手动解锁。URL 选择还需避免重复标签歧义。此桌面桥接不再作为 UAT 的必要依赖。",
+    "product_status": "服务和网页登录均正常；该超时属于当前测试控制路径，未发现 PaperGuard 登录故障。"
+  },
+  "scope": {
+    "business_writes": 0,
+    "authentication_events": 1,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "production_configuration_changed": false,
+    "application_code_changed": false,
+    "credentials_or_tokens_recorded": false
+  }
+}

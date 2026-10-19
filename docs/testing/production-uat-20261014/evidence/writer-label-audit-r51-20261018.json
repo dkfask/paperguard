@@ -1,0 +1,35 @@
+{
+  "recorded_at": "2026-10-18T13:28:44.072Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "role_alias": "S-A",
+  "project_id": "proj-01c5de3baec6",
+  "scope": "read-only form/control accessible-name audit; no typing or saving",
+  "login_status": 200,
+  "writer_visible": true,
+  "desktop_viewport": {
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  "cover_form_controls": 8,
+  "visible_unnamed_focusable_count": 0,
+  "visible_unnamed_focusable": [],
+  "unnamed_link_count": 0,
+  "abstract_nav_count": 1,
+  "abstract_textarea_count": 1,
+  "abstract_textarea_accessibility": {
+    "tag": "textarea",
+    "id": null,
+    "class_name": "para-text style-abstract",
+    "associated_labels": [],
+    "aria_labelledby_names": [],
+    "aria_label": null,
+    "placeholder": "第 1 段正文…",
+    "title": null,
+    "has_value": true,
+    "visible": true
+  },
+  "blocked_business_writes": [],
+  "blocked_external_host_count": 1,
+  "logout_status": 200
+}

@@ -1,0 +1,45 @@
+{
+  "observed_at": "2026-10-15T10:58:18.237711+00:00",
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "services": {
+    "paperguard": "active",
+    "paperguard-worker": "active",
+    "nginx": "active"
+  },
+  "probes": [
+    {
+      "route": "/api/health/live",
+      "status": 200,
+      "body": {
+        "status": "ok",
+        "service": "paperguard",
+        "probe": "live"
+      }
+    },
+    {
+      "route": "/api/health/ready",
+      "status": 200,
+      "body": {
+        "status": "ok",
+        "service": "paperguard",
+        "probe": "ready"
+      }
+    },
+    {
+      "route": "/api/version",
+      "status": 200,
+      "body": {
+        "component": "backend",
+        "product_version": null,
+        "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+        "release_id": "4b79f96-simple-writing-b20261015T104714Z",
+        "build_id": "20261015T104714Z",
+        "built_at": "2026-10-15T10:47:16Z",
+        "identity_status": "declared"
+      }
+    }
+  ],
+  "remote_main": "37a87af0ec5f299917c1a4de2f4cfe666767119d",
+  "remote_release_branch": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "release_worktree_clean": true
+}

@@ -25,6 +25,11 @@ class ProcessRecordUpdate(BaseModel):
     structured_form: bool = False
 
 
+class ProcessRecordTeacherFieldsUpdate(BaseModel):
+    data: dict[str, Any]
+    base_revision: int = Field(ge=0)
+
+
 class ProcessDecision(BaseModel):
     decision: str = Field(pattern="^(approved|returned|rejected)$")
     reason: str = Field(default="", max_length=4000)
@@ -124,11 +129,14 @@ def canonical_artifact_type(artifact_type: str) -> str:
 
 
 def _field(key: str, label: str, field_type: str = "text", *, required: bool = False,
-           options: tuple[str, ...] = (), help_text: str = "") -> dict[str, Any]:
-    return {
+           options: tuple[str, ...] = (), help_text: str = "", owner: str | None = None) -> dict[str, Any]:
+    field = {
         "key": key, "label": label, "type": field_type, "required": required,
         "options": list(options), "help": help_text,
     }
+    if owner:
+        field["owner"] = owner
+    return field
 
 
 def _table_field(key: str, label: str, columns: tuple[dict[str, Any], ...], *,
@@ -300,7 +308,8 @@ PROCESS_FORM_SCHEMAS: dict[str, dict[str, Any]] = {
             _field("student_id", "学号", required=True), _field("student_name", "学生姓名", required=True),
             _field("topic", "题目", required=True), _field("progress", "已完成工作", "textarea", required=True),
             _field("problems", "存在问题", "textarea"), _field("next_plan", "下一步计划", "textarea", required=True),
-            _field("advisor_comment", "指导教师意见", "textarea"), _field("score", "中期评价分数", "number"),
+            _field("advisor_comment", "指导教师意见", "textarea", owner="teacher"),
+            _field("score", "中期评价分数", "number", owner="teacher"),
         ],
     },
     "similarity_report": {

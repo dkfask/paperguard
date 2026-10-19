@@ -1,0 +1,33 @@
+{
+  "recorded_at": "2026-10-15T11:03:00+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0 headless Chromium; desktop viewport; S-A synthetic account",
+  "scenario": "F09 partial: render the known synthetic paper writer page",
+  "object_id": "proj-dfde4747c750",
+  "steps": [
+    "login S-A through the normal UI",
+    "open /write/proj-dfde4747c750",
+    "wait for .writer-shell before sampling"
+  ],
+  "observed": {
+    "login_status": 200,
+    "landed_path": "/",
+    "writer_path": "/write/proj-dfde4747c750",
+    "writer_visible": true,
+    "document_title": "论文写作 · PaperGuard",
+    "visible_heading": "📋 封面信息",
+    "project_get_status": 200,
+    "failed_static_assets": [],
+    "page_errors": 0,
+    "read_only_ai_status_get": 200,
+    "ai_generation_calls": 0
+  },
+  "business_writes": 0,
+  "limitations": [
+    "This confirms writer route rendering only. Content persistence after refresh/re-login, chart/reference UI, formatting actions, and save behavior remain unverified.",
+    "The earlier ui-workflow-r1 blank sample was taken before the async writer component rendered; it is inconclusive and superseded for route-rendering only.",
+    "The subsequent fresh headless attempt timed out before login; no second session was established."
+  ],
+  "status": "PARTIAL"
+}

@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-18T11:41:37+08:00",
+  "user_direction": "继续暂缓 AI（推荐）",
+  "scope": [
+    "AI01",
+    "AI02",
+    "AI03",
+    "AI04",
+    "AI05",
+    "AI06",
+    "AI07",
+    "AI08",
+    "AI09"
+  ],
+  "execution": "none",
+  "provider_calls": 0,
+  "external_data_sent": false,
+  "scenario_disposition": "Keep all nine AI scenarios BLOCKED until the user changes this direction and supplies approved synthetic-data and call/cost boundaries."
+}

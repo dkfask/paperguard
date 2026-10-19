@@ -1,0 +1,63 @@
+{
+  "recorded_at": "2026-10-18T02:17:28.677Z",
+  "url": "https://paper.thunderuni.com",
+  "environment": "production",
+  "deployed_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "browser": "Chromium 153.0.8010.12",
+  "account": "anonymous; no credentials entered",
+  "allowed_writes": [],
+  "checks": [
+    {
+      "id": "desktop_login_form",
+      "passed": true,
+      "details": {
+        "href": "https://paper.thunderuni.com/login",
+        "title": "登录 · PaperGuard",
+        "bodyText": "PaperGuard\nEnglish\n欢迎登录 PaperGuard\n\n从章节结构到正文表达，集中完成毕业论文写作，并在需要时查看模板与规范。\n\n学号 / 工号 / 用户名\n登录密码\n忘记密码？\n登 录\n还没有账号？\n立即注册\n\n高校安全可信访问 · 严格遵从 GB/T 7713 国标规范 · 论文内容内存隔离处理\n\nPaperGuard © 2026. All rights reserved.\n毕业论文写作工作台\n·\nGB/T 7713-1987 / 2006",
+        "inputs": [
+          {
+            "type": "text",
+            "name": "",
+            "id": "username",
+            "required": true,
+            "ariaLabel": null
+          },
+          {
+            "type": "password",
+            "name": "",
+            "id": "password",
+            "required": true,
+            "ariaLabel": null
+          }
+        ],
+        "buttons": [
+          "English",
+          "忘记密码？",
+          "登 录"
+        ],
+        "viewport": {
+          "width": 1440,
+          "height": 900,
+          "documentWidth": 1440,
+          "bodyWidth": 1440
+        }
+      }
+    }
+  ],
+  "errors": [],
+  "status": "ENVIRONMENT",
+  "error": "apiRequestContext.get: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - → GET https://paper.thunderuni.com/api/auth/me\u001b[22m\n\u001b[2m    - user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n",
+  "product_result": "NOT JUDGED",
+  "triage": {
+    "classification": "test_harness_timeout",
+    "superseded_by": "../r51-browser-smoke-20261018-r2/login-smoke.json",
+    "note": "The isolated Playwright APIRequestContext timed out on anonymous /api/auth/me. A later direct request and the successful r2 browser-context request returned the expected 401; this first attempt is not a product failure."
+  },
+  "test_harness_worktree": {
+    "head": "a64e8cdc56e3db76b691c4d4c054452d9f759173",
+    "branch": "fix/ui-review-findings-20260929",
+    "worktree_had_other_uncommitted_changes": true,
+    "note": "Playwright checks ran from the local frontend package; this does not change the production target revision recorded separately."
+  }
+}

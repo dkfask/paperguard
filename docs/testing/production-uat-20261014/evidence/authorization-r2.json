@@ -1,0 +1,14 @@
+{
+  "recorded_at": "2026-10-14T21:57:24.634114+08:00",
+  "source": "direct human reply to admission question",
+  "authorization": "create dedicated test accounts on backend server; do not test AI yet",
+  "selected_scope": "non-AI role/lifecycle tests using only synthetic UAT-20261014 fixtures",
+  "notifications": "test identities only; no email/WeChat or other external send",
+  "production_config_changes": false,
+  "schema_migrations": false,
+  "credential_location": "controlled local config outside repository; mode 0600; no values recorded",
+  "ai_status": "NOT RUN - deferred by user",
+  "fixture_creation_as_setup": "Account provisioning uses existing no-email test-fixture path; does not prove email registration, OTP or first-login onboarding.",
+  "source_quote": "测试账号你去后端服务器自己创建，先不测试ai",
+  "fixture_scope_basis": "原始任务要求按既定生产UAT计划执行；以UAT前缀虚构对象实施必要夹具，只操作新建测试身份及对象。"
+}

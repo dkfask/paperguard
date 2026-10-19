@@ -1,0 +1,43 @@
+{
+  "recorded_at": "2026-10-15T11:44:57+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0, isolated headless Chromium",
+  "route": "/policies",
+  "roles": {
+    "T-A": {
+      "role": "teacher",
+      "login_http": 200,
+      "page_http": 200,
+      "visible_policy_count": 1,
+      "readonly_banner": false,
+      "top_action_buttons": 2,
+      "create_policy_action_visible": true,
+      "ai_import_action_visible": true,
+      "page_errors": 0,
+      "api_errors": 0
+    },
+    "S-A": {
+      "role": "student",
+      "login_http": 200,
+      "page_http": 200,
+      "visible_policy_count": 1,
+      "readonly_banner": true,
+      "top_action_buttons": 0,
+      "create_policy_action_visible": false,
+      "ai_import_action_visible": false,
+      "page_errors": 0,
+      "api_errors": 0
+    }
+  },
+  "cross_role_observation": {
+    "visible_policy_list_equal": true
+  },
+  "interpretation": "The teacher page exposes policy creation and AI-import affordances while the student view is marked read-only. No action was activated. The expected teacher authorization for policy draft management is not stated in the UAT plan and awaits business interpretation; AI remains excluded.",
+  "scope": {
+    "business_actions": 0,
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0
+  }
+}

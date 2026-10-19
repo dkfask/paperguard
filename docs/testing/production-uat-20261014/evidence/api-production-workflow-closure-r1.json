@@ -1,0 +1,114 @@
+{
+  "recorded_at": "2026-10-15T13:29:25+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "deployment_release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "authorization_scope": {
+    "synthetic_accounts": [
+      "COL-A",
+      "T-A",
+      "S-A"
+    ],
+    "synthetic_only": true,
+    "in_app_notifications_to_synthetic_accounts_only": true,
+    "no_ai": true,
+    "no_external_notifications": true,
+    "no_deletions": true
+  },
+  "cohort_id": "cohort-ed0046d38402",
+  "stage": {
+    "id": "stage-dde2f988be51",
+    "key": "uat-final-20261015",
+    "name": "UAT-20261015-主论文提交审核",
+    "status": "published",
+    "verified_by": "GET /api/cohorts/{cohort_id}/stages returned HTTP 200"
+  },
+  "participant": {
+    "id": "participant-e7b399a3625e",
+    "stage_id": "stage-dde2f988be51",
+    "state_transitions": [
+      "not_started",
+      "in_progress",
+      "needs_revision",
+      "submitted",
+      "pending_archive"
+    ],
+    "final_state": "pending_archive"
+  },
+  "project": {
+    "id": "proj-d148a21068b3",
+    "title": "校园图书借阅服务体验研究（合成UAT）",
+    "template_id": "default-gb7713",
+    "revision_after_updates": 10,
+    "sections_total": 13,
+    "required_sections_populated": 7,
+    "content": "synthetic placeholder text only"
+  },
+  "process_material": {
+    "id": "record-01b387680b0f",
+    "artifact_type": "final_report",
+    "create_http_status": 201,
+    "submit_http_status": 200,
+    "final_state": "submitted",
+    "version": 1,
+    "structured_form": true,
+    "attachments_required": false
+  },
+  "v1": {
+    "candidate_id": "candidate-db77ef77e6ab",
+    "candidate_status_before_confirm": "ready",
+    "automatic_checks": true,
+    "requirements_acknowledged": true,
+    "completeness": true,
+    "materials": true,
+    "attachments": true,
+    "format_warning_count": 2,
+    "warning_acknowledged": true,
+    "submission_id": "submission-8c801db35e7c",
+    "review_cycle": 1,
+    "submission_state_before_review": "submitted",
+    "teacher_decision": "returned",
+    "review_http_status": 200,
+    "participant_state_after_review": "needs_revision"
+  },
+  "v2": {
+    "candidate_id": "candidate-c7ba5186dffd",
+    "candidate_status_before_confirm": "ready",
+    "automatic_checks": true,
+    "requirements_acknowledged": true,
+    "completeness": true,
+    "materials": true,
+    "attachments": true,
+    "comment_responses_gate": true,
+    "format_warning_count": 2,
+    "warning_acknowledged": true,
+    "submission_id": "submission-dd4e694e69c5",
+    "review_cycle": 2,
+    "submission_state_before_review": "submitted",
+    "teacher_decision": "approved",
+    "review_http_status": 200,
+    "required_manual_checks": [],
+    "blocking_comments": 0,
+    "candidate_status_after_confirm": "confirmed",
+    "final_submission_state": "approved",
+    "participant_final_state": "pending_archive"
+  },
+  "readback": {
+    "stage_http_status": 200,
+    "student_tasks_http_status": 200,
+    "final_report_read_http_status": 200,
+    "teacher_policy_list_http_status": 200,
+    "v2_submission_detail_http_status": 200,
+    "policy_status": "draft"
+  },
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0,
+  "archive_export_performed": false,
+  "ui_verified": false,
+  "limitations": [
+    "This is an API-verified subset, not completion of the browser-based 36-scenario UAT.",
+    "Inline comments, comment responses, V3, export, and archive were not exercised.",
+    "The participant remains pending_archive; no archive job was started."
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "recorded_at": "2026-10-15T13:52:34+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X08 direct known synthetic submission-ID authorization check",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "resource": {
+    "type": "synthetic V2 submission",
+    "id": "submission-dd4e694e69c5",
+    "owner_alias": "S-A",
+    "supervising_teacher_alias": "T-A"
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions/submission-dd4e694e69c5"
+    }
+  ],
+  "accounts": [
+    {
+      "alias": "S-B",
+      "login_status": 200,
+      "login_role": "student",
+      "expected_role": "student",
+      "me_status": 200,
+      "submission_get_status": 404,
+      "expected_denial": true,
+      "logout_status": 200
+    },
+    {
+      "alias": "T-B",
+      "login_status": 200,
+      "login_role": "teacher",
+      "expected_role": "teacher",
+      "me_status": 200,
+      "submission_get_status": 404,
+      "expected_denial": true,
+      "logout_status": 200
+    }
+  ],
+  "writes": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0,
+    "auth_sessions_created": 4,
+    "auth_sessions_logged_out": 2,
+    "untracked_auth_sessions": 2
+  },
+  "limitations": [
+    "Only a single known synthetic submission ID was tested.",
+    "No response bodies, submission text, credentials or tokens were recorded.",
+    "This does not cover attachments, direct downloads, search, exports or list filtering."
+  ],
+  "test_execution_note": {
+    "classification": "TEST-DEFECT",
+    "issue": "The helper discarded the response body from its first successful login call, then logged in a second time to obtain the token. The second session was tested and logged out; the first session token was not captured and cannot be individually revoked.",
+    "per_alias": {
+      "login_requests": 2,
+      "tested_and_logged_out_sessions": 1,
+      "untracked_sessions": 1
+    },
+    "aggregate": {
+      "successful_login_sessions_created": 4,
+      "sessions_logged_out": 2,
+      "untracked_sessions": 2
+    },
+    "session_expiry_basis": {
+      "hours": 24,
+      "source": "backend/app/auth.py _SESSION_HOURS at the verified source revision 98b51d74cdf0785970d2d42cb8bb5431ae898046",
+      "live_expiry_independently_verified": false
+    },
+    "remediation": "No account-wide session revocation was attempted because it could affect unrelated sessions. The untracked test sessions are expected to expire under the source policy.",
+    "credentials_or_tokens_recorded": false
+  }
+}

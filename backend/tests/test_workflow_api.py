@@ -1264,3 +1264,121 @@ def test_multi_college_scope_and_two_stage_publish():
     hidden_id = next(item["id"] for item in all_cohorts.json() if item["organization_id"] == colleges[1])
     hidden = client.get(f"/api/cohorts/{hidden_id}", headers=college_admin)
     assert hidden.status_code == 404
+
+
+def test_midterm_teacher_fields_preserve_student_data_and_require_assigned_teacher():
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+
+    outsider_name = f"midterm_outsider_{suffix}"
+    outsider_password = _password("MidtermOutsider")
+    outsider = client.post("/api/auth/register", json={
+        "username": outsider_name, "password": outsider_password,
+        "role": "teacher", "display_name": "未指派教师",
+    })
+    assert outsider.status_code == 201, outsider.text
+    outsider_id = outsider.json()["id"]
+    assert client.put(f"/api/auth/admin/users/{outsider_id}/role-status", headers=admin,
+                      json={"role": "teacher", "status": "active"}).status_code == 200
+    outsider_headers = _login(outsider_name, outsider_password)
+
+    organization = client.post("/api/organizations", headers=admin, json={
+        "id": f"midterm-school-{suffix}", "name": "中期检查字段隔离学院", "type": "school",
+    })
+    assert organization.status_code == 201, organization.text
+    cohort = client.post("/api/cohorts", headers=admin, json={
+        "name": "中期检查字段隔离批次", "organization_id": organization.json()["id"], "academic_year": "2027",
+    })
+    assert cohort.status_code == 201, cohort.text
+    member = client.post(f"/api/cohorts/{cohort.json()['id']}/members", headers=admin, json={
+        "student_id": student_id, "teacher_id": teacher_id,
+    })
+    assert member.status_code == 201, member.text
+    now = datetime.now(timezone.utc)
+    stage = client.post(f"/api/cohorts/{cohort.json()['id']}/stages", headers=admin, json={
+        "key": "midterm", "name": "中期检查", "open_at": (now - timedelta(minutes=1)).isoformat(),
+        "deadline_at": (now + timedelta(days=2)).isoformat(), "required_materials": [],
+    })
+    assert stage.status_code == 201, stage.text
+    published = client.post(f"/api/stages/{stage.json()['id']}/publish", headers=admin)
+    assert published.status_code == 200, published.text
+    participant = client.get("/api/my-tasks", headers=student).json()[0]
+
+    form = client.get(f"/api/stage-participants/{participant['id']}/process-records/form/midterm_check", headers=student)
+    assert form.status_code == 200, form.text
+    student_field_keys = {field["key"] for field in form.json()["schema"]["fields"]}
+    assert {"progress", "problems", "next_plan"} <= student_field_keys
+    assert not ({"advisor_comment", "score"} & student_field_keys)
+
+    student_data = {
+        "title": "合成中期检查", "student_id": "S-MIDTERM", "student_name": "合成学生",
+        "topic": "合成论文题目", "progress": "已完成需求分析和主体实现",
+        "problems": "待评估性能边界", "next_plan": "补充压力测试并整理结果",
+    }
+    forbidden_create = client.post(f"/api/stage-participants/{participant['id']}/process-records", headers=student, json={
+        "artifact_type": "midterm_check", "structured_form": True,
+        "data": {**student_data, "advisor_comment": "学生试图填写教师意见"},
+    })
+    assert forbidden_create.status_code == 403, forbidden_create.text
+    teacher_create = client.post(f"/api/stage-participants/{participant['id']}/process-records", headers=teacher, json={
+        "artifact_type": "midterm_check", "structured_form": True, "data": student_data,
+    })
+    assert teacher_create.status_code == 403, teacher_create.text
+
+    created = client.post(f"/api/stage-participants/{participant['id']}/process-records", headers=student, json={
+        "artifact_type": "midterm_check", "structured_form": True, "data": student_data,
+    })
+    assert created.status_code == 201, created.text
+    record_id = created.json()["id"]
+    forbidden_draft_update = client.put(f"/api/process-records/{record_id}", headers=student, json={
+        "base_revision": created.json()["revision"], "structured_form": True,
+        "data": {**student_data, "score": 99},
+    })
+    assert forbidden_draft_update.status_code == 403, forbidden_draft_update.text
+
+    submitted = client.post(f"/api/process-records/{record_id}/submit", headers=student)
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["state"] == "submitted"
+    inbox = client.get("/api/process-records/inbox", headers=teacher)
+    assert inbox.status_code == 200
+    assert record_id in {item["id"] for item in inbox.json()}
+
+    unassigned_update = client.patch(f"/api/process-records/{record_id}/teacher-fields", headers=outsider_headers, json={
+        "base_revision": submitted.json()["revision"], "data": {"advisor_comment": "越权意见"},
+    })
+    assert unassigned_update.status_code in {403, 404}, unassigned_update.text
+    teacher_student_field_update = client.patch(f"/api/process-records/{record_id}/teacher-fields", headers=teacher, json={
+        "base_revision": submitted.json()["revision"],
+        "data": {"advisor_comment": "中期进度符合计划", "progress": "被教师覆盖"},
+    })
+    assert teacher_student_field_update.status_code == 403, teacher_student_field_update.text
+    invalid_score = client.patch(f"/api/process-records/{record_id}/teacher-fields", headers=teacher, json={
+        "base_revision": submitted.json()["revision"], "data": {"score": 101},
+    })
+    assert invalid_score.status_code == 422, invalid_score.text
+
+    filled = client.patch(f"/api/process-records/{record_id}/teacher-fields", headers=teacher, json={
+        "base_revision": submitted.json()["revision"],
+        "data": {"advisor_comment": "按计划完成阶段目标，建议继续验证边界情况。", "score": 88},
+    })
+    assert filled.status_code == 200, filled.text
+    assert filled.json()["state"] == "submitted"
+    assert filled.json()["data"] == {
+        **student_data, "advisor_comment": "按计划完成阶段目标，建议继续验证边界情况。", "score": 88.0,
+    }
+    stale_update = client.patch(f"/api/process-records/{record_id}/teacher-fields", headers=teacher, json={
+        "base_revision": submitted.json()["revision"], "data": {"score": 90},
+    })
+    assert stale_update.status_code == 409, stale_update.text
+    student_teacher_fields_update = client.patch(f"/api/process-records/{record_id}/teacher-fields", headers=student, json={
+        "base_revision": filled.json()["revision"], "data": {"score": 0},
+    })
+    assert student_teacher_fields_update.status_code == 403, student_teacher_fields_update.text
+
+    approved = client.post(f"/api/process-records/{record_id}/decisions", headers=teacher, json={"decision": "approved"})
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["state"] == "approved"
+    student_readback = client.get(f"/api/process-records/{record_id}", headers=student)
+    assert student_readback.status_code == 200, student_readback.text
+    assert student_readback.json()["data"] == filled.json()["data"]

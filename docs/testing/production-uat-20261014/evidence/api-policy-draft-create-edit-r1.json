@@ -1,0 +1,53 @@
+{
+  "recorded_at": "2026-10-15T13:29:25+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "deployment_release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "scenario": "X04/F02 teacher policy draft create and edit",
+  "actor_role": "teacher",
+  "actor_label": "T-A",
+  "policy_id": "policy-uat1015-08d4f3af",
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/policies",
+      "status": 201,
+      "result": "created one synthetic teacher-level draft"
+    },
+    {
+      "method": "GET",
+      "path": "/api/policies/{policy_id}",
+      "status": 200,
+      "result": "level=teacher, status=draft, owner matched T-A"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/policies/{policy_id}",
+      "status": 200,
+      "result": "edited synthetic name/description"
+    },
+    {
+      "method": "GET",
+      "path": "/api/policies/{policy_id}",
+      "status": 200,
+      "result": "edited fields persisted; status remained draft; owner remained T-A"
+    }
+  ],
+  "final_readback": {
+    "list_status": 200,
+    "level": "teacher",
+    "status": "draft",
+    "version": 1,
+    "owner_matches_T_A": true,
+    "published": false
+  },
+  "ai_calls": 0,
+  "ai_import_used": false,
+  "external_notifications": 0,
+  "published": false,
+  "deleted": false,
+  "ui_verified": false,
+  "limitations": [
+    "API create/edit path verified; browser policy page interaction and visible persistence were not verified because browser DOM capture timed out."
+  ]
+}

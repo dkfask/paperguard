@@ -1,0 +1,140 @@
+{
+  "recorded_at": "2026-10-18T13:22:02+00:00",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "read-only exact-ID authorization check for previously approved synthetic workflow project and linked records; no response bodies retained",
+  "cohort_id": "cohort-ed0046d38402",
+  "stage_id": "stage-dde2f988be51",
+  "participant_id": "participant-e7b399a3625e",
+  "project_id": "proj-d148a21068b3",
+  "roles": [
+    {
+      "role_alias": "S-A",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "project",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "participant",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "process-material",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "candidate-v2",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "submission-v2",
+          "status": 200,
+          "expected": true
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "role_alias": "T-A",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "project",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "participant",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "process-material",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "candidate-v2",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "submission-v2",
+          "status": 200,
+          "expected": true
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "role_alias": "S-B",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "project",
+          "status": 403,
+          "expected": true
+        },
+        {
+          "resource": "participant",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "process-material",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "candidate-v2",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "submission-v2",
+          "status": 404,
+          "expected": true
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "role_alias": "T-B",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "project",
+          "status": 403,
+          "expected": true
+        },
+        {
+          "resource": "participant",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "process-material",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "candidate-v2",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "submission-v2",
+          "status": 404,
+          "expected": true
+        }
+      ],
+      "logout_status": 200
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "recorded_at": "2026-10-18T15:31:59Z",
+  "target": "https://paper.thunderuni.com",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "scenario_ids": [
+    "F03",
+    "X02"
+  ],
+  "scenario": "exact synthetic participant stage configuration policy-binding field count",
+  "role_alias": "S-A",
+  "participant_id": "participant-e7b399a3625e",
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/stage-participants/participant-e7b399a3625e",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "status": 200
+    }
+  ],
+  "role_match": true,
+  "configuration_structure": {
+    "requirement_set_ids_field_present": true,
+    "requirement_set_count": 0,
+    "rule_packs_field_present": true,
+    "rule_pack_count": 0,
+    "required_material_count": 1,
+    "requirement_basis_hash_field_present": true,
+    "policy_or_rule_values_saved": false
+  },
+  "writes": {
+    "business_data": 0,
+    "auth_sessions_created": 1,
+    "auth_sessions_logged_out": 1,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0
+  },
+  "interpretation": "The exact stage configuration does not explicitly list requirement-set IDs or rule-pack IDs. This read alone does not prove that formatting/policy checks are absent because defaults or resolved snapshots may apply; no check was executed."
+}

@@ -1,0 +1,62 @@
+{
+  "observed_at": "2026-10-15T10:20:41+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "production backend loopback over SSH; synthetic UAT content; no AI",
+  "ui_verified": false,
+  "student_login_status": 200,
+  "prior_submission_id": "submission-691de2599180",
+  "prior_get_status": 200,
+  "prior_state": "returned",
+  "participant_state_before_v2": "needs_revision",
+  "draft_update": {
+    "project_id": "proj-dfde4747c750",
+    "section": "ch4",
+    "status": 200,
+    "revision_before": 14,
+    "revision_after": 15,
+    "synthetic_revision_marker_present": true
+  },
+  "v1_snapshot_after_draft_edit": {
+    "version_id": "version-85a5c8892768",
+    "source_revision": 14,
+    "new_v2_marker_present": false
+  },
+  "blocking_comment_response": {
+    "comment_id": "comment-9b1dfd9429ca",
+    "status": 201,
+    "final_status": "addressed",
+    "responses_count": 1
+  },
+  "candidate": {
+    "status_code": 201,
+    "id": "candidate-c97e25c7f87d",
+    "status": "ready",
+    "source_revision": 15,
+    "warning_count": 2,
+    "gates": {
+      "automatic_checks": true,
+      "requirements_acknowledged": true,
+      "completeness": true,
+      "materials": true,
+      "attachments": true,
+      "comment_responses": true
+    }
+  },
+  "submission": {
+    "confirm_status": 200,
+    "id": "submission-b6586e251afb",
+    "number": "SUB-20261015-F0D216",
+    "state": "submitted",
+    "review_cycle": 2,
+    "version_id": "version-57fe21340fa2",
+    "source_revision": 15,
+    "idempotent_replay_status": 200,
+    "idempotent_replay_same_submission": true
+  },
+  "access": {
+    "T-A_get_status": 200,
+    "T-B_get_status": 404
+  },
+  "note": "AI-assisted portion was deferred per user instruction; manual synthetic revision was used for the workflow round."
+}

@@ -1,0 +1,75 @@
+{
+  "recorded_at": "2026-10-18T15:12:07Z",
+  "environment": "production",
+  "url": "https://paper.thunderuni.com/login?redirect=/first-login?redirect=/workspace",
+  "authentication_state": "logged_out",
+  "role": "not_selected",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_identity_rechecked_this_run": {
+    "version_endpoint": true,
+    "full_server_source_and_frontend_checksums": false
+  },
+  "health": {
+    "live_http_status": 200,
+    "ready_http_status": 200,
+    "both_json_status_ok": true
+  },
+  "version_endpoint": {
+    "http_status": 200,
+    "release_id_matches_last_verified_r51": true,
+    "source_revision_matches_last_verified_r51": true
+  },
+  "route_http": {
+    "status": 200,
+    "content_type": "text/html",
+    "body_bytes": 1154,
+    "title": "PaperGuard — 毕业论文格式合规引擎与工作台"
+  },
+  "browser": {
+    "app": "Google Chrome",
+    "viewport_width": 2880,
+    "viewport_height": 1638,
+    "screen_capture_saved": false
+  },
+  "visible_controls": [
+    "username input",
+    "password input",
+    "forgot password",
+    "login button",
+    "registration link",
+    "language toggle"
+  ],
+  "keyboard_focus_sequence": [
+    "username (focused directly)",
+    "password (Tab)",
+    "forgot password (Tab)",
+    "login (Tab)",
+    "registration (Tab)",
+    "login (Shift+Tab)"
+  ],
+  "login_button_focus_outline_visible": true,
+  "password_manager_suggestions_appeared_and_were_dismissed_without_selection": true,
+  "desktop_overflow_visual_observation": "none_observed",
+  "desktop_overflow_programmatic_measurement": false,
+  "narrow_viewport_checked": false,
+  "devtools_console": {
+    "visible_message_count": 0,
+    "warning_badge_counts_observed": [
+      2,
+      4
+    ],
+    "attributable_to_application": null,
+    "runtime_error_check": "inconclusive"
+  },
+  "network_panel_checked": false,
+  "credentials_entered": false,
+  "login_submitted": false,
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deletions": 0,
+  "subcheck_result": "keyboard_reachability_pass_with_residual_risk",
+  "scenario_status": "NOT RUN / partial",
+  "limitations": "Unauthenticated login page only; no role-specific page, first-login flow, narrow viewport, network panel, or attributable console warning review."
+}

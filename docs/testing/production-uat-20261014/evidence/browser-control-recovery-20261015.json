@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-15T11:27:46+08:00",
+  "failure_class": "LOCAL_BROWSER_CONTROL_BRIDGE",
+  "symptom": "js execution timed out; kernel reset",
+  "affected_path": "Codex CUA getTab browser-tab binding; prior route diagnostics reported missing browser route / nodeRepl.fetch errors",
+  "production_health_inference": "This error is not a PaperGuard HTTP result. In this run, the public login, authenticated login, cohorts page, cohort list, and targeted cohort detail all returned HTTP 200.",
+  "operational_resolution": {
+    "native_chrome_app_control": "getApp(\"Google Chrome\") returned the PaperGuard login page accessibility tree in about 4.4 seconds; an existing task UAT tab was then read through native-app accessibility in about 1.8 seconds.",
+    "bounded_ui_executor": "Playwright UI flow authenticated as COL-A and opened the exact synthetic cohort detail in about 5.9 seconds.",
+    "retry_policy": "The failing getTab route was not retried. UAT continued through native Chrome accessibility and the existing Playwright UI runner."
+  },
+  "resolution_boundary": "UAT browser access is operational through the alternate paths above. The underlying Codex getTab bridge itself remains unverified/unavailable and was not reconfigured or restarted.",
+  "scope": {
+    "credentials_written_to_evidence": false,
+    "production_business_writes": 0,
+    "ai_calls": 0,
+    "production_configuration_changed": false,
+    "application_code_changed": false
+  }
+}

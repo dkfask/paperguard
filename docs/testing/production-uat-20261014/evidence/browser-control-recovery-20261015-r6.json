@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-10-15T13:45:44+08:00",
+  "target": "https://paper.thunderuni.com",
+  "issue": "Codex in-app browser tab content bridge remains unavailable; the Chrome native accessibility path can read PaperGuard UI.",
+  "user_confirmed_mac_unlocked": true,
+  "in_app_browser": {
+    "inventory_result": "Codex in-app browser inventory and login-tab metadata were returned.",
+    "get_tab_attempt": {
+      "tab_id": "6",
+      "timeout_seconds": 30,
+      "result": "js execution timed out; kernel reset"
+    },
+    "resolution": "UNRESOLVED"
+  },
+  "chrome_native_ui": {
+    "result": "Google Chrome native accessibility tree returned promptly.",
+    "observed_target_page": {
+      "title": "登录 · PaperGuard",
+      "url": "https://paper.thunderuni.com/login?redirect=%2F"
+    },
+    "accessible_controls": [
+      "学号 / 工号 / 用户名 field",
+      "登录密码 field",
+      "登 录 button",
+      "立即注册 link"
+    ],
+    "keyboard_focus_probe": {
+      "first_tab_from_username": "focus moved to password field",
+      "second_tab_from_password": "focus remained on password field; result inconclusive"
+    },
+    "login_submitted": false,
+    "existing_authenticated_session_observed": "A separate synthetic SYS-A school-admin session was visible in an existing tab; no business actions were taken there. The login tab was restored as active."
+  },
+  "scope": {
+    "browser_form_submissions": 0,
+    "ui_business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "credentials_or_tokens_recorded": false
+  },
+  "limitations": [
+    "Chrome native AX proves only that the login page and named controls were exposed to accessibility APIs.",
+    "No account was authenticated in this UI pass; role pages, core workflows, visual layout and full keyboard order remain unverified.",
+    "The separate authenticated SYS-A session was not used for business testing."
+  ]
+}

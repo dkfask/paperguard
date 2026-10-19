@@ -1,0 +1,42 @@
+{
+  "recorded_at": "2026-10-15T12:44:34+08:00",
+  "target": "https://paper.thunderuni.com",
+  "environment": "production",
+  "filter": {
+    "resource_type": "archive",
+    "resource_id": "archive-64e549d38829",
+    "limit": 50
+  },
+  "scope": "one previously verified synthetic UAT archive; GET only",
+  "results": [
+    {
+      "role": "SYS-A",
+      "http_status": 200,
+      "event_count": 2
+    },
+    {
+      "role": "COL-A",
+      "http_status": 200,
+      "event_count": 2,
+      "actions": {
+        "archive.create:success": 1,
+        "archive.succeeded:success": 1
+      }
+    },
+    {
+      "role": "COL-B",
+      "http_status": 200,
+      "event_count": 0
+    }
+  ],
+  "interpretation": "The known archive audit events are visible to SYS-A and its COL-A manager, and absent from sibling-college COL-B results. This is a narrow object-scoped check, not a complete audit UI or cross-tenant matrix.",
+  "writes": {
+    "audit_export": false,
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "raw_event_body_recorded": false,
+    "actor_ids_recorded": false,
+    "request_ids_recorded": false
+  }
+}

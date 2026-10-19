@@ -1,0 +1,49 @@
+{
+  "recorded_at": "2026-10-15T12:23:57+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X08 known synthetic archive direct-download scope check",
+  "object": {
+    "type": "synthetic test archive",
+    "id": "archive-64e549d38829"
+  },
+  "method": "Each role signed in through the visible login form. Authentication was verified in the same page context with GET /api/submissions -> 200. The known archive download GET then used the page session token in a same-origin in-memory Authorization header; only status was retained and response bodies were cancelled without reading or saving.",
+  "results": [
+    {
+      "role": "T-B",
+      "auth_baseline_status": 200,
+      "download_status": 404,
+      "interpretation": "not available to non-guiding teacher"
+    },
+    {
+      "role": "S-B",
+      "auth_baseline_status": 200,
+      "download_status": 404,
+      "interpretation": "not available to another student"
+    },
+    {
+      "role": "S-C",
+      "auth_baseline_status": 200,
+      "download_status": 404,
+      "interpretation": "not available to comparison student"
+    },
+    {
+      "role": "COL-B",
+      "auth_baseline_status": 200,
+      "download_status": 404,
+      "interpretation": "not available to sibling-college administrator"
+    }
+  ],
+  "positive_control": "COL-A previously downloaded this exact archive through the production archive UI; see ui-archive-download-r2.json (HTTP 200, application/zip).",
+  "harness_note": "An earlier four-role APIRequestContext probe returned 401 because it did not inherit this application’s sessionStorage authentication; one T-B diagnostic fetch had the same issue. These five harness/diagnostic sign-ins are excluded from access results. No archive body was read during those attempts. The authenticated page-context retest above is the evidence.",
+  "conclusion": "PASS for this known archive ID and these four non-owner roles only; X08 remains partial because attachments, other resource types, and broader list/search paths are not covered.",
+  "scope": {
+    "business_writes": 0,
+    "archive_bodies_read_or_saved": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "real_user_data_exported": false,
+    "credentials_or_tokens_recorded": false,
+    "validated_run_authentication_events": 4,
+    "excluded_harness_authentication_events": 5
+  }
+}

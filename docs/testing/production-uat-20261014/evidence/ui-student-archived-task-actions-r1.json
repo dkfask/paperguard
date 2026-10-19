@@ -1,0 +1,26 @@
+{
+  "recorded_at": "2026-10-15T11:47:34+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Playwright 1.63.0, isolated headless Chromium",
+  "role_account": "S-A (student; synthetic UAT account)",
+  "route": "/workflow",
+  "scenario": "F05/F06 partial: inspect actions on the archived synthetic task card",
+  "observed": {
+    "login_http": 200,
+    "route_http": 200,
+    "named_project_task_card_visible": true,
+    "task_state": "archived",
+    "descendant_buttons": 0,
+    "descendant_links": 0,
+    "page_errors": 0,
+    "api_errors": 0
+  },
+  "attempt_note": "A locator for the process-materials button did not match; Playwright timed out before click, and no click or write occurred. A subsequent read-only inspection confirmed the card has no buttons or links in the DOM.",
+  "interpretation": "The retained test fixture is already archived, so it does not provide an active-task precondition for material access or revision actions. The missing actions are not classified as a product defect without an expected archived-task behavior.",
+  "scope": {
+    "business_writes": 0,
+    "ai_calls": 0,
+    "external_notifications": 0
+  }
+}

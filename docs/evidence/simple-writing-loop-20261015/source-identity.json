@@ -1,0 +1,44 @@
+{
+  "source_head": "a64e8cdc56e3db76b691c4d4c054452d9f759173",
+  "worktree_dirty": true,
+  "scope": "local template writing loop",
+  "production_writes": false,
+  "ai_calls": 0,
+  "files": {
+    "backend/app/api/projects.py": "a53fc483c9b97e8640a2ed5890594419e89b69ce7601cacf3349b1cc05184a8f",
+    "backend/app/services/project_validation.py": "f05eb0dd3447c04d71d2b37785bc021858e9d8717ed712971278f4ec561f1028",
+    "backend/app/services/template_compare.py": "a5279e49d1dc056b12539ddc18b2f53489333856ad5b05942d92d1241830cc0f",
+    "backend/tests/test_writing_api.py": "4e8eb6c6a5bac3d32a05a698003f4c72fab3cacce4aae3d0fb4862486b24e25c",
+    "backend/tests/test_writing_simple_loop.py": "1cdd65812d4f30b218ad0dc7bec928e394f7bd420c74494927e7b531deca5cab",
+    "frontend/src/views/Writer.vue": "6241199b3ff8f5f4ff3eafd8d73027d692b1ef7bffd64656891b0687ca3299d5",
+    "frontend/src/utils/writingCompleteness.js": "7b46298dec21c67dbe5bb4e55d3a08f196756f88076b5448302e1d96a12f99f9",
+    "frontend/tests/writingCompleteness.test.js": "255f8695ca91f352bfaad4459351270c44899bf84d08e2be82dbcc5a749d4319",
+    "frontend/e2e/simple-writing-loop.spec.ts": "4305e5bc927f0127e2a75141bec4a23a385e8e07fb87faf91f645815705b324b",
+    "frontend/e2e/full-lifecycle.spec.ts": "a5385a91c3072e9ff21db0c836d4b0470a3fdde0a8e05a233a0636f32dfbc3dd"
+  },
+  "evidence": {
+    "desktop.png": "8111d4b04f49a9902a914e1fb9508ca55ff4e63ea1accc2925e9cce74d07ad3e",
+    "mobile.png": "78b75b81108b64b4d258510712f0b1a567c9c9b8878a5693e4256a4e80d34d4c",
+    "sample.docx": "7244893913a42f9a5d44d607b9ffa4bf229bedbb34ff81d542f8e9ab363b2396"
+  },
+  "verified_at": "2026-10-15T15:04:43+08:00",
+  "local_gates": {
+    "backend": {
+      "passed": 1074,
+      "warnings": 2
+    },
+    "frontend": {
+      "files": 24,
+      "passed": 100
+    },
+    "browser": {
+      "passed": 38,
+      "skipped": 2,
+      "exit_code": 0
+    },
+    "typecheck": "PASS",
+    "college_admin": "PASS",
+    "build": "PASS",
+    "diff_check": "PASS"
+  }
+}

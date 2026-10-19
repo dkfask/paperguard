@@ -1,0 +1,99 @@
+{
+  "recorded_at": "2026-10-19T02:50:15Z",
+  "environment": "production",
+  "base_url": "https://paper.thunderuni.com",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_identity_rechecked": true,
+  "health": {
+    "live_http": 200,
+    "ready_http": 200,
+    "version_http": 200,
+    "version_matches_release": true
+  },
+  "scope": {
+    "role_alias": "S-A",
+    "cohort_id": "cohort-ed0046d38402",
+    "participant_id": "participant-e7b399a3625e",
+    "exact_synthetic_ids_only": true
+  },
+  "f02_progress_panel_observations": {
+    "confirmed_sessions": 2,
+    "logouts_http_200": 2,
+    "my_tasks_status": 200,
+    "my_tasks_count": 8,
+    "exact_target_present_in_my_tasks": true,
+    "target_state": "pending_archive",
+    "visible_task_cards": 4,
+    "cards_matching_target_stage_cohort_and_project": 0,
+    "interpretation": "The exact target was not identifiable in this progress panel; because it is pending_archive, this is not classified as a defect without confirming intended archived-task placement."
+  },
+  "f02_student_workspace_observations": {
+    "confirmed_sessions": 2,
+    "logouts_http_200": 2,
+    "my_tasks_status": 200,
+    "my_tasks_count": 8,
+    "visible_task_rows": 8,
+    "exact_target_card_matches": 1,
+    "target_card_fields_visible": {
+      "stage_name": true,
+      "cohort_name": true,
+      "project_title": true,
+      "deadline": true,
+      "state": true,
+      "submission_status": true,
+      "workflow_explanation": false,
+      "required_material_names": false
+    },
+    "note": "The target card exposes task identity/status/deadline fields. This check did not open the separate process-material panel or test an active stage."
+  },
+  "f02_exact_cohort_state_read": {
+    "confirmed_sessions": 1,
+    "login_http": 200,
+    "my_tasks_http": 200,
+    "logout_http": 200,
+    "task_count": 2,
+    "state_counts": {
+      "pending_archive": 1,
+      "archived": 1
+    },
+    "open_work_task_count": 0,
+    "known_target_present": true
+  },
+  "x12_mobile_workspace_subcheck": {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "confirmed_sessions": 1,
+    "login_http": 200,
+    "logout_http": 200,
+    "document_width": 390,
+    "body_width": 390,
+    "horizontal_overflow": false,
+    "keyboard_focus_visible_after_tab": true,
+    "focused_element_tag": "A",
+    "pages_covered": [
+      "/workspace"
+    ]
+  },
+  "uncertain_attempts": [
+    {
+      "alias": "S-A",
+      "action": "login form submit",
+      "response_captured": false,
+      "possible_session_created": true,
+      "counted_as_successful": false,
+      "bulk_revocation_performed": false
+    }
+  ],
+  "writes": {
+    "business_data": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0,
+    "unexpected_api_mutations": 0,
+    "confirmed_auth_sessions": 5,
+    "logouts_http_200": 5
+  }
+}

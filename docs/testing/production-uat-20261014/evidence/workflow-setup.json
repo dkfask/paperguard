@@ -1,0 +1,72 @@
+{
+  "observed_at": "2026-10-14T22:17:53.761436+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "production workflow API; all data synthetic and prefixed UAT-20261014; no UI claim",
+  "cohort": {
+    "id": "cohort-ed0046d38402",
+    "name": "UAT-20261014-01a139c6-主流程",
+    "organization_id": "uat-20261014-major-a",
+    "status": "draft",
+    "create_status": 201
+  },
+  "membership": {
+    "student_id": "user-2a5594060256",
+    "teacher_id": "user-1f04982edc9f",
+    "dry_run_status": 200,
+    "dry_run_rows": [
+      {
+        "status": "ready",
+        "errors": [],
+        "warnings": []
+      },
+      {
+        "status": "failed",
+        "errors": [
+          "同一批量中学生重复出现"
+        ],
+        "warnings": []
+      },
+      {
+        "status": "failed",
+        "errors": [
+          "学生账号不存在、角色不匹配或未启用"
+        ],
+        "warnings": []
+      }
+    ],
+    "first_import_status": 200,
+    "first_import_summary": {
+      "total": 1,
+      "imported": 1,
+      "ready": 0,
+      "failed": 0
+    },
+    "repeat_import_status": 200,
+    "repeat_import_summary": {
+      "total": 1,
+      "imported": 1,
+      "ready": 0,
+      "failed": 0
+    },
+    "first_relation_id": "supervision-d37ec2abce13",
+    "repeat_relation_id": "supervision-d37ec2abce13",
+    "visible_member_count": 1,
+    "single_relation_after_repeat": true
+  },
+  "access_checks": {
+    "assigned_student_gets_cohort": 200,
+    "assigned_teacher_gets_cohort": 200,
+    "other_college_gets_denied": true,
+    "other_college_status": 404
+  },
+  "counts": {
+    "preflight_rows": [
+      "ready",
+      "failed",
+      "failed"
+    ],
+    "import_repeat_idempotent": true,
+    "cohort_and_member_created": true
+  }
+}

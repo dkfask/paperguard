@@ -1,0 +1,153 @@
+{
+  "target_base_url": "https://paper.thunderuni.com",
+  "checks": [
+    {
+      "path": "/api/health/live",
+      "observed_at": "2026-10-14T17:47:31.958075+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 200,
+      "content_type": "application/json",
+      "body_sha256": "e98b164e456d316c90314778e9d50db8e6ed7f55e7ab3938b089f401936a1147",
+      "bytes": 53,
+      "body": {
+        "status": "ok",
+        "service": "paperguard",
+        "probe": "live"
+      },
+      "elapsed_seconds": 7.311
+    },
+    {
+      "path": "/api/health/ready",
+      "observed_at": "2026-10-14T17:47:39.269756+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 200,
+      "content_type": "application/json",
+      "body_sha256": "9a1d14ee89ba3e1de235a062d1a655e1cf074fa70f36110397878e7ec2121fbd",
+      "bytes": 54,
+      "body": {
+        "status": "ok",
+        "service": "paperguard",
+        "probe": "ready"
+      },
+      "elapsed_seconds": 1.204
+    },
+    {
+      "path": "/api/version",
+      "observed_at": "2026-10-14T17:47:40.473413+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 200,
+      "content_type": "application/json",
+      "body_sha256": "03e14f1d47b8dcd079c88e2b4451d45c3ffdf6ae849c1e9420828cdf30825724",
+      "bytes": 256,
+      "body": {
+        "component": "backend",
+        "product_version": null,
+        "source_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+        "release_id": "98b51d7-role-workflows-b20261012T085040Z",
+        "build_id": "20261012T085040Z",
+        "built_at": "2026-10-12T08:50:42Z",
+        "identity_status": "declared"
+      },
+      "elapsed_seconds": 0.943
+    },
+    {
+      "path": "/openapi.json",
+      "observed_at": "2026-10-14T17:47:41.416234+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 200,
+      "content_type": "text/html",
+      "body_sha256": "f2d50095535d0c841b9ae382ab338d8168310664f509d6f0dfb3fdff401f45db",
+      "bytes": 1543,
+      "elapsed_seconds": 0.931
+    },
+    {
+      "path": "/api/openapi.json",
+      "observed_at": "2026-10-14T17:47:42.347777+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 404,
+      "content_type": "application/json",
+      "body_sha256": "37ec4665a8102d115ffd1ac20dae94c98b4dac64b0c1a68228aa2a531caeb35d",
+      "bytes": 22,
+      "error_code": null,
+      "detail": "Not Found",
+      "elapsed_seconds": 1.117
+    },
+    {
+      "path": "/api/auth/me",
+      "observed_at": "2026-10-14T17:47:43.464866+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 401,
+      "content_type": "application/json",
+      "body_sha256": "c3fc64422a0e9923654f7061f64de115463176615897d383ede633273c1e4443",
+      "bytes": 22,
+      "error_code": null,
+      "detail": "未登录",
+      "elapsed_seconds": 1.17
+    },
+    {
+      "path": "/api/projects",
+      "observed_at": "2026-10-14T17:47:44.634969+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 401,
+      "content_type": "application/json",
+      "body_sha256": "c3fc64422a0e9923654f7061f64de115463176615897d383ede633273c1e4443",
+      "bytes": 22,
+      "error_code": null,
+      "detail": "未登录",
+      "elapsed_seconds": 1.194
+    },
+    {
+      "path": "/api/operations",
+      "observed_at": "2026-10-14T17:47:45.829095+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 404,
+      "content_type": "application/json",
+      "body_sha256": "37ec4665a8102d115ffd1ac20dae94c98b4dac64b0c1a68228aa2a531caeb35d",
+      "bytes": 22,
+      "error_code": null,
+      "detail": "Not Found",
+      "elapsed_seconds": 1.156
+    },
+    {
+      "path": "/api/auth/admin/users",
+      "observed_at": "2026-10-14T17:53:04.036831+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 401,
+      "content_type": "application/json",
+      "bytes": 22,
+      "body_sha256": "c3fc64422a0e9923654f7061f64de115463176615897d383ede633273c1e4443",
+      "detail": "未登录"
+    },
+    {
+      "path": "/api/jobs",
+      "observed_at": "2026-10-14T17:53:05.126768+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 401,
+      "content_type": "application/json",
+      "bytes": 22,
+      "body_sha256": "c3fc64422a0e9923654f7061f64de115463176615897d383ede633273c1e4443",
+      "detail": "未登录"
+    },
+    {
+      "path": "/api/ai/status",
+      "observed_at": "2026-10-14T17:53:06.212988+08:00",
+      "method": "GET",
+      "authenticated": false,
+      "status": 401,
+      "content_type": "application/json",
+      "bytes": 22,
+      "body_sha256": "c3fc64422a0e9923654f7061f64de115463176615897d383ede633273c1e4443",
+      "detail": "未登录"
+    }
+  ]
+}

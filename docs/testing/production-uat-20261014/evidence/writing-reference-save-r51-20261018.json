@@ -1,0 +1,29 @@
+{
+  "recorded_at": "2026-10-18T13:39:03.012Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "single synthetic references paragraph save/reload on the retained S-A writing draft; no export, AI, external notification, or other business writes",
+  "role_alias": "S-A",
+  "project_id": "proj-01c5de3baec6",
+  "status": "passed",
+  "login_status": 200,
+  "logout_status": 200,
+  "version_status": 200,
+  "revision_before": 20,
+  "revision_after": 21,
+  "write_path": "/api/projects/proj-01c5de3baec6/section/references",
+  "write_status": 200,
+  "write_count": 1,
+  "citation_present_before": false,
+  "citation_present_after": true,
+  "ui_reload_confirmed": true,
+  "blocked_business_writes": [],
+  "external_hosts_blocked": [
+    "static.cloudflareinsights.com",
+    "static.cloudflareinsights.com",
+    "static.cloudflareinsights.com"
+  ],
+  "page_errors": [],
+  "runtime_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "runtime_release_id": "facd7eb-r51-candidate-b20261016T080636Z"
+}

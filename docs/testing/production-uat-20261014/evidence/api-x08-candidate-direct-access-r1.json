@@ -1,0 +1,50 @@
+{
+  "recorded_at": "2026-10-15T13:57:13+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X08 direct known synthetic submission-candidate ID authorization check",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "resource": {
+    "type": "synthetic V2 submission candidate",
+    "id": "candidate-c7ba5186dffd",
+    "owner_alias": "S-A",
+    "supervising_teacher_alias": "T-A"
+  },
+  "request": {
+    "method": "GET",
+    "path": "/api/submission-candidates/candidate-c7ba5186dffd"
+  },
+  "accounts": [
+    {
+      "alias": "S-B",
+      "login_status": 200,
+      "login_role": "student",
+      "expected_role": "student",
+      "candidate_get_status": 404,
+      "expected_denial": true,
+      "logout_status": 200
+    },
+    {
+      "alias": "T-B",
+      "login_status": 200,
+      "login_role": "teacher",
+      "expected_role": "teacher",
+      "candidate_get_status": 404,
+      "expected_denial": true,
+      "logout_status": 200
+    }
+  ],
+  "response_bodies_recorded": false,
+  "writes": {
+    "business_writes": 0,
+    "auth_sessions_created": 2,
+    "auth_sessions_logged_out": 2,
+    "untracked_auth_sessions": 0,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "deletions": 0
+  },
+  "limitations": [
+    "Only one known synthetic candidate ID was tested.",
+    "Does not cover candidate lists, attachments, direct file downloads, search or export."
+  ]
+}

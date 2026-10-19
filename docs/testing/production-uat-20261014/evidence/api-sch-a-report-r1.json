@@ -1,0 +1,45 @@
+{
+  "recorded_at": "2026-10-15T12:57:13+08:00",
+  "target": "https://paper.thunderuni.com",
+  "scenario": "X02 partial school-admin access to one known synthetic college cohort report",
+  "release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "executor": "Read-only authenticated API request using SCH-A synthetic UAT credentials from controlled local configuration",
+  "requests": {
+    "POST /api/auth/login": 200,
+    "GET /api/reports/cohorts/cohort-ed0046d38402": 200
+  },
+  "cohort_name": "UAT-20261014-01a139c6-主流程",
+  "report": {
+    "member_count": 1,
+    "participant_count": 1,
+    "state_counts": {
+      "not_started": 0,
+      "in_progress": 0,
+      "submitted": 0,
+      "needs_revision": 0,
+      "approved": 0,
+      "pending_archive": 0,
+      "archived": 1,
+      "exited": 0
+    },
+    "pending_review_count": 0,
+    "archive_count": 1,
+    "first_submission_count": 1,
+    "revision_submission_count": 2,
+    "on_time_first_submission_rate": 1.0,
+    "archive_completion_rate": 1.0,
+    "average_review_wait_seconds": 23.0
+  },
+  "cross_check": {
+    "source": "ui-messages-and-reports-r1.json",
+    "comparison": "SCH-A API aggregate matches prior COL-A UI/API summary for member=1, pending review=0, archived=1, first submissions=1, revisions=2, total submissions=3, archive=1, and both rates=100%.",
+    "scope_limit": "One known synthetic cohort only; does not establish full school-wide or cross-college visibility boundaries."
+  },
+  "writes": {
+    "business_writes": 0,
+    "external_notifications": 0,
+    "ai_calls": 0,
+    "production_configuration_changed": false,
+    "credentials_or_tokens_recorded": false
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "recorded_at": "2026-10-18T13:31:37+00:00",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "exact-ID read-only recheck of previously authorized unpublished synthetic teacher policy draft",
+  "policy_id": "policy-uat1015-08d4f3af",
+  "results": [
+    {
+      "role_alias": "T-A",
+      "login_status": 200,
+      "policy_status": 200,
+      "status": "draft",
+      "level": "teacher",
+      "version": "1",
+      "owner_matches_T_A": true,
+      "logout_status": 200
+    },
+    {
+      "role_alias": "T-B",
+      "login_status": 200,
+      "policy_status": 404,
+      "status": null,
+      "level": null,
+      "version": null,
+      "owner_matches_T_A": null,
+      "logout_status": 200
+    }
+  ],
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "deleted": false
+}

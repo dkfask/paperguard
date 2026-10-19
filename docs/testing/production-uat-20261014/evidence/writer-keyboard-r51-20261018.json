@@ -1,0 +1,196 @@
+{
+  "recorded_at": "2026-10-18T13:27:25.607Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "role_alias": "S-A",
+  "project_id": "proj-01c5de3baec6",
+  "scope": "read-only 390x844 writer keyboard/accessibility inspection; no typing or business save",
+  "login_status": 200,
+  "writer_visible": true,
+  "viewport": {
+    "width": 390,
+    "scrollWidth": 390,
+    "controlCount": 59
+  },
+  "after": {
+    "width": 390,
+    "scrollWidth": 390
+  },
+  "keyboard_tab_sequence": [
+    {
+      "tag": "a",
+      "role": null,
+      "name": "跳到主要内容",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "打开导航",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "a",
+      "role": null,
+      "name": "PaperGuard",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "切换语言",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "退出登录",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "返回我的论文",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "章节大纲",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "写作辅助",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "AI 写作助手",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "导入正文",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "预览",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "导出",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "添加章节",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "nav",
+      "role": null,
+      "name": null,
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "input",
+      "role": null,
+      "name": null,
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "input",
+      "role": null,
+      "name": null,
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "input",
+      "role": null,
+      "name": null,
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "input",
+      "role": null,
+      "name": null,
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "input",
+      "role": null,
+      "name": null,
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "input",
+      "role": null,
+      "name": null,
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "input",
+      "role": null,
+      "name": null,
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "button",
+      "role": null,
+      "name": "💾 保存封面信息",
+      "disabled": false,
+      "focusVisible": true
+    },
+    {
+      "tag": "body",
+      "role": null,
+      "name": null,
+      "disabled": false,
+      "focusVisible": false
+    },
+    {
+      "tag": "a",
+      "role": null,
+      "name": "跳到主要内容",
+      "disabled": false,
+      "focusVisible": true
+    }
+  ],
+  "interactive_control_count": 59,
+  "blocked_business_writes": [],
+  "blocked_external_host_count": 1,
+  "logout_status": 200,
+  "dom_name_heuristic_count_without_visibility_or_placeholder": 14,
+  "name_audit_note": "The initial heuristic omitted placeholder and visibility checks. The focused follow-up writer-label-audit-r51-20261018.json is authoritative for visible focusable controls; it found zero unnamed visible focusable controls. The abstract textarea has a placeholder but no explicit label element.",
+  "superseded_by": "writer-label-audit-r51-20261018.json"
+}

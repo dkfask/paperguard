@@ -1,0 +1,29 @@
+{
+  "observed_at": "2026-10-15T07:47:39.949038+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "authenticated production API; synthetic test cohort only; TLS verification enabled; session revoked",
+  "preconditions": {
+    "test_cohort_draft": true,
+    "only_expected_test_member": true,
+    "no_existing_stages": true,
+    "revision_unchanged": true
+  },
+  "create_status": 201,
+  "stage": {
+    "id": "stage-f8ddadcb7167",
+    "key": "proposal",
+    "name": "UAT-20261014-开题报告",
+    "status": "draft",
+    "config_version": 1
+  },
+  "preview_status": 200,
+  "preview": {
+    "ok": true,
+    "errors": [],
+    "warnings": [],
+    "member_snapshot_count": 1
+  },
+  "published": false,
+  "notification_event_created": false
+}

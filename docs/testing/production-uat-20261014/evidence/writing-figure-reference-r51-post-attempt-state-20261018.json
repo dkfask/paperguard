@@ -1,0 +1,20 @@
+{
+  "recorded_at": "2026-10-18T13:35:39+00:00",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "read-only integrity check after an interrupted synthetic figure/reference attempt",
+  "login_status": 200,
+  "project_status": 200,
+  "project": {
+    "id_matches": true,
+    "revision": 20,
+    "section_count": 13,
+    "chapter1_image_node_count": 1,
+    "project_image_node_count": 1,
+    "references_paragraph_count": 1,
+    "synthetic_citation_present": false
+  },
+  "logout_status": 200,
+  "export_list_status": 200,
+  "export_job_count": 1
+}

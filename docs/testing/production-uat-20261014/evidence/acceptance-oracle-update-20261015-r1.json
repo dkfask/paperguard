@@ -1,0 +1,18 @@
+{
+  "recorded_at": "2026-10-15T12:51:35+08:00",
+  "source": "User clarification in this conversation",
+  "target": "https://paper.thunderuni.com",
+  "criteria": [
+    {
+      "scenario": "F08",
+      "criterion": "课题变更审批通过后，主论文标题自动同步为新题目。",
+      "type": "acceptance_oracle"
+    },
+    {
+      "scenario": "F02 / teacher policy draft permissions",
+      "criterion": "教师可以创建和编辑写作规范草稿。",
+      "type": "role_permission_expectation"
+    }
+  ],
+  "scope_note": "These answers confirm expected behavior only; they do not authorize additional production business-object writes. AI remains excluded by the earlier user instruction."
+}

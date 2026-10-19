@@ -1,0 +1,90 @@
+{
+  "observed_at": "2026-10-15T10:21:41+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "production backend loopback over SSH; synthetic UAT content; no AI",
+  "ui_verified": false,
+  "student_login_status": 200,
+  "prior_submission": {
+    "id": "submission-b6586e251afb",
+    "get_status": 200,
+    "state": "returned",
+    "review_cycle": 2,
+    "participant_state_before_v3": "needs_revision"
+  },
+  "draft_update": {
+    "project_id": "proj-dfde4747c750",
+    "section": "ch2_1",
+    "status": 200,
+    "revision_before": 15,
+    "revision_after": 16,
+    "synthetic_definition_present": true
+  },
+  "blocking_comment_response": {
+    "comment_id": "comment-808dd0d12d31",
+    "status": 201,
+    "final_status": "addressed",
+    "responses_count": 1
+  },
+  "candidate": {
+    "status_code": 201,
+    "id": "candidate-5fd30339e84f",
+    "status": "ready",
+    "source_revision": 16,
+    "warning_count": 2,
+    "gates": {
+      "automatic_checks": true,
+      "requirements_acknowledged": true,
+      "completeness": true,
+      "materials": true,
+      "attachments": true,
+      "comment_responses": true
+    }
+  },
+  "submission": {
+    "confirm_status": 200,
+    "id": "submission-fdac25a57359",
+    "number": "SUB-20261015-D12484",
+    "state": "submitted",
+    "review_cycle": 3,
+    "version_id": "version-3ddb03acf618",
+    "source_revision": 16,
+    "idempotent_replay_status": 200,
+    "idempotent_replay_same_submission": true
+  },
+  "version_chain": [
+    {
+      "submission_id": "submission-691de2599180",
+      "version_id": "version-85a5c8892768",
+      "state": "returned",
+      "review_cycle": 1,
+      "source_revision": 14,
+      "v2_marker_present": false,
+      "v3_marker_present": false
+    },
+    {
+      "submission_id": "submission-b6586e251afb",
+      "version_id": "version-57fe21340fa2",
+      "state": "returned",
+      "review_cycle": 2,
+      "source_revision": 15,
+      "v2_marker_present": true,
+      "v3_marker_present": false
+    },
+    {
+      "submission_id": "submission-fdac25a57359",
+      "version_id": "version-3ddb03acf618",
+      "state": "submitted",
+      "review_cycle": 3,
+      "source_revision": 16,
+      "v2_marker_present": true,
+      "v3_marker_present": true
+    }
+  ],
+  "access": {
+    "T-A_get_status": 200,
+    "T-B_get_status": 404
+  },
+  "ai_scope": "Deferred by user; V2/V3 edits were manual synthetic text.",
+  "follow_up": "Teacher resolution of addressed V1/V2 blocking comments and V3 approval gate remain to be tested."
+}

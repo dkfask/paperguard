@@ -1,0 +1,113 @@
+{
+  "recorded_at": "2026-10-15T13:39:32+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "deployment_release_id": "98b51d7-role-workflows-b20261012T085040Z",
+  "scenario": "X10 report/notification reconciliation after a second stage for the same synthetic cohort member",
+  "read_only_requests": [
+    {
+      "actor": "COL-A",
+      "method": "GET",
+      "path": "/api/reports/cohorts/cohort-ed0046d38402",
+      "http_status": 200
+    },
+    {
+      "actor": "T-A",
+      "method": "GET",
+      "path": "/api/notifications",
+      "http_status": 200
+    },
+    {
+      "actor": "S-A",
+      "method": "GET",
+      "path": "/api/notifications",
+      "http_status": 200
+    },
+    {
+      "actor": "S-B",
+      "method": "GET",
+      "path": "/api/notifications",
+      "http_status": 200
+    },
+    {
+      "actor": "T-B",
+      "method": "GET",
+      "path": "/api/notifications",
+      "http_status": 200
+    }
+  ],
+  "report": {
+    "cohort_id": "cohort-ed0046d38402",
+    "member_count": 1,
+    "participant_count": 2,
+    "state_counts": {
+      "archived": 1,
+      "pending_archive": 1,
+      "submitted": 0,
+      "needs_revision": 0
+    },
+    "pending_review_count": 0,
+    "archive_count": 1,
+    "metrics": {
+      "first_submission_count": 2,
+      "revision_submission_count": 3,
+      "on_time_first_submission_rate": 2.0,
+      "archive_completion_rate": 1.0,
+      "denominator": {
+        "member_snapshot_count": 1,
+        "eligible_member_count": 1
+      }
+    }
+  },
+  "notifications": {
+    "COL-A": {
+      "total": 0,
+      "unread": 0,
+      "uat_scoped_count": 0
+    },
+    "T-A": {
+      "total": 7,
+      "unread": 7,
+      "uat_scoped_count": 3,
+      "uat_event_types": {
+        "submission.created": 2,
+        "stage.published": 1
+      }
+    },
+    "S-A": {
+      "total": 21,
+      "unread": 20,
+      "uat_scoped_count": 4,
+      "uat_event_types": {
+        "submission.approved": 1,
+        "submission.returned": 1,
+        "process_record.updated": 1,
+        "stage.published": 1
+      }
+    },
+    "S-B": {
+      "total": 0,
+      "unread": 0,
+      "uat_scoped_count": 0
+    },
+    "T-B": {
+      "total": 0,
+      "unread": 0,
+      "uat_scoped_count": 0
+    }
+  },
+  "interpretation": {
+    "first_submission_rate_exceeds_one": true,
+    "frontend_source_formats_ratio_as_percent": true,
+    "would_render_as": "200% (source-derived; UI rendering not observed)",
+    "archive_rate_conflicts_with_pending_stage_task": true
+  },
+  "limitations": [
+    "Report UI and displayed percentages were not verified because browser content capture remains blocked.",
+    "Notification lists were read only; no event was marked read.",
+    "Counts include prior synthetic test events; UAT-scoped event counts are separated above."
+  ],
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "business_writes_during_this_reconciliation": 0
+}

@@ -1,0 +1,119 @@
+{
+  "recorded_at": "2026-10-15T14:57:36.521Z",
+  "source_revision": "4b79f9638b5ed7f6240b01a51063fc57ce62eafa",
+  "project_id": "proj-57adb8300efa",
+  "scope": "known new synthetic project and its two exports only",
+  "checks": [
+    {
+      "alias": "S-A",
+      "path": "/api/projects/proj-57adb8300efa",
+      "status": 200,
+      "expected": "allow",
+      "result": "PASS"
+    },
+    {
+      "alias": "S-A",
+      "path": "/api/projects/proj-57adb8300efa/export-jobs/export-9db5d2888974/download",
+      "status": 200,
+      "expected": "allow",
+      "result": "PASS"
+    },
+    {
+      "alias": "S-A",
+      "path": "/api/projects/proj-57adb8300efa/export-jobs/export-4a18baf70f00/download",
+      "status": 200,
+      "expected": "allow",
+      "result": "PASS"
+    },
+    {
+      "alias": "S-B",
+      "path": "/api/projects/proj-57adb8300efa",
+      "status": 403,
+      "expected": "deny",
+      "result": "PASS"
+    },
+    {
+      "alias": "S-B",
+      "path": "/api/projects/proj-57adb8300efa/export-jobs/export-9db5d2888974/download",
+      "status": 404,
+      "expected": "deny",
+      "result": "PASS"
+    },
+    {
+      "alias": "S-B",
+      "path": "/api/projects/proj-57adb8300efa/export-jobs/export-4a18baf70f00/download",
+      "status": 404,
+      "expected": "deny",
+      "result": "PASS"
+    },
+    {
+      "alias": "T-B",
+      "path": "/api/projects/proj-57adb8300efa",
+      "status": 403,
+      "expected": "deny",
+      "result": "PASS"
+    },
+    {
+      "alias": "T-B",
+      "path": "/api/projects/proj-57adb8300efa/export-jobs/export-9db5d2888974/download",
+      "status": 404,
+      "expected": "deny",
+      "result": "PASS"
+    },
+    {
+      "alias": "T-B",
+      "path": "/api/projects/proj-57adb8300efa/export-jobs/export-4a18baf70f00/download",
+      "status": 404,
+      "expected": "deny",
+      "result": "PASS"
+    },
+    {
+      "alias": "COL-B",
+      "path": "/api/projects/proj-57adb8300efa",
+      "status": 403,
+      "expected": "deny",
+      "result": "PASS"
+    },
+    {
+      "alias": "COL-B",
+      "path": "/api/projects/proj-57adb8300efa/export-jobs/export-9db5d2888974/download",
+      "status": 404,
+      "expected": "deny",
+      "result": "PASS"
+    },
+    {
+      "alias": "COL-B",
+      "path": "/api/projects/proj-57adb8300efa/export-jobs/export-4a18baf70f00/download",
+      "status": 404,
+      "expected": "deny",
+      "result": "PASS"
+    }
+  ],
+  "sessions": [
+    {
+      "alias": "S-A",
+      "logout_status": 200
+    },
+    {
+      "alias": "S-B",
+      "logout_status": 200
+    },
+    {
+      "alias": "T-B",
+      "logout_status": 200
+    },
+    {
+      "alias": "COL-B",
+      "logout_status": 200
+    }
+  ],
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "status": "passed",
+  "teacher_handoff": {
+    "alias": "T-A",
+    "status": "NOT RUN",
+    "observation": "Previous read of this unbound standalone draft returned 403; teacher assignment and cohort binding preconditions have not been established. This test does not grant access based on another cohort supervision relationship."
+  }
+}

@@ -1,7 +1,5 @@
 # Web UI 改造交付记录（2026-10-09）
 
-> 本页为 UI 实施阶段的历史记录。后续学生抽屉调整与同步主线后的提交门禁见 [合入验证](./ui-refactor-merge-validation-20261009.md)。
-
 ## 身份、授权与视觉基线
 
 - 用户要求按照 [设计方案](../product/ui-refactor-design-20261009.md) 实施，并选择按所提供的 [Muse 原型](https://muse.ai/s/paperguard-xuv6svxns63xsi) 还原。

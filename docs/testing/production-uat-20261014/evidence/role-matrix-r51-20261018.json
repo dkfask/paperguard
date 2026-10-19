@@ -1,0 +1,410 @@
+{
+  "recorded_at": "2026-10-18T12:44:54.534Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "synthetic accounts only; GET plus authentication login/logout; no business writes",
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "accounts": [
+    {
+      "alias": "SYS-A",
+      "role": "admin",
+      "identity_matches": true,
+      "role_matches": true,
+      "landed_after_login": "/workspace",
+      "workspace_path": "/login",
+      "nav_link_count": 6,
+      "nav_links": [
+        {
+          "text": "学校管理员",
+          "href": "/workspace"
+        },
+        {
+          "text": "运行仪表盘",
+          "href": "/workspace"
+        },
+        {
+          "text": "批次工作台",
+          "href": "/workflow"
+        },
+        {
+          "text": "批次与阶段配置",
+          "href": "/cohorts"
+        },
+        {
+          "text": "统计报表",
+          "href": "/workflow?panel=reports"
+        },
+        {
+          "text": "消息",
+          "href": "/workflow?panel=messages"
+        }
+      ],
+      "shell_visible": true,
+      "logout_redirected": true,
+      "protected_route_redirected": true,
+      "blocked_requests": [],
+      "page_errors": []
+    },
+    {
+      "alias": "SCH-A",
+      "role": "admin",
+      "identity_matches": true,
+      "role_matches": true,
+      "landed_after_login": "/workspace",
+      "workspace_path": "/login",
+      "nav_link_count": 6,
+      "nav_links": [
+        {
+          "text": "学校管理员",
+          "href": "/workspace"
+        },
+        {
+          "text": "运行仪表盘",
+          "href": "/workspace"
+        },
+        {
+          "text": "批次工作台",
+          "href": "/workflow"
+        },
+        {
+          "text": "批次与阶段配置",
+          "href": "/cohorts"
+        },
+        {
+          "text": "统计报表",
+          "href": "/workflow?panel=reports"
+        },
+        {
+          "text": "消息",
+          "href": "/workflow?panel=messages"
+        }
+      ],
+      "shell_visible": true,
+      "logout_redirected": true,
+      "protected_route_redirected": true,
+      "blocked_requests": [],
+      "page_errors": []
+    },
+    {
+      "alias": "COL-A",
+      "role": "college_admin",
+      "identity_matches": true,
+      "role_matches": true,
+      "landed_after_login": "/workspace",
+      "workspace_path": "/login",
+      "nav_link_count": 6,
+      "nav_links": [
+        {
+          "text": "学院管理员",
+          "href": "/workspace"
+        },
+        {
+          "text": "运行仪表盘",
+          "href": "/workspace"
+        },
+        {
+          "text": "批次工作台",
+          "href": "/workflow"
+        },
+        {
+          "text": "批次与阶段配置",
+          "href": "/cohorts"
+        },
+        {
+          "text": "统计报表",
+          "href": "/workflow?panel=reports"
+        },
+        {
+          "text": "消息",
+          "href": "/workflow?panel=messages"
+        }
+      ],
+      "shell_visible": true,
+      "logout_redirected": true,
+      "protected_route_redirected": true,
+      "blocked_requests": [],
+      "page_errors": []
+    },
+    {
+      "alias": "COL-B",
+      "role": "college_admin",
+      "identity_matches": true,
+      "role_matches": true,
+      "landed_after_login": "/workspace",
+      "workspace_path": "/login",
+      "nav_link_count": 6,
+      "nav_links": [
+        {
+          "text": "学院管理员",
+          "href": "/workspace"
+        },
+        {
+          "text": "运行仪表盘",
+          "href": "/workspace"
+        },
+        {
+          "text": "批次工作台",
+          "href": "/workflow"
+        },
+        {
+          "text": "批次与阶段配置",
+          "href": "/cohorts"
+        },
+        {
+          "text": "统计报表",
+          "href": "/workflow?panel=reports"
+        },
+        {
+          "text": "消息",
+          "href": "/workflow?panel=messages"
+        }
+      ],
+      "shell_visible": true,
+      "logout_redirected": true,
+      "protected_route_redirected": true,
+      "blocked_requests": [],
+      "page_errors": []
+    },
+    {
+      "alias": "T-A",
+      "role": "teacher",
+      "identity_matches": true,
+      "role_matches": true,
+      "landed_after_login": "/workspace",
+      "workspace_path": "/login",
+      "nav_link_count": 9,
+      "nav_links": [
+        {
+          "text": "指导教师",
+          "href": "/workspace"
+        },
+        {
+          "text": "待办中心",
+          "href": "/workspace"
+        },
+        {
+          "text": "发布论文模板",
+          "href": "/templates"
+        },
+        {
+          "text": "审阅工作台",
+          "href": "/workflow?panel=review"
+        },
+        {
+          "text": "学生进度",
+          "href": "/workflow?panel=progress"
+        },
+        {
+          "text": "指导学生",
+          "href": "/teacher/students"
+        },
+        {
+          "text": "过程材料",
+          "href": "/workflow?panel=materials"
+        },
+        {
+          "text": "写作规范",
+          "href": "/policies"
+        },
+        {
+          "text": "消息",
+          "href": "/workflow?panel=messages"
+        }
+      ],
+      "shell_visible": true,
+      "logout_redirected": true,
+      "protected_route_redirected": true,
+      "blocked_requests": [],
+      "page_errors": []
+    },
+    {
+      "alias": "T-B",
+      "role": "teacher",
+      "identity_matches": true,
+      "role_matches": true,
+      "landed_after_login": "/workspace",
+      "workspace_path": "/login",
+      "nav_link_count": 9,
+      "nav_links": [
+        {
+          "text": "指导教师",
+          "href": "/workspace"
+        },
+        {
+          "text": "待办中心",
+          "href": "/workspace"
+        },
+        {
+          "text": "发布论文模板",
+          "href": "/templates"
+        },
+        {
+          "text": "审阅工作台",
+          "href": "/workflow?panel=review"
+        },
+        {
+          "text": "学生进度",
+          "href": "/workflow?panel=progress"
+        },
+        {
+          "text": "指导学生",
+          "href": "/teacher/students"
+        },
+        {
+          "text": "过程材料",
+          "href": "/workflow?panel=materials"
+        },
+        {
+          "text": "写作规范",
+          "href": "/policies"
+        },
+        {
+          "text": "消息",
+          "href": "/workflow?panel=messages"
+        }
+      ],
+      "shell_visible": true,
+      "logout_redirected": true,
+      "protected_route_redirected": true,
+      "blocked_requests": [],
+      "page_errors": []
+    },
+    {
+      "alias": "S-A",
+      "role": "student",
+      "identity_matches": true,
+      "role_matches": true,
+      "landed_after_login": "/workspace",
+      "workspace_path": "/login",
+      "nav_link_count": 7,
+      "nav_links": [
+        {
+          "text": "学生",
+          "href": "/workspace"
+        },
+        {
+          "text": "任务中心",
+          "href": "/workspace"
+        },
+        {
+          "text": "通用文档",
+          "href": "/document-projects"
+        },
+        {
+          "text": "我的论文",
+          "href": "/"
+        },
+        {
+          "text": "提交与反馈",
+          "href": "/workflow?panel=submissions"
+        },
+        {
+          "text": "过程材料",
+          "href": "/workflow?panel=materials"
+        },
+        {
+          "text": "消息",
+          "href": "/workflow?panel=messages"
+        }
+      ],
+      "shell_visible": true,
+      "logout_redirected": true,
+      "protected_route_redirected": true,
+      "blocked_requests": [],
+      "page_errors": []
+    },
+    {
+      "alias": "S-B",
+      "role": "student",
+      "identity_matches": true,
+      "role_matches": true,
+      "landed_after_login": "/workspace",
+      "workspace_path": "/login",
+      "nav_link_count": 7,
+      "nav_links": [
+        {
+          "text": "学生",
+          "href": "/workspace"
+        },
+        {
+          "text": "任务中心",
+          "href": "/workspace"
+        },
+        {
+          "text": "通用文档",
+          "href": "/document-projects"
+        },
+        {
+          "text": "我的论文",
+          "href": "/"
+        },
+        {
+          "text": "提交与反馈",
+          "href": "/workflow?panel=submissions"
+        },
+        {
+          "text": "过程材料",
+          "href": "/workflow?panel=materials"
+        },
+        {
+          "text": "消息",
+          "href": "/workflow?panel=messages"
+        }
+      ],
+      "shell_visible": true,
+      "logout_redirected": true,
+      "protected_route_redirected": true,
+      "blocked_requests": [],
+      "page_errors": []
+    },
+    {
+      "alias": "S-C",
+      "role": "student",
+      "identity_matches": true,
+      "role_matches": true,
+      "landed_after_login": "/workspace",
+      "workspace_path": "/login",
+      "nav_link_count": 7,
+      "nav_links": [
+        {
+          "text": "学生",
+          "href": "/workspace"
+        },
+        {
+          "text": "任务中心",
+          "href": "/workspace"
+        },
+        {
+          "text": "通用文档",
+          "href": "/document-projects"
+        },
+        {
+          "text": "我的论文",
+          "href": "/"
+        },
+        {
+          "text": "提交与反馈",
+          "href": "/workflow?panel=submissions"
+        },
+        {
+          "text": "过程材料",
+          "href": "/workflow?panel=materials"
+        },
+        {
+          "text": "消息",
+          "href": "/workflow?panel=messages"
+        }
+      ],
+      "shell_visible": true,
+      "logout_redirected": true,
+      "protected_route_redirected": true,
+      "blocked_requests": [],
+      "page_errors": []
+    }
+  ],
+  "status": "passed",
+  "error_present": false,
+  "exit_code": 0
+}

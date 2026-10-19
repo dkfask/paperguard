@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-10-18T10:24:10+08:00",
+  "environment": "production source inspection plus local candidate regression",
+  "deployed_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "production_source": {
+    "path": "backend/app/api/process_records.py",
+    "dedicated_teacher_fields_route_present": false,
+    "submitted_record_generic_edit_lock_present": true,
+    "source_obtained_from": "GitHub commit tree at the exact deployed r51 revision"
+  },
+  "runtime_observation": {
+    "reported_behavior": "After student submission, assigned teacher editing opinion/score returns HTTP 409.",
+    "authenticated_production_replay_this_round": false,
+    "basis": "Current user report, corroborated by the deployed source shape; not independently replayed in an authenticated production session."
+  },
+  "local_candidate": {
+    "commit": "a64e8cdc56e3db76b691c4d4c054452d9f759173",
+    "report": "../../测试报告_F07本地中期教师字段_20261018.md",
+    "result": "PASS locally; backend, browser desktop and narrow-screen regression reported passing.",
+    "deployed": false
+  },
+  "scenario_result": "Production F07 remains FAIL until a new release is deployed and authenticated production regression passes."
+}

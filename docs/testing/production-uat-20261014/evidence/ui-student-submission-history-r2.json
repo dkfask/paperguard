@@ -1,0 +1,44 @@
+{
+  "recorded_at": "2026-10-15T12:04:37+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "executor": "Repository frontend Playwright 1.63.0; isolated headless Chromium",
+  "role_account": "S-A (student; synthetic UAT account)",
+  "viewport": {
+    "width": 1365,
+    "height": 900
+  },
+  "route": "/workflow",
+  "scenario": "F13/F15 partial: inspect student submission and review history from the UI",
+  "observed": {
+    "login_http": 200,
+    "workflow_http": 200,
+    "history_tab_visible": true,
+    "submissions_visible": [
+      {
+        "submission_id": "SUB-20261015-D12484",
+        "status": "已通过"
+      },
+      {
+        "submission_id": "SUB-20261015-F0D216",
+        "status": "已退回"
+      },
+      {
+        "submission_id": "SUB-20261015-2E5D69",
+        "status": "已退回"
+      }
+    ],
+    "unique_submission_count": 3,
+    "api_submissions_http": 200,
+    "page_errors": 0,
+    "api_errors": 0
+  },
+  "scope": {
+    "business_writes": 0,
+    "auth_posts": 1,
+    "ai_calls": 0,
+    "external_notifications": 0,
+    "real_user_data_exported": false
+  },
+  "limitations": "History status visibility does not verify comment contents, decision audit details, archive package download, or document readability."
+}

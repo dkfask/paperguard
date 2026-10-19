@@ -1,0 +1,49 @@
+{
+  "recorded_at": "2026-10-18T15:51:00Z",
+  "defect_id": "DEF-X08-ATTACHMENT-FILENAME-001",
+  "status": "OPEN_NEEDS_TRIAGE",
+  "severity": "UNASSESSED",
+  "environment": {
+    "base_url": "https://paper.thunderuni.com",
+    "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+    "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8"
+  },
+  "scope": {
+    "participant_id": "participant-e7b399a3625e",
+    "record_id": "record-8695cee6c5b3",
+    "artifact_type": "guidance_log",
+    "synthetic_only": true
+  },
+  "observed": [
+    {
+      "filename": "r51-synthetic-attachment.txt",
+      "status": 400,
+      "detail": "附件名不合法",
+      "persisted": false
+    },
+    {
+      "filename": "file.txt",
+      "status": 201,
+      "persisted": true,
+      "same_authorized_content": true,
+      "size_bytes": 40,
+      "sha256": "2bf075c60f4410d05c51a6ed6b3e04b8bf5e15b1ebac81c5190626cef3d7ae1e"
+    }
+  ],
+  "record_state_after_tests": {
+    "state": "draft",
+    "data_empty": true,
+    "attachment_count": 1,
+    "attachment_name": "file.txt"
+  },
+  "suspected_root_cause": "The current local checkout has a filename guard that appears to test the two-character sequences \\\\r and \\\\n rather than CR/LF control characters, which could reject ordinary names containing r or n. This is consistent with the observed production responses but the release source blob was not re-fetched in this turn; treat as a root-cause hypothesis until source identity is checked during repair.",
+  "limitations": [
+    "No code was changed or deployed in this UAT continuation.",
+    "The exact unauthorized response bodies were not read."
+  ],
+  "evidence": [
+    "x08-attachment-fixture-create-r51-20261018.json",
+    "x08-attachment-download-matrix-r51-20261018.json",
+    "测试报告_R51合成材料附件直接下载权限矩阵续测_20261018.md"
+  ]
+}

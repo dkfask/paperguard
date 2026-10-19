@@ -1,0 +1,29 @@
+{
+  "observed_at": "2026-10-15T10:27:59+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "S-A authenticated API export and download over SSH loopback; no local artifact retained",
+  "ui_verified": false,
+  "project_id": "proj-dfde4747c750",
+  "project_revision": 16,
+  "export_job_id": "export-642e40e25c77",
+  "background_job_id": "job-e159862ece24",
+  "create_status": 202,
+  "final_status": "succeeded",
+  "worker_service": "active/running",
+  "worker_attempt_count": 1,
+  "download_status": 200,
+  "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "bytes": 40001,
+  "sha256": "41579c6ce10cfa601bab86e605936cec9b13010b972e3d6c0fafa4a06c67ba8b",
+  "docx_validation": {
+    "zip_valid": true,
+    "document_xml_present": true,
+    "entries": 19,
+    "table_count": 1,
+    "synthetic_title_present": true,
+    "v2_revision_present": true,
+    "v3_revision_present": true
+  },
+  "note": "This verifies the downloaded synthetic artifact through the authenticated API. Browser download/open was not verified."
+}

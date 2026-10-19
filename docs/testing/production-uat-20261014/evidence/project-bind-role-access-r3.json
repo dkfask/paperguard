@@ -1,0 +1,49 @@
+{
+  "observed_at": "2026-10-15T07:49:13.987784+08:00",
+  "target": "https://paper.thunderuni.com",
+  "deployed_revision": "98b51d74cdf0785970d2d42cb8bb5431ae898046",
+  "method": "authenticated production API; synthetic UAT participant and project only; TLS verification enabled; sessions revoked",
+  "preconditions": {
+    "same_revision": true,
+    "test_participant_exists": true,
+    "stage_is_published_test_stage": true,
+    "participant_is_synthetic_student": true
+  },
+  "project_create_status": 200,
+  "project": {
+    "id": "proj-dfde4747c750",
+    "title": "校园图书借阅服务体验研究",
+    "owner_matches_test_student": true,
+    "template_id": "default-gb7713",
+    "batch_context_matches_test_cohort": true
+  },
+  "acknowledge_status": 200,
+  "role_access": {
+    "S-A": {
+      "login_status": 200,
+      "participant_status": 200,
+      "visible_test_project": true
+    },
+    "T-A": {
+      "login_status": 200,
+      "participant_status": 200,
+      "visible_test_project": true
+    },
+    "S-B": {
+      "login_status": 200,
+      "participant_status": 404,
+      "visible_test_project": false
+    },
+    "T-B": {
+      "login_status": 200,
+      "participant_status": 404,
+      "visible_test_project": false
+    },
+    "COL-B": {
+      "login_status": 200,
+      "participant_status": 404,
+      "visible_test_project": false
+    }
+  },
+  "ui_verified": false
+}

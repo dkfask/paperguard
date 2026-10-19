@@ -1,0 +1,192 @@
+{
+  "recorded_at": "2026-10-18T13:43:36.775Z",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "exact-ID read-only check of one known synthetic stage and participant; no role-wide lists or raw instruction text retained",
+  "cohort_id": "cohort-ed0046d38402",
+  "stage_id": "stage-dde2f988be51",
+  "participant_id": "participant-e7b399a3625e",
+  "roles": [
+    {
+      "role_alias": "T-A",
+      "endpoint_kind": "participant",
+      "http_status": 200,
+      "login_status": 200,
+      "role_match": true,
+      "logout_status": 200,
+      "stage_found": true,
+      "stage_id_matches": true,
+      "stage_status": "published",
+      "stage_key_present": true,
+      "config_present": true,
+      "config_version": 1,
+      "config_status": "published",
+      "config_field_names": [
+        "allow_early_write",
+        "created_at",
+        "deadline_at",
+        "id",
+        "is_final",
+        "key",
+        "member_snapshot",
+        "name",
+        "open_at",
+        "prerequisite_stage_ids",
+        "required_manual_checks",
+        "required_materials",
+        "requirement_basis_hash",
+        "requirement_set_ids",
+        "requirement_snapshot",
+        "revision",
+        "revision_days",
+        "rule_packs",
+        "stage_id",
+        "status",
+        "template_id",
+        "updated_at",
+        "version"
+      ],
+      "config_array_field_counts": {
+        "member_snapshot": 1,
+        "prerequisite_stage_ids": 0,
+        "required_manual_checks": 0,
+        "required_materials": 1,
+        "requirement_set_ids": 0,
+        "rule_packs": 0
+      },
+      "date_fields_present": {
+        "open_at": true,
+        "deadline_at": true,
+        "revision_days": true
+      },
+      "has_instruction_or_material_fields": [
+        "required_materials"
+      ],
+      "config_projection_sha256": "2e7b1b6905c6fb8814da949376d79a921e19f927caba53b6a578ba39727a4298"
+    },
+    {
+      "role_alias": "S-A",
+      "endpoint_kind": "participant",
+      "http_status": 200,
+      "login_status": 200,
+      "role_match": true,
+      "logout_status": 200,
+      "stage_found": true,
+      "stage_id_matches": true,
+      "stage_status": "published",
+      "stage_key_present": true,
+      "config_present": true,
+      "config_version": 1,
+      "config_status": "published",
+      "config_field_names": [
+        "allow_early_write",
+        "created_at",
+        "deadline_at",
+        "id",
+        "is_final",
+        "key",
+        "member_snapshot",
+        "name",
+        "open_at",
+        "prerequisite_stage_ids",
+        "required_manual_checks",
+        "required_materials",
+        "requirement_basis_hash",
+        "requirement_set_ids",
+        "requirement_snapshot",
+        "revision",
+        "revision_days",
+        "rule_packs",
+        "stage_id",
+        "status",
+        "template_id",
+        "updated_at",
+        "version"
+      ],
+      "config_array_field_counts": {
+        "member_snapshot": 1,
+        "prerequisite_stage_ids": 0,
+        "required_manual_checks": 0,
+        "required_materials": 1,
+        "requirement_set_ids": 0,
+        "rule_packs": 0
+      },
+      "date_fields_present": {
+        "open_at": true,
+        "deadline_at": true,
+        "revision_days": true
+      },
+      "has_instruction_or_material_fields": [
+        "required_materials"
+      ],
+      "config_projection_sha256": "2e7b1b6905c6fb8814da949376d79a921e19f927caba53b6a578ba39727a4298"
+    },
+    {
+      "role_alias": "COL-A",
+      "endpoint_kind": "cohort_stages",
+      "http_status": 200,
+      "login_status": 200,
+      "role_match": true,
+      "logout_status": 200,
+      "stage_found": true,
+      "stage_id_matches": true,
+      "stage_status": "published",
+      "stage_key_present": true,
+      "config_present": true,
+      "config_version": 1,
+      "config_status": "published",
+      "config_field_names": [
+        "allow_early_write",
+        "created_at",
+        "deadline_at",
+        "id",
+        "is_final",
+        "key",
+        "member_snapshot",
+        "name",
+        "open_at",
+        "prerequisite_stage_ids",
+        "required_manual_checks",
+        "required_materials",
+        "requirement_basis_hash",
+        "requirement_set_ids",
+        "requirement_snapshot",
+        "revision",
+        "revision_days",
+        "rule_packs",
+        "stage_id",
+        "status",
+        "template_id",
+        "updated_at",
+        "version"
+      ],
+      "config_array_field_counts": {
+        "member_snapshot": 1,
+        "prerequisite_stage_ids": 0,
+        "required_manual_checks": 0,
+        "required_materials": 1,
+        "requirement_set_ids": 0,
+        "rule_packs": 0
+      },
+      "date_fields_present": {
+        "open_at": true,
+        "deadline_at": true,
+        "revision_days": true
+      },
+      "has_instruction_or_material_fields": [
+        "required_materials"
+      ],
+      "config_projection_sha256": "2e7b1b6905c6fb8814da949376d79a921e19f927caba53b6a578ba39727a4298"
+    }
+  ],
+  "comparisons": {
+    "teacher_student_projection_equal": true,
+    "manager_projection_equal_to_teacher": true,
+    "all_stages_published": true,
+    "all_exact_ids_match": true
+  },
+  "business_writes": 0,
+  "ai_calls": 0,
+  "external_notifications": 0,
+  "status": "passed"
+}

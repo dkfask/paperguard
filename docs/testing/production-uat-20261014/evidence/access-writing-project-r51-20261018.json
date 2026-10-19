@@ -1,0 +1,118 @@
+{
+  "recorded_at": "2026-10-18T13:14:49+00:00",
+  "source_revision": "facd7ebc1561bfa9d43dee98a66223d6708227f8",
+  "release_id": "facd7eb-r51-candidate-b20261016T080636Z",
+  "scope": "exact-ID read-only authorization check for one retained synthetic writing project and its known export",
+  "project_id": "proj-01c5de3baec6",
+  "export_id": "export-932c3cfdfdaf",
+  "results": [
+    {
+      "role_alias": "S-A",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "project",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "export-list",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "export-detail",
+          "status": 200,
+          "expected": true
+        },
+        {
+          "resource": "export-download",
+          "status": 200,
+          "expected": true
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "role_alias": "S-B",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "project",
+          "status": 403,
+          "expected": true
+        },
+        {
+          "resource": "export-list",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "export-detail",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "export-download",
+          "status": 404,
+          "expected": true
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "role_alias": "T-B",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "project",
+          "status": 403,
+          "expected": true
+        },
+        {
+          "resource": "export-list",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "export-detail",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "export-download",
+          "status": 404,
+          "expected": true
+        }
+      ],
+      "logout_status": 200
+    },
+    {
+      "role_alias": "COL-B",
+      "login_status": 200,
+      "checks": [
+        {
+          "resource": "project",
+          "status": 403,
+          "expected": true
+        },
+        {
+          "resource": "export-list",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "export-detail",
+          "status": 404,
+          "expected": true
+        },
+        {
+          "resource": "export-download",
+          "status": 404,
+          "expected": true
+        }
+      ],
+      "logout_status": 200
+    }
+  ]
+}
