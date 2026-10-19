@@ -1,0 +1,1306 @@
+[
+  {
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/",
+    "panel": "inspection",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workspace",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/templates",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/templates/default-gb7713/edit",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/policies",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/organizations",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/cohorts",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workflow",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=archives",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=reports",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=notifications",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/admin/users",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/admin/ai",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/audit",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/operations",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/document-projects",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/document-packages/publish",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/document-projects/:id",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/write/:id",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/layout-missing-page",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/",
+    "panel": "inspection",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workspace",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/templates",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/templates/default-gb7713/edit",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/policies",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/organizations",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/cohorts",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workflow",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=archives",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=reports",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=notifications",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/admin/users",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/admin/ai",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/audit",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/operations",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/document-projects",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/document-packages/publish",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/document-projects/:id",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/write/:id",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  },
+  {
+    "route": "/layout-missing-page",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ]
+  }
+]

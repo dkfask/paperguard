@@ -1,0 +1,30 @@
+{
+  "gates": [
+    {
+      "gate": "frontend-unit",
+      "exit_code": 0
+    },
+    {
+      "gate": "typecheck",
+      "exit_code": 0
+    },
+    {
+      "gate": "build",
+      "exit_code": 0
+    },
+    {
+      "gate": "college-admin",
+      "exit_code": 0
+    },
+    {
+      "gate": "backend",
+      "exit_code": 0
+    }
+  ],
+  "backend_passed": 1098,
+  "frontend_passed": 103,
+  "frontend_test_files": 24,
+  "final_typecheck_exit": 0,
+  "schema_validator": "30 cases, zero errors/warnings; strategy V1-V5 passed",
+  "diff_check_exit": 0
+}

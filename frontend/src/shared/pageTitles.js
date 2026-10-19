@@ -12,6 +12,10 @@ export function workflowPageTitle(panel, user, t) {
 }
 
 export function pageTitle(route, user, t) {
+  if (user?.role === 'teacher') {
+    const key = { '/document-projects': 'personalDocuments.title', '/document-packages/publish': 'personalTemplates.title', '/templates': 'sidebar.publishThesisTemplate' }[route.path]
+    if (key) return t(key)
+  }
   if (route.path === '/workflow') return workflowPageTitle(String(route.query.panel || ''), user, t)
   if (route.path === '/workspace') {
     const key = { student: 'workspace.studentTitle', teacher: 'workspace.teacherTitle', admin: 'workspace.schoolTitle', college_admin: 'workspace.collegeTitle' }[user?.role]

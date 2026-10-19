@@ -2,6 +2,11 @@ name: PaperGuard online verification
 
 on:
   workflow_dispatch:
+    inputs:
+      expected_backend_revision:
+        description: Full SHA from the deployment record (required for release acceptance)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -36,6 +41,7 @@ jobs:
           PAPERGUARD_ONLINE_ADMIN_PASSWORD: ${{ secrets.PAPERGUARD_ONLINE_ADMIN_PASSWORD }}
           PAPERGUARD_ONLINE_EVIDENCE_PATH: ${{ runner.temp }}/online-verification-evidence.json
           PAPERGUARD_ONLINE_SOURCE_REVISION: ${{ github.sha }}
+          PAPERGUARD_ONLINE_EXPECTED_BACKEND_REVISION: ${{ inputs.expected_backend_revision }}
 
       - name: Upload verification evidence
         if: always()

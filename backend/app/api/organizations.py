@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.auth import current_user, require_manager
+from app.auth import _save_user_metadata, current_user, require_manager
 from app.db import Store, new_id
 from app.models.organization import OrganizationType, OrganizationUnit
 from app.services.access_service import visible_organization_ids
@@ -129,5 +129,5 @@ def update_user_context(user_id: str, req: UserContextRequest,
         if not set(req.organization_context.values()).issubset(visible_ids):
             raise HTTPException(status_code=403, detail="只能设置本人组织范围内的作用域")
     target["organization_context"] = req.organization_context
-    store.save_user(target)
+    _save_user_metadata(store, target, ("organization_context",), actor=user)
     return {"id": target["id"], "organization_context": req.organization_context}

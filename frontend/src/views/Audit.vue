@@ -21,13 +21,13 @@
           <span class="material-symbols-outlined" aria-hidden="true">refresh</span>
         </button>
       </div>
-      <form class="audit-filters" @submit.prevent="load">
+      <button class="small" type="button" @click="filtersOpen = true">{{ t('audit.filterTitle') }}</button><BaseModal :open="filtersOpen" :title="t('audit.filterTitle')" @close="filtersOpen = false"><form class="audit-filters" @submit.prevent="load">
         <label>{{ t('audit.resourceType') }}<select v-model="filters.resource_type"><option value="">{{ t('common.all') }}</option><option value="cohort">{{ t('audit.cohort') }}</option><option value="stage">{{ t('audit.stage') }}</option><option value="participant">{{ t('audit.participant') }}</option><option value="submission">{{ t('audit.submission') }}</option><option value="process_record">{{ t('audit.processRecord') }}</option><option value="archive">{{ t('audit.archive') }}</option><option value="project">{{ t('audit.project') }}</option><option value="policy">{{ t('audit.policy') }}</option></select></label>
         <label>{{ t('audit.action') }}<input v-model="filters.action" maxlength="120" placeholder="e.g. submission.approved" /></label>
         <label>{{ t('audit.actor') }}<input v-model="filters.actor_id" maxlength="120" :placeholder="t('audit.optional')" /></label>
         <label>{{ t('audit.organization') }}<input v-model="filters.organization_id" maxlength="120" :placeholder="t('audit.optional')" /></label>
         <div class="audit-filter-actions"><button class="small primary" type="submit" :disabled="loading"><span class="material-symbols-outlined" aria-hidden="true">search</span>{{ t('common.search') }}</button><button class="small" type="button" :disabled="loading" @click="resetFilters">{{ t('common.reset') }}</button></div>
-      </form>
+      </form></BaseModal>
     </section>
 
     <section class="panel">
@@ -39,14 +39,23 @@
         <template #cell-action="{ value }"><code>{{ value }}</code></template>
         <template #cell-resource_id="{ row }"><span class="audit-resource"><strong>{{ row.resource_type }}</strong><code>{{ row.resource_id }}</code></span></template>
         <template #cell-result="{ value }"><StatusBadge :status="value" :label="value === 'success' ? t('audit.success') : value" /></template>
-        <template #cell-reason="{ value }"><span class="audit-reason">{{ value || '-' }}</span></template>
+        <template #cell-details="{ row }"><button class="tiny" type="button" @click="selectedRow = row">{{ t('screen.details') }}</button></template>
         <template #cell-created_at="{ value }"><time :datetime="value">{{ formatDate(value) }}</time></template>
       </DataTable>
     </section>
+    <BaseModal presentation="drawer" :open="Boolean(selectedRow)" :title="t('audit.records')" @close="selectedRow = null">
+      <dl v-if="selectedRow" class="audit-detail-grid">
+        <template v-for="column in detailColumns" :key="column.key">
+          <dt>{{ column.label }}</dt>
+          <dd>{{ column.key === 'created_at' ? formatDate(selectedRow.created_at) : column.key === 'source' ? (selectedRow.source === 'policy' ? t('audit.policy') : t('audit.workflow')) : (selectedRow[column.key] || '-') }}</dd>
+        </template>
+      </dl>
+    </BaseModal>
   </div>
 </template>
 
 <script setup>
+import BaseModal from '../components/base/BaseModal.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { auth } from '../auth'
 import { downloadAuditEvents, fetchAuditEvents } from '../api'
@@ -57,12 +66,14 @@ import { roleLabel, useI18n } from '../i18n'
 
 const { t, formatDate: formatLocaleDate } = useI18n()
 
+const filtersOpen = ref(false)
 const loading = ref(true)
 const exporting = ref(false)
 const error = ref('')
 const rows = ref([])
+const selectedRow = ref(null)
 const filters = reactive({ resource_type: '', action: '', actor_id: '', organization_id: '' })
-const columns = computed(() => [
+const detailColumns = computed(() => [
   { key: 'created_at', label: t('audit.time'), width: '150px' },
   { key: 'source', label: t('audit.source'), width: '72px' },
   { key: 'action', label: t('audit.action'), width: '190px' },
@@ -72,6 +83,13 @@ const columns = computed(() => [
   { key: 'request_id', label: t('audit.requestId') },
   { key: 'result', label: t('audit.result'), width: '80px' },
   { key: 'reason', label: t('audit.reason') },
+])
+const columns = computed(() => [
+  { key: 'created_at', label: t('audit.time'), width: '130px' },
+  { key: 'action', label: t('audit.action') },
+  { key: 'resource_id', label: t('audit.resource') },
+  { key: 'result', label: t('audit.result'), width: '64px' },
+  { key: 'details', label: t('screen.details'), width: '76px' },
 ])
 
 async function load() {
@@ -101,7 +119,8 @@ onMounted(load)
 
 <style scoped>
 .audit-filter-panel { margin-bottom: 14px; }
-.audit-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 10px; align-items: end; margin-top: 14px; }
+.audit-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: end; }
+.audit-filter-actions { grid-column: 1 / -1; justify-content: flex-end; }
 .audit-filters label { display: grid; gap: 5px; color: var(--on-surface-variant); font-size: 12px; min-width: 0; }
 .audit-filters input, .audit-filters select { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--on-surface); font: inherit; }
 .audit-filter-actions { display: flex; gap: 8px; }
@@ -115,6 +134,11 @@ onMounted(load)
 .data-table th, .data-table td { padding: 10px 9px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
 .data-table th { color: var(--on-surface-variant); font-weight: 650; white-space: nowrap; background: var(--surface-container-low); }
 .data-table tbody tr:hover { background: var(--surface-container-low); }
+.audit-detail-grid { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 16px; }
+.audit-detail-grid dt { color: var(--on-surface-variant); }
+.audit-detail-grid dd { margin: 0; overflow-wrap: anywhere; }
+.audit-page :deep(.data-table) { table-layout: fixed; }
+.audit-page code { overflow-wrap: anywhere; }
 time { white-space: nowrap; color: var(--on-surface-variant); }
 @media (max-width: 900px) { .audit-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }.audit-filter-actions { grid-column: 1 / -1; } }
 @media (max-width: 560px) { .audit-filters { grid-template-columns: 1fr; }.audit-filter-actions { grid-column: auto; } }

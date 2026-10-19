@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.workflow import supervised_student_ids
-from app.auth import current_user, hash_password, require_manager
+from app.auth import _replace_credentials, _save_user_metadata, current_user, hash_password, require_manager
 from app.db import Store
 
 
@@ -179,7 +179,7 @@ def bulk_import_students(
                 existing["teacher_id"] = user["id"]
                 if existing.get("display_name") != display_name and display_name:
                     existing["display_name"] = display_name
-                store.save_user(existing)
+                _save_user_metadata(store, existing, ("teacher_id", "display_name"), actor=user)
                 created_list.append({
                     "username": username,
                     "display_name": existing.get("display_name", display_name),
@@ -250,13 +250,8 @@ def reset_student_password(
     ):
         raise HTTPException(status_code=403, detail="无权操作非本人指导的学生账号")
 
-    pw_hash, salt = hash_password(req.new_password)
-    student["password_hash"] = pw_hash
-    student["salt"] = salt
-    student["must_change_password"] = 1 if req.force_change_password else 0
-    store.save_user(student)
-    # 强制让学生旧会话下线
-    store.revoke_user_sessions(student["id"], _now())
+    _replace_credentials(store, student, req.new_password,
+                         must_change_password=req.force_change_password, actor=user)
 
     return {
         "ok": True,

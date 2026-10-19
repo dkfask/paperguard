@@ -26,6 +26,8 @@ class CandidateBindingError(ValueError):
 
 
 def _candidate_visible(store: Store, record: dict[str, Any], manager: dict[str, Any]) -> bool:
+    if record.get("usage") == "personal":
+        return bool(record.get("owner_id")) and record["owner_id"] == manager.get("id")
     if manager.get("role") == "admin":
         return True
     if str(record.get("owner_id") or "") == str(manager.get("id") or ""):
@@ -52,6 +54,7 @@ def save_parsed_candidate(
         "candidate_kind": kind,
         "owner_id": str(manager.get("id") or ""),
         "organization_context": dict(manager.get("organization_context") or {}),
+        "usage": "personal" if manager.get("role") == "teacher" else "shared",
         "status": str(getattr(candidate, "status", "needs_confirmation")),
     }
     saved = store.save_workflow_record(kind, record)

@@ -71,6 +71,13 @@ describe('F-06 写作页可访问名称', () => {
       expect(tag, `${cls} 缺少 aria-label`).toContain('aria-label')
     }
   })
+
+  it('章节大纲常驻写作区，工具栏按钮只负责定位到大纲', () => {
+    expect(writer).toContain('data-test="writer-outline"')
+    expect(writer).toContain('aria-controls="writer-outline-panel"')
+    expect(writer).toContain('@click="focusOutline"')
+    expect(writer).not.toContain('presentation="drawer" :open="outlineOpen"')
+  })
 })
 
 describe('F-11 状态徽章样式作用域', () => {

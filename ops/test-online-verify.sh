@@ -7,6 +7,9 @@ temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/paperguard-online-contract.XXXXXX")"
 port_file="$temp_dir/port"
 evidence_path="$temp_dir/evidence.json"
 server_log="$temp_dir/server.log"
+contract_revision="abcdef1$(printf '%033d' 0)"
+version_mode_file="$temp_dir/version-mode"
+printf 'valid' > "$version_mode_file"
 # 回环 mock 的口令每次随机生成, 避免在仓库中留下静态凭据
 contract_password="$(python3 -c 'import secrets; print("contract-" + secrets.token_urlsafe(24))')"
 : "${PAPERGUARD_ONLINE_ADMIN_PASSWORD:=$contract_password}"
@@ -22,13 +25,15 @@ cleanup() {
 
 trap cleanup EXIT
 
-python3 - "$port_file" "$contract_password" >"$server_log" 2>&1 <<'PY' &
+python3 - "$port_file" "$contract_password" "$version_mode_file" >"$server_log" 2>&1 <<'PY' &
 import json
+from pathlib import Path
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-port_file, contract_password = sys.argv[1], sys.argv[2]
+port_file, contract_password, version_mode_file = sys.argv[1], sys.argv[2], sys.argv[3]
 token = "a" * 64
+revision = "abcdef1" + "0" * 33
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -50,6 +55,31 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"status": "ok", "service": "paperguard", "probe": "live"}, "application/json")
         elif self.path == "/api/health/ready":
             self._send(200, {"status": "ok", "service": "paperguard", "probe": "ready"}, "application/json")
+        elif self.path == "/api/version":
+            mode = Path(version_mode_file).read_text()
+            identity = {"component": "backend", "product_version": None, "source_revision": revision,
+                        "release_id": "abcdef1-p0-1-b20261009T010000Z", "build_id": "20261009T010000Z",
+                        "built_at": "2026-10-09T01:00:00Z", "identity_status": "declared"}
+            if mode == "missing":
+                identity = {key: None for key in identity}
+                identity.update(component="backend", identity_status="missing")
+            elif mode == "conflict":
+                identity["release_id"] = "fffffff-p0-1-b20261009T010000Z"
+            elif mode == "extra":
+                identity["unexpected_config"] = "must-not-enter-evidence"
+            elif mode == "invalid-build-date":
+                identity["build_id"] = "20260230T010000Z"
+                identity["release_id"] = "abcdef1-p0-1-b20260230T010000Z"
+            elif mode == "invalid-built-at":
+                identity["built_at"] = "2026-02-30T01:00:00Z"
+            elif mode == "numeric-prerelease":
+                identity["product_version"] = "1.2.3-01"
+            elif mode == "empty-prerelease":
+                identity["product_version"] = "1.2.3-.."
+            elif mode == "valid-semver-leap-date":
+                identity.update(product_version="1.2.3-0.alpha+build.7", build_id="20240229T010000Z",
+                                release_id="abcdef1-p0-1-b20240229T010000Z", built_at="2024-02-29T01:00:00Z")
+            self._send(503 if mode == "missing" else 200, identity, "application/json")
         elif self.path == "/api/auth/me":
             self._send(200, {"username": "contract-admin"}, "application/json")
         elif self.path == "/api/document-packages":
@@ -94,16 +124,53 @@ PAPERGUARD_ONLINE_BASE_URL="http://127.0.0.1:$port" \
 PAPERGUARD_ONLINE_ADMIN_USERNAME="contract-admin" \
 PAPERGUARD_ONLINE_EVIDENCE_PATH="$evidence_path" \
 PAPERGUARD_ONLINE_SOURCE_REVISION="contract-test" \
+PAPERGUARD_ONLINE_EXPECTED_BACKEND_REVISION="$contract_revision" \
 bash "$repo_root/ops/online-verify.sh"
 
-jq -e '
+jq -e --arg revision "$contract_revision" '
   .result == "passed" and
-  .format_version == 2 and
+  .format_version == 3 and
   .non_destructive == true and
   .session_metadata_written == true and
-  (.checks | length) == 8 and
+  .verifier_source_revision == "contract-test" and
+  .deployed_backend.source_revision == $revision and
+  .expected_backend_revision == .deployed_backend.source_revision and
+  (.checks | length) == 10 and
   all(.checks[]; .status == "passed")
 ' "$evidence_path" >/dev/null
+
+# Valid prerelease/build identifiers and leap dates remain accepted.
+printf 'valid-semver-leap-date' > "$version_mode_file"
+PAPERGUARD_ONLINE_BASE_URL="http://127.0.0.1:$port" \
+PAPERGUARD_ONLINE_ADMIN_USERNAME="contract-admin" \
+PAPERGUARD_ONLINE_EVIDENCE_PATH="$temp_dir/valid-semver.json" \
+PAPERGUARD_ONLINE_EXPECTED_BACKEND_REVISION="$contract_revision" \
+bash "$repo_root/ops/online-verify.sh" >"$temp_dir/valid-semver.stdout"
+jq -e '.result == "passed" and .deployed_backend.product_version == "1.2.3-0.alpha+build.7"' \
+  "$temp_dir/valid-semver.json" >/dev/null
+
+# A verifier commit is independently recorded, never substituted for deployed identity.
+for mode in missing conflict extra wrong-revision invalid-build-date invalid-built-at numeric-prerelease empty-prerelease; do
+  printf '%s' "$mode" > "$version_mode_file"
+  expected_revision="$contract_revision"
+  expected_check="version.backend"
+  if [[ "$mode" == "wrong-revision" ]]; then
+    expected_revision="ffffffffffffffffffffffffffffffffffffffff"
+    expected_check="version.expected_revision"
+  fi
+  if PAPERGUARD_ONLINE_BASE_URL="http://127.0.0.1:$port" \
+    PAPERGUARD_ONLINE_ADMIN_USERNAME="contract-admin" \
+    PAPERGUARD_ONLINE_EVIDENCE_PATH="$temp_dir/$mode.json" \
+    PAPERGUARD_ONLINE_EXPECTED_BACKEND_REVISION="$expected_revision" \
+    bash "$repo_root/ops/online-verify.sh" >"$temp_dir/$mode.stdout" 2>"$temp_dir/$mode.stderr"; then
+    printf 'invalid backend identity accepted: %s\n' "$mode" >&2
+    exit 1
+  fi
+  jq -e --arg check "$expected_check" '
+    .result == "failed" and .checks[-1].name == $check and .checks[-1].status == "failed" and
+    .session_metadata_written == false and ([.checks[].name] | index("auth.login")) == null
+  ' "$temp_dir/$mode.json" >/dev/null
+done
 
 failure_evidence_path="$temp_dir/failure-evidence.json"
 if PAPERGUARD_ONLINE_BASE_URL="http://example.invalid" \
@@ -119,5 +186,22 @@ jq -e '
   .checks[-1].name == "input.base_url" and
   .checks[-1].status == "failed"
 ' "$failure_evidence_path" >/dev/null
+
+if PAPERGUARD_ONLINE_BASE_URL="https://user:must-not-enter-evidence@example.invalid?private=1" \
+  PAPERGUARD_ONLINE_EVIDENCE_PATH="$temp_dir/url-redaction.json" \
+  bash "$repo_root/ops/online-verify.sh" >"$temp_dir/url.stdout" 2>"$temp_dir/url.stderr"; then
+  exit 1
+fi
+jq -e '.target_base_url == "" and .result == "failed"' "$temp_dir/url-redaction.json" >/dev/null
+
+if PAPERGUARD_ONLINE_BASE_URL="http://127.0.0.1:$port" \
+  PAPERGUARD_ONLINE_ADMIN_USERNAME="contract-admin" \
+  PAPERGUARD_ONLINE_EXPECTED_BACKEND_REVISION="must-not-enter-evidence" \
+  PAPERGUARD_ONLINE_EVIDENCE_PATH="$temp_dir/revision-redaction.json" \
+  bash "$repo_root/ops/online-verify.sh" >"$temp_dir/revision.stdout" 2>"$temp_dir/revision.stderr"; then
+  exit 1
+fi
+jq -e '.expected_backend_revision == null and .checks[-1].name == "input.expected_backend_revision"' \
+  "$temp_dir/revision-redaction.json" >/dev/null
 
 printf 'online verifier contract passed\n'

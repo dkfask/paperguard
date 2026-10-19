@@ -1,0 +1,667 @@
+{
+  "counts": {
+    "total": 82,
+    "passed": 69,
+    "failed": 0,
+    "skipped": 13
+  },
+  "method": "按 project / suite / name 合并最近有效执行。全页面批次的一项分页测试资产失败，经修正并重跑所有直接消费者后关闭；未改产品代码或放宽门禁。",
+  "cases": [
+    {
+      "project": "chromium",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "manager dashboard and every panel fit one desktop viewport",
+      "status": "passed",
+      "seconds": 9.164,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "long lists stay keyboard accessible inside cards and English labels fit",
+      "status": "passed",
+      "seconds": 6.401,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "empty and retry states fit a desktop screen for college administrators",
+      "status": "passed",
+      "seconds": 2.929,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "narrow screens keep all content reachable with the mobile navigation",
+      "status": "passed",
+      "seconds": 2.908,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "loading reserves the viewport until dashboard data arrives",
+      "status": "passed",
+      "seconds": 3.087,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › every administrator route fits and its controls remain reachable",
+      "status": "passed",
+      "seconds": 387.503,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › populated teacher and student routes keep every control reachable",
+      "status": "passed",
+      "seconds": 204.792,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › desktop breakpoint boundaries keep populated work areas inside the shell",
+      "status": "passed",
+      "seconds": 9.669,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › first-login errors remain reachable inside the screen",
+      "status": "passed",
+      "seconds": 6.587,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › navigation failure shares the viewport with the page",
+      "status": "passed",
+      "seconds": 8.659,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › organization member lists paginate every user inside the screen",
+      "status": "passed",
+      "seconds": 11.099,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › retention summary and configuration drawer fit the screen and preserve edits",
+      "status": "passed",
+      "seconds": 92.929,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › all navigation groups fit without scrolling in Chinese and English",
+      "status": "passed",
+      "seconds": 16.603,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › public pages and role certification keep controls accessible",
+      "status": "passed",
+      "seconds": 32.968,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 1280",
+      "status": "passed",
+      "seconds": 8.676,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 1280",
+      "status": "passed",
+      "seconds": 4.802,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 900",
+      "status": "passed",
+      "seconds": 6.793,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 900",
+      "status": "passed",
+      "seconds": 4.962,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 390",
+      "status": "passed",
+      "seconds": 6.593,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 390",
+      "status": "passed",
+      "seconds": 4.612,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › BUG-20261001-01 回归：管理员可在界面把 pending 教师认证为 active",
+      "status": "passed",
+      "seconds": 16.672,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 管理员视角：六个管理组件逐个走查",
+      "status": "passed",
+      "seconds": 7.311,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 未登录视角：公开入口可渲染，受保护入口被正确拦截",
+      "status": "passed",
+      "seconds": 4.871,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 教师视角：指导学生页可渲染且无权限死路",
+      "status": "passed",
+      "seconds": 9.665,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › college_admin 闭环：角色可用性与越权边界",
+      "status": "passed",
+      "seconds": 10.871,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › manager publishes a package from the browser workflow",
+      "status": "passed",
+      "seconds": 9.817,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › published package opens an editor from its parsed section schema",
+      "status": "passed",
+      "seconds": 4.782,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › dynamic editor renders field and content block schemas",
+      "status": "passed",
+      "seconds": 4.476,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › content is autosaved and survives an editor reload",
+      "status": "passed",
+      "seconds": 4.553,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › deterministic validation reports an empty required body",
+      "status": "passed",
+      "seconds": 3.704,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › valid content exports as a DOCX download",
+      "status": "passed",
+      "seconds": 5.728,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-01: unauthenticated users see the login surface",
+      "status": "passed",
+      "seconds": 2.841,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-02: direct protected routes redirect to login",
+      "status": "passed",
+      "seconds": 2.616,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-03: mobile login has no horizontal overflow",
+      "status": "passed",
+      "seconds": 2.557,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "ui-refactor.spec.ts",
+      "name": "workspace errors, retry and panel navigation remain consistent on direct entry",
+      "status": "passed",
+      "seconds": 5.37,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "ui-refactor.spec.ts",
+      "name": "writer keeps its draft, editor instance and selection when panels and viewport change",
+      "status": "passed",
+      "seconds": 6.725,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "ui-refactor.spec.ts",
+      "name": "writer retains a failed Chinese draft and retries the same content",
+      "status": "passed",
+      "seconds": 6.814,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "manager dashboard and every panel fit one desktop viewport",
+      "status": "passed",
+      "seconds": 10.927,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "long lists stay keyboard accessible inside cards and English labels fit",
+      "status": "passed",
+      "seconds": 6.711,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "empty and retry states fit a desktop screen for college administrators",
+      "status": "passed",
+      "seconds": 3.186,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "narrow screens keep all content reachable with the mobile navigation",
+      "status": "passed",
+      "seconds": 3.281,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "admin-workspace-viewport.spec.ts",
+      "name": "loading reserves the viewport until dashboard data arrives",
+      "status": "passed",
+      "seconds": 2.87,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › every administrator route fits and its controls remain reachable",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › populated teacher and student routes keep every control reachable",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › desktop breakpoint boundaries keep populated work areas inside the shell",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › first-login errors remain reachable inside the screen",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › navigation failure shares the viewport with the page",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › organization member lists paginate every user inside the screen",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › retention summary and configuration drawer fit the screen and preserve edits",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › all navigation groups fit without scrolling in Chinese and English",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › public pages and role certification keep controls accessible",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 1280",
+      "status": "passed",
+      "seconds": 8.854,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 1280",
+      "status": "passed",
+      "seconds": 6.674,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 900",
+      "status": "passed",
+      "seconds": 8.508,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 900",
+      "status": "passed",
+      "seconds": 5.599,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 390",
+      "status": "passed",
+      "seconds": 7.556,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 390",
+      "status": "passed",
+      "seconds": 5.264,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › BUG-20261001-01 回归：管理员可在界面把 pending 教师认证为 active",
+      "status": "passed",
+      "seconds": 15.783,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 管理员视角：六个管理组件逐个走查",
+      "status": "passed",
+      "seconds": 17.512,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 未登录视角：公开入口可渲染，受保护入口被正确拦截",
+      "status": "passed",
+      "seconds": 5.15,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 教师视角：指导学生页可渲染且无权限死路",
+      "status": "passed",
+      "seconds": 18.574,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › college_admin 闭环：角色可用性与越权边界",
+      "status": "passed",
+      "seconds": 21.513,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › manager publishes a package from the browser workflow",
+      "status": "passed",
+      "seconds": 9.316,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › published package opens an editor from its parsed section schema",
+      "status": "passed",
+      "seconds": 4.134,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › dynamic editor renders field and content block schemas",
+      "status": "passed",
+      "seconds": 4.08,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › content is autosaved and survives an editor reload",
+      "status": "passed",
+      "seconds": 4.261,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › deterministic validation reports an empty required body",
+      "status": "passed",
+      "seconds": 3.555,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "document-platform.spec.ts",
+      "name": "generic document platform › valid content exports as a DOCX download",
+      "status": "passed",
+      "seconds": 5.561,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-01: unauthenticated users see the login surface",
+      "status": "passed",
+      "seconds": 2.551,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-02: direct protected routes redirect to login",
+      "status": "passed",
+      "seconds": 2.67,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-03: mobile login has no horizontal overflow",
+      "status": "passed",
+      "seconds": 2.767,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "ui-refactor.spec.ts",
+      "name": "workspace errors, retry and panel navigation remain consistent on direct entry",
+      "status": "passed",
+      "seconds": 7.16,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "ui-refactor.spec.ts",
+      "name": "writer keeps its draft, editor instance and selection when panels and viewport change",
+      "status": "passed",
+      "seconds": 6.954,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "ui-refactor.spec.ts",
+      "name": "writer retains a failed Chinese draft and retries the same content",
+      "status": "passed",
+      "seconds": 7.185,
+      "run": "repair-all-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+      "status": "passed",
+      "seconds": 106.358,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "usage-audit.spec.ts",
+      "name": "TC-04-07: collect accessibility and UI evidence for three roles and a short form",
+      "status": "passed",
+      "seconds": 13.098,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "chromium",
+      "suite": "usage-audit.spec.ts",
+      "name": "TC-01-02: certification dialog reflects the completed decision",
+      "status": "passed",
+      "seconds": 4.439,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+      "status": "passed",
+      "seconds": 2.712,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "usage-audit.spec.ts",
+      "name": "TC-04-07: collect accessibility and UI evidence for three roles and a short form",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-pagination-final"
+    },
+    {
+      "project": "mobile-chrome",
+      "suite": "usage-audit.spec.ts",
+      "name": "TC-01-02: certification dialog reflects the completed decision",
+      "status": "skipped",
+      "seconds": 0.0,
+      "run": "repair-pagination-final"
+    }
+  ]
+}

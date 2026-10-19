@@ -12,6 +12,28 @@ import { LoginPage, PaperGuardPage } from './pages/paperguard.page'
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? ''
 const ADMIN_REPLACEMENT = `${ADMIN_PASSWORD}-walkthrough`
 
+async function assertReadableSecondaryActions(page: Page) {
+  // Empty standards pages keep their single action group beside the guidance.
+  const actions = page.locator('.resource-hero-actions button:not(.primary), .policy-empty-actions button:not(.primary)')
+  expect(await actions.count()).toBeGreaterThan(0)
+  for (const action of await actions.all()) {
+    await expect(action).toBeVisible()
+    const contrast = await action.evaluate(el => {
+      const rgb = (value: string) => value.match(/[\d.]+/g)!.map(Number)
+      const luminance = (channels: number[]) => channels.slice(0, 3).map(value => {
+        const fraction = value / 255
+        return fraction <= .04045 ? fraction / 12.92 : ((fraction + .055) / 1.055) ** 2.4
+      }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0)
+      let surface: Element | null = el
+      while (surface && getComputedStyle(surface).backgroundColor === 'rgba(0, 0, 0, 0)') surface = surface.parentElement
+      const foreground = luminance(rgb(getComputedStyle(el).color))
+      const background = luminance(rgb(getComputedStyle(surface || document.body).backgroundColor))
+      return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05)
+    })
+    expect(contrast, `次要操作「${await action.innerText()}」文字对比度`).toBeGreaterThanOrEqual(4.5)
+  }
+}
+
 const stamp = () => `wt${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`
 const fixturePassword = () => `Pwd-${stamp()}-9a`
 
@@ -28,14 +50,15 @@ async function createAccount(page: Page, role: 'student' | 'teacher') {
 /** 通过管理员界面把某账号提升为目标角色（AdminUsers 的角色按钮会同时把 status 置为 active）。 */
 async function promoteViaUi(adminPage: Page, username: string, buttonName: string) {
   await adminPage.goto('/admin/users')
-  const row = adminPage.locator('tr').filter({ hasText: username })
-  await expect(row, `用户目录中找不到 ${username}`).toBeVisible()
-  const button = row.getByRole('button', { name: buttonName })
+  const directory = new PaperGuardPage(adminPage)
+  const dialog = await directory.openUserDetails(username)
+  const button = dialog.getByRole('button', { name: buttonName })
   await expect(button, `${username} 缺少「${buttonName}」按钮`).toBeVisible()
   await new PaperGuardPage(adminPage).waitForMutation('/role-status', async () => {
     await button.click()
   }, 'PUT')
   await expect(adminPage.locator('.ok-banner')).toBeVisible()
+  await directory.closeDetails()
 }
 
 /** 断言页面处于可用状态：有主标题、无错误横幅、且不是进得去却动不了的空壳。 */
@@ -94,17 +117,24 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
     await restoreAdminPassword(request)
   })
 
-  test('BUG-20261001-01 回归：管理员可在界面把 pending 教师认证为 active', async ({ page }) => {
+  test('BUG-20261001-01 回归：管理员可在界面把 pending 教师认证为 active', async ({ page }, info) => {
+    // Put the target beyond the first desktop page to exercise real pagination.
+    for (let index = 0; index < 4; index++) await createAccount(page, 'student')
     const teacher = await createAccount(page, 'teacher')
     await loginAdmin(page)
 
     await page.goto('/admin/users')
-    const row = page.locator('tr').filter({ hasText: teacher.username })
+    const directory = new PaperGuardPage(page)
+    const row = await directory.userRow(teacher.username)
     await expect(row, '待认证教师应出现在用户目录').toBeVisible()
+    if (info.project.name === 'chromium') {
+      await expect(page.getByRole('navigation', { name: '列表分页' }).getByRole('button', { name: '上一页', exact: true })).toBeEnabled()
+    }
 
     // BUG-01 的核心断言：认证按钮必须可见。旧实现下它被 role_application_status 错误守卫隐藏，
     // 且「设为教师」因 role 已是 teacher 被隐藏，四个按钮全部落空形成死路。
-    const approveButton = row.getByRole('button', { name: '通过认证' })
+    const dialog = await directory.openUserDetails(teacher.username)
+    const approveButton = dialog.getByRole('button', { name: '通过认证' })
     await expect(approveButton, 'BUG-01 未修复：pending 教师看不到「通过认证」按钮').toBeVisible()
 
     // pendingTeachers 统计项此前计算了但从不渲染，一并回归
@@ -113,8 +143,11 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
     await new PaperGuardPage(page).waitForMutation('/role-status', async () => {
       await approveButton.click()
     }, 'PUT')
-    await expect(row, '认证后应显示已认证').toContainText('已认证')
-    await expect(row.getByRole('button', { name: '通过认证' }), '已认证后不应再显示认证按钮').toHaveCount(0)
+    await directory.closeDetails()
+    await expect(await directory.userRow(teacher.username), '认证后应显示已认证').toContainText('已认证')
+    const refreshedDialog = await directory.openUserDetails(teacher.username)
+    await expect(refreshedDialog.getByRole('button', { name: '通过认证' }), '重新打开已认证账号不应再显示认证按钮').toHaveCount(0)
+    await directory.closeDetails()
 
     // 反向验证：认证通过后该教师真的能进指导端（_ensure_manager 要求 status=active）
     await new PaperGuardPage(page).logout()
@@ -145,8 +178,14 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
         await expect(page.getByRole('button', { name: '生成备份' })).toBeDisabled()
         await expect(page.locator('.operations-retention-form')).toHaveCount(0)
       }
+      if (route === '/policies') await assertReadableSecondaryActions(page)
       console.log(`  [admin] ${route} → 标题「${info.heading}」，可交互控件 ${info.controls} 个`)
     }
+    await page.goto('/templates/new/edit')
+    await expect(page.locator('h1')).toBeVisible()
+    await assertReadableSecondaryActions(page)
+    await page.locator('.resource-hero-actions button:not(.primary)').click()
+    await expect(page).toHaveURL(/\/templates$/)
   })
 
   test('未登录视角：公开入口可渲染，受保护入口被正确拦截', async ({ page }) => {

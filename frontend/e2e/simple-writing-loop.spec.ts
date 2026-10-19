@@ -15,10 +15,11 @@ test('student completes template writing, checks and downloads a formatted Word 
   await login.login(username, password)
   await page.goto('/')
   const title = `模板约束最小闭环-${stamp}`
-  await page.locator('.create-thesis-bar select').selectOption('default-gb7713')
-  await page.locator('.create-thesis-bar input').fill(title)
+  await page.getByRole('button', { name: '开始一篇新论文', exact: true }).click()
+  await page.locator('.create-thesis-form select').selectOption('default-gb7713')
+  await page.locator('.create-thesis-form input').fill(title)
   const creating = page.waitForResponse(response => response.url().endsWith('/api/projects') && response.request().method() === 'POST')
-  await page.locator('.create-thesis-bar button.primary').click()
+  await page.locator('.create-thesis-form button.primary').click()
   const created = await creating
   expect(created.status()).toBe(201)
   const project = await created.json()
@@ -61,6 +62,8 @@ test('student completes template writing, checks and downloads a formatted Word 
   const emptyCheck = await (await checkingEmpty).json()
   expect(emptyCheck.findings.some(finding => finding.rule_id.endsWith('abstract.empty'))).toBe(true)
   await expect(page.locator('.check-list')).toContainText('模板要求的章节尚未填写: 摘要')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.getByRole('button', { name: '导出', exact: true }).click()
   await expect(page.locator('.missing-panel')).toContainText('摘要')
   await page.locator('.missing-panel button').click()
@@ -76,6 +79,8 @@ test('student completes template writing, checks and downloads a formatted Word 
   const check = await (await checking).json()
   expect(check.findings.filter(finding => finding.rule_id.startsWith('TPL.') && finding.severity === 'error')).toEqual([])
   await expect(page.locator('.writer-review-action')).toBeEnabled()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 
   const downloading = page.waitForEvent('download')
   await page.getByRole('button', { name: '导出', exact: true }).click()

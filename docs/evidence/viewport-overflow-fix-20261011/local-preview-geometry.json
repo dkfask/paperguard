@@ -1,0 +1,204 @@
+[
+  {
+    "role": "admin",
+    "url": "http://127.0.0.1:5173/workspace",
+    "document": {
+      "height": 804,
+      "scrollY": 0,
+      "width": 775
+    },
+    "drawerStates": [],
+    "panels": [
+      {
+        "bottom": 788,
+        "clientHeight": 507,
+        "name": "workspace-layout",
+        "scrollHeight": 507,
+        "top": 280.7890625
+      },
+      {
+        "bottom": 788,
+        "clientHeight": 507,
+        "name": "workspace-main has-report",
+        "scrollHeight": 912,
+        "top": 280.7890625
+      },
+      {
+        "bottom": 788,
+        "clientHeight": 507,
+        "name": "workspace-side",
+        "scrollHeight": 507,
+        "top": 280.7890625
+      }
+    ],
+    "shellScroll": [
+      {
+        "left": 0,
+        "name": "app-shell-host",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell-root app-shell-viewport",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell-main",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell-page",
+        "top": 0
+      }
+    ],
+    "viewport": {
+      "height": 804,
+      "width": 775
+    }
+  },
+  {
+    "role": "teacher",
+    "url": "http://127.0.0.1:5173/workflow?panel=review",
+    "document": {
+      "height": 804,
+      "scrollY": 0,
+      "width": 916
+    },
+    "drawerStates": [],
+    "panels": [
+      {
+        "bottom": 788,
+        "clientHeight": 465,
+        "name": "workflow-layout",
+        "scrollHeight": 465,
+        "top": 323.34375
+      },
+      {
+        "bottom": 788,
+        "clientHeight": 465,
+        "name": "workflow-main",
+        "scrollHeight": 644,
+        "top": 323.34375
+      },
+      {
+        "bottom": 788,
+        "clientHeight": 465,
+        "name": "workflow-side",
+        "scrollHeight": 465,
+        "top": 323.34375
+      }
+    ],
+    "shellScroll": [
+      {
+        "left": 0,
+        "name": "app-shell-host",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell-root app-shell-viewport",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell-main",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell-page",
+        "top": 0
+      }
+    ],
+    "viewport": {
+      "height": 804,
+      "width": 916
+    }
+  },
+  {
+    "role": "student",
+    "url": "http://127.0.0.1:5173/workspace",
+    "document": {
+      "height": 720,
+      "scrollY": 0,
+      "width": 1280
+    },
+    "drawerStates": [
+      {
+        "open": false
+      },
+      {
+        "open": false
+      },
+      {
+        "open": false
+      }
+    ],
+    "panels": [
+      {
+        "bottom": 704,
+        "clientHeight": 400,
+        "name": "workspace-layout",
+        "scrollHeight": 400,
+        "top": 303.640625
+      },
+      {
+        "bottom": 704,
+        "clientHeight": 400,
+        "name": "workspace-main",
+        "scrollHeight": 400,
+        "top": 303.640625
+      },
+      {
+        "bottom": 704,
+        "clientHeight": 400,
+        "name": "workspace-side",
+        "scrollHeight": 529,
+        "top": 303.640625
+      }
+    ],
+    "shellScroll": [
+      {
+        "left": 0,
+        "name": "app-shell-host",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell-root app-shell-viewport",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell-main",
+        "top": 0
+      },
+      {
+        "left": 0,
+        "name": "app-shell-page",
+        "top": 0
+      }
+    ],
+    "viewport": {
+      "height": 720,
+      "width": 1280
+    }
+  }
+]

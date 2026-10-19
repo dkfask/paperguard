@@ -1,0 +1,570 @@
+{
+  "merge_rule": "latest completed run per project/file/name; no raw failure bodies or authentication data",
+  "counts": {
+    "passed": 67,
+    "failed": 2,
+    "skipped": 11
+  },
+  "cases": [
+    {
+      "project": "chromium",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "manager dashboard and every panel fit one desktop viewport",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "long lists stay keyboard accessible inside cards and English labels fit",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "empty and retry states fit a desktop screen for college administrators",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "narrow screens keep all content reachable with the mobile navigation",
+      "status": "passed",
+      "source_run": "navigation-recheck"
+    },
+    {
+      "project": "chromium",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "loading reserves the viewport until dashboard data arrives",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › every administrator route fits and its controls remain reachable",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › populated teacher and student routes keep every control reachable",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › desktop breakpoint boundaries keep populated work areas inside the shell",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › first-login errors remain reachable inside the screen",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › navigation failure shares the viewport with the page",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › organization member lists paginate every user inside the screen",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › retention summary and configuration drawer fit the screen and preserve edits",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › all navigation groups fit without scrolling in Chinese and English",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › public pages and role certification keep controls accessible",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 1280",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 1280",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 900",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 900",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 390",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 390",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › BUG-20261001-01 回归：管理员可在界面把 pending 教师认证为 active",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "chromium",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 管理员视角：六个管理组件逐个走查",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "chromium",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 未登录视角：公开入口可渲染，受保护入口被正确拦截",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "chromium",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 教师视角：指导学生页可渲染且无权限死路",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "chromium",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › college_admin 闭环：角色可用性与越权边界",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "chromium",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › manager publishes a package from the browser workflow",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › published package opens an editor from its parsed section schema",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › dynamic editor renders field and content block schemas",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › content is autosaved and survives an editor reload",
+      "status": "passed",
+      "source_run": "navigation-recheck"
+    },
+    {
+      "project": "chromium",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › deterministic validation reports an empty required body",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › valid content exports as a DOCX download",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+      "status": "failed",
+      "source_run": "lifecycle-complete"
+    },
+    {
+      "project": "chromium",
+      "file": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+      "status": "skipped",
+      "source_run": "revised"
+    },
+    {
+      "project": "chromium",
+      "file": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-01: unauthenticated users see the login surface",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-02: direct protected routes redirect to login",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-03: mobile login has no horizontal overflow",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "ui-refactor.spec.ts",
+      "name": "workspace errors, retry and panel navigation remain consistent on direct entry",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "ui-refactor.spec.ts",
+      "name": "writer keeps its draft, editor instance and selection when panels and viewport change",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "ui-refactor.spec.ts",
+      "name": "writer retains a failed Chinese draft and retries the same content",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "manager dashboard and every panel fit one desktop viewport",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "long lists stay keyboard accessible inside cards and English labels fit",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "empty and retry states fit a desktop screen for college administrators",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "narrow screens keep all content reachable with the mobile navigation",
+      "status": "passed",
+      "source_run": "navigation-recheck"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "admin-workspace-viewport.spec.ts",
+      "name": "loading reserves the viewport until dashboard data arrives",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › every administrator route fits and its controls remain reachable",
+      "status": "skipped",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › populated teacher and student routes keep every control reachable",
+      "status": "skipped",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › desktop breakpoint boundaries keep populated work areas inside the shell",
+      "status": "skipped",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › first-login errors remain reachable inside the screen",
+      "status": "skipped",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › navigation failure shares the viewport with the page",
+      "status": "skipped",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › organization member lists paginate every user inside the screen",
+      "status": "skipped",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › retention summary and configuration drawer fit the screen and preserve edits",
+      "status": "skipped",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › all navigation groups fit without scrolling in Chinese and English",
+      "status": "skipped",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "all-pages-viewport.spec.ts",
+      "name": "all-page desktop viewport › public pages and role certification keep controls accessible",
+      "status": "skipped",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 1280",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 1280",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 900",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 900",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "compact-previews.spec.ts",
+      "name": "short forms fit their content and preserve failed creation at 390",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "compact-previews.spec.ts",
+      "name": "template previews show complete headings without crowded technical controls at 390",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › BUG-20261001-01 回归：管理员可在界面把 pending 教师认证为 active",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 管理员视角：六个管理组件逐个走查",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 未登录视角：公开入口可渲染，受保护入口被正确拦截",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › 教师视角：指导学生页可渲染且无权限死路",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "component-walkthrough.spec.ts",
+      "name": "2026-10-01 界面走查与 BUG-01 回归 › college_admin 闭环：角色可用性与越权边界",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › manager publishes a package from the browser workflow",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › published package opens an editor from its parsed section schema",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › dynamic editor renders field and content block schemas",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › content is autosaved and survives an editor reload",
+      "status": "passed",
+      "source_run": "navigation-recheck"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › deterministic validation reports an empty required body",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "document-platform.spec.ts",
+      "name": "generic document platform › valid content exports as a DOCX download",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+      "status": "skipped",
+      "source_run": "revised"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "full-lifecycle.spec.ts",
+      "name": "PaperGuard browser lifecycle › responsive shell keeps login and deep routes visible",
+      "status": "passed",
+      "source_run": "revised"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-01: unauthenticated users see the login surface",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-02: direct protected routes redirect to login",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "smoke.spec.ts",
+      "name": "PaperGuard frontend smoke › TC-UI-03: mobile login has no horizontal overflow",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "ui-refactor.spec.ts",
+      "name": "workspace errors, retry and panel navigation remain consistent on direct entry",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "ui-refactor.spec.ts",
+      "name": "writer keeps its draft, editor instance and selection when panels and viewport change",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "mobile-chrome",
+      "file": "ui-refactor.spec.ts",
+      "name": "writer retains a failed Chinese draft and retries the same content",
+      "status": "passed",
+      "source_run": "baseline"
+    },
+    {
+      "project": "chromium",
+      "file": "usage-audit.spec.ts",
+      "name": "TC-04-07: collect accessibility and UI evidence for three roles and a short form",
+      "status": "passed",
+      "source_run": "audit-source-final"
+    },
+    {
+      "project": "chromium",
+      "file": "usage-audit.spec.ts",
+      "name": "TC-01-02: certification dialog reflects the completed decision",
+      "status": "failed",
+      "source_run": "audit-source-final"
+    }
+  ]
+}

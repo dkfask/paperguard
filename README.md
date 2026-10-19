@@ -76,6 +76,17 @@ npm run dev                            # http://localhost:5173 (自动代理 /ap
   或 SMTP 的 `PAPERGUARD_SMTP_HOST` / `PORT` / `USER` / `PASSWORD` / `FROM`。
   **未配置邮件服务时，邮箱注册、验证码发送和邮箱绑定明确返回 `EMAIL_NOT_CONFIGURED`，
   不降级为免验证成功**。无邮箱的兼容账号注册与学校统一注册是独立路径。
+- **忘记密码**：登录页通过已绑定并验证的邮箱恢复账号。使用
+  `password_reset` 用途验证码（10 分钟有效、60 秒发送间隔、连续输错 5 次锁定），
+  新密码至少 12 位且含字母与数字。重置成功后验证码失效，原有全部会话撤销；
+  不自动登录、不改变角色或账号状态。未绑定/验证邮箱或邮件服务未配置时，
+  页面提示联系导师或管理员。登录及恢复失败只显示提示信息，请求 ID 保留为内部诊断字段。
+  恢复验证码使用现有 `PAPERGUARD_SECRET_KEY` 主密钥计算绑定邮箱的 HMAC，
+  主密钥缺失时拒绝发码和重置；不接受旧的无密钥验证码摘要。
+  停用账号拒绝恢复、登录与会话访问；待审核账号仍保留原有审批限制。
+  登录签发会话时在事务内复查密码快照，阻止旧密码登录与重置并发产生有效会话。
+  改密、首次设置密码、邮箱绑定及教师重置共用凭据快照复查；
+  身份和组织信息保存只更新对应字段，避免旧请求覆盖已经恢复的密码。
 - **静态密钥保护**：配置 `PAPERGUARD_SECRET_KEY` 后，新写入供应商密钥以 AES-GCM
   `pgsec1$...` 格式加密并校验完整性，页面仅显示脱敏摘要。主密钥使用至少 32 字节随机值，
   通过受控环境保存，和数据库备份分开保管，恢复时使用原主密钥，**不得直接换新值**。
@@ -126,12 +137,75 @@ python3 ops/sync-release-markers.py sync \
 后续提交仍须重新读取 PR 最新 head 的 CI。生产管理员审计已通过生产浏览器核验；生产恢复演练、
 失败归档任务处置、其他角色完整 UAT 仍是未决项，商业化仅完成范围设计。
 
+### 后端构建身份与发布闭环
+
+匿名 `GET /api/version` 返回 `component=backend`、完整 `source_revision`、
+`release_id`、`build_id`、UTC `built_at`、可空的 `product_version` 与
+`identity_status`，响应带 `Cache-Control: no-store`。接口不访问数据库、Git 或运行时
+环境变量；进程创建时从已安装模块旁的 `_build_info.json` 读取一次，并核对后端源码摘要。
+有效声明返回 200 / `declared`；元数据缺失返回 503 / `missing`，字段冲突、源码漂移或
+不安全文件返回 503 / `invalid`，所有身份字段置空。`declared` 是构建身份声明，不能
+单独证明前端、worker、小程序、数据库或整个部署已验证。
+503 同时使用现有 `ErrorBody` 错误字段与关联 `request_id`，保持错误契约和身份空值一致。
+
+发布 ID 采用 `<SHA前7位>-<发布标签>-b<UTC构建ID>`，例如
+`00ee4c9-p0-1-b20261008T145019Z`；完整 SHA 始终单独保留。构建 ID 格式为
+`YYYYMMDDTHHMMSSZ`。产品版本只接受显式 SemVer（如 `0.3.0-rc.1`），尚未统一产品版本时
+保持 `null`，不能从不同组件的包版本猜测或自动分配产品版本。
+
+在明确提交的干净源码/制品目录中冻结身份（只读取 Git，不创建提交）：
+
+```bash
+python3 ops/freeze-build-identity.py --repo /absolute/path/to/paperguard \
+  --revision <已批准发布的40位完整SHA> --build-id <UTC构建ID> --release-label p0-1
+# 可选：--app-dir <实际打包的backend/app目录> --product-version <已批准产品版本>
+PAPERGUARD_REQUIRE_BUILD_IDENTITY=1 docker compose build
+```
+
+生成的 `backend/app/_build_info.json` 不提交 Git，必须随相同后端源码一起打包。
+冻结器逐文件比对所指定提交的应用源码，并核验 `--repo/backend` 中的 Dockerfile、
+requirements.txt、.dockerignore 及可选的 Dockerfile.dockerignore；修改、缺失或额外源码、
+未提交的上述构建输入均拒绝生成身份。`--app-dir` 只指定封装的应用源码，不改变 Docker
+上下文；Docker 构建仍须使用已核验的 `--repo/backend`。Docker 构建遇到
+无效声明始终失败；本地开发允许缺失声明，但 `/api/version` 保持 503。
+release-preflight 会冻结当前检出 SHA，严格构建三个镜像，并比对容器版本接口与发布 ID。
+未提交修改不能借旧提交 SHA 获得新的发布身份或最新提交 CI 证据。
+
+main 每次发布必须完成以下闭环，失败时停止推进并使用已核验的恢复方案：
+
+1. 固定完整 SHA，确认该 SHA 的测试和 release-preflight 全绿；记录目标、窗口、
+   回滚负责人及可恢复的上一版本（非 Docker 服务器使用源码/前端/依赖快照）。
+2. 明确数据库与资产路径，完成一致备份、副本迁移演练和恢复核验；按授权执行部署，
+   记录实际部署 SHA、发布 ID、时间与制品摘要。
+3. 逐项核验 live / ready 200、版本声明与部署 SHA 一致、所需 OpenAPI 路由、前端；
+   小程序品牌需实际客户端验收。暂停或未执行项必须明确保留。
+4. 使用 GitHub Environment `paperguard-online-verification` 中用户提供的三项秘密值，
+   手动触发 online-verification，输入部署记录中的完整 `expected_backend_revision`。
+   workflow 绿色且 evidence artifact 的后端 SHA 匹配后，才结束发布。
+
+线上验证脚本需要 Python >=3.10、curl 和 jq，复用后端的日期 / SemVer 身份校验。
+受控本地配置注入环境后，等价验证命令为：
+
+```bash
+PAPERGUARD_ONLINE_EXPECTED_BACKEND_REVISION=<部署记录中的完整SHA> bash ops/online-verify.sh
+bash ops/test-online-verify.sh  # 回环 mock 契约，不访问生产
+```
+
+新版 evidence（format_version=3）分别记录 `verifier_source_revision` 和
+`deployed_backend.source_revision`；前者绝不能替代后者。未提供期望 SHA 的本地检查只
+检查身份声明，不能作为一次发布的 SHA 对账验收。旧制品没有版本接口，须先部署包含
+该功能且已冻结身份的提交，不能对旧制品跳过版本检查以制造新门禁绿灯。
+
 ## Docker 部署(服务器)
 
 ```bash
 # 1. 服务器安装 Docker + Docker Compose 后:
 git clone https://github.com/dkfask/paperguard.git
 cd paperguard
+# 完成上节授权/备份闭环，检出已通过 CI 的发布 SHA，注入受控配置后:
+python3 ops/freeze-build-identity.py --repo "$PWD" \
+  --revision <已批准的完整SHA> --build-id <UTC构建ID> --release-label p0-1
+export PAPERGUARD_REQUIRE_BUILD_IDENTITY=1
 docker compose up -d --build
 
 # 2. 访问
@@ -230,6 +304,8 @@ docker run --rm -v paperguard_data:/data -v $(pwd):/backup alpine tar czf /backu
 | GET/POST | `/api/saas/v1/tenants/{tenant_id}/memberships` | 成员范围读取与平台管理员成员绑定 |
 | POST | `/api/projects/{id}/export-preview` | 正式下载前只读预览版本、规范门禁、缺失项、章节/表格/图片/公式摘要 |
 | POST | `/api/auth/mp/login` | 微信 code 换取已绑定会话或一次性绑定票据 |
+| POST | `/api/auth/email/code` | 发送邮箱验证码；密码恢复使用 `purpose=password_reset` |
+| POST | `/api/auth/reset-password` | 使用 `email`、`email_code`、`new_password` 恢复密码并撤销旧会话 |
 | POST | `/api/auth/mp/bind` | 用校内账号密码绑定当前微信身份 |
 | POST | `/api/auth/mp/unbind` | 小程序会话下经口令确认解绑微信 |
 

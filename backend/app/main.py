@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.build_identity import load_build_identity
 from app.auth import current_user
 from app.core.context import RequestContext, reset_request_context, set_request_context
 from app.core.structured_logging import log_event
@@ -39,6 +40,7 @@ from app.api.operations import router as operations_router
 from app.api.saas import router as saas_router
 from app.api.process_records import router as process_records_router
 from app.api.audit import router as audit_router
+from app.api.version import router as version_router
 from app.api.workflow import recover_pending_archives, router as workflow_router
 
 
@@ -96,6 +98,7 @@ app = FastAPI(
     version=__version__,
     lifespan=_lifespan,
 )
+app.state.build_identity = load_build_identity()
 
 LOGGER = logging.getLogger("paperguard.http")
 LOGGER.setLevel(os.environ.get("PAPERGUARD_LOG_LEVEL", "INFO"))
@@ -159,6 +162,7 @@ app.include_router(process_records_router)
 app.include_router(operations_router)
 app.include_router(saas_router)
 app.include_router(audit_router)
+app.include_router(version_router)
 
 # 通过 API 鉴权读取项目图片, 不再公开挂载整个 uploads 目录。
 def _configured_upload_dir() -> Path:

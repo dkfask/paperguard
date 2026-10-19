@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
   createParticipantProcessRecord: vi.fn(),
   createSubmissionCandidate: vi.fn(),
   createSubmissionComment: vi.fn(),
+  respondSubmissionComment: vi.fn(),
   decideProcessRecord: vi.fn(),
   downloadProcessRecordAttachment: vi.fn(),
   exportProcessRecord: vi.fn(),

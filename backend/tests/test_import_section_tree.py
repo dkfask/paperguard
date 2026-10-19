@@ -15,10 +15,10 @@ def test_extract_section_tree_recognizes_english_abstract_and_excludes_keywords_
     doc = docx.Document()
     doc.add_paragraph("摘  要")
     doc.add_paragraph("这是中文摘要内容...")
-    doc.add_paragraph("关键词：物联网, 软件架构, 自动化")
-    doc.add_paragraph("Abstract")
+    doc.add_paragraph("关键词：物联网, 软件架构, 自动化", style="Heading 1")
+    doc.add_paragraph("Abstract", style="Heading 1")
     doc.add_paragraph("This is english abstract content...")
-    doc.add_paragraph("Key Words: IoT, Software Architecture, Automation")
+    doc.add_paragraph("Key Words: IoT, Software Architecture, Automation", style="Heading 1")
     doc.add_paragraph("目  录")
     doc.add_paragraph("第1章 绪论")
     doc.add_paragraph("参考文献")
@@ -40,6 +40,7 @@ def test_extract_section_tree_recognizes_english_abstract_and_excludes_keywords_
         assert "english_keywords" not in types
         assert "toc" in types
         assert "heading1" in types
+        assert [s['title'] for s in sections if s['type'].startswith('heading')] == ['第1章 绪论']
 
         abstract_sec = next(s for s in sections if s["type"] == "abstract")
         assert abstract_sec["key"] == "abstract"

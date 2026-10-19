@@ -1,0 +1,84 @@
+{
+  "abstract-lifecycle": [
+    {
+      "project": "chromium",
+      "name": "PaperGuard browser lifecycle › admin teacher student complete lifecycle with real thesis files",
+      "status": "PASS",
+      "seconds": 106.613
+    }
+  ],
+  "abstract-preview-final": [
+    {
+      "project": "chromium",
+      "name": "short forms fit their content and preserve failed creation at 1280",
+      "status": "PASS",
+      "seconds": 9.311
+    },
+    {
+      "project": "chromium",
+      "name": "template previews show complete headings without crowded technical controls at 1280",
+      "status": "PASS",
+      "seconds": 5.746
+    },
+    {
+      "project": "chromium",
+      "name": "short forms fit their content and preserve failed creation at 900",
+      "status": "PASS",
+      "seconds": 8.193
+    },
+    {
+      "project": "chromium",
+      "name": "template previews show complete headings without crowded technical controls at 900",
+      "status": "PASS",
+      "seconds": 5.858
+    },
+    {
+      "project": "chromium",
+      "name": "short forms fit their content and preserve failed creation at 390",
+      "status": "PASS",
+      "seconds": 7.491
+    },
+    {
+      "project": "chromium",
+      "name": "template previews show complete headings without crowded technical controls at 390",
+      "status": "PASS",
+      "seconds": 4.824
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "short forms fit their content and preserve failed creation at 1280",
+      "status": "PASS",
+      "seconds": 9.64
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "template previews show complete headings without crowded technical controls at 1280",
+      "status": "PASS",
+      "seconds": 7.797
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "short forms fit their content and preserve failed creation at 900",
+      "status": "PASS",
+      "seconds": 7.929
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "template previews show complete headings without crowded technical controls at 900",
+      "status": "PASS",
+      "seconds": 6.689
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "short forms fit their content and preserve failed creation at 390",
+      "status": "PASS",
+      "seconds": 7.782
+    },
+    {
+      "project": "mobile-chrome",
+      "name": "template previews show complete headings without crowded technical controls at 390",
+      "status": "PASS",
+      "seconds": 6.112
+    }
+  ]
+}

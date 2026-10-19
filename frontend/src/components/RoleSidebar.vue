@@ -6,8 +6,8 @@
       <span>{{ roleLabel(user?.role) }}</span>
     </div>
 
-    <nav class="sidebar-nav">
-      <div v-for="group in groups" :key="group.label" class="sidebar-group">
+    <ScreenDeck v-model="activeGroup" class="sidebar-nav" :labels="groupLabels">
+      <section v-for="group in groups" :key="group.label" class="sidebar-group">
         <p>{{ group.label }}</p>
         <RouterLink
           v-for="item in group.items"
@@ -21,16 +21,15 @@
           <span class="material-symbols-outlined" aria-hidden="true">{{ item.icon }}</span>
           <span>{{ item.label }}</span>
         </RouterLink>
-      </div>
-    </nav>
-
-    <div v-if="managerTools.length" class="sidebar-tools">
-      <p>{{ t('sidebar.managementTools') }}</p>
-      <RouterLink v-for="tool in managerTools" :key="tool.label" :to="tool.to" class="sidebar-tool" :class="{ active: isActive(tool) }" :aria-current="isActive(tool) ? 'page' : undefined" @click="emit('close-mobile')">
-        <span class="material-symbols-outlined" aria-hidden="true">{{ tool.icon }}</span>
-        <span>{{ tool.label }}</span>
-      </RouterLink>
-    </div>
+      </section>
+      <section v-if="managerTools.length" class="sidebar-tools">
+        <p>{{ t('sidebar.managementTools') }}</p>
+        <RouterLink v-for="tool in managerTools" :key="tool.label" :to="tool.to" class="sidebar-tool" :class="{ active: isActive(tool) }" :aria-current="isActive(tool) ? 'page' : undefined" @click="emit('close-mobile')">
+          <span class="material-symbols-outlined" aria-hidden="true">{{ tool.icon }}</span>
+          <span>{{ tool.label }}</span>
+        </RouterLink>
+      </section>
+    </ScreenDeck>
 
     <div class="sidebar-footer">
       <span class="sidebar-avatar" aria-hidden="true">{{ userInitial }}</span>
@@ -44,7 +43,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import ScreenDeck from './ScreenDeck.vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '../i18n'
 
@@ -56,6 +56,7 @@ const props = defineProps({
 const emit = defineEmits(['close-mobile'])
 const route = useRoute()
 const { t } = useI18n()
+const activeGroup = ref(0)
 
 function roleLabel(role) {
   const key = `role.${role}`
@@ -81,16 +82,18 @@ const groups = computed(() => {
     ] }]
   }
   if (role === 'teacher') {
-    return [{ label: t('sidebar.guidance'), items: [
+    return [{ label: t('sidebar.studentGuidance'), items: [
       { label: t('sidebar.todoCenter'), icon: 'dashboard', to: '/workspace' },
-      { label: t('sidebar.documentProjects'), icon: 'description', to: '/document-projects' },
-      { label: t('sidebar.publishDocumentPackage'), icon: 'publish', to: '/document-packages/publish' },
+      { label: t('sidebar.publishThesisTemplate'), icon: 'publish', to: '/templates' },
       { label: t('sidebar.review'), icon: 'rate_review', to: { path: '/workflow', query: { panel: 'review' } } },
       { label: t('sidebar.progress'), icon: 'groups', to: { path: '/workflow', query: { panel: 'progress' } } },
       { label: t('sidebar.teacherStudents'), icon: 'school', to: '/teacher/students' },
       { label: t('sidebar.materials'), icon: 'folder_managed', to: { path: '/workflow', query: { panel: 'materials' } } },
       { label: t('sidebar.policies'), icon: 'menu_book', to: '/policies' },
       { label: t('sidebar.messages'), icon: 'notifications', to: { path: '/workflow', query: { panel: 'messages' } } },
+    ] }, { label: t('sidebar.personalWriting'), items: [
+      { label: t('personalDocuments.title'), icon: 'description', to: '/document-projects' },
+      { label: t('personalTemplates.title'), icon: 'settings', to: '/document-packages/publish' },
     ] }]
   }
   if (!['admin', 'college_admin'].includes(role)) return []
@@ -127,6 +130,13 @@ const managerTools = computed(() => {
   ]
   return []
 })
+
+const groupLabels = computed(() => [...groups.value.map(group => group.label), ...(managerTools.value.length ? [t('sidebar.managementTools')] : [])])
+watch([() => route.fullPath, () => props.user?.role], () => {
+  const group = groups.value.findIndex(group => group.items.some(isActive))
+  if (group >= 0) activeGroup.value = group
+  else if (managerTools.value.some(isActive)) activeGroup.value = groups.value.length
+}, { immediate: true })
 
 function isActive(item) {
   const target = typeof item.to === 'string' ? item.to : item.to.path

@@ -1,0 +1,4197 @@
+[
+  {
+    "route": "/",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/",
+    "panel": "inspection",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/workspace",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 280.78125,
+        "bottom": 788,
+        "height": 507
+      },
+      {
+        "name": "workspace-main has-report",
+        "top": 280.78125,
+        "bottom": 788,
+        "height": 507
+      },
+      {
+        "name": "workspace-side",
+        "top": 280.78125,
+        "bottom": 788,
+        "height": 507
+      }
+    ]
+  },
+  {
+    "route": "/templates",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-side",
+        "top": 552,
+        "bottom": 788,
+        "height": 236
+      }
+    ]
+  },
+  {
+    "route": "/templates/default-gb7713/edit",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/policies",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/organizations",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/cohorts",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      },
+      {
+        "name": "workspace-main",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      },
+      {
+        "name": "workspace-side",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      }
+    ]
+  },
+  {
+    "route": "/workflow",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout",
+        "top": 398.34375,
+        "bottom": 788,
+        "height": 390
+      },
+      {
+        "name": "workflow-main",
+        "top": 398.34375,
+        "bottom": 788,
+        "height": 390
+      },
+      {
+        "name": "workflow-side",
+        "top": 398.34375,
+        "bottom": 788,
+        "height": 390
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=archives",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-main-only",
+        "top": 398.34375,
+        "bottom": 788,
+        "height": 390
+      },
+      {
+        "name": "workflow-main",
+        "top": 398.34375,
+        "bottom": 788,
+        "height": 390
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=reports",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 398.34375,
+        "bottom": 788,
+        "height": 390
+      },
+      {
+        "name": "workflow-side",
+        "top": 398.34375,
+        "bottom": 788,
+        "height": 390
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=messages",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 398.34375,
+        "bottom": 788,
+        "height": 390
+      },
+      {
+        "name": "workflow-side",
+        "top": 398.34375,
+        "bottom": 788,
+        "height": 390
+      }
+    ]
+  },
+  {
+    "route": "/admin/users",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/admin/ai",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 170.34375,
+        "bottom": 788,
+        "height": 618
+      },
+      {
+        "name": "workspace-main",
+        "top": 170.34375,
+        "bottom": 788,
+        "height": 618
+      },
+      {
+        "name": "workspace-side",
+        "top": 170.34375,
+        "bottom": 788,
+        "height": 618
+      }
+    ]
+  },
+  {
+    "route": "/audit",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/operations",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      },
+      {
+        "name": "workspace-main",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      },
+      {
+        "name": "workspace-side",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      }
+    ]
+  },
+  {
+    "route": "/document-projects",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-packages/publish",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-projects/docproj-3934fc8fae40",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/write/proj-e63f02e19bea",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "writer-columns",
+        "top": 167,
+        "bottom": 804,
+        "height": 637
+      },
+      {
+        "name": "sidebar",
+        "top": 167,
+        "bottom": 803.984375,
+        "height": 637
+      },
+      {
+        "name": "editor-pane",
+        "top": 167,
+        "bottom": 514.453125,
+        "height": 347
+      },
+      {
+        "name": "writer-context",
+        "top": 514.453125,
+        "bottom": 803.984375,
+        "height": 289
+      }
+    ]
+  },
+  {
+    "route": "/layout-missing-page",
+    "width": 775,
+    "height": 804,
+    "documentWidth": 775,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/",
+    "panel": "inspection",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/workspace",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 280.78125,
+        "bottom": 788,
+        "height": 507
+      },
+      {
+        "name": "workspace-main has-report",
+        "top": 280.78125,
+        "bottom": 788,
+        "height": 507
+      },
+      {
+        "name": "workspace-side",
+        "top": 280.78125,
+        "bottom": 788,
+        "height": 507
+      }
+    ]
+  },
+  {
+    "route": "/templates",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-side",
+        "top": 167.4375,
+        "bottom": 788,
+        "height": 621
+      }
+    ]
+  },
+  {
+    "route": "/templates/default-gb7713/edit",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/policies",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/organizations",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/cohorts",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      },
+      {
+        "name": "workspace-main",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      },
+      {
+        "name": "workspace-side",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      }
+    ]
+  },
+  {
+    "route": "/workflow",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout",
+        "top": 421.34375,
+        "bottom": 788,
+        "height": 367
+      },
+      {
+        "name": "workflow-main",
+        "top": 421.34375,
+        "bottom": 788,
+        "height": 367
+      },
+      {
+        "name": "workflow-side",
+        "top": 421.34375,
+        "bottom": 788,
+        "height": 367
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=archives",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-main-only",
+        "top": 421.34375,
+        "bottom": 788,
+        "height": 367
+      },
+      {
+        "name": "workflow-main",
+        "top": 421.34375,
+        "bottom": 788,
+        "height": 367
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=reports",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 421.34375,
+        "bottom": 788,
+        "height": 367
+      },
+      {
+        "name": "workflow-side",
+        "top": 421.34375,
+        "bottom": 788,
+        "height": 367
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=messages",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 421.34375,
+        "bottom": 788,
+        "height": 367
+      },
+      {
+        "name": "workflow-side",
+        "top": 421.34375,
+        "bottom": 788,
+        "height": 367
+      }
+    ]
+  },
+  {
+    "route": "/admin/users",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/admin/ai",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 170.34375,
+        "bottom": 788,
+        "height": 618
+      },
+      {
+        "name": "workspace-main",
+        "top": 170.34375,
+        "bottom": 788,
+        "height": 618
+      },
+      {
+        "name": "workspace-side",
+        "top": 170.34375,
+        "bottom": 788,
+        "height": 618
+      }
+    ]
+  },
+  {
+    "route": "/audit",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/operations",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      },
+      {
+        "name": "workspace-main",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      },
+      {
+        "name": "workspace-side",
+        "top": 293.640625,
+        "bottom": 788,
+        "height": 494
+      }
+    ]
+  },
+  {
+    "route": "/document-projects",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-packages/publish",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-projects/docproj-3934fc8fae40",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/write/proj-e63f02e19bea",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "writer-columns",
+        "top": 215,
+        "bottom": 804,
+        "height": 589
+      },
+      {
+        "name": "sidebar",
+        "top": 215,
+        "bottom": 804,
+        "height": 589
+      },
+      {
+        "name": "editor-pane",
+        "top": 215,
+        "bottom": 536.265625,
+        "height": 321
+      },
+      {
+        "name": "writer-context",
+        "top": 536.265625,
+        "bottom": 804,
+        "height": 267
+      }
+    ]
+  },
+  {
+    "route": "/layout-missing-page",
+    "width": 916,
+    "height": 804,
+    "documentWidth": 916,
+    "documentHeight": 804,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/",
+    "panel": "inspection",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/workspace",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 254.296875,
+        "bottom": 628,
+        "height": 374
+      },
+      {
+        "name": "workspace-main has-report",
+        "top": 254.296875,
+        "bottom": 628,
+        "height": 374
+      },
+      {
+        "name": "workspace-side",
+        "top": 254.296875,
+        "bottom": 628,
+        "height": 374
+      }
+    ]
+  },
+  {
+    "route": "/templates",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-side",
+        "top": 167.4375,
+        "bottom": 624,
+        "height": 457
+      }
+    ]
+  },
+  {
+    "route": "/templates/default-gb7713/edit",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/policies",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/organizations",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/cohorts",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 293.640625,
+        "bottom": 624,
+        "height": 330
+      },
+      {
+        "name": "workspace-main",
+        "top": 293.640625,
+        "bottom": 624,
+        "height": 330
+      },
+      {
+        "name": "workspace-side",
+        "top": 293.640625,
+        "bottom": 624,
+        "height": 330
+      }
+    ]
+  },
+  {
+    "route": "/workflow",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout",
+        "top": 403.34375,
+        "bottom": 624,
+        "height": 221
+      },
+      {
+        "name": "workflow-main",
+        "top": 403.34375,
+        "bottom": 624,
+        "height": 221
+      },
+      {
+        "name": "workflow-side",
+        "top": 403.34375,
+        "bottom": 624,
+        "height": 221
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=archives",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-main-only",
+        "top": 403.34375,
+        "bottom": 624,
+        "height": 221
+      },
+      {
+        "name": "workflow-main",
+        "top": 403.34375,
+        "bottom": 624,
+        "height": 221
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=reports",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 403.34375,
+        "bottom": 624,
+        "height": 221
+      },
+      {
+        "name": "workflow-side",
+        "top": 403.34375,
+        "bottom": 624,
+        "height": 221
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=messages",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 403.34375,
+        "bottom": 624,
+        "height": 221
+      },
+      {
+        "name": "workflow-side",
+        "top": 403.34375,
+        "bottom": 624,
+        "height": 221
+      }
+    ]
+  },
+  {
+    "route": "/admin/users",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/admin/ai",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 170.34375,
+        "bottom": 624,
+        "height": 454
+      },
+      {
+        "name": "workspace-main",
+        "top": 170.34375,
+        "bottom": 624,
+        "height": 454
+      },
+      {
+        "name": "workspace-side",
+        "top": 170.34375,
+        "bottom": 624,
+        "height": 454
+      }
+    ]
+  },
+  {
+    "route": "/audit",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/operations",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 293.640625,
+        "bottom": 624,
+        "height": 330
+      },
+      {
+        "name": "workspace-main",
+        "top": 293.640625,
+        "bottom": 624,
+        "height": 330
+      },
+      {
+        "name": "workspace-side",
+        "top": 293.640625,
+        "bottom": 624,
+        "height": 330
+      }
+    ]
+  },
+  {
+    "route": "/document-projects",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-packages/publish",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-projects/docproj-3934fc8fae40",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/write/proj-e63f02e19bea",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "writer-columns",
+        "top": 167,
+        "bottom": 640,
+        "height": 473
+      },
+      {
+        "name": "sidebar",
+        "top": 167,
+        "bottom": 640,
+        "height": 473
+      },
+      {
+        "name": "editor-pane",
+        "top": 167,
+        "bottom": 425,
+        "height": 258
+      },
+      {
+        "name": "writer-context",
+        "top": 425,
+        "bottom": 640,
+        "height": 214
+      }
+    ]
+  },
+  {
+    "route": "/layout-missing-page",
+    "width": 1100,
+    "height": 640,
+    "documentWidth": 1100,
+    "documentHeight": 640,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/",
+    "panel": "inspection",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/workspace",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 246.296875,
+        "bottom": 708,
+        "height": 462
+      },
+      {
+        "name": "workspace-main has-report",
+        "top": 246.296875,
+        "bottom": 708,
+        "height": 462
+      },
+      {
+        "name": "workspace-side",
+        "top": 246.296875,
+        "bottom": 708,
+        "height": 462
+      }
+    ]
+  },
+  {
+    "route": "/templates",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-side",
+        "top": 167.4375,
+        "bottom": 704,
+        "height": 537
+      }
+    ]
+  },
+  {
+    "route": "/templates/default-gb7713/edit",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/policies",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/organizations",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/cohorts",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 303.640625,
+        "bottom": 704,
+        "height": 400
+      },
+      {
+        "name": "workspace-main",
+        "top": 303.640625,
+        "bottom": 704,
+        "height": 400
+      },
+      {
+        "name": "workspace-side",
+        "top": 303.640625,
+        "bottom": 704,
+        "height": 400
+      }
+    ]
+  },
+  {
+    "route": "/workflow",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout",
+        "top": 333.34375,
+        "bottom": 704,
+        "height": 371
+      },
+      {
+        "name": "workflow-main",
+        "top": 333.34375,
+        "bottom": 704,
+        "height": 371
+      },
+      {
+        "name": "workflow-side",
+        "top": 333.34375,
+        "bottom": 704,
+        "height": 371
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=archives",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-main-only",
+        "top": 333.34375,
+        "bottom": 704,
+        "height": 371
+      },
+      {
+        "name": "workflow-main",
+        "top": 333.34375,
+        "bottom": 704,
+        "height": 371
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=reports",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 333.34375,
+        "bottom": 704,
+        "height": 371
+      },
+      {
+        "name": "workflow-side",
+        "top": 333.34375,
+        "bottom": 704,
+        "height": 371
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=messages",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 333.34375,
+        "bottom": 704,
+        "height": 371
+      },
+      {
+        "name": "workflow-side",
+        "top": 333.34375,
+        "bottom": 704,
+        "height": 371
+      }
+    ]
+  },
+  {
+    "route": "/admin/users",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/admin/ai",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 193.4375,
+        "bottom": 704,
+        "height": 511
+      },
+      {
+        "name": "workspace-main",
+        "top": 193.4375,
+        "bottom": 704,
+        "height": 511
+      },
+      {
+        "name": "workspace-side",
+        "top": 193.4375,
+        "bottom": 704,
+        "height": 511
+      }
+    ]
+  },
+  {
+    "route": "/audit",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/operations",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 303.640625,
+        "bottom": 704,
+        "height": 400
+      },
+      {
+        "name": "workspace-main",
+        "top": 303.640625,
+        "bottom": 704,
+        "height": 400
+      },
+      {
+        "name": "workspace-side",
+        "top": 303.640625,
+        "bottom": 704,
+        "height": 400
+      }
+    ]
+  },
+  {
+    "route": "/document-projects",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-packages/publish",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-projects/docproj-3934fc8fae40",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/write/proj-e63f02e19bea",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "writer-columns",
+        "top": 167,
+        "bottom": 720,
+        "height": 553
+      },
+      {
+        "name": "sidebar",
+        "top": 167,
+        "bottom": 720,
+        "height": 553
+      },
+      {
+        "name": "editor-pane",
+        "top": 167,
+        "bottom": 720,
+        "height": 553
+      },
+      {
+        "name": "writer-context",
+        "top": 167,
+        "bottom": 720,
+        "height": 553
+      }
+    ]
+  },
+  {
+    "route": "/layout-missing-page",
+    "width": 1280,
+    "height": 720,
+    "documentWidth": 1280,
+    "documentHeight": 720,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/",
+    "panel": "inspection",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/workspace",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 280.78125,
+        "bottom": 801,
+        "height": 520
+      },
+      {
+        "name": "workspace-main has-report",
+        "top": 280.78125,
+        "bottom": 801,
+        "height": 520
+      },
+      {
+        "name": "workspace-side",
+        "top": 280.78125,
+        "bottom": 801,
+        "height": 520
+      }
+    ]
+  },
+  {
+    "route": "/templates",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-side",
+        "top": 167.4375,
+        "bottom": 801,
+        "height": 634
+      }
+    ]
+  },
+  {
+    "route": "/templates/default-gb7713/edit",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/policies",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/organizations",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/cohorts",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 303.640625,
+        "bottom": 801,
+        "height": 497
+      },
+      {
+        "name": "workspace-main",
+        "top": 303.640625,
+        "bottom": 801,
+        "height": 497
+      },
+      {
+        "name": "workspace-side",
+        "top": 303.640625,
+        "bottom": 801,
+        "height": 497
+      }
+    ]
+  },
+  {
+    "route": "/workflow",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout",
+        "top": 333.34375,
+        "bottom": 801,
+        "height": 468
+      },
+      {
+        "name": "workflow-main",
+        "top": 333.34375,
+        "bottom": 801,
+        "height": 468
+      },
+      {
+        "name": "workflow-side",
+        "top": 333.34375,
+        "bottom": 801,
+        "height": 468
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=archives",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-main-only",
+        "top": 333.34375,
+        "bottom": 801,
+        "height": 468
+      },
+      {
+        "name": "workflow-main",
+        "top": 333.34375,
+        "bottom": 801,
+        "height": 468
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=reports",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 333.34375,
+        "bottom": 801,
+        "height": 468
+      },
+      {
+        "name": "workflow-side",
+        "top": 333.34375,
+        "bottom": 801,
+        "height": 468
+      }
+    ]
+  },
+  {
+    "route": "/workflow?panel=messages",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workflow-layout workflow-layout-single workflow-layout-side-only",
+        "top": 333.34375,
+        "bottom": 801,
+        "height": 468
+      },
+      {
+        "name": "workflow-side",
+        "top": 333.34375,
+        "bottom": 801,
+        "height": 468
+      }
+    ]
+  },
+  {
+    "route": "/admin/users",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/admin/ai",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 170.34375,
+        "bottom": 801,
+        "height": 631
+      },
+      {
+        "name": "workspace-main",
+        "top": 170.34375,
+        "bottom": 801,
+        "height": 631
+      },
+      {
+        "name": "workspace-side",
+        "top": 170.34375,
+        "bottom": 801,
+        "height": 631
+      }
+    ]
+  },
+  {
+    "route": "/audit",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/operations",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "workspace-layout",
+        "top": 303.640625,
+        "bottom": 801,
+        "height": 497
+      },
+      {
+        "name": "workspace-main",
+        "top": 303.640625,
+        "bottom": 801,
+        "height": 497
+      },
+      {
+        "name": "workspace-side",
+        "top": 303.640625,
+        "bottom": 801,
+        "height": 497
+      }
+    ]
+  },
+  {
+    "route": "/document-projects",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-packages/publish",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/document-projects/docproj-3934fc8fae40",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  },
+  {
+    "route": "/write/proj-e63f02e19bea",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": [
+      {
+        "name": "writer-columns",
+        "top": 175,
+        "bottom": 817,
+        "height": 642
+      },
+      {
+        "name": "sidebar",
+        "top": 175,
+        "bottom": 817,
+        "height": 642
+      },
+      {
+        "name": "editor-pane",
+        "top": 175,
+        "bottom": 817,
+        "height": 642
+      },
+      {
+        "name": "writer-context",
+        "top": 175,
+        "bottom": 817,
+        "height": 642
+      }
+    ]
+  },
+  {
+    "route": "/layout-missing-page",
+    "width": 1384,
+    "height": 817,
+    "documentWidth": 1384,
+    "documentHeight": 817,
+    "scrollY": 0,
+    "workAreaScroll": 0,
+    "shellScroll": [
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      },
+      {
+        "top": 0,
+        "left": 0
+      }
+    ],
+    "workAreas": []
+  }
+]

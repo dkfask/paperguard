@@ -1,14 +1,15 @@
 <template>
   <div v-if="items.length" class="workspace-archive-list">
-    <div v-for="archive in items.slice(0, limit)" :key="archive.id" class="workspace-archive-row">
-      <div><strong>{{ archive.submission_number || archive.submission_id }}</strong><span>{{ formatDate(archive.created_at) }}</span></div>
+    <ScreenCollection :items="items" :row-height="60" v-slot="{ items: visibleItems }"><div v-for="archive in visibleItems" :key="archive.id" class="workspace-archive-row">
+      <div><strong>{{ archive.project_title || archive.submission_number || t('workflow.formalSubmission') }}</strong><span v-if="archive.project_title">{{ archive.student_name }} · {{ archive.stage_name }} · {{ archive.submission_number }}</span><span>{{ formatDate(archive.created_at) }}</span></div>
       <StatusBadge :status="archive.status" :label="statusLabel(archive.status)" />
-    </div>
+    </div></ScreenCollection>
   </div>
   <AsyncState v-else state="empty" :title="t('archive.empty')" :detail="t('archive.emptyDetail')" />
 </template>
 
 <script setup>
+import ScreenCollection from './ScreenCollection.vue'
 import AsyncState from './AsyncState.vue'
 import StatusBadge from './StatusBadge.vue'
 import { useI18n } from '../i18n'

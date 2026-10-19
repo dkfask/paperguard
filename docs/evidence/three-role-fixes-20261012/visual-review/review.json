@@ -1,0 +1,16 @@
+[
+  {
+    "role": "admin",
+    "baseline": "frontend/e2e/full-lifecycle.spec.ts-snapshots/full-lifecycle-admin-shell-chromium-darwin.png",
+    "before_sha256": "d0c85d525de4eb2166c78eb9db23416617895c5529a154994693c387b76e8c96",
+    "after_sha256": "1c12624d286f6fc81d514e9300f185dedd2144dc913a4fee5450c2ee126f2aa8",
+    "disposition": "CONTRACT-DRIFT: reviewed approved layout; functional and download checks passed; no threshold change"
+  },
+  {
+    "role": "student",
+    "baseline": "frontend/e2e/full-lifecycle.spec.ts-snapshots/full-lifecycle-student-shell-chromium-darwin.png",
+    "before_sha256": "bdad6fa857478c2affc122a842aa0fb457dad8ba91cd4369f9a2f187adcf94f2",
+    "after_sha256": "2deb279e4d3976c101d88d185c930b951afca7e69bea17834ff988e0eedf77d1",
+    "disposition": "CONTRACT-DRIFT: reviewed approved layout; functional and download checks passed; no threshold change"
+  }
+]

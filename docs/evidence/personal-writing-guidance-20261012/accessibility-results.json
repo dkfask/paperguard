@@ -1,0 +1,42 @@
+[
+  {
+    "name": "a11y-review",
+    "violations": 0
+  },
+  {
+    "name": "a11y-login",
+    "violations": 0
+  },
+  {
+    "name": "a11y-admin-workspace",
+    "violations": 0
+  },
+  {
+    "name": "a11y-student-workspace",
+    "violations": 0
+  },
+  {
+    "name": "a11y-teacher-workflow",
+    "violations": 0
+  },
+  {
+    "name": "a11y-teacher-workspace",
+    "violations": 0
+  },
+  {
+    "name": "a11y-admin-workflow",
+    "violations": 0
+  },
+  {
+    "name": "a11y-create-thesis",
+    "violations": 0
+  },
+  {
+    "name": "a11y-create-cohort",
+    "violations": 0
+  },
+  {
+    "name": "a11y-student-workflow",
+    "violations": 0
+  }
+]

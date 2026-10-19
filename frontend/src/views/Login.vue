@@ -18,21 +18,18 @@
     <main class="stitch-auth-main">
       <div class="auth-heading-box">
         <h1 class="auth-title">
-          {{ forceChange ? t('auth.setPasswordTitle') : t('auth.welcomeTitle') }}
+          {{ recovering ? t('auth.resetPasswordTitle') : forceChange ? t('auth.setPasswordTitle') : t('auth.welcomeTitle') }}
         </h1>
         <p class="auth-sub">
-          {{ forceChange ? t('auth.setPasswordSub') : t('auth.loginSub') }}
+          {{ recovering ? t('auth.resetPasswordSub') : forceChange ? t('auth.setPasswordSub') : t('auth.loginSub') }}
         </p>
       </div>
 
       <!-- Stitch Glassmorphic Card -->
       <div class="stitch-auth-card">
-        <div v-if="error" :class="noticeType === 'success' ? 'ok-banner' : 'error-banner'" style="margin-bottom: 16px">
-          <span class="material-symbols-outlined text-[16px]" aria-hidden="true">{{ noticeType === 'success' ? 'check_circle' : 'warning' }}</span>
-          <span>{{ error }}</span>
-        </div>
+        <InlineNotice v-if="error" :message="error" :type="noticeType" />
 
-        <form class="auth-form" @submit.prevent="submit">
+        <form v-if="!recovering" class="auth-form" @submit.prevent="submit">
           <div class="form-field">
             <label for="username">{{ t('auth.usernameLabel') }}</label>
             <input id="username" v-model="username" autocomplete="username" :placeholder="t('auth.usernamePlaceholder')" required />
@@ -42,6 +39,10 @@
             <label for="password">{{ t('auth.passwordLabel') }}</label>
             <input id="password" v-model="password" type="password" autocomplete="current-password" :placeholder="t('auth.passwordPlaceholder')" required />
           </div>
+
+          <button v-if="!forceChange" class="auth-recovery-link" type="button" :disabled="loading" @click="openRecovery">
+            {{ t('auth.forgotPassword') }}
+          </button>
 
           <div v-if="forceChange" class="form-field">
             <label for="newPassword">{{ t('auth.newPasswordLabel') }}</label>
@@ -59,7 +60,42 @@
           </button>
         </form>
 
-        <div v-if="!forceChange" class="auth-switch-footer">
+        <form v-else class="auth-form" @submit.prevent="submitRecovery">
+          <p class="recovery-help">{{ t('auth.recoveryHelp') }}</p>
+          <div class="form-field">
+            <label for="recoveryEmail">{{ t('auth.recoveryEmailLabel') }}</label>
+            <input id="recoveryEmail" v-model="recoveryEmail" type="email" autocomplete="email"
+              :placeholder="t('auth.emailPlaceholder')" :disabled="loading || sendingCode" required />
+          </div>
+          <div class="form-field">
+            <label for="recoveryCode">{{ t('auth.emailCodePlaceholder') }}</label>
+            <div class="email-row">
+              <input id="recoveryCode" v-model="recoveryCode" inputmode="numeric" autocomplete="one-time-code"
+                pattern="[0-9]{6}" maxlength="6" :placeholder="t('auth.emailCodePlaceholder')" :disabled="loading" required />
+              <button class="code-button" type="button" :disabled="loading || sendingCode || codeCooldown > 0" @click="sendRecoveryCode">
+                {{ sendingCode ? t('auth.sendingCode') : codeCooldown > 0 ? t('auth.resendCode', { seconds: codeCooldown }) : t('auth.sendCode') }}
+              </button>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="recoveryPassword">{{ t('auth.newPasswordLabel') }}</label>
+            <input id="recoveryPassword" v-model="recoveryPassword" type="password" autocomplete="new-password"
+              minlength="12" :placeholder="t('auth.passwordRule')" :disabled="loading" required />
+          </div>
+          <div class="form-field">
+            <label for="recoveryConfirm">{{ t('auth.confirmPasswordLabel') }}</label>
+            <input id="recoveryConfirm" v-model="recoveryConfirm" type="password" autocomplete="new-password"
+              minlength="12" :placeholder="t('auth.confirmPasswordLabel')" :disabled="loading" required />
+          </div>
+          <button class="primary auth-submit-btn" type="submit" :disabled="loading || sendingCode">
+            {{ loading ? t('auth.processing') : t('auth.resetPassword') }}
+          </button>
+          <button class="auth-back-link" type="button" :disabled="loading || sendingCode" @click="closeRecovery">
+            {{ t('auth.backToLogin') }}
+          </button>
+        </form>
+
+        <div v-if="!forceChange && !recovering" class="auth-switch-footer">
           <span>{{ t('auth.noAccount') }}</span>
           <router-link to="/register">{{ t('auth.createAccount') }}</router-link>
         </div>
@@ -87,7 +123,8 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted, watch } from 'vue'
+import InlineNotice from '../components/InlineNotice.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setAuth, clearAuth, auth } from '../auth'
 import { authApi } from '../features/auth/api'
@@ -110,6 +147,91 @@ const confirmPassword = ref('')
 const error = ref('')
 const noticeType = ref('error')
 const loading = ref(false)
+const recovering = ref(false)
+const recoveryEmail = ref('')
+const recoveryCode = ref('')
+const recoveryPassword = ref('')
+const recoveryConfirm = ref('')
+const sendingCode = ref(false)
+const codeCooldown = ref(0)
+let cooldownTimer
+
+function clearRecoverySecrets() {
+  recoveryCode.value = ''
+  recoveryPassword.value = ''
+  recoveryConfirm.value = ''
+}
+
+function openRecovery() {
+  error.value = ''
+  password.value = ''
+  recoveryEmail.value = username.value.includes('@') ? username.value.trim() : ''
+  clearRecoverySecrets()
+  recovering.value = true
+}
+
+function closeRecovery() {
+  error.value = ''
+  clearRecoverySecrets()
+  recovering.value = false
+}
+
+watch(recoveryEmail, () => {
+  recoveryCode.value = ''
+})
+onUnmounted(() => clearInterval(cooldownTimer))
+
+async function sendRecoveryCode() {
+  if (sendingCode.value || loading.value || codeCooldown.value > 0) return
+  const email = recoveryEmail.value.trim().toLowerCase()
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    setNotice(t('auth.emailInvalid'))
+    return
+  }
+  sendingCode.value = true
+  error.value = ''
+  try {
+    await authApi.requestEmailCode(email, 'password_reset')
+    setNotice(t('auth.codeSent'), 'success')
+    codeCooldown.value = 60
+    const deadline = Date.now() + 60_000
+    clearInterval(cooldownTimer)
+    cooldownTimer = setInterval(() => {
+      codeCooldown.value = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+      if (!codeCooldown.value) clearInterval(cooldownTimer)
+    }, 1000)
+  } catch (e) {
+    setNotice(e.message)
+  } finally {
+    sendingCode.value = false
+  }
+}
+
+async function submitRecovery() {
+  if (loading.value || sendingCode.value) return
+  error.value = ''
+  if (recoveryPassword.value !== recoveryConfirm.value) {
+    setNotice(t('auth.passwordMismatch'))
+    return
+  }
+  loading.value = true
+  try {
+    await authApi.resetPassword({
+      email: recoveryEmail.value.trim().toLowerCase(),
+      email_code: recoveryCode.value.trim(),
+      new_password: recoveryPassword.value,
+    })
+    clearAuth()
+    username.value = recoveryEmail.value.trim().toLowerCase()
+    password.value = ''
+    closeRecovery()
+    setNotice(t('auth.passwordUpdated'), 'success')
+  } catch (e) {
+    setNotice(e.message)
+  } finally {
+    loading.value = false
+  }
+}
 
 
 function setNotice(message, type = 'error') {
@@ -332,6 +454,21 @@ async function submit() {
   justify-content: center;
   gap: 6px;
 }
+
+.auth-recovery-link, .auth-back-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 13px;
+  box-shadow: none;
+  cursor: pointer;
+}
+.auth-recovery-link { align-self: flex-end; }
+.auth-recovery-link:hover, .auth-back-link:hover { text-decoration: underline; }
+.auth-recovery-link:disabled, .auth-back-link:disabled { opacity: 0.6; cursor: not-allowed; }
+.recovery-help { margin: 0; color: var(--secondary); font-size: 12px; line-height: 1.6; }
+.email-row input { min-width: 0; }
 
 .auth-switch-footer {
   margin-top: 18px;

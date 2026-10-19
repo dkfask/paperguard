@@ -47,8 +47,9 @@ PaperGuard：论文格式检查 / 修复工具，FastAPI + Vue3。
 - 线上验证 secrets 放 GitHub Environment `paperguard-online-verification`
  （`PAPERGUARD_ONLINE_BASE_URL` / `PAPERGUARD_ONLINE_ADMIN_USERNAME` / `PAPERGUARD_ONLINE_ADMIN_PASSWORD`），
   从仓库根目录用 `bash ops/online-verify.sh` 跑；工作流 `.github/workflows/online-verification.yml` 上传 evidence artifact。这里只核实配置键与工作流，不推断远端 secrets 已配置。
-- 当前后端没有 `/api/version` 路由；线上版本按 README 的服务器发布标记与 `ops/sync-release-markers.py` 源码/前端摘要核验确认，不把验证脚本的来源 SHA 当成部署 SHA。
-- main 每次发布走「部署 → 验证」闭环，不许跳过。
+- 后端匿名 `/api/version` 从打包的 `_build_info.json` 缓存构建身份，不读运行时 Git、环境变量或数据库。有效声明 200 / `declared`；缺失或冲突 503，身份字段置空。构建前用 `ops/freeze-build-identity.py` 逐文件绑定完整提交 SHA；发布构建设置 `PAPERGUARD_REQUIRE_BUILD_IDENTITY=1`。详见 README；未提交源码不能借旧 SHA 生成身份。
+- 旧线上制品无版本接口时，按 README 的服务器发布标记与 `ops/sync-release-markers.py` 源码/前端摘要核验，不把验证脚本的来源 SHA 当成部署 SHA；新接口仅声明后端身份，不替代整站制品核验。
+- main 每次发布走「固定 SHA / preflight → 授权及备份演练 → 部署 → 验证」闭环，不许跳过。online-verification 必须输入部署记录的完整 `expected_backend_revision`，绿色及 evidence 后端 SHA 对账通过才能结束发布；小程序未执行仍保留未验收状态。
 
 ## 5. 租户模型红线与实施边界（最高安全级别）
 

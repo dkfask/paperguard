@@ -887,7 +887,8 @@ def test_removed_image_block_waits_for_orphan_cleanup():
             {"id": "img1", "type": "image", "image": {"url": img, "caption": "图 1"}},
         ],
     })
-    uploads = Path(__file__).resolve().parents[1] / "data" / "uploads"
+    from app.services.document_assets import document_upload_dir
+    uploads = document_upload_dir()
     assert (uploads / fname).exists(), "图片文件应已上传"
 
     client.put(f"/api/projects/{proj_id}/section/ch1", json={
@@ -912,7 +913,8 @@ def test_delete_project_moves_to_trash_and_preserves_images():
         files={"file": ("fig1.png", _make_image_png(), "image/png")},
     ).json()["url"]
     fname = img.rsplit("/", 1)[-1]
-    uploads = Path(__file__).resolve().parents[1] / "data" / "uploads"
+    from app.services.document_assets import document_upload_dir
+    uploads = document_upload_dir()
 
     client.put(f"/api/projects/{proj_id}/section/ch1", json={
         "title": "第一章", "paragraphs": [
@@ -956,7 +958,8 @@ def test_cleanup_orphan_images():
     from app.services.image_cleanup import cleanup_orphan_images
 
     store = Store()
-    uploads = Path(__file__).resolve().parents[1] / "data" / "uploads"
+    from app.services.document_assets import document_upload_dir
+    uploads = document_upload_dir()
 
     # 被引用图片
     proj_id = _create_project_instantiates_sections()

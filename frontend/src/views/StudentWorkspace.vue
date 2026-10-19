@@ -26,12 +26,12 @@
       <div class="workspace-layout">
         <main class="workspace-main">
           <details class="panel workspace-focus-panel workspace-drawer" :class="{ 'workspace-task-focus': nextTask }">
-            <summary class="workspace-drawer-summary">
+            <summary @click.prevent="activeDrawer = 0" :aria-expanded="activeDrawer === 0" aria-haspopup="dialog" class="workspace-drawer-summary">
               <div><p class="workspace-kicker">{{ t('workspace.nextActionKicker') }}</p><h2>{{ t('workspace.nextAction') }}</h2></div>
               <span class="workspace-drawer-count">{{ t('workspace.taskCount', { count: nextTask ? 1 : 0 }) }}</span>
               <IconExpandMore class="workspace-drawer-chevron" aria-hidden="true" />
             </summary>
-            <div class="workspace-drawer-body">
+            <BaseModal presentation="drawer" :open="activeDrawer === 0" :title="t('workspace.nextAction')" @close="activeDrawer = null"><div class="workspace-drawer-body">
             <div v-if="nextTask" class="workspace-focus-content">
               <div class="workspace-focus-copy">
                 <span class="workspace-overline">{{ nextTask.cohort_name }} · {{ nextTask.stage_name }}</span>
@@ -45,58 +45,64 @@
               </RouterLink>
             </div>
             <AsyncState v-else state="empty" :title="t('workspace.noPendingStage')" :detail="t('workspace.noPendingStageDetail')" />
-            </div>
+            </div></BaseModal>
           </details>
 
           <details class="panel workspace-drawer">
-            <summary class="workspace-drawer-summary">
+            <summary @click.prevent="activeDrawer = 1" :aria-expanded="activeDrawer === 1" aria-haspopup="dialog" class="workspace-drawer-summary">
               <div><p class="workspace-kicker">{{ t('workspace.myTasksKicker') }}</p><h2>{{ t('workspace.stageTasks') }}</h2></div>
               <span class="workspace-drawer-count">{{ t('workspace.taskCount', { count: tasks.length }) }}</span>
               <IconExpandMore class="workspace-drawer-chevron" aria-hidden="true" />
             </summary>
-            <div class="workspace-drawer-body">
+            <BaseModal presentation="drawer" :open="activeDrawer === 1" :title="t('workspace.stageTasks')" @close="activeDrawer = null"><div class="workspace-drawer-body">
             <div class="workspace-drawer-actions"><RouterLink class="workspace-text-link" :to="{ path: '/workflow', query: { panel: 'progress' } }">{{ t('workspace.viewDetails') }} <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink></div>
             <div v-if="tasks.length" class="workspace-task-list">
               <TaskCard v-for="task in tasks" :key="task.id" :task="task" :to="task.project_id ? `/write/${task.project_id}` : { path: '/workflow', query: { panel: 'progress' } }" :action-label="task.project_id ? t('workspace.openThesis') : t('workspace.viewStageTask')" />
             </div>
             <AsyncState v-else state="empty" :title="t('workspace.noStageTasks')" :detail="t('workspace.noStageTasksDetail')" />
-            </div>
+            </div></BaseModal>
           </details>
 
           <details class="panel workspace-drawer">
-            <summary class="workspace-drawer-summary">
+            <summary @click.prevent="activeDrawer = 2" :aria-expanded="activeDrawer === 2" aria-haspopup="dialog" class="workspace-drawer-summary">
               <div><p class="workspace-kicker">{{ t('workspace.submissionHistoryKicker') }}</p><h2>{{ t('workspace.recentSubmissions') }}</h2></div>
               <span class="workspace-drawer-count">{{ t('workspace.submissionCount', { count: submissions.length }) }}</span>
               <IconExpandMore class="workspace-drawer-chevron" aria-hidden="true" />
             </summary>
-            <div class="workspace-drawer-body">
+            <BaseModal presentation="drawer" :open="activeDrawer === 2" :title="t('workspace.recentSubmissions')" @close="activeDrawer = null"><div class="workspace-drawer-body">
             <div class="workspace-drawer-actions"><RouterLink class="workspace-text-link" :to="{ path: '/workflow', query: { panel: 'submissions' } }">{{ t('workspace.allRecords') }} <span class="material-symbols-outlined" aria-hidden="true">arrow_forward</span></RouterLink></div>
             <div v-if="submissions.length" class="workspace-history-list">
               <div v-for="submission in submissions.slice(0, 5)" :key="submission.id" class="workspace-history-row"><div><strong>{{ submission.submission_number }}</strong><span>{{ formatDate(submission.submitted_at) }}</span></div><StatusBadge :status="submission.state" :label="submissionStateLabel(submission.state)" /></div>
             </div>
             <AsyncState v-else state="empty" :title="t('workspace.noSubmissions')" :detail="t('workspace.noSubmissionsDetail')" />
-            </div>
+            </div></BaseModal>
           </details>
         </main>
-        <aside class="workspace-side"><NotificationInbox :items="notifications.items" :unread="notifications.unread" @read="readNotification" /><section class="panel workspace-shortcuts"><div class="panel-heading"><div><p class="workspace-kicker">{{ t('workspace.shortcuts') }}</p><h3>{{ t('workspace.commonEntries') }}</h3></div></div><RouterLink :to="{ path: '/workflow', query: { panel: 'materials' } }"><span class="material-symbols-outlined" aria-hidden="true">folder_managed</span>{{ t('sidebar.materials') }}</RouterLink><RouterLink to="/policies"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span>{{ t('sidebar.policies') }}</RouterLink></section></aside>
+        <ScreenDeck class="workspace-side" :labels="[t('notification.title'), t('workspace.commonEntries')]"><NotificationInbox :items="notifications.items" :unread="notifications.unread" @read="readNotification" /><section class="panel workspace-shortcuts"><div class="panel-heading"><div><p class="workspace-kicker">{{ t('workspace.shortcuts') }}</p><h3>{{ t('workspace.commonEntries') }}</h3></div></div><RouterLink :to="{ path: '/workflow', query: { panel: 'materials' } }"><span class="material-symbols-outlined" aria-hidden="true">folder_managed</span>{{ t('sidebar.materials') }}</RouterLink><RouterLink to="/policies"><span class="material-symbols-outlined" aria-hidden="true">menu_book</span>{{ t('sidebar.policies') }}</RouterLink></section></ScreenDeck>
       </div>
     </template>
   </div>
 </template>
 
 <script setup>
+import BaseModal from '../components/base/BaseModal.vue'
+import ScreenDeck from '../components/ScreenDeck.vue'
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { auth } from '../auth'
 import { useI18n } from '../i18n'
 import { fetchMyTasks, fetchSubmissions, fetchWorkflowNotifications, markWorkflowNotificationRead } from '../api'
 import AsyncState from '../components/AsyncState.vue'
 import NotificationInbox from '../components/NotificationInbox.vue'
 import TaskCard from '../components/TaskCard.vue'
+import StatusBadge from '../components/StatusBadge.vue'
+import DeadlineLabel from '../components/DeadlineLabel.vue'
 import IconExpandMore from '~icons/material-symbols/expand-more'
 
+const router = useRouter()
 const { t, formatDate: formatLocaleDate } = useI18n()
 
+const activeDrawer = ref(null)
 const loading = ref(true)
 const error = ref('')
 const loadError = ref('')
@@ -116,8 +122,10 @@ async function load() {
 }
 
 async function readNotification(item) {
-  if (item.read_at) return
-  try { await markWorkflowNotificationRead(item.id); notifications.value = await fetchWorkflowNotifications() } catch (exception) { error.value = exception.message }
+  try {
+    if (!item.read_at) { await markWorkflowNotificationRead(item.id); notifications.value = await fetchWorkflowNotifications() }
+    if (item.resource_type === 'submission') await router.push({ path: '/workflow', query: { panel: 'submissions', submission: item.resource_id } })
+  } catch (exception) { error.value = exception.message }
 }
 
 function deadlineFor(task) { return task.revision_deadline_at || task.effective_deadline_at || task.initial_deadline_at }

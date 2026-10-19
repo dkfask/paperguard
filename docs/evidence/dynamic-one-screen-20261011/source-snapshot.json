@@ -1,0 +1,190 @@
+{
+  "created_at": "2026-10-11T12:56:05.711698+00:00",
+  "repository": "/Users/a1234/.codex/worktrees/all-pages-one-screen-v3/paperguard",
+  "branch": "codex/all-pages-one-screen-20261011",
+  "base_head": "5971f506d889caa4bcaa26f751ddd66cf067460d",
+  "modified_frontend_sha256": "8b30b6a03ab72f37c82d2e39f908598429f29602b81187836c99576e53999101",
+  "files": [
+    {
+      "path": "frontend/e2e/admin-workspace-viewport.spec.ts",
+      "sha256": "3fac9baa7c4459acced927b07f0aa22786db9b50d7809dc9d2fcf185ba8ecdc6"
+    },
+    {
+      "path": "frontend/e2e/all-pages-viewport.spec.ts",
+      "sha256": "e5983765f9b5e8b929ba15ca1f6c67034ad808e9064d895f8837ad8bdc75b20d"
+    },
+    {
+      "path": "frontend/e2e/document-platform.spec.ts",
+      "sha256": "47d0e721e781228761a2d41e7f419e5baa9186f556a5dd6c1a2f24fe63eb8be1"
+    },
+    {
+      "path": "frontend/e2e/pages/document-project-editor.page.ts",
+      "sha256": "627fe7ce815c8c07471ab57e9cc63c4da2547c4e11a89945a301c5eba2851fa2"
+    },
+    {
+      "path": "frontend/e2e/pages/document-projects.page.ts",
+      "sha256": "57c8ceaddcdba01e7250c8ce85521f0fa13d3019abcc2e46477f707313feae05"
+    },
+    {
+      "path": "frontend/e2e/ui-refactor.spec.ts",
+      "sha256": "3250d4cb7193efe4cd7c0ba92bef49679f18e4495cff270857a999aaa3f5d713"
+    },
+    {
+      "path": "frontend/src/components/ArchiveJobStatus.vue",
+      "sha256": "3a4ccba77b213079480a9d4b6c676ec5ad640e0a765e8d2670f0cb76aaab8238"
+    },
+    {
+      "path": "frontend/src/components/DataTable.vue",
+      "sha256": "0ee082575d85915e8e4eca6951f422c1bbef8b6c26d5dd82a3cb29a16a05662f"
+    },
+    {
+      "path": "frontend/src/components/InlineNotice.vue",
+      "sha256": "f4b86bcd886cae3bb54b72d92ec980e0bca184c7592c936d72d06b4412786491"
+    },
+    {
+      "path": "frontend/src/components/NotificationInbox.vue",
+      "sha256": "866c21af677b18734f3bbc59069e52a6befd55b6e4020e5fa60885a04786fc55"
+    },
+    {
+      "path": "frontend/src/components/ReviewQueue.vue",
+      "sha256": "2ffc6d4bb36f65282479f949f0b8e3bfbe6b3aeb1caecdea62ee6784283c6a38"
+    },
+    {
+      "path": "frontend/src/components/RoleSidebar.vue",
+      "sha256": "b367d4cbcd9ed7de667fb6b81c2557bca4795108e457b268c9c4b4c36bff3fe9"
+    },
+    {
+      "path": "frontend/src/components/ScreenCollection.vue",
+      "sha256": "bf70ac5c9831f71b5e2c20202a769fafa5d1694728ed829536d16e3855146816"
+    },
+    {
+      "path": "frontend/src/components/ScreenDeck.vue",
+      "sha256": "1d47c361f2a5802d95c48e6820338b6bf9049609e892dee9535c8a5036e3c6c7"
+    },
+    {
+      "path": "frontend/src/components/base/BaseModal.vue",
+      "sha256": "bb9c92a62bbc48f86ed9667df61906167718e52eeac63b7d5e823a922cc9dcc2"
+    },
+    {
+      "path": "frontend/src/i18n.js",
+      "sha256": "7b0497de67387b83f2643483d1d9f97976bc6903e20588d8f36bfe50df4adf2d"
+    },
+    {
+      "path": "frontend/src/layouts/AppShell.vue",
+      "sha256": "0225d56f135a1a245565ec60578c81df26f7ab303ef7342004b860a1d0a094b6"
+    },
+    {
+      "path": "frontend/src/shared/useDialogFocus.js",
+      "sha256": "d07b7dd162558c8342249947c288b587e72376667e9929afbe61590a6b3e8f2e"
+    },
+    {
+      "path": "frontend/src/style.css",
+      "sha256": "d4d2cad1c61d18b98f22e7bba81f487a8134b56d7785d4d1b147edb69a7ca001"
+    },
+    {
+      "path": "frontend/src/views/AdminUsers.vue",
+      "sha256": "ebe21c7dabb946a837f11b22f1ae6978255a9ec98a958623d456387adc53cd3c"
+    },
+    {
+      "path": "frontend/src/views/AdminWorkspace.vue",
+      "sha256": "5546db49a01db86abdef188ca120eccdaa902763581bace6d806d850124e0c8a"
+    },
+    {
+      "path": "frontend/src/views/AiSettings.vue",
+      "sha256": "8239bc0606c9c333d7e8bb8d46192372ee5039b2d4e33b12505973aacb435304"
+    },
+    {
+      "path": "frontend/src/views/Audit.vue",
+      "sha256": "20bbc07d3e5badc46989b378ae10aee46cc95b055ec61b76579565de7369ddf6"
+    },
+    {
+      "path": "frontend/src/views/Cohorts.vue",
+      "sha256": "35ebd3da9e1593930e8e006cf7d9da5b156325b9875cc4130caa13bf7b25df41"
+    },
+    {
+      "path": "frontend/src/views/DocumentPackagePublisher.vue",
+      "sha256": "e58fead27f25c86ebea91ff56cac068beda4fd024880047c69a4b32ae5f7bff6"
+    },
+    {
+      "path": "frontend/src/views/DocumentProjectEditor.vue",
+      "sha256": "4486b9c3aa9d5580a11f46e64b7a127e9d830a1c8e456eddcc72171556254c7d"
+    },
+    {
+      "path": "frontend/src/views/DocumentProjects.vue",
+      "sha256": "025127b184a40280e67ab3ff1f66914d5d4d22b329e46b5e645a3d8d4f70988b"
+    },
+    {
+      "path": "frontend/src/views/FirstLogin.vue",
+      "sha256": "1a1351ffe34a3c7e43fe7920436bcdb9e213cd8ede50fc67cc1d9888e71dbca8"
+    },
+    {
+      "path": "frontend/src/views/Home.vue",
+      "sha256": "899c50de263090067e755b73caac419c088ed34856a0190e01114bd8e690425e"
+    },
+    {
+      "path": "frontend/src/views/Login.vue",
+      "sha256": "ac076ce1b0c280a1a9d2e88d26b63944db393a824180ecdac46310280d0be2d3"
+    },
+    {
+      "path": "frontend/src/views/Operations.vue",
+      "sha256": "b6edd7ee422b80425435009a56ed9a39aa78bc943292f9b3b946709ec3ad6c29"
+    },
+    {
+      "path": "frontend/src/views/Organizations.vue",
+      "sha256": "aabb78a722507a9861bdc3d4e7a3300e76a9b838dafd83759c457f00f690e442"
+    },
+    {
+      "path": "frontend/src/views/Policies.vue",
+      "sha256": "9ff1812870c8fb3afe8d2e89122450f1aa9ffbf70fcb0703a66a28d66b004747"
+    },
+    {
+      "path": "frontend/src/views/Register.vue",
+      "sha256": "5deb62ee976968fd302477df4fec8352e08d79bb4d18184e356a98c69e9166a1"
+    },
+    {
+      "path": "frontend/src/views/StudentWorkspace.vue",
+      "sha256": "dec7791b0f6cab0f4242243882d97e1aa26665eebcf4aa69fc66f445095428a1"
+    },
+    {
+      "path": "frontend/src/views/TeacherStudents.vue",
+      "sha256": "bc8eb4604deaec21c315ec03e541e5a4cdbf98cbe33539a73b94affa98df9bb9"
+    },
+    {
+      "path": "frontend/src/views/TeacherWorkspace.vue",
+      "sha256": "4f32163dfc0ee08d58d17422f326605bf37747022dc25cb41a555264147833ae"
+    },
+    {
+      "path": "frontend/src/views/TemplateEditor.vue",
+      "sha256": "9d466128af3bbf2719ce6ba6039e62edf7597233a6e7019f80b5e86277df1382"
+    },
+    {
+      "path": "frontend/src/views/Templates.vue",
+      "sha256": "9c21d9dacccd81d152af59443d4d7b93e17d1a4fd5570a4baec1e9dbbb925b3a"
+    },
+    {
+      "path": "frontend/src/views/Workflow.vue",
+      "sha256": "9cab8a9f1e2c26c155fd72ba17c528dad41c9dac27abc0321b8b789f3ec3ed5d"
+    },
+    {
+      "path": "frontend/src/views/Writer.vue",
+      "sha256": "28874880cecf090485bcd67f9ca631ae0075c79a4a171aa8c2f03ad189917261"
+    },
+    {
+      "path": "frontend/tests/DialogFocus.test.js",
+      "sha256": "e240b212283242947b9649e017bc1e640fc30ca9119fe36db3a1e7288faacdea"
+    },
+    {
+      "path": "frontend/tests/DocumentPackagePublisher.test.js",
+      "sha256": "56779479fa023a2fbe10da919903699f86ee24dcf9f305fd4d5c3952e2330cce"
+    },
+    {
+      "path": "frontend/tests/Operations.states.test.js",
+      "sha256": "fe5f9bf3393131eb55513a51f262f9b9e8a0b8d2c6fe3d25536603a45d9ab6c8"
+    },
+    {
+      "path": "frontend/tests/ScreenDeck.test.js",
+      "sha256": "0cc975bf90983617f757bb6514216aa8ed5af293e26b51499436e56578916323"
+    }
+  ],
+  "modified_frontend_source_sha256": "5a9ba56f3e6a833a7d3d5840299ed1185bf854178f49a38cb9ddfb7cedaeb242"
+}

@@ -1,0 +1,664 @@
+{
+  "format": "paperguard-browser-rebound-evidence",
+  "base_revision": "5971f506d889caa4bcaa26f751ddd66cf067460d",
+  "application_source_unchanged_during_regression": true,
+  "initial_stats": {
+    "passed": 75,
+    "skipped": 14,
+    "failed": 3
+  },
+  "final_unique_stats": {
+    "total": 92,
+    "passed": 78,
+    "skipped": 14,
+    "failed": 0,
+    "flaky": 0
+  },
+  "rebinding_reason": "Only the two affected browser test files changed after full execution; all application and backend files match the initial tested snapshot.",
+  "tests": [
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "chromium",
+      "title": "every administrator route fits and its controls remain reachable",
+      "outcome": "expected",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "chromium",
+      "title": "populated teacher and student routes keep every control reachable",
+      "outcome": "expected",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "chromium",
+      "title": "desktop breakpoint boundaries keep populated work areas inside the shell",
+      "outcome": "expected",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "chromium",
+      "title": "first-login errors remain reachable inside the screen",
+      "outcome": "expected",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "chromium",
+      "title": "navigation failure shares the viewport with the page",
+      "outcome": "expected",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "chromium",
+      "title": "organization member lists paginate every user inside the screen",
+      "outcome": "expected",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "chromium",
+      "title": "retention summary and configuration drawer fit the screen and preserve edits",
+      "outcome": "expected",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "chromium",
+      "title": "all navigation groups fit without scrolling in Chinese and English",
+      "outcome": "expected",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "chromium",
+      "title": "public pages and role certification keep controls accessible",
+      "outcome": "expected",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "every administrator route fits and its controls remain reachable",
+      "outcome": "skipped",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "populated teacher and student routes keep every control reachable",
+      "outcome": "skipped",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "desktop breakpoint boundaries keep populated work areas inside the shell",
+      "outcome": "skipped",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "first-login errors remain reachable inside the screen",
+      "outcome": "skipped",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "navigation failure shares the viewport with the page",
+      "outcome": "skipped",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "organization member lists paginate every user inside the screen",
+      "outcome": "skipped",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "retention summary and configuration drawer fit the screen and preserve edits",
+      "outcome": "skipped",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "all navigation groups fit without scrolling in Chinese and English",
+      "outcome": "skipped",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "all-pages-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "public pages and role certification keep controls accessible",
+      "outcome": "skipped",
+      "execution": "viewport-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "chromium",
+      "title": "管理员视角：六个管理组件逐个走查",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "chromium",
+      "title": "BUG-20261001-01 回归：管理员可在界面把 pending 教师认证为 active",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "chromium",
+      "title": "未登录视角：公开入口可渲染，受保护入口被正确拦截",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "chromium",
+      "title": "教师视角：指导学生页可渲染且无权限死路",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "chromium",
+      "title": "college_admin 闭环：角色可用性与越权边界",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "mobile-chrome",
+      "title": "BUG-20261001-01 回归：管理员可在界面把 pending 教师认证为 active",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "mobile-chrome",
+      "title": "管理员视角：六个管理组件逐个走查",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "mobile-chrome",
+      "title": "未登录视角：公开入口可渲染，受保护入口被正确拦截",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "mobile-chrome",
+      "title": "教师视角：指导学生页可渲染且无权限死路",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "component-walkthrough.spec.ts",
+      "project": "mobile-chrome",
+      "title": "college_admin 闭环：角色可用性与越权边界",
+      "outcome": "expected",
+      "execution": "component-final"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "chromium",
+      "title": "manager dashboard and every panel fit one desktop viewport",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "chromium",
+      "title": "long lists stay keyboard accessible inside cards and English labels fit",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "chromium",
+      "title": "empty and retry states fit a desktop screen for college administrators",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "chromium",
+      "title": "narrow screens keep all content reachable with the mobile navigation",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "chromium",
+      "title": "loading reserves the viewport until dashboard data arrives",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "manager dashboard and every panel fit one desktop viewport",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "long lists stay keyboard accessible inside cards and English labels fit",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "empty and retry states fit a desktop screen for college administrators",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "narrow screens keep all content reachable with the mobile navigation",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "admin-workspace-viewport.spec.ts",
+      "project": "mobile-chrome",
+      "title": "loading reserves the viewport until dashboard data arrives",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "chromium",
+      "title": "short forms fit their content and preserve failed creation at 1280",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "chromium",
+      "title": "template previews show complete headings without crowded technical controls at 1280",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "chromium",
+      "title": "short forms fit their content and preserve failed creation at 900",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "chromium",
+      "title": "template previews show complete headings without crowded technical controls at 900",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "chromium",
+      "title": "short forms fit their content and preserve failed creation at 390",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "chromium",
+      "title": "template previews show complete headings without crowded technical controls at 390",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "mobile-chrome",
+      "title": "short forms fit their content and preserve failed creation at 1280",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "mobile-chrome",
+      "title": "template previews show complete headings without crowded technical controls at 1280",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "mobile-chrome",
+      "title": "short forms fit their content and preserve failed creation at 900",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "mobile-chrome",
+      "title": "template previews show complete headings without crowded technical controls at 900",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "mobile-chrome",
+      "title": "short forms fit their content and preserve failed creation at 390",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "compact-previews.spec.ts",
+      "project": "mobile-chrome",
+      "title": "template previews show complete headings without crowded technical controls at 390",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "chromium",
+      "title": "teacher saves a personal template and writes without publishing it to students",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "chromium",
+      "title": "published package opens an editor from its parsed section schema",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "chromium",
+      "title": "document editor uses the available width for fields and writing",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "chromium",
+      "title": "dynamic editor renders field and content block schemas",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "chromium",
+      "title": "content is autosaved and survives an editor reload",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "chromium",
+      "title": "deterministic validation reports an empty required body",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "chromium",
+      "title": "valid content exports as a DOCX download",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "mobile-chrome",
+      "title": "teacher saves a personal template and writes without publishing it to students",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "mobile-chrome",
+      "title": "published package opens an editor from its parsed section schema",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "mobile-chrome",
+      "title": "document editor uses the available width for fields and writing",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "mobile-chrome",
+      "title": "dynamic editor renders field and content block schemas",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "mobile-chrome",
+      "title": "content is autosaved and survives an editor reload",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "mobile-chrome",
+      "title": "deterministic validation reports an empty required body",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "document-platform.spec.ts",
+      "project": "mobile-chrome",
+      "title": "valid content exports as a DOCX download",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "full-lifecycle.spec.ts",
+      "project": "chromium",
+      "title": "admin teacher student complete lifecycle with real thesis files",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "full-lifecycle.spec.ts",
+      "project": "chromium",
+      "title": "responsive shell keeps login and deep routes visible",
+      "outcome": "skipped",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "full-lifecycle.spec.ts",
+      "project": "mobile-chrome",
+      "title": "admin teacher student complete lifecycle with real thesis files",
+      "outcome": "skipped",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "full-lifecycle.spec.ts",
+      "project": "mobile-chrome",
+      "title": "responsive shell keeps login and deep routes visible",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "policies-layout.spec.ts",
+      "project": "chromium",
+      "title": "teacher empty state uses the available width and offers one set of actions",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "policies-layout.spec.ts",
+      "project": "chromium",
+      "title": "administrator and student see appropriate empty guidance, including English",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "policies-layout.spec.ts",
+      "project": "chromium",
+      "title": "failed loading shows a recoverable error instead of an empty list",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "policies-layout.spec.ts",
+      "project": "chromium",
+      "title": "teacher creates and publishes a standard; administrators page the list; students read published details",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "policies-layout.spec.ts",
+      "project": "mobile-chrome",
+      "title": "teacher empty state uses the available width and offers one set of actions",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "policies-layout.spec.ts",
+      "project": "mobile-chrome",
+      "title": "administrator and student see appropriate empty guidance, including English",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "policies-layout.spec.ts",
+      "project": "mobile-chrome",
+      "title": "failed loading shows a recoverable error instead of an empty list",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "policies-layout.spec.ts",
+      "project": "mobile-chrome",
+      "title": "teacher creates and publishes a standard; administrators page the list; students read published details",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "smoke.spec.ts",
+      "project": "chromium",
+      "title": "TC-UI-01: unauthenticated users see the login surface",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "smoke.spec.ts",
+      "project": "chromium",
+      "title": "TC-UI-02: direct protected routes redirect to login",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "smoke.spec.ts",
+      "project": "chromium",
+      "title": "TC-UI-03: mobile login has no horizontal overflow",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "smoke.spec.ts",
+      "project": "mobile-chrome",
+      "title": "TC-UI-01: unauthenticated users see the login surface",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "smoke.spec.ts",
+      "project": "mobile-chrome",
+      "title": "TC-UI-02: direct protected routes redirect to login",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "smoke.spec.ts",
+      "project": "mobile-chrome",
+      "title": "TC-UI-03: mobile login has no horizontal overflow",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "ui-refactor.spec.ts",
+      "project": "chromium",
+      "title": "workspace errors, retry and panel navigation remain consistent on direct entry",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "ui-refactor.spec.ts",
+      "project": "chromium",
+      "title": "writer keeps its draft, editor instance and selection when panels and viewport change",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "ui-refactor.spec.ts",
+      "project": "chromium",
+      "title": "writer retains a failed Chinese draft and retries the same content",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "ui-refactor.spec.ts",
+      "project": "mobile-chrome",
+      "title": "workspace errors, retry and panel navigation remain consistent on direct entry",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "ui-refactor.spec.ts",
+      "project": "mobile-chrome",
+      "title": "writer keeps its draft, editor instance and selection when panels and viewport change",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "ui-refactor.spec.ts",
+      "project": "mobile-chrome",
+      "title": "writer retains a failed Chinese draft and retries the same content",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "usage-audit.spec.ts",
+      "project": "chromium",
+      "title": "TC-04-07: collect accessibility and UI evidence for three roles and a short form",
+      "outcome": "skipped",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "usage-audit.spec.ts",
+      "project": "chromium",
+      "title": "TC-01-02: certification dialog reflects the completed decision",
+      "outcome": "expected",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "usage-audit.spec.ts",
+      "project": "mobile-chrome",
+      "title": "TC-04-07: collect accessibility and UI evidence for three roles and a short form",
+      "outcome": "skipped",
+      "execution": "initial_full_suite"
+    },
+    {
+      "file": "usage-audit.spec.ts",
+      "project": "mobile-chrome",
+      "title": "TC-01-02: certification dialog reflects the completed decision",
+      "outcome": "skipped",
+      "execution": "initial_full_suite"
+    }
+  ]
+}

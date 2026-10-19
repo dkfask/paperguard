@@ -1,0 +1,12 @@
+{
+  "base_revision": "a00dbef9e74a7f3b4f886524cacc511a07ee97ca",
+  "branch": "codex/dashboard-one-screen-20261010",
+  "validation_sample_uncommitted": true,
+  "source_sha256": {
+    "frontend/src/layouts/AppShell.vue": "daf782b97164999b973886197588389f365464e1e551f6325e19b6ac35d4efd3",
+    "frontend/src/views/AdminWorkspace.vue": "7674fce82fb54b191bf6043f9dff97da73106415b56b7cd329fdb806c7879ff7",
+    "frontend/e2e/admin-workspace-viewport.spec.ts": "95ddaa14185caf815631a3e9dd12d87392770eed064b4ae6e71aba658de3f5ee"
+  },
+  "patch_sha256": "3491abdcf89dd42f6f41b10730378f8ba0d330d579b5eae67f36a9de4f3657e4",
+  "backend_unchanged": true
+}

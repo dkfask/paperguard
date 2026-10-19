@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 export class LoginPage {
   constructor(private readonly page: Page) {}
@@ -7,7 +7,7 @@ export class LoginPage {
     await this.page.goto('/login?redirect=/')
     await this.page.locator('#username').fill(username)
     await this.page.locator('#password').fill(password)
-    await this.page.locator('form.auth-form').getByRole('button').click()
+    await this.page.locator('form.auth-form button[type="submit"]').click()
 
     let requiresPasswordChange = false
     try {
@@ -24,11 +24,11 @@ export class LoginPage {
       await this.page.locator('#password').fill(password)
       await this.page.locator('#newPassword').fill(replacementPassword)
       await this.page.locator('#confirmPassword').fill(replacementPassword)
-      await this.page.locator('form.auth-form').getByRole('button').click()
+      await this.page.locator('form.auth-form button[type="submit"]').click()
       await expect(this.page).toHaveURL(/\/login$/)
       await this.page.locator('#username').fill(username)
       await this.page.locator('#password').fill(replacementPassword)
-      await this.page.locator('form.auth-form').getByRole('button').click()
+      await this.page.locator('form.auth-form button[type="submit"]').click()
     }
 
     await expect(this.page).not.toHaveURL(/\/login/)
@@ -50,6 +50,37 @@ export class PaperGuardPage {
 
   control(label: string) {
     return this.page.locator('label').filter({ hasText: label }).locator('input, select, textarea').first()
+  }
+
+  async userRow(username: string): Promise<Locator> {
+    const collection = this.page.locator('.screen-collection').filter({ has: this.page.locator('.directory-table') })
+    await this.page.waitForLoadState('networkidle')
+    await expect(collection).toBeVisible()
+    if ((this.page.viewportSize()?.width ?? 0) > 768) {
+      await expect(collection.getByRole('navigation', { name: '列表分页' })).toBeVisible()
+    }
+    const row = collection.locator('tbody tr').filter({ hasText: username })
+    for (let page = 0; page < 100; page++) {
+      if (await row.count()) return row
+      const next = collection.getByRole('button', { name: '下一页', exact: true })
+      if (!await next.count() || !await next.isEnabled()) break
+      await next.click()
+    }
+    await expect(row, `用户目录中找不到测试账号 ${username}`).toBeVisible()
+    return row
+  }
+
+  async openUserDetails(username: string) {
+    const row = await this.userRow(username)
+    await row.getByRole('button', { name: '查看详情', exact: true }).click()
+    const dialog = this.page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    return dialog
+  }
+
+  async closeDetails() {
+    await this.page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).first().click()
+    await expect(this.page.getByRole('dialog')).toHaveCount(0)
   }
 
   async logout() {

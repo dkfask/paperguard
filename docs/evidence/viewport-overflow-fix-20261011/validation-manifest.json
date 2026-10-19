@@ -1,0 +1,167 @@
+{
+  "project": "PaperGuard",
+  "date": "2026-10-11",
+  "state": "local_uncommitted_validated",
+  "baseline_head": "5971f506d889caa4bcaa26f751ddd66cf067460d",
+  "branch": "codex/all-pages-one-screen-20261011",
+  "workspace": "/Users/a1234/.codex/worktrees/all-pages-one-screen-v3/paperguard",
+  "patch_sha256": "2d1e7032c12d71812bbf26113b297b3570e38603922befe0ab62eae80bf73b00",
+  "files": [
+    {
+      "path": "frontend/src/layouts/AppShell.vue",
+      "sha256": "74be17af00633ecf433613fcf92244be5be3650ba7e0c970bb689076a4781ab4"
+    },
+    {
+      "path": "frontend/src/style.css",
+      "sha256": "80171762116e1054f2f96357b4cb77ee5617c3d83de0a3687ba846e1d8c61ce3"
+    },
+    {
+      "path": "frontend/src/views/AdminWorkspace.vue",
+      "sha256": "044be08a383347160f4b9a6e3d026d556a9bd8b958870edfb9102151a485b0ec"
+    },
+    {
+      "path": "frontend/src/views/Writer.vue",
+      "sha256": "31cc654860e77f33cd7be2d69eca7dd964e58658bc036595793cc1be85916fbd"
+    },
+    {
+      "path": "frontend/src/views/StudentWorkspace.vue",
+      "sha256": "fddfeb2fa811ccc1a634c7febb93579f34de4813e608e0e5de62c7e684b85f59"
+    },
+    {
+      "path": "frontend/e2e/all-pages-viewport.spec.ts",
+      "sha256": "2ee6bae75e1e97d5c91f2fdedf3675c25651194df33ea75be23972c649197b94"
+    },
+    {
+      "path": "frontend/e2e/ui-refactor.spec.ts",
+      "sha256": "e3193fef581adb0b62c3fa1a8c8f4a89aa38ec57941ee3cc592b40fb566f1644"
+    }
+  ],
+  "checks": [
+    {
+      "command": "cd backend && python3.12 -m pytest -q",
+      "status": "passed",
+      "passed": 1098,
+      "warnings": 2,
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/overflow-backend-tests.log"
+    },
+    {
+      "command": "cd frontend && npm run typecheck",
+      "status": "passed",
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/overflow-final-typecheck.log"
+    },
+    {
+      "command": "cd frontend && npm run build",
+      "status": "passed",
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/overflow-final-build.log"
+    },
+    {
+      "command": "cd frontend && npm run test",
+      "status": "passed",
+      "passed": 99,
+      "files": 23,
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/overflow-final-frontend-tests.log"
+    },
+    {
+      "command": "cd frontend && npm run check:college-admin",
+      "status": "passed",
+      "passed": 5,
+      "files": 4,
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/overflow-final-college-admin.log"
+    },
+    {
+      "command": "cd frontend && npm run test:paragraphs",
+      "status": "passed",
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/overflow-final-paragraphs.log"
+    },
+    {
+      "command": "cd frontend && npm run test:e2e -- e2e/all-pages-viewport.spec.ts e2e/admin-workspace-viewport.spec.ts e2e/ui-refactor.spec.ts --reporter=line",
+      "status": "passed",
+      "passed": 22,
+      "skipped": 6,
+      "skip_reason": "The six desktop-only all-pages cases are intentionally skipped in mobile-chrome; mobile flows run in the other two suites.",
+      "duration_minutes": 7.1,
+      "log": "/Users/a1234/.codex/tmp/paperguard-local-preview-20261011/overflow-e2e-final.log"
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed"
+    }
+  ],
+  "evidence": {
+    "administrator_route_geometry": "administrator-route-geometry.json",
+    "administrator_measurements": 105,
+    "teacher_student_routes": {
+      "teacher": 10,
+      "student": 9,
+      "viewports": [
+        [
+          775,
+          804
+        ],
+        [
+          916,
+          804
+        ],
+        [
+          1100,
+          640
+        ],
+        [
+          1280,
+          720
+        ]
+      ],
+      "matrix_measurements": 76
+    },
+    "workflow_boundary_viewports": [
+      [
+        769,
+        640
+      ],
+      [
+        900,
+        720
+      ],
+      [
+        901,
+        640
+      ],
+      [
+        1024,
+        720
+      ],
+      [
+        1101,
+        640
+      ],
+      [
+        1440,
+        900
+      ]
+    ],
+    "boundary_raw_geometry": "The test asserted all six viewports; the line reporter did not persist the in-memory JSON attachment. Saved screenshots are final-run evidence.",
+    "local_preview_geometry": "local-preview-geometry.json"
+  },
+  "delivery": {
+    "preview_url": "http://127.0.0.1:5173",
+    "committed": false,
+    "pushed": false,
+    "merged": false,
+    "deployed": false,
+    "ci_current_patch": "not run; local uncommitted source",
+    "local_preview_http": [
+      {
+        "path": "/",
+        "status": 200
+      },
+      {
+        "path": "/api/health/live",
+        "status": 200
+      },
+      {
+        "path": "/api/health/ready",
+        "status": 200
+      }
+    ]
+  }
+}

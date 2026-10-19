@@ -12,7 +12,7 @@ beforeEach(() => {
   fetchWorkflowJobs.mockResolvedValue([])
   fetchRetentionPolicy.mockResolvedValue({ configured: false, policy: null })
 })
-const render = () => mount(Operations, { global: { stubs: { RouterLink: true } } })
+const render = () => mount(Operations, { global: { stubs: { RouterLink: true, Teleport: true } } })
 
 describe('operations states preserve server authorization', () => {
   it('shows denied policy scope while keeping successful probes and disabling writes', async () => {
@@ -36,6 +36,8 @@ describe('operations states preserve server authorization', () => {
     await wrapper.get('.async-state.error button').trigger('click')
     await flushPromises()
     expect(fetchRetentionPolicy).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.operations-retention-form').exists()).toBe(false)
+    await wrapper.get('.operations-policy-summary > button').trigger('click')
     expect(wrapper.find('.operations-retention-form').exists()).toBe(true)
     wrapper.unmount()
   })
@@ -49,12 +51,46 @@ describe('operations states preserve server authorization', () => {
     wrapper.unmount()
   })
 
+  it('keeps fabricated probe metrics hidden while a retry is pending', async () => {
+    fetchHealth.mockRejectedValueOnce(new Error('健康探针读取失败'))
+    const wrapper = render()
+    await flushPromises()
+    let resolveRetry
+    fetchHealth.mockReturnValueOnce(new Promise(resolve => { resolveRetry = resolve }))
+    await wrapper.get('.async-state.error button').trigger('click')
+    expect(wrapper.find('.workspace-stats').exists()).toBe(false)
+    expect(wrapper.find('.async-state.loading').exists()).toBe(true)
+    resolveRetry({ status: 'ok' })
+    await flushPromises()
+    expect(wrapper.get('.workspace-stats').text()).toContain('正常')
+    wrapper.unmount()
+  })
+
+  it('does not label an unknown policy unconfigured while its retry is pending', async () => {
+    fetchRetentionPolicy.mockRejectedValueOnce(new Error('策略读取失败'))
+    const wrapper = render()
+    await flushPromises()
+    let resolveRetry
+    fetchRetentionPolicy.mockReturnValueOnce(new Promise(resolve => { resolveRetry = resolve }))
+    await wrapper.get('.async-state.error button').trigger('click')
+    const policyMetric = wrapper.findAll('.workspace-stats > div')[3]
+    expect(policyMetric.text()).not.toContain('未配置')
+    resolveRetry({ configured: false, policy: null })
+    await flushPromises()
+    expect(wrapper.findAll('.workspace-stats > div')[3].text()).toContain('未配置')
+    wrapper.unmount()
+  })
+
   it('keeps the policy draft and form visible when saving fails, then retries that draft', async () => {
     updateRetentionPolicy.mockRejectedValueOnce(new Error('保存失败，请重试'))
     updateRetentionPolicy.mockResolvedValueOnce({ configured: true, policy: { draft_days: 42 } })
     const wrapper = render()
     await flushPromises()
+    await wrapper.get('.operations-policy-summary > button').trigger('click')
     await wrapper.get('.operations-retention-form input').setValue('42')
+    await wrapper.get('.screen-drawer .base-modal-close').trigger('click')
+    await wrapper.get('.operations-policy-summary > button').trigger('click')
+    expect(wrapper.get('.operations-retention-form input').element.value).toBe('42')
     await wrapper.get('.operations-retention-form').trigger('submit')
     await flushPromises()
     expect(wrapper.get('.error-banner').text()).toContain('保存失败')
