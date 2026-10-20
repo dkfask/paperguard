@@ -72,7 +72,10 @@ class MiniProgramUnbindRequest(BaseModel):
 @router.post("/register", status_code=201)
 def register(req: RegisterRequest, store: Store = Depends(get_store)) -> dict:
     """注册账号 (username 缺省时由邮箱派生; SMTP 已配置时需邮箱验证码)。"""
-    return register_user(store, req.username, req.password, req.display_name, req.role,
+    # Public registration is always a restricted onboarding identity. The
+    # request role is presentation metadata only; administrators assign the
+    # approved business role through authenticated management flows.
+    return register_user(store, req.username, req.password, req.display_name, "user",
                          email=req.email, email_code=req.email_code)
 
 

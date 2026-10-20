@@ -20,6 +20,7 @@ import pytest
 
 from app.db import Store
 from app.services import secret_store
+from tests._helpers import register_fixture
 
 _SECRET = "sk-live-DO-NOT-LEAK-0123456789abcdef"
 
@@ -113,10 +114,7 @@ def test_user_ai_config_is_encrypted_at_rest():
     client = TestClient(app)
     username = f"sec_{uuid.uuid4().hex[:8]}"
     password = _pwd()
-    assert client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "student"},
-    ).status_code == 201
+    register_fixture(client, username, password)
     token = client.post(
         "/api/auth/login", json={"username": username, "password": password}
     ).json()["token"]
@@ -157,10 +155,7 @@ def test_masked_response_never_leaks_plaintext():
     store = Store()
     username = f"sec_{uuid.uuid4().hex[:8]}"
     password = _pwd()
-    client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "student"},
-    )
+    register_fixture(client, username, password)
     token = client.post(
         "/api/auth/login", json={"username": username, "password": password}
     ).json()["token"]
@@ -194,10 +189,7 @@ def test_save_user_does_not_downgrade_ciphertext(monkeypatch):
     client = TestClient(app)
     username = f"sec_{uuid.uuid4().hex[:8]}"
     password = _pwd()
-    client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "student"},
-    )
+    register_fixture(client, username, password)
     token = client.post(
         "/api/auth/login", json={"username": username, "password": password}
     ).json()["token"]

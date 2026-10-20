@@ -209,16 +209,12 @@ def register_user(store: Store, username: str, password: str,
     if store.get_user_by_username(username):
         raise HTTPException(status_code=409, detail="用户名已存在")
 
-    # New email registration is identity-neutral. Keep the no-email path for
-    # legacy imports and test fixtures; it is not exposed by the web form.
-    if email:
-        target_role = "user"
-        status = "active"
-        application_status = "unselected"
-    else:
-        target_role = role if role in {"student", "teacher"} else "student"
-        status = "pending" if target_role == "teacher" else "active"
-        application_status = "approved"
+    # Public registration is always identity-neutral. Role assignment belongs
+    # to the authenticated administrator/import path and must not be selected
+    # by an unauthenticated caller through the request body.
+    target_role = "user"
+    status = "active"
+    application_status = "unselected"
 
     ph, salt = hash_password(password)
     user = store.save_user({
@@ -375,7 +371,12 @@ def _issue_session(store: Store, user: dict, *, source: str = "web") -> dict:
     # A login verified before a reset cannot insert a valid session afterward.
     with store.workflow_transaction() as conn:
         row = _credential_user_conn(conn, user)
-        require_session_role(dict(row))
+        platform_bound = conn.execute(
+            "SELECT 1 FROM platform_role_bindings "
+            "WHERE user_id = ? AND role_code = 'platform_admin' AND status = 'active'",
+            (user["id"],),
+        ).fetchone() is not None
+        require_session_role(dict(row), platform_bound=platform_bound)
         conn.execute(
             "INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, revoked_at, last_seen_at, source) "
             "VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
@@ -808,12 +809,11 @@ async def trusted_context(
             refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS),
         )
     if user is not None:
-        require_session_role(user)
-        if user.get("role") == "user":
-            from app.services.saas_identity import platform_binding
-            binding = await run_in_threadpool(platform_binding, store, user["id"])
-            if binding is None:
-                require_business_role(user)
+        from app.services.saas_identity import platform_binding
+        binding = await run_in_threadpool(platform_binding, store, user["id"])
+        require_session_role(user, platform_bound=binding is not None)
+        if binding is None:
+            require_business_role(user)
     context = await run_in_threadpool(
         resolve_request_context, store, user, request_id=getattr(request.state, "request_id", ""),
         expected_tenant=expected_tenant,

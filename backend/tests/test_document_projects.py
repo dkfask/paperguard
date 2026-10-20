@@ -12,6 +12,7 @@ from app.domain.documents.schemas import DocumentPackage, TemplateDefinition, Te
 from app.main import app
 from app.services.document_assets import document_upload_dir
 from app.services.document_project_engine import instantiate_document_project
+from tests._helpers import register_fixture
 
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "minimal.docx"
@@ -396,11 +397,7 @@ def test_document_project_render_job_can_be_cancelled_and_force_is_role_scoped()
 
     username = f"generic_student_{uuid.uuid4().hex[:8]}"
     student_password = _random_password("student")
-    registered = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": student_password, "display_name": "普通学生", "role": "student"},
-    )
-    assert registered.status_code == 201, registered.text
+    registered = register_fixture(client, username, student_password, display_name="普通学生")
     login = client.post("/api/auth/login", json={"username": username, "password": student_password})
     assert login.status_code == 200, login.text
     student_headers = {"Authorization": f"Bearer {login.json()['token']}"}

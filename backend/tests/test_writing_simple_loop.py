@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from tests._helpers import register_fixture
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import MetaField, PaperTemplate, SectionType, TemplateSection
 from app.services.project_validation import validate_project_completeness
@@ -79,10 +80,7 @@ def test_student_force_flag_cannot_skip_template_gates():
     client = TestClient(app)
     username = f"simple_loop_{uuid4().hex[:12]}"
     password = f"Local-{uuid4().hex}"
-    registered = client.post("/api/auth/register", json={
-        "username": username, "password": password, "role": "student", "display_name": "格式回归学生",
-    })
-    assert registered.status_code == 201
+    register_fixture(client, username, password, display_name="格式回归学生")
     login = client.post("/api/auth/login", json={"username": username, "password": password})
     assert login.status_code == 200
     client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})

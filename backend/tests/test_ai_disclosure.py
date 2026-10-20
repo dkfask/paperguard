@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 
 from app.db import Store
 from app.main import app
+from tests._helpers import register_fixture
 
 client = TestClient(app)
 
@@ -52,10 +53,7 @@ def _pwd() -> str:
 def _student_at(school: str = "school-disclosure") -> tuple[str, dict[str, str]]:
     username = f"dis_{uuid.uuid4().hex[:8]}"
     password = _pwd()
-    assert client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "student"},
-    ).status_code == 201
+    register_fixture(client, username, password)
     store = Store()
     user = store.get_user_by_username(username)
     user["organization_context"] = {"school_id": school}

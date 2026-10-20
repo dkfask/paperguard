@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from app.api import ai as ai_module
 from app.db import Store
+from tests._helpers import register_fixture
 
 # --------------------------------------------------------------------------
 # 出站守卫需要真实 DNS 解析（SSRF 防护的安全边界）。本文件的用例都用
@@ -76,7 +77,7 @@ def _set_system_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _new_student(name: str) -> TestClient:
     """注册并登录一个独立学生用户, 返回带其 token 的 client。"""
     pwd = _gen_password()
-    client.post("/api/auth/register", json={"username": name, "password": pwd})
+    register_fixture(client, name, pwd)
     login = client.post("/api/auth/login", json={"username": name, "password": pwd})
     assert login.status_code == 200, login.text
     stu = TestClient(app)
@@ -442,9 +443,7 @@ def test_admin_ai_config_survives_relogin(monkeypatch):
 
     username = f"ai_relogin_{uuid.uuid4().hex[:8]}"
     password = _gen_password()
-    assert client.post("/api/auth/register", json={
-        "username": username, "password": password,
-    }).status_code == 201
+    register_fixture(client, username, password)
     first_login = client.post("/api/auth/login", json={
         "username": username, "password": password,
     })
@@ -495,11 +494,7 @@ def test_request_time_guard_blocks_legacy_saved_private_config(monkeypatch):
 
     username = f"legacy_{uuid.uuid4().hex[:8]}"
     password = "Legacy-aaaaaaaaaa1"
-    reg = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "student"},
-    )
-    assert reg.status_code == 201, reg.text
+    register_fixture(client, username, password)
     token = client.post(
         "/api/auth/login", json={"username": username, "password": password}
     ).json()["token"]

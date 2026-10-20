@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from app.db import Store
 from app.main import app
+from tests._helpers import register_fixture
 
 client = TestClient(app)
 
@@ -38,11 +39,7 @@ def _pwd() -> str:
 def _register(role: str = "student") -> tuple[str, str, dict[str, str]]:
     username = f"aud_{uuid.uuid4().hex[:8]}"
     password = _pwd()
-    reg = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": role},
-    )
-    assert reg.status_code == 201, reg.text
+    register_fixture(client, username, password, role=role)
     token = client.post(
         "/api/auth/login", json={"username": username, "password": password}
     ).json()["token"]

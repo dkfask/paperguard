@@ -82,6 +82,18 @@ def test_open_roles_retain_thesis_and_generic_document_access(role):
         assert response.status_code == 200, (path, response.text)
 
 
+@pytest.mark.parametrize("requested_role", ["student", "teacher", "admin"])
+def test_public_registration_cannot_assign_business_roles(requested_role):
+    response = client.post("/api/auth/register", json={
+        "username": "public-register-" + uuid.uuid4().hex,
+        "password": PASSWORD,
+        "role": requested_role,
+    })
+    assert response.status_code == 201, response.text
+    assert response.json()["role"] == "user"
+    assert response.json()["role_application_status"] == "unselected"
+
+
 def test_admin_cannot_assign_closed_roles_but_can_reopen_an_existing_account(closed_role_session):
     _, administrator = account("admin")
     admin = headers(administrator)

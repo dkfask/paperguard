@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.core.feature_flags import general_document_platform_enabled
 from app.main import app
+from tests._helpers import register_fixture
 
 
 def _student_headers(client: TestClient) -> dict:
@@ -16,11 +17,7 @@ def _student_headers(client: TestClient) -> dict:
     """
     username = f"flagtest_{uuid.uuid4().hex[:8]}"
     password = f"Pwd-{uuid.uuid4().hex[:10]}-8a"
-    reg = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "student", "display_name": "特性开关测试学生"},
-    )
-    assert reg.status_code == 201, reg.text
+    register_fixture(client, username, password, display_name="特性开关测试学生")
     login = client.post("/api/auth/login", json={"username": username, "password": password})
     assert login.status_code == 200, login.text
     return {"Authorization": f"Bearer {login.json()['token']}"}

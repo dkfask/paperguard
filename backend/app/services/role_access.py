@@ -10,9 +10,12 @@ _CERTIFICATION_PATHS = frozenset({
 })
 
 
-def require_session_role(user: dict) -> None:
+def require_session_role(user: dict, *, platform_bound: bool = False) -> None:
     # `user` is an onboarding identity only; it never grants business access.
-    if user.get("role") not in BUSINESS_ROLES | {"user"}:
+    # Explicitly approved platform operators may retain a legacy global role.
+    # The binding is checked at the authentication boundary; it never grants
+    # ordinary business access to that legacy role.
+    if user.get("role") not in BUSINESS_ROLES | {"user"} and not platform_bound:
         raise HTTPException(status_code=403, detail={
             "code": "ROLE_NOT_OPEN",
             "message": "当前仅开放教师、学生和系统管理员，请联系系统管理员调整身份",

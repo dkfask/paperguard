@@ -15,6 +15,7 @@ from docx import Document
 from app.main import app
 from app.db import Store
 from app.worker import run_once
+from tests._helpers import register_fixture_response
 
 
 client = TestClient(app)
@@ -34,11 +35,7 @@ def _create_people(admin_headers: dict[str, str]) -> tuple[dict[str, str], dict[
     suffix = uuid.uuid4().hex[:8]
     teacher_name = f"workflow_teacher_{suffix}"
     teacher_password = _password("Teacher")
-    teacher = client.post("/api/auth/register", json={
-        "username": teacher_name, "password": teacher_password,
-        "role": "teacher", "display_name": "流程教师",
-    })
-    assert teacher.status_code == 201, teacher.text
+    teacher = register_fixture_response(client, teacher_name, teacher_password, role="teacher", display_name="流程教师")
     teacher_id = teacher.json()["id"]
     approved = client.put(f"/api/auth/admin/users/{teacher_id}/role-status", headers=admin_headers,
                           json={"role": "teacher", "status": "active"})
@@ -46,11 +43,7 @@ def _create_people(admin_headers: dict[str, str]) -> tuple[dict[str, str], dict[
 
     student_name = f"workflow_student_{suffix}"
     student_password = _password("Student")
-    student = client.post("/api/auth/register", json={
-        "username": student_name, "password": student_password,
-        "role": "student", "display_name": "流程学生",
-    })
-    assert student.status_code == 201, student.text
+    student = register_fixture_response(client, student_name, student_password, display_name="流程学生")
     return _login(teacher_name, teacher_password), _login(student_name, student_password), teacher_id, student.json()["id"]
 
 
@@ -90,10 +83,7 @@ def test_workflow_happy_path_and_idempotency():
     teacher, student, teacher_id, student_id = _create_people(admin)
     other_name = f"workflow_other_student_{suffix}"
     other_password = _password("OtherStudent")
-    other = client.post("/api/auth/register", json={
-        "username": other_name, "password": other_password, "role": "student", "display_name": "其他学生",
-    })
-    assert other.status_code == 201, other.text
+    other = register_fixture_response(client, other_name, other_password, display_name="其他学生")
     other_id = other.json()["id"]
     _login(other_name, other_password)
 
@@ -336,20 +326,12 @@ def test_member_assignment_accepts_business_references_for_admin_flows():
     })
     assert organization.status_code == 201, organization.text
     teacher_name = f"ref_teacher_{suffix}"
-    teacher = client.post("/api/auth/register", json={
-        "username": teacher_name, "password": _password("Teacher"), "role": "teacher",
-        "display_name": f"导师{suffix}",
-    })
-    assert teacher.status_code == 201, teacher.text
+    teacher = register_fixture_response(client, teacher_name, _password("Teacher"), role="teacher", display_name=f"导师{suffix}")
     teacher_id = teacher.json()["id"]
     assert client.put(f"/api/auth/admin/users/{teacher_id}/role-status", headers=admin,
                       json={"role": "teacher", "status": "active"}).status_code == 200
     student_name = f"ref_student_{suffix}"
-    student = client.post("/api/auth/register", json={
-        "username": student_name, "password": _password("Student"), "role": "student",
-        "display_name": f"学生{suffix}",
-    })
-    assert student.status_code == 201, student.text
+    student = register_fixture_response(client, student_name, _password("Student"), display_name=f"学生{suffix}")
     student_id = student.json()["id"]
     cohort = client.post("/api/cohorts", headers=admin, json={
         "name": "业务标识导入批次", "organization_id": organization.json()["id"],
@@ -379,10 +361,7 @@ def test_teacher_transfer_updates_open_task_and_resource_access():
     suffix = uuid.uuid4().hex[:8]
     second_name = f"workflow_transfer_teacher_{suffix}"
     second_password = _password("TransferTeacher")
-    second = client.post("/api/auth/register", json={
-        "username": second_name, "password": second_password, "role": "teacher", "display_name": "接手教师",
-    })
-    assert second.status_code == 201, second.text
+    second = register_fixture_response(client, second_name, second_password, role="teacher", display_name="接手教师")
     second_id = second.json()["id"]
     assert client.put(f"/api/auth/admin/users/{second_id}/role-status", headers=admin,
                       json={"role": "teacher", "status": "active"}).status_code == 200
@@ -484,18 +463,12 @@ def test_teacher_cannot_read_another_student_project_versions():
     suffix = uuid.uuid4().hex[:8]
     other_name = f"version_scope_student_{suffix}"
     other_password = _password("OtherStudent")
-    other = client.post("/api/auth/register", json={
-        "username": other_name, "password": other_password, "role": "student", "display_name": "版本范围学生",
-    })
-    assert other.status_code == 201
+    other = register_fixture_response(client, other_name, other_password, display_name="版本范围学生")
     other_headers = _login(other_name, other_password)
     second_teacher_name = f"version_scope_teacher_{suffix}"
     second_teacher_password = _password("SecondTeacher")
-    second_teacher = client.post("/api/auth/register", json={
-        "username": second_teacher_name, "password": second_teacher_password,
-        "role": "teacher", "display_name": "另一位指导教师",
-    })
-    assert second_teacher.status_code == 201
+    second_teacher = register_fixture_response(client, second_teacher_name, second_teacher_password,
+                                               role="teacher", display_name="另一位指导教师")
     second_teacher_id = second_teacher.json()["id"]
     assert client.put(f"/api/auth/admin/users/{second_teacher_id}/role-status", headers=admin,
                       json={"role": "teacher", "status": "active"}).status_code == 200
@@ -619,10 +592,7 @@ def test_active_teacher_can_configure_only_their_scoped_workflow():
 
     teacher_name = f"scoped_workflow_teacher_{suffix}"
     teacher_password = _password("ScopedTeacher")
-    teacher = client.post("/api/auth/register", json={
-        "username": teacher_name, "password": teacher_password, "role": "teacher", "display_name": "范围教师",
-    })
-    assert teacher.status_code == 201
+    teacher = register_fixture_response(client, teacher_name, teacher_password, role="teacher", display_name="范围教师")
     teacher_id = teacher.json()["id"]
     approved = client.put(f"/api/auth/admin/users/{teacher_id}/role-status", headers=admin, json={
         "role": "teacher", "status": "active",
@@ -640,10 +610,7 @@ def test_active_teacher_can_configure_only_their_scoped_workflow():
     assert cohort.status_code == 201, cohort.text
     student_name = f"scoped_workflow_student_{suffix}"
     student_password = _password("ScopedStudent")
-    student = client.post("/api/auth/register", json={
-        "username": student_name, "password": student_password, "role": "student", "display_name": "范围学生",
-    })
-    assert student.status_code == 201
+    student = register_fixture_response(client, student_name, student_password, display_name="范围学生")
     member = client.post(f"/api/cohorts/{cohort.json()['id']}/members", headers=teacher_headers, json={
         "student_id": student.json()["id"], "teacher_id": teacher_id,
     })
@@ -676,10 +643,7 @@ def test_supervising_teacher_can_extend_only_own_student_deadline():
 
     outsider_name = f"extension_outsider_{suffix}"
     outsider_password = _password("ExtensionOutsider")
-    outsider_account = client.post("/api/auth/register", json={
-        "username": outsider_name, "password": outsider_password, "role": "teacher", "display_name": "无关教师",
-    })
-    assert outsider_account.status_code == 201, outsider_account.text
+    outsider_account = register_fixture_response(client, outsider_name, outsider_password, role="teacher", display_name="无关教师")
     outsider_id = outsider_account.json()["id"]
     assert client.put(f"/api/auth/admin/users/{outsider_id}/role-status", headers=admin,
                       json={"role": "teacher", "status": "active"}).status_code == 200
@@ -1195,32 +1159,22 @@ def test_multi_college_scope_and_two_stage_publish(closed_role_session):
 
     college_admin_name = f"college_admin_{suffix}"
     college_admin_password = _password("CollegeAdmin")
-    registered = client.post("/api/auth/register", json={
-        "username": college_admin_name, "password": college_admin_password,
-        "role": "student", "display_name": "学院管理员",
-    })
-    assert registered.status_code == 201, registered.text
+    registered = register_fixture_response(client, college_admin_name, college_admin_password, display_name="学院管理员")
     college_admin_id = registered.json()["id"]
     college_admin = closed_role_session(college_admin_id)
 
     for index, college_id in enumerate(colleges, start=1):
         teacher_name = f"multi_teacher_{index}_{suffix}"
         teacher_password = _password(f"MultiTeacher{index}")
-        teacher = client.post("/api/auth/register", json={
-            "username": teacher_name, "password": teacher_password,
-            "role": "teacher", "display_name": f"学院{index}导师",
-        })
-        assert teacher.status_code == 201, teacher.text
+        teacher = register_fixture_response(client, teacher_name, teacher_password,
+                                            role="teacher", display_name=f"学院{index}导师")
         teacher_id = teacher.json()["id"]
         assert client.put(f"/api/auth/admin/users/{teacher_id}/role-status", headers=admin,
                           json={"role": "teacher", "status": "active"}).status_code == 200
         student_name = f"multi_student_{index}_{suffix}"
         student_password = _password(f"MultiStudent{index}")
-        student = client.post("/api/auth/register", json={
-            "username": student_name, "password": student_password,
-            "role": "student", "display_name": f"学院{index}学生",
-        })
-        assert student.status_code == 201, student.text
+        student = register_fixture_response(client, student_name, student_password,
+                                            display_name=f"学院{index}学生")
         student_id = student.json()["id"]
         cohort = client.post("/api/cohorts", headers=admin, json={
             "name": f"学院{index}多阶段批次", "organization_id": college_id, "academic_year": "2027",
@@ -1263,11 +1217,8 @@ def test_midterm_teacher_fields_preserve_student_data_and_require_assigned_teach
 
     outsider_name = f"midterm_outsider_{suffix}"
     outsider_password = _password("MidtermOutsider")
-    outsider = client.post("/api/auth/register", json={
-        "username": outsider_name, "password": outsider_password,
-        "role": "teacher", "display_name": "未指派教师",
-    })
-    assert outsider.status_code == 201, outsider.text
+    outsider = register_fixture_response(client, outsider_name, outsider_password,
+                                         role="teacher", display_name="未指派教师")
     outsider_id = outsider.json()["id"]
     assert client.put(f"/api/auth/admin/users/{outsider_id}/role-status", headers=admin,
                       json={"role": "teacher", "status": "active"}).status_code == 200

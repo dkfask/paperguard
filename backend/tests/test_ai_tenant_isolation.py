@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from app.api import ai as ai_module
 from app.db import Store
 from app.main import app
+from tests._helpers import register_fixture
 
 client = TestClient(app)
 
@@ -62,11 +63,7 @@ def _student_at(school_id: str) -> tuple[str, dict[str, str]]:
     """建一个属于指定学校的学生并登录。"""
     username = f"ten_{uuid.uuid4().hex[:8]}"
     password = _pwd()
-    reg = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "student"},
-    )
-    assert reg.status_code == 201, reg.text
+    register_fixture(client, username, password)
     store = Store()
     user = store.get_user_by_username(username)
     user["organization_context"] = {"school_id": school_id}

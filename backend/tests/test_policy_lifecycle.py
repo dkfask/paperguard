@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.api import ai as ai_module
 from app.db import Store
 from app.main import app
+from tests._helpers import register_fixture
 
 
 client = TestClient(app)
@@ -57,11 +58,8 @@ def _admin_headers() -> dict[str, str]:
 def _new_student(suffix: str) -> tuple[str, dict[str, str]]:
     username = f"lifecycle-student-{suffix}"
     password = _random_password("student")
-    registered = client.post("/api/auth/register", json={
-        "username": username, "password": password, "display_name": "生命周期学生",
-    })
-    assert registered.status_code == 201, registered.text
-    return registered.json()["id"], _login(username, password)
+    user = register_fixture(client, username, password, display_name="生命周期学生")
+    return user["id"], _login(username, password)
 
 
 def _policy(headers: dict[str, str], *, policy_id: str, version: str = "1", items: list | None = None, **extra):

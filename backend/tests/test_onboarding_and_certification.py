@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 
 from app.db import Store
 from app.main import app
+from tests._helpers import register_fixture
 from app.services import emailer
 
 client = TestClient(app)
@@ -61,13 +62,7 @@ def _register_student(username: str, password: str) -> dict:
     在这里会卡在 422。因此先走无邮箱的 legacy 路径注册成功，
     再直接改库构造需要验证的状态——这也正是生产里这类账号的来源。
     """
-    resp = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "student",
-              "display_name": "引导测试学生"},
-    )
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+    return register_fixture(client, username, password, display_name="引导测试学生")
 
 
 def _set_user_state(user_id: str, **fields) -> dict:
@@ -273,21 +268,16 @@ def test_role_certification_rejects_unknown_role_and_bad_school() -> None:
     assert no_school.status_code == 422, no_school.text
 
 
-def test_no_email_registration_downgrades_user_to_student() -> None:
-    """无邮箱注册时 role 会被降级为 student，状态直接 approved。
-
-    register_user（app/auth.py:141-149）里，有邮箱才走 target_role="user"
-    且 application_status="unselected"；无邮箱时 role=user 会被降级，
-    因此这条路径**产生不了** unselected。
-    """
+def test_no_email_registration_stays_in_role_certification_flow() -> None:
+    """无邮箱公开注册也必须保持受限 user 身份，不得静默升级。"""
     resp = client.post(
         "/api/auth/register",
         json={"username": f"u_{uuid.uuid4().hex[:8]}", "password": _gen_password(),
               "role": "user", "display_name": "社会用户"},
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json()["role"] == "student", resp.json()
-    assert resp.json()["role_application_status"] == "approved", resp.json()
+    assert resp.json()["role"] == "user", resp.json()
+    assert resp.json()["role_application_status"] == "unselected", resp.json()
 
 
 def test_email_registration_produces_unselected_user(monkeypatch) -> None:
@@ -381,13 +371,8 @@ def test_role_certification_teacher_is_also_locked_out() -> None:
     """教师同样不能进这条流程 —— 生产实测中被自己降级的那一类。"""
     username = f"certt_{uuid.uuid4().hex[:8]}"
     password = _gen_password()
-    resp = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "teacher",
-              "display_name": "认证越权测试教师"},
-    )
-    assert resp.status_code == 201, resp.text
-    _set_user_state(resp.json()["id"], status="active")
+    info = register_fixture(client, username, password, role="teacher", display_name="认证越权测试教师")
+    _set_user_state(info["id"], status="active")
 
     token = _login(username, password)["token"]
     headers = {"Authorization": f"Bearer {token}"}

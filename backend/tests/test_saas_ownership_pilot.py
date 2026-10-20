@@ -75,6 +75,16 @@ def test_legacy_admin_never_equals_platform_approval(pilot):
     assert store.list_memberships_for_user('operator')==[]
 
 
+def test_explicit_platform_binding_preserves_legacy_role_session_and_access(pilot):
+    store, client = pilot
+    store.save_user(store.get_user('operator') | {'role': 'college_admin'})
+    saas_identity.approve_platform_role(store, 'operator', approval_ref='LEGACY-PLATFORM-APPROVAL', approved_by='offline-reviewer')
+    session = auth._issue_session(store, store.get_user('operator'))
+    assert session['user']['role'] == 'college_admin'
+    assert client.get('/api/saas/v1/context', headers=platform()).status_code == 200
+    assert client.get('/api/operations/retention', headers=platform()).status_code == 200
+
+
 def test_platform_can_rediscover_new_draft_without_exposing_it_to_members(pilot):
     store, client = pilot
     draft = new_draft(client)
@@ -301,7 +311,7 @@ def test_registration_creates_global_account_only(pilot):
     store,client=pilot;r=client.post('/api/auth/register',json={'username':'global-fixture','password':'FixturePassword123','role':'admin'})
     assert r.status_code==201
     user=store.get_user_by_username('global-fixture')
-    assert user['role']=='student' and store.list_memberships_for_user(user['id'])==[]
+    assert user['role']=='user' and user['role_application_status']=='unselected' and store.list_memberships_for_user(user['id'])==[]
     assert saas_identity.platform_binding(store,user['id']) is None
 
 

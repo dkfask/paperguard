@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.api import ai as ai_module
 from app.db import Store
 from app.main import app
+from tests._helpers import register_fixture
 
 client = TestClient(app)
 
@@ -41,7 +42,7 @@ def _pwd() -> str:
 
 def _user(role: str = "student") -> tuple[str, str, dict[str, str]]:
     username, password = f"saas_{uuid.uuid4().hex[:8]}", _pwd()
-    assert client.post("/api/auth/register", json={"username": username, "password": password, "role": role}).status_code == 201
+    register_fixture(client, username, password, role=role)
     token = client.post("/api/auth/login", json={"username": username, "password": password}).json()["token"]
     return username, password, {"Authorization": f"Bearer {token}"}
 
