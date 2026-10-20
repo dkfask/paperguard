@@ -158,8 +158,20 @@ export async function createStudent(api: APIRequestContext, testName: string): P
   const password = `E2e7${randomBytes(18).toString('hex')}`
   const projectTitle = `E2E ${testName} ${suffix}`
   const response = await api.post('/api/auth/register', {
-    data: { username, password, display_name: username, role: 'student' },
+    data: { username, password, display_name: username },
   })
-  await jsonOrThrow(response, 'register isolated student')
+  const registration = await jsonOrThrow(response, 'register isolated student')
+  // Public registration creates an unselected identity. Approve this isolated
+  // fixture through the same authenticated management path as the teacher.
+  if (!E2E_ADMIN_PASSWORD) throw new Error('E2E_ADMIN_PASSWORD is required')
+  const adminResponse = await api.post('/api/auth/login', {
+    data: { username: 'admin', password: E2E_ADMIN_PASSWORD },
+  })
+  const admin = await jsonOrThrow(adminResponse, 'login fixture administrator')
+  const activationResponse = await api.put(`/api/auth/admin/users/${registration.id}/role-status`, {
+    headers: { Authorization: `Bearer ${admin.token}` },
+    data: { role: 'student', status: 'active' },
+  })
+  await jsonOrThrow(activationResponse, 'activate isolated student')
   return { username, password, projectTitle }
 }
