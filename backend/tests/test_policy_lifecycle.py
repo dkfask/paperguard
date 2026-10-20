@@ -303,60 +303,22 @@ def test_batch_upgrade_uses_policy_family_for_projects_on_older_version():
     assert current.json()["requirement_snapshot"]["policy_sets"][0]["version"] == "2"
 
 
-def test_college_admin_can_manage_scoped_policy_but_not_template():
+def test_closed_college_admin_cannot_manage_any_policy(closed_role_session):
     admin = _admin_headers()
     suffix = uuid.uuid4().hex[:8]
-    school_id, college_id = f"scope-school-{suffix}", f"scope-college-{suffix}"
-    assert client.post("/api/organizations", headers=admin, json={"id": school_id, "name": "权限大学", "type": "school"}).status_code == 201
-    assert client.post("/api/organizations", headers=admin, json={"id": college_id, "name": "权限学院", "type": "college", "parent_id": school_id}).status_code == 201
-    teacher_username = f"college-admin-{suffix}"
-    teacher_password = _random_password("teacher")
-    registered = client.post("/api/auth/register", json={"username": teacher_username, "password": teacher_password, "display_name": "学院管理员", "role": "teacher"})
+    registered = client.post("/api/auth/register", json={"username": f"closed-college-{suffix}", "password": _random_password("teacher"), "role": "student"})
     assert registered.status_code == 201
-    teacher_id = registered.json()["id"]
-    assert client.put(f"/api/auth/admin/users/{teacher_id}/role-status", headers=admin, json={"role": "college_admin", "status": "active"}).status_code == 200
-    assert client.put(f"/api/organizations/users/{teacher_id}/context", headers=admin, json={"organization_context": {"school_id": school_id, "college_id": college_id}}).status_code == 200
-    college_admin = _login(teacher_username, teacher_password)
-    policy = client.post("/api/policies", headers=college_admin, json={
-        "name": "学院补充规范", "level": "college", "version": "1", "status": "draft",
-        "bindings": [{"id": f"binding-{suffix}", "scope_type": "college", "scope_id": college_id}],
-        "items": [{"id": "college-method", "type": "manual", "target": "document", "description": "学院人工确认项"}],
-    })
-    assert policy.status_code == 201, policy.text
-    major_id = f"scope-major-{suffix}"
-    assert client.post("/api/organizations", headers=admin, json={"id": major_id, "name": "权限专业", "type": "major", "parent_id": college_id}).status_code == 201
-    descendant_policy = client.post("/api/policies", headers=college_admin, json={
-        "name": "专业补充规范", "level": "major", "version": "1", "status": "draft",
-        "bindings": [{"id": f"major-binding-{suffix}", "scope_type": "major", "scope_id": major_id}],
-        "items": [{"id": "major-review", "type": "manual", "target": "document", "description": "专业人工确认项"}],
-    })
-    assert descendant_policy.status_code == 201, descendant_policy.text
-    assert client.post(f"/api/policies/{descendant_policy.json()['id']}/publish", headers=college_admin).status_code == 200
-    sibling_college_id = f"scope-college-b-{suffix}"
-    assert client.post("/api/organizations", headers=admin, json={
-        "id": sibling_college_id, "name": "兄弟学院", "type": "college", "parent_id": school_id,
-    }).status_code == 201
-    outside = client.post("/api/policies", headers=college_admin, json={
-        "name": "越界规范", "level": "college", "version": "1", "status": "draft",
-        "bindings": [{"id": f"outside-binding-{suffix}", "scope_type": "college", "scope_id": sibling_college_id}],
-    })
-    assert outside.status_code == 403, outside.text
-    sibling_policy = client.post("/api/policies", headers=admin, json={
-        "name": "兄弟学院规范", "level": "college", "version": "1", "status": "draft",
-        "bindings": [{"id": f"sibling-binding-{suffix}", "scope_type": "college", "scope_id": sibling_college_id}],
-        "items": [{"id": "sibling-review", "type": "manual", "target": "document", "description": "兄弟学院确认项"}],
-    })
-    assert sibling_policy.status_code == 201, sibling_policy.text
-    assert client.post(f"/api/policies/{sibling_policy.json()['id']}/publish", headers=college_admin).status_code == 403
-    school_binding = client.post("/api/policies", headers=college_admin, json={
-        "name": "学校越界规范", "level": "college", "version": "1", "status": "draft",
-        "bindings": [{"id": f"school-binding-{suffix}", "scope_type": "school", "scope_id": school_id}],
-        "items": [{"id": "school-review", "type": "manual", "target": "document", "description": "学校确认项"}],
-    })
-    assert school_binding.status_code == 403, school_binding.text
-    template = client.get("/api/templates/default-gb7713", headers=admin)
-    assert template.status_code == 200
-    assert client.post("/api/templates", headers=college_admin, json=template.json()).status_code == 403
+    college_admin = closed_role_session(registered.json()["id"])
+    sibling_college_id = f"sibling-college-{suffix}"
+    for scope_type, scope_id in [("college", sibling_college_id), ("school", f"school-{suffix}"), ("global", "")]:
+        outside = client.post("/api/policies", headers=college_admin, json={
+            "name": "已关闭角色的规范", "level": "college", "version": "1", "status": "draft",
+            "bindings": [{"id": f"binding-{suffix}", "scope_type": scope_type, "scope_id": scope_id}],
+        })
+        assert outside.status_code == 403, outside.text
+        assert outside.json()["detail"]["code"] == "ROLE_NOT_OPEN"
+    assert client.get("/api/policies", headers=college_admin).status_code == 403
+
 
 
 def test_requirement_dispute_is_reviewable_without_bypassing_automatic_gate():
@@ -430,7 +392,7 @@ def test_rule_pack_parameters_are_frozen_and_applied_to_project_checks():
     assert any(item["rule_id"] == "PG-BODY-LINE-SPACING" for item in report.json()["findings"])
 
 
-def test_unbound_school_policy_is_global_but_college_admin_cannot_create_global_scope():
+def test_unbound_school_policy_is_global_but_closed_college_admin_cannot_create_global_scope(closed_role_session):
     admin = _admin_headers()
     suffix = uuid.uuid4().hex[:8]
     policy = _policy(admin, policy_id=f"global-school-{suffix}", scope_id="", items=[{
@@ -451,9 +413,7 @@ def test_unbound_school_policy_is_global_but_college_admin_cannot_create_global_
     registered = client.post("/api/auth/register", json={"username": username, "password": teacher_password, "display_name": "学院管理员", "role": "teacher"})
     assert registered.status_code == 201
     college_admin_id = registered.json()["id"]
-    assert client.put(f"/api/auth/admin/users/{college_admin_id}/role-status", headers=admin, json={"role": "college_admin", "status": "active"}).status_code == 200
-    assert client.put(f"/api/organizations/users/{college_admin_id}/context", headers=admin, json={"organization_context": {"school_id": school_id, "college_id": college_id}}).status_code == 200
-    college_admin = _login(username, teacher_password)
+    college_admin = closed_role_session(college_admin_id)
     denied = client.post("/api/policies", headers=college_admin, json={
         "name": "学院越权全局规范", "level": "college", "version": "1", "status": "draft",
         "bindings": [{"id": f"global-binding-{suffix}", "scope_type": "global", "scope_id": ""}],

@@ -29,6 +29,7 @@ from app.auth import (
 )
 from app.db import Store
 from app.services.password_recovery import reset_password
+from app.services.role_access import BUSINESS_ROLES
 
 router = APIRouter(prefix="/api/auth")
 
@@ -119,33 +120,23 @@ def submit_role_certification(req: RoleCertificationRequest,
                               store: Store = Depends(get_store)) -> dict:
     _require_unselected_user(user)
     role = req.role.strip().lower()
-    if role not in {"user", "student", "teacher"}:
-        raise HTTPException(status_code=422, detail="角色只能是 user、student 或 teacher")
+    if role not in {"student", "teacher"}:
+        raise HTTPException(status_code=422, detail="当前仅开放学生或教师身份申请")
     context = {str(key): str(value) for key, value in req.organization_context.items() if value}
-    if role == "user":
-        context = {}
-        status = "approved"
-        requested_role = None
-        user["role"] = "user"
-        user["status"] = "active"
-        user["organization_context"] = {}
-    else:
-        if "school_id" not in context:
-            raise HTTPException(status_code=422, detail="学生或教师认证必须选择学校")
-        school = store.get_organization_unit(context["school_id"])
-        if school is None or school.type.value != "school":
-            raise HTTPException(status_code=422, detail="选择的学校组织不存在")
-        if "college_id" in context:
-            college = store.get_organization_unit(context["college_id"])
-            if college is None or college.type.value != "college" or college.parent_id != school.id:
-                raise HTTPException(status_code=422, detail="选择的学院不属于该学校")
-        if any(key not in {"school_id", "college_id"} for key in context):
-            raise HTTPException(status_code=422, detail="选择的组织不存在")
-        status = "pending"
-        requested_role = role
-    user["requested_role"] = requested_role
+    if "school_id" not in context:
+        raise HTTPException(status_code=422, detail="学生或教师认证必须选择学校")
+    school = store.get_organization_unit(context["school_id"])
+    if school is None or school.type.value != "school":
+        raise HTTPException(status_code=422, detail="选择的学校组织不存在")
+    if "college_id" in context:
+        college = store.get_organization_unit(context["college_id"])
+        if college is None or college.type.value != "college" or college.parent_id != school.id:
+            raise HTTPException(status_code=422, detail="选择的学院不属于该学校")
+    if any(key not in {"school_id", "college_id"} for key in context):
+        raise HTTPException(status_code=422, detail="选择的组织不存在")
+    user["requested_role"] = role
     user["requested_organization_context"] = context
-    user["role_application_status"] = status
+    user["role_application_status"] = "pending"
     _save_user_metadata(store, user, (
         "role", "status", "organization_context", "requested_role",
         "requested_organization_context", "role_application_status",
@@ -324,7 +315,9 @@ def update_user_role_status(user_id: str,
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
 
-    new_role = req.role if req.role in ("admin", "college_admin", "teacher", "student") else target["role"]
+    new_role = req.role if req.role is not None else target["role"]
+    if new_role not in BUSINESS_ROLES:
+        raise HTTPException(status_code=422, detail="当前仅开放教师、学生和系统管理员")
     new_status = req.status if req.status in ("active", "pending", "rejected") else target.get("status", "active")
 
     # 防止取消唯一内置管理员自身角色

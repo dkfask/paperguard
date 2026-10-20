@@ -445,10 +445,11 @@ def test_unselected_user_still_keeps_the_legit_flow() -> None:
     assert body["role_application_status"] == "pending"
     assert body["requested_role"] == "student"
 
-    # 选 user 表示放弃学校身份认证：应立即生效并置 approved
+    # 试点关闭社会用户；不能放弃认证来绕过审核进入业务。
     give_up = client.post("/api/auth/role-certification", headers=headers, json={"role": "user"})
-    assert give_up.status_code == 200, give_up.text
-    assert give_up.json()["role_application_status"] == "approved"
+    assert give_up.status_code == 422, give_up.text
+    assert client.get("/api/auth/me", headers=headers).json()["role_application_status"] == "pending"
+    assert client.get("/api/projects", headers=headers).status_code == 403
 
 
 def test_rejected_user_can_reapply() -> None:

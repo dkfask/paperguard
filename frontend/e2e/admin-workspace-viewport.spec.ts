@@ -145,8 +145,8 @@ test('long lists stay keyboard accessible inside cards and English labels fit', 
   await capture(page, info, 'crowded-dashboard-english')
 })
 
-test('empty and retry states fit a desktop screen for college administrators', async ({ page }) => {
-  const fixture = await dashboardFixture(page, { empty: true, failLoad: true, role: 'college_admin' })
+test('empty and retry states fit a desktop screen for system administrators', async ({ page }) => {
+  const fixture = await dashboardFixture(page, { empty: true, failLoad: true, role: 'admin' })
   await page.setViewportSize({ width: 1384, height: 817 })
   await page.goto('/workspace')
   await expect(page.locator('.async-state.error')).toContainText('批次服务暂不可用')

@@ -7,7 +7,6 @@ export interface PermissionResolver {
 
 const rolePermissions: Record<string, Set<string>> = {
   admin: new Set(['manage:users', 'manage:ai', 'manage:templates', 'manage:policies', 'manage:workflow', 'read:audit', 'read:operations']),
-  college_admin: new Set(['manage:templates', 'manage:policies', 'manage:workflow', 'read:audit']),
   teacher: new Set(['manage:templates', 'manage:policies', 'manage:workflow']),
   student: new Set(['write:projects', 'read:workflow']),
 }
@@ -22,18 +21,26 @@ export function createPermissionResolver(user: User | null | undefined): Permiss
 }
 
 export function canAccessRoute(route: Pick<RouteLocationNormalized, 'meta'>, user: User | null | undefined) {
+  if (route.meta.public) return true
+  if (user?.role === 'user') return Boolean(route.meta.certification)
+  if (!isBusinessRole(user)) return false
   const roles = (route.meta as { roles?: string[] }).roles
   if (!roles || roles.length === 0) return true
   return Boolean(user && roles.includes(user.role))
 }
 
 export function hasAnyRole(user: User | null | undefined, roles: string[]) {
-  return Boolean(user && roles.includes(user.role))
+  return Boolean(isBusinessRole(user) && user && roles.includes(user.role))
+}
+
+export function isBusinessRole(user: User | null | undefined) {
+  return Boolean(user && ['admin', 'teacher', 'student'].includes(user.role))
 }
 
 export function homePath(user: User | null | undefined) {
-  if (user?.role === 'user' && user.role_application_status === 'unselected') return '/role-certification'
-  if (user && ['admin', 'college_admin', 'teacher'].includes(user.role)) {
+  if (user?.role === 'user') return '/role-certification'
+  if (user && !isBusinessRole(user)) return '/login'
+  if (user && ['admin', 'teacher'].includes(user.role)) {
     return '/workspace'
   }
   return '/'

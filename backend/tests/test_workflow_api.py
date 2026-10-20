@@ -1176,7 +1176,7 @@ def test_docx_manuscript_import_previews_then_applies_with_revision_guard(tmp_pa
     assert any(block["type"] == "table" and block["table"]["cells"][1][1] == "98%" for block in imported["paragraphs"])
 
 
-def test_multi_college_scope_and_two_stage_publish():
+def test_multi_college_scope_and_two_stage_publish(closed_role_session):
     """Exercise the organization boundary with two colleges and two stages."""
     admin = _login("admin", "TestAdminPassword123")
     suffix = uuid.uuid4().hex[:8]
@@ -1201,15 +1201,7 @@ def test_multi_college_scope_and_two_stage_publish():
     })
     assert registered.status_code == 201, registered.text
     college_admin_id = registered.json()["id"]
-    promoted = client.put(f"/api/auth/admin/users/{college_admin_id}/role-status", headers=admin, json={
-        "role": "college_admin", "status": "active",
-    })
-    assert promoted.status_code == 200, promoted.text
-    scoped = client.put(f"/api/organizations/users/{college_admin_id}/context", headers=admin, json={
-        "organization_context": {"school_id": school_id, "college_id": colleges[0]},
-    })
-    assert scoped.status_code == 200, scoped.text
-    college_admin = _login(college_admin_name, college_admin_password)
+    college_admin = closed_role_session(college_admin_id)
 
     for index, college_id in enumerate(colleges, start=1):
         teacher_name = f"multi_teacher_{index}_{suffix}"
@@ -1255,15 +1247,13 @@ def test_multi_college_scope_and_two_stage_publish():
     assert all_cohorts.status_code == 200
     assert {item["organization_id"] for item in all_cohorts.json()} >= set(colleges)
     scoped_cohorts = client.get("/api/cohorts", headers=college_admin)
-    assert scoped_cohorts.status_code == 200
-    assert {item["organization_id"] for item in scoped_cohorts.json()} == {colleges[0]}
+    assert scoped_cohorts.status_code == 403
     scoped_organizations = client.get("/api/organizations", headers=college_admin)
-    assert scoped_organizations.status_code == 200
-    assert colleges[0] in {item["id"] for item in scoped_organizations.json()}
-    assert colleges[1] not in {item["id"] for item in scoped_organizations.json()}
+    assert scoped_organizations.status_code == 403
     hidden_id = next(item["id"] for item in all_cohorts.json() if item["organization_id"] == colleges[1])
     hidden = client.get(f"/api/cohorts/{hidden_id}", headers=college_admin)
-    assert hidden.status_code == 404
+    assert hidden.status_code == 403
+
 
 
 def test_midterm_teacher_fields_preserve_student_data_and_require_assigned_teacher():

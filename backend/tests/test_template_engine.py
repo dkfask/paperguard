@@ -230,7 +230,7 @@ def test_template_parse_and_confirm_api_requires_manager_and_keeps_candidate_sta
     assert body["source_asset"]["checksum"] not in serialized
 
 
-def test_college_admin_can_review_generic_template_candidate() -> None:
+def test_closed_college_admin_cannot_review_generic_template_candidate(closed_role_session) -> None:
     client = TestClient(app)
     admin_login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
     assert admin_login.status_code == 200, admin_login.text
@@ -242,22 +242,13 @@ def test_college_admin_can_review_generic_template_candidate() -> None:
         json={"username": username, "password": password, "display_name": "学院管理员", "role": "teacher"},
     )
     assert registered.status_code == 201, registered.text
-    promoted = client.put(
-        f"/api/auth/admin/users/{registered.json()['id']}/role-status",
-        headers=admin_headers,
-        json={"role": "college_admin", "status": "active"},
-    )
-    assert promoted.status_code == 200, promoted.text
-    login = client.post("/api/auth/login", json={"username": username, "password": password})
-    assert login.status_code == 200, login.text
-    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    headers = closed_role_session(registered.json()["id"])
 
     parsed = client.post(
         "/api/templates/parse",
         headers=headers,
         files={"file": ("minimal.docx", (FIXTURES / "templates" / "minimal.docx").read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
     )
-    assert parsed.status_code == 200, parsed.text
+    assert parsed.status_code == 403, parsed.text
     listed = client.get("/api/templates/parse/candidates", headers=headers)
-    assert listed.status_code == 200, listed.text
-    assert any(item["candidate_id"] == parsed.json()["candidate_id"] for item in listed.json())
+    assert listed.status_code == 403, listed.text

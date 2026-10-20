@@ -39,7 +39,7 @@ if (!organizations.includes('!unit.parent_id || !ids.has(unit.parent_id)')) {
 
 const permissions = readFileSync(resolve(root, 'src/shared/auth/permissions.ts'), 'utf8')
 if (!permissions.includes('export function homePath') || !permissions.includes("return '/workspace'")) {
-  console.error('homePath must send college_admin / admin / teacher to /workspace')
+  console.error('homePath must retain the workspace entry for open management roles')
   process.exit(1)
 }
 
@@ -81,11 +81,21 @@ if (!policies.includes('return visible_organization_ids(store, user)')) {
 }
 
 const policyTest = readFileSync(resolve(repoRoot, 'backend/tests/test_policy_lifecycle.py'), 'utf8')
-for (const token of ['sibling_college_id', 'assert outside.status_code == 403', 'school_binding']) {
+for (const token of ['sibling_college_id', 'assert outside.status_code == 403', 'ROLE_NOT_OPEN']) {
   if (!policyTest.includes(token)) {
     console.error(`Missing college policy isolation token: ${token}`)
     process.exit(1)
   }
 }
 
-console.log('College-admin desktop productization structure OK')
+const roleGate = readFileSync(resolve(repoRoot, 'backend/app/services/role_access.py'), 'utf8')
+if (!roleGate.includes('"ROLE_NOT_OPEN"') || !roleGate.includes('"admin", "teacher", "student"')) {
+  console.error('Pilot must reject closed roles at the server authentication boundary')
+  process.exit(1)
+}
+if (readFileSync(resolve(root, 'src/views/AdminUsers.vue'), 'utf8').includes("changeRole(user, 'college_admin'")) {
+  console.error('Pilot must not expose college-admin role assignment')
+  process.exit(1)
+}
+
+console.log('College-admin closure and retained management structure OK')

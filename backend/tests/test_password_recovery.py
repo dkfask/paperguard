@@ -307,6 +307,9 @@ def test_inflight_identity_update_cannot_restore_an_old_password(recovery, monke
     store, user, payload = recovery
     store.save_user({**user, "role": "user", "role_application_status": "unselected"})
     token = client.post("/api/auth/login", json={"username": user["email"], "password": OLD_PASSWORD}).json()["token"]
+    from app.models.organization import OrganizationUnit, OrganizationType
+    school_id = "recovery-school-" + uuid.uuid4().hex
+    store.save_organization_unit(OrganizationUnit(id=school_id, name="Recovery fixture school", type=OrganizationType.SCHOOL))
     started, resume = Event(), Event()
     original_check = auth_routes._require_unselected_user
     def delayed_check(account):
@@ -316,7 +319,7 @@ def test_inflight_identity_update_cannot_restore_an_old_password(recovery, monke
     monkeypatch.setattr(auth_routes, "_require_unselected_user", delayed_check)
     with ThreadPoolExecutor(max_workers=1) as pool:
         update = pool.submit(client.post, "/api/auth/role-certification",
-                             headers={"Authorization": f"Bearer {token}"}, json={"role": "user"})
+                             headers={"Authorization": f"Bearer {token}"}, json={"role": "student", "organization_context": {"school_id": school_id}})
         assert started.wait(10)
         try:
             assert client.post("/api/auth/reset-password", json=payload).status_code == 200

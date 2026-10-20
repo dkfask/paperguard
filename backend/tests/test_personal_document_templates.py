@@ -43,7 +43,7 @@ def account(client, admin, role, context):
     return {"Authorization": "Bearer " + login.json()["token"]}, user_id
 
 
-def test_teacher_personal_template_and_candidates_are_owner_only():
+def test_teacher_personal_template_and_candidates_are_owner_only(closed_role_session):
     client = TestClient(app)
     login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
     admin = {"Authorization": "Bearer " + login.json()["token"]}
@@ -74,7 +74,13 @@ def test_teacher_personal_template_and_candidates_are_owner_only():
     assert client.get(f"/api/document-projects/{project_id}/editor", headers=owner).status_code == 200
 
     for role in ["student", "teacher", "college_admin", "admin"]:
-        other, _ = account(client, admin, role, context)
+        other, other_id = account(client, admin, "student" if role == "college_admin" else role, context)
+        if role == "college_admin":
+            other = closed_role_session(other_id)
+            assert client.get("/api/document-packages", headers=other).status_code == 403
+            assert client.get(f"/api/document-packages/{package_id}", headers=other).status_code == 403
+            assert client.post("/api/document-projects", headers=other, json={"package_id": package_id}).status_code == 403
+            continue
         listed = client.get("/api/document-packages", headers=other)
         assert listed.status_code == 200
         assert all(item["package"]["id"] != package_id for item in listed.json())

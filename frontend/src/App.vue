@@ -110,9 +110,6 @@
                     <button v-if="u.role !== 'teacher'" class="tiny" @click="changeRoleStatus(u.id, 'teacher', 'active')">
                       设为教师
                     </button>
-                    <button v-if="u.role !== 'college_admin'" class="tiny" @click="changeRoleStatus(u.id, 'college_admin', 'active')">
-                      设为学院管理员
-                    </button>
                     <button v-if="u.role !== 'student'" class="tiny" @click="changeRoleStatus(u.id, 'student', 'active')">
                       设为学生
                     </button>

@@ -25,6 +25,7 @@ from app.core.context import context_for_user, set_request_context
 from app.services.tenant_access import effective_capabilities, resolve_membership
 from app.db import Store, new_id
 from app.services import emailer
+from app.services.role_access import require_business_role, require_session_role
 
 _PBKDF2_ITERATIONS = 200_000
 
@@ -44,7 +45,7 @@ def configured_admin_password() -> str:
         raise RuntimeError("请设置 PAPERGUARD_ADMIN_PASSWORD, 且长度至少 12 位")
     return password
 
-MANAGE_ROLES = ("admin", "college_admin", "teacher")
+MANAGE_ROLES = ("admin", "teacher")
 
 
 def _now() -> str:
@@ -374,6 +375,7 @@ def _issue_session(store: Store, user: dict, *, source: str = "web") -> dict:
     # A login verified before a reset cannot insert a valid session afterward.
     with store.workflow_transaction() as conn:
         row = _credential_user_conn(conn, user)
+        require_session_role(dict(row))
         conn.execute(
             "INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, revoked_at, last_seen_at, source) "
             "VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
@@ -510,6 +512,7 @@ def mini_program_bind(store: Store, bind_ticket: str, username: str, password: s
             "code": "ACCOUNT_UNAVAILABLE",
             "message": "账号当前不可绑定",
         })
+    require_session_role(user)
     result = store.bind_mini_program(
         _token_hash(bind_ticket), user["id"], ticket["openid_hash"],
         str(ticket.get("openid_cipher") or ""), _now(),
@@ -703,6 +706,7 @@ async def current_user(request: Request, authorization: str | None = Header(defa
         raise HTTPException(status_code=401, detail="登录已失效, 请重新登录")
     if user.get("status", "active") not in {"active", "pending"}:
         raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
+    require_business_role(user, path=request.url.path)
     if onboarding_required(user) and not _onboarding_path_exempt(request.url.path):
         raise HTTPException(status_code=403, detail={
             "code": "ONBOARDING_REQUIRED", "message": "请先完成邮箱验证和首次登录设置",
@@ -736,6 +740,7 @@ async def current_user(request: Request, authorization: str | None = Header(defa
             "code": "TENANT_CONTEXT_INVALID", "message": "租户上下文无效或成员身份已停用",
         })
     if membership:
+        require_business_role(membership)
         user["tenant_id"] = membership.get("tenant_id", "")
         user["membership_id"] = membership.get("id", "")
         user["auth_version"] = int(membership.get("auth_version") or 1)
@@ -755,7 +760,7 @@ def require_manager(user: dict = Depends(current_user)) -> dict:
     """模板管理权限: admin / 已认证 teacher。"""
     if user["role"] not in MANAGE_ROLES:
         raise HTTPException(status_code=403, detail="仅教师/管理员可管理模板")
-    if user["role"] in ("teacher", "college_admin") and user.get("status") != "active":
+    if user["role"] == "teacher" and user.get("status") != "active":
         raise HTTPException(status_code=403, detail="账号正在认证审核中，暂无管理权限")
     return user
 
@@ -779,7 +784,7 @@ def require_admin(user: dict = Depends(current_user)) -> dict:
 def can_manage(user: dict) -> bool:
     if user["role"] == "admin":
         return True
-    if user["role"] in ("teacher", "college_admin") and user.get("status") == "active":
+    if user["role"] == "teacher" and user.get("status") == "active":
         return True
     return False
 
@@ -802,10 +807,20 @@ async def trusted_context(
             store.get_session_user, _token_hash(token), _now(),
             refresh_expires_at=_expires_at(days=_MP_SESSION_DAYS),
         )
+    if user is not None:
+        require_session_role(user)
+        if user.get("role") == "user":
+            from app.services.saas_identity import platform_binding
+            binding = await run_in_threadpool(platform_binding, store, user["id"])
+            if binding is None:
+                require_business_role(user)
     context = await run_in_threadpool(
         resolve_request_context, store, user, request_id=getattr(request.state, "request_id", ""),
         expected_tenant=expected_tenant,
     )
+    if user is not None and context.actor_kind != "platform":
+        require_business_role(user)
+        require_business_role({"role": context.role})
     if user is not None and onboarding_required(user):
         raise HTTPException(status_code=403, detail={"code": "AUTH_ACCOUNT_BLOCKED", "message": "请先完成账号设置"})
     request.state.context = context

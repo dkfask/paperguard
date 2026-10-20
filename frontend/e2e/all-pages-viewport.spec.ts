@@ -460,6 +460,7 @@ test.describe('all-page desktop viewport', () => {
       }
     }
     await session(page, 'local-certification-fixture', { id: 'local-certification', username: 'local-certification', display_name: '本地身份认证测试', role: 'user', role_application_status: 'unselected' })
+    await page.route('**/api/auth/me', route => route.fulfill({ json: { id: 'local-certification', username: 'local-certification', role: 'user', role_application_status: 'unselected' } }))
     await page.route('**/api/auth/role-certification', route => route.fulfill({ json: { role: 'user', requested_organization_context: {}, application_status: 'unselected', organizations: [{ id: 'local-school', name: '本地学校夹具', type: 'school' }] } }))
     await page.goto('/role-certification')
     await expect(page.locator('.role-certification-page')).toBeVisible()

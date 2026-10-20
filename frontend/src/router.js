@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { auth } from './auth'
-import { canAccessRoute, homePath } from './shared/auth/permissions'
+import { auth, clearAuth } from './auth'
+import { canAccessRoute, homePath, isBusinessRole } from './shared/auth/permissions'
 import { clearNavigationFailure, reportNavigationFailure } from './shared/navigationFailure'
 
 const router = createRouter({
@@ -9,18 +9,18 @@ const router = createRouter({
     { path: '/', component: () => import('./views/Home.vue'), meta: { title: '首页', titleKey: 'route.home', requiresAuth: true } },
     { path: '/login', component: () => import('./views/Login.vue'), meta: { title: '登录', titleKey: 'route.login', public: true } },
     { path: '/register', component: () => import('./views/Register.vue'), meta: { title: '注册', titleKey: 'route.register', public: true } },
-    { path: '/role-certification', component: () => import('./views/RoleCertification.vue'), meta: { title: '身份认证', titleKey: 'route.roleCertification' } },
+    { path: '/role-certification', component: () => import('./views/RoleCertification.vue'), meta: { title: '身份认证', titleKey: 'route.roleCertification', certification: true } },
     { path: '/first-login', component: () => import('./views/FirstLogin.vue'), meta: { title: '首次登录', titleKey: 'route.firstLogin' } },
     { path: '/templates', component: () => import('./views/Templates.vue'), meta: { title: '模板管理', titleKey: 'route.templates' } },
     { path: '/templates/:id/edit', component: () => import('./views/TemplateEditor.vue'), meta: { title: '编辑模板', titleKey: 'route.templateEditor' } },
-    { path: '/document-packages/publish', component: () => import('./views/DocumentPackagePublisher.vue'), meta: { title: '发布通用文档', titleKey: 'route.documentPackagePublisher', roles: ['admin', 'college_admin', 'teacher'] } },
+    { path: '/document-packages/publish', component: () => import('./views/DocumentPackagePublisher.vue'), meta: { title: '发布通用文档', titleKey: 'route.documentPackagePublisher', roles: ['admin', 'teacher'] } },
     { path: '/document-projects', component: () => import('./views/DocumentProjects.vue'), meta: { title: '通用文档', titleKey: 'route.documentProjects' } },
     { path: '/document-projects/:id', component: () => import('./views/DocumentProjectEditor.vue'), meta: { title: '文档编辑', titleKey: 'route.documentProjectEditor' } },
     { path: '/policies', component: () => import('./views/Policies.vue'), meta: { title: '写作规范', titleKey: 'route.policies' } },
     { path: '/organizations', component: () => import('./views/Organizations.vue'), meta: { title: '组织与作用域', titleKey: 'route.organizations' } },
     { path: '/workflow', component: () => import('./views/Workflow.vue'), meta: { title: '论文业务闭环', titleKey: 'route.workflow' }, beforeEnter: (to) => to.query.panel === 'audit' ? { path: '/audit' } : true },
-    { path: '/audit', component: () => import('./views/Audit.vue'), meta: { title: '审计记录', titleKey: 'route.audit', roles: ['admin', 'college_admin'] } },
-    { path: '/cohorts', component: () => import('./views/Cohorts.vue'), meta: { title: '批次与阶段配置', titleKey: 'route.cohorts', roles: ['admin', 'college_admin'] } },
+    { path: '/audit', component: () => import('./views/Audit.vue'), meta: { title: '审计记录', titleKey: 'route.audit', roles: ['admin'] } },
+    { path: '/cohorts', component: () => import('./views/Cohorts.vue'), meta: { title: '批次与阶段配置', titleKey: 'route.cohorts', roles: ['admin'] } },
     { path: '/admin/users', component: () => import('./views/AdminUsers.vue'), meta: { title: '用户与认证', titleKey: 'route.adminUsers', roles: ['admin'] } },
     { path: '/admin/ai', component: () => import('./views/AiSettings.vue'), meta: { title: 'AI 与系统设置', titleKey: 'route.adminAi', roles: ['admin'] } },
     { path: '/teacher/students', component: () => import('./views/TeacherStudents.vue'), meta: { title: '指导学生', titleKey: 'route.teacherStudents', roles: ['teacher'] } },
@@ -35,13 +35,17 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   await auth.restore()
 
+  if (auth.token && auth.user?.role !== 'user' && !isBusinessRole(auth.user)) {
+    clearAuth()
+    return { path: '/login' }
+  }
   if (!auth.token && !to.meta.public) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
   if (auth.token && to.path === '/login' && to.query.forceChange !== '1' && to.query.logout !== '1') {
     return { path: homePath(auth.user) }
   }
-  if (auth.token && auth.user?.role === 'user' && auth.user?.role_application_status === 'unselected' && to.path !== '/role-certification') {
+  if (auth.token && auth.user?.role === 'user' && to.path !== '/role-certification' && !(to.path === '/login' && to.query.forceChange === '1')) {
     return { path: '/role-certification' }
   }
   // 反向也要守：认证是一次性动作，角色已经是 student/teacher/admin 的账号
@@ -66,7 +70,7 @@ router.beforeEach(async (to) => {
   if (auth.token && auth.user?.must_change_password && to.path !== '/login') {
     return { path: '/login', query: { forceChange: '1', redirect: to.fullPath } }
   }
-  if (auth.token && !canAccessRoute(to, auth.user)) return { path: '/workspace' }
+  if (auth.token && !canAccessRoute(to, auth.user)) return { path: homePath(auth.user) }
 })
 
 // 标题只在导航真正提交后写。放在 beforeEach 里会在导航失败时留下

@@ -6,6 +6,16 @@
 - **一键导出 docx**:写作内容按模板生成符合规范的 `.docx`,可直接提交
 - **上传检查兜底**:对已有 `.docx` 按 YAML 规则包(GB/T 7713、GB/T 7714、校规)检查并自动修复,原文件永不被修改,上传文件仅在处理期间使用
 
+## 当前试点范围
+
+单学校试点仅开放教师、学生和系统管理员。保留论文写作、模板、提交审核、过程材料、消息、
+通用文档，以及教师个人写作和自用模板；系统管理员继续负责身份审核和必要管理。
+学院管理员及其他未开放角色不能登录，旧会话和直接接口请求也会被拒绝。
+新注册的 `user` 仅用于申请教师或学生身份，审核通过前不能进入业务功能；社会用户入口暂停。
+已有账号及其内容不删除，系统管理员可将关闭角色的账号调整为开放角色。
+显式批准并持久化的平台运维绑定继续按原授权校验，不由客户端角色字段授予权限。
+这些限制是代码中的试点策略，不会自动修改生产配置或历史数据库记录。
+
 ## 架构
 
 ```
@@ -219,7 +229,7 @@ docker compose up -d --build
 - 小程序服务端还需在受控 secrets 中设置 `PAPERGUARD_WECHAT_APP_ID`、`PAPERGUARD_WECHAT_APP_SECRET` 和独立的 `PAPERGUARD_MP_BINDING_SECRET`; 未配置时 MP 登录保持关闭并返回明确错误码
 - 订阅消息模板映射通过环境变量 `PAPERGUARD_WECHAT_SUBSCRIBE_TEMPLATES` 下发 JSON（事件类型 → 模板 ID），源码与 compose 不写入可用凭据或模板字面量；未配置时只走站内消息
 - 微信真机 / 合法域名 UAT 前置：在 `miniprogram/` 执行 `npm run check:wechat-uat`。该门禁只打印阻塞项（合法域名、AppID、服务端凭据是否已从环境注入、订阅模板、真机点击），**不能替代开发者工具/真机验收**。`localhost`、裸 IP、`example.com` / `example.edu` 等占位域名一律失败关闭；构建微信小程序时 `VITE_API_BASE_URL` 必须是备案 HTTPS 域名。凭据只从受控环境读取，源码与报告不写入可用字面量。
-- 学院管理员桌面端产品化门禁：在 `frontend/` 执行 `npm run check:college-admin`，并跑 `backend/tests/test_policy_lifecycle.py`。覆盖报表 `rate()`、组织树可见根、登录/错误边界落地 `/workspace`、规范不得绑定兄弟学院。这是本地代码门禁，不是 Chrome 真机复测。
+- 试点角色与管理页面门禁：在 `frontend/` 执行 `npm run check:college-admin`（保留命令名），并跑 `backend/tests/test_policy_lifecycle.py` 与 `backend/tests/test_pilot_role_access.py`。覆盖学院管理员关闭、管理页面结构、组织树和角色落地；浏览器回归为 `frontend/e2e/pilot-role-access.spec.ts`。这是本地代码门禁，不替代线上或真实用户验收。
 - 小程序隐私/分享/角标：首启需同意隐私说明（登录凭证、账号绑定、推送标识；不采集手机号/位置）；「我的」含关于与隐私政策；提交/审阅/正文页禁用分享，仅任务首页可分享；消息 Tab 用未读数设置角标。由 `miniprogram/` 的 `check:structure` 与 `test:flow` 覆盖，不是真机 UAT。
 - 小程序提交详情展示教师退回理由与修订截止；预检/确认提交对逾期、已有待审、正文过期返回稳定错误码，并给出「联系教师 / 查看待审核提交 / 重新预检」下一步。仍不是真机 UAT。
 - 小程序学生可撤回待审核提交（教师不能代撤）；提交历史展示修改说明与上轮未解决阻断；我的任务把已通过/归档阶段折叠为历史。由 `check:structure`、`test:flow` 与工作流 happy path 覆盖，不是真机 UAT。

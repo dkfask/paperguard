@@ -34,9 +34,11 @@ def test_email_registration_is_identity_neutral_and_role_certification(monkeypat
     assert options.json()['application_status'] == 'unselected'
 
     social = client.post('/api/auth/role-certification', headers=headers, json={'role': 'user'})
-    assert social.status_code == 200
-    assert social.json()['role'] == 'user'
-    assert social.json()['organization_context'] == {}
+    assert social.status_code == 422
+    current = client.get('/api/auth/me', headers=headers).json()
+    assert current['role'] == 'user'
+    assert current['role_application_status'] == 'unselected'
+    assert client.get('/api/document-projects', headers=headers).status_code == 403
 
 
 def test_school_role_requires_valid_organization_and_admin_approval(monkeypatch):
