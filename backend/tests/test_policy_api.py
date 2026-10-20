@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from tests._helpers import register_fixture
 from app.services import emailer
 
 
@@ -128,11 +129,7 @@ def test_student_cannot_manage_school_policy():
     headers = _admin_headers()
     username = f"policy-student-{uuid.uuid4().hex[:8]}"
     password = _random_password("student")
-    register = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "display_name": "规范学生"},
-    )
-    assert register.status_code == 201, register.text
+    register = register_fixture(client, username, password, display_name="规范学生")
     login = client.post(
         "/api/auth/login",
         json={"username": username, "password": password},
@@ -152,17 +149,8 @@ def test_teacher_requirement_is_frozen_for_guided_student(monkeypatch):
     suffix = uuid.uuid4().hex[:8]
     teacher_username = f"policy-teacher-{suffix}"
     teacher_password = _random_password("teacher")
-    registered = client.post(
-        "/api/auth/register",
-        json={
-            "username": teacher_username,
-            "password": teacher_password,
-            "display_name": "规范导师",
-            "role": "teacher",
-        },
-    )
-    assert registered.status_code == 201, registered.text
-    teacher_id = registered.json()["id"]
+    registered = register_fixture(client, teacher_username, teacher_password, role="teacher", display_name="规范导师")
+    teacher_id = registered["id"]
     approved = client.put(
         f"/api/auth/admin/users/{teacher_id}/role-status",
         headers=admin_headers,

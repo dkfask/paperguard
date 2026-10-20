@@ -64,7 +64,7 @@ const routeState = vi.hoisted(() => ({
 
 vi.mock('../src/api.js', () => api)
 vi.mock('../src/auth.js', () => ({
-  auth: { user: { role: 'college_admin', status: 'active', display_name: '学院管理员', username: 'college-admin' } },
+  auth: { user: { role: 'admin', status: 'active', display_name: '系统管理员', username: 'admin' } },
 }))
 vi.mock('../src/i18n', () => ({
   useI18n: () => ({

@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from app.db import Store
 from app.main import app
+from tests._helpers import register_fixture_response
 
 client = TestClient(app)
 
@@ -37,16 +38,7 @@ def test_teacher_bulk_import_and_management(admin_token):
     # 1. 注册一个教师账号
     teacher_username = f"prof_{uuid.uuid4().hex[:6]}"
     teacher_pw = _gen_password()
-    reg_res = client.post(
-        "/api/auth/register",
-        json={
-            "username": teacher_username,
-            "password": teacher_pw,
-            "role": "teacher",
-            "display_name": "王教授",
-        },
-    )
-    assert reg_res.status_code == 201
+    reg_res = register_fixture_response(client, teacher_username, teacher_pw, role="teacher", display_name="王教授")
     user_info = reg_res.json()
     teacher_id = user_info["id"]
     # 刚注册时 status 应为 pending
@@ -202,16 +194,7 @@ def test_teacher_students_word_count_covers_both_binding_sources(admin_token, mo
     第一次真正执行到它，生产环境 /api/teacher/students 直接 500。
     """
     teacher_username = f"prof_{uuid.uuid4().hex[:6]}"
-    reg_res = client.post(
-        "/api/auth/register",
-        json={
-            "username": teacher_username,
-            "password": _gen_password(),
-            "role": "teacher",
-            "display_name": "字数统计回归教师",
-        },
-    )
-    assert reg_res.status_code == 201, reg_res.text
+    reg_res = register_fixture_response(client, teacher_username, _gen_password(), role="teacher", display_name="字数统计回归教师")
     teacher_id = reg_res.json()["id"]
     approve_res = client.put(
         f"/api/auth/admin/users/{teacher_id}/role-status",
@@ -231,16 +214,7 @@ def test_teacher_students_word_count_covers_both_binding_sources(admin_token, mo
     account_student_id = Store().get_user_by_username(account_student)["id"]
 
     # 批次绑定学生：只有 supervision 关系，没有账号绑定
-    cohort_student_res = client.post(
-        "/api/auth/register",
-        json={
-            "username": f"stu_{uuid.uuid4().hex[:6]}",
-            "password": _gen_password(),
-            "role": "student",
-            "display_name": "批次绑定学生",
-        },
-    )
-    assert cohort_student_res.status_code == 201, cohort_student_res.text
+    cohort_student_res = register_fixture_response(client, f"stu_{uuid.uuid4().hex[:6]}", _gen_password(), display_name="批次绑定学生")
     cohort_student_id = cohort_student_res.json()["id"]
     cohort_id = f"cohort-{uuid.uuid4().hex[:12]}"
     # 用桩替换批次查询：本用例关心的是「批次来源学生进入统计循环」，
@@ -280,11 +254,7 @@ def test_teacher_students_word_count_covers_both_binding_sources(admin_token, mo
 
 def _activate_teacher(client_, username: str, password: str, admin_tok: str) -> tuple[str, str]:
     """注册并激活一个教师，返回 (user_id, token)。"""
-    reg = client_.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "teacher", "display_name": "回归教师"},
-    )
-    assert reg.status_code == 201, reg.text
+    reg = register_fixture_response(client_, username, password, role="teacher", display_name="回归教师")
     teacher_id = reg.json()["id"]
     approve = client_.put(
         f"/api/auth/admin/users/{teacher_id}/role-status",
@@ -311,16 +281,7 @@ def test_teacher_can_reset_password_for_cohort_supervised_student(admin_token, m
     teacher_id, teacher_token = _activate_teacher(client, teacher_username, teacher_pw, admin_token)
 
     # 批次指导学生：没有 users.teacher_id，只在 supervision 里
-    stu_reg = client.post(
-        "/api/auth/register",
-        json={
-            "username": f"stu_{uuid.uuid4().hex[:6]}",
-            "password": _gen_password(),
-            "role": "student",
-            "display_name": "批次指导学生",
-        },
-    )
-    assert stu_reg.status_code == 201, stu_reg.text
+    stu_reg = register_fixture_response(client, f"stu_{uuid.uuid4().hex[:6]}", _gen_password(), display_name="批次指导学生")
     cohort_student_id = stu_reg.json()["id"]
     assert Store().get_user(cohort_student_id).get("teacher_id") is None
 
@@ -353,15 +314,7 @@ def test_teacher_can_reset_password_for_cohort_supervised_student(admin_token, m
     assert unbind.status_code == 403, unbind.text
 
     # 与该教师无任何指导关系的学生：重置必须 403
-    other_reg = client.post(
-        "/api/auth/register",
-        json={
-            "username": f"stu_{uuid.uuid4().hex[:6]}",
-            "password": _gen_password(),
-            "role": "student",
-            "display_name": "无关学生",
-        },
-    )
+    other_reg = register_fixture_response(client, f"stu_{uuid.uuid4().hex[:6]}", _gen_password(), display_name="无关学生")
     other_id = other_reg.json()["id"]
     monkeypatch.setattr(teacher_module, "supervised_student_ids", lambda _store, _tid: {})
     denied = client.post(

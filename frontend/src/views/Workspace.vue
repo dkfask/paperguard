@@ -1,5 +1,5 @@
 <template>
-  <component :is="workspaceComponent" />
+  <component v-if="workspaceComponent" :is="workspaceComponent" />
 </template>
 
 <script setup>
@@ -13,6 +13,8 @@ const workspaceComponent = computed(() => auth.user?.role === 'student'
   ? StudentWorkspace
   : auth.user?.role === 'teacher'
     ? TeacherWorkspace
-    : AdminWorkspace)
+    : auth.user?.role === 'admin'
+      ? AdminWorkspace
+      : null)
 </script>
 

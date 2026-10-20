@@ -49,6 +49,7 @@ from fastapi.testclient import TestClient
 from app.api import ai as ai_module
 from app.db import Store
 from app.main import app
+from tests._helpers import register_fixture
 
 client = TestClient(app)
 
@@ -74,11 +75,7 @@ def _pwd() -> str:
 def _student() -> tuple[str, dict[str, str]]:
     username = f"meter_{uuid.uuid4().hex[:8]}"
     password = _pwd()
-    reg = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "role": "student"},
-    )
-    assert reg.status_code == 201, reg.text
+    register_fixture(client, username, password)
     login = client.post("/api/auth/login", json={"username": username, "password": password})
     assert login.status_code == 200, login.text
     return username, {"Authorization": f"Bearer {login.json()['token']}"}

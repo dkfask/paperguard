@@ -12,6 +12,7 @@ from app.auth import _openid_cipher, _openid_from_cipher
 from app.db import Store
 from app.main import app
 from app.services import wechat_push
+from tests._helpers import register_fixture
 
 
 client = TestClient(app)
@@ -21,12 +22,8 @@ def _account() -> tuple[str, str, str]:
     suffix = uuid.uuid4().hex[:10]
     username = f"push_{suffix}"
     password = f"push-{uuid.uuid4().hex}-A1"
-    registered = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "display_name": "推送测试用户", "role": "student"},
-    )
-    assert registered.status_code == 201, registered.text
-    return username, password, registered.json()["id"]
+    user = register_fixture(client, username, password, display_name="推送测试用户")
+    return username, password, user["id"]
 
 
 def _bind(monkeypatch, username: str, password: str) -> None:

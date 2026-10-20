@@ -5,6 +5,7 @@ import uuid
 from fastapi.testclient import TestClient
 
 from app.main import app
+from tests._helpers import register_fixture
 
 
 client = TestClient(app)
@@ -14,11 +15,7 @@ def _account(role: str = "student") -> tuple[str, str]:
     suffix = uuid.uuid4().hex[:10]
     username = f"mp_{suffix}"
     password = f"mp-bind-{uuid.uuid4().hex}-A1"
-    response = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": password, "display_name": "小程序测试用户", "role": role},
-    )
-    assert response.status_code == 201, response.text
+    register_fixture(client, username, password, role=role, display_name="小程序测试用户")
     return username, password
 
 

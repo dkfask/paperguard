@@ -84,7 +84,7 @@ def test_audit_center_filters_and_request_correlation():
     assert denied.status_code == 403
 
 
-def test_audit_center_respects_college_admin_scope():
+def test_audit_center_denies_closed_college_admin(closed_role_session):
     admin = _login("admin", "TestAdminPassword123")
     suffix = uuid.uuid4().hex[:8]
     school_id = f"audit-scope-school-{suffix}"
@@ -104,13 +104,7 @@ def test_audit_center_respects_college_admin_scope():
     })
     assert registered.status_code == 201
     user_id = registered.json()["id"]
-    assert client.put(f"/api/auth/admin/users/{user_id}/role-status", headers=admin, json={
-        "role": "college_admin", "status": "active",
-    }).status_code == 200
-    assert client.put(f"/api/organizations/users/{user_id}/context", headers=admin, json={
-        "organization_context": {"school_id": school_id, "college_id": college_ids[0]},
-    }).status_code == 200
-    college_admin = _login(name, password)
+    college_admin = closed_role_session(user_id)
 
     for index, college_id in enumerate(college_ids, start=1):
         created = client.post("/api/cohorts", headers=admin, json={
@@ -119,7 +113,6 @@ def test_audit_center_respects_college_admin_scope():
         assert created.status_code == 201, created.text
 
     response = client.get("/api/audit", headers=college_admin, params={"resource_type": "cohort"})
-    assert response.status_code == 200, response.text
-    organization_ids = {item["organization_id"] for item in response.json()}
-    assert college_ids[0] in organization_ids
-    assert college_ids[1] not in organization_ids
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"]["code"] == "ROLE_NOT_OPEN"
+    assert client.get("/api/audit/export", headers=college_admin).status_code == 403

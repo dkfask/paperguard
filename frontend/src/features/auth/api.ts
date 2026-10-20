@@ -34,6 +34,7 @@ export interface RoleCertificationResponse {
 }
 
 export const authApi = {
+  getCurrentUser: () => apiClient.request<User>({ url: '/api/auth/me', method: 'GET' }),
   login: (credentials: LoginInput) => apiClient.request<AuthResponse>({
     url: '/api/auth/login',
     method: 'POST',

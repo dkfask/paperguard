@@ -60,3 +60,20 @@ def tmp_workdir():
     path = Path(tempfile.mkdtemp())
     yield path
     shutil.rmtree(path, ignore_errors=True)
+
+
+@pytest.fixture
+def closed_role_session():
+    """Model a session created before the pilot closed a role, in the test DB."""
+    from app.auth import _issue_session
+    from app.db import Store
+
+    def existing_session(user_id, role="college_admin"):
+        store = Store()
+        user = store.get_user(user_id)
+        store.update_user_role_and_status(user_id, "student", "active")
+        session = _issue_session(store, store.get_user(user_id))
+        store.update_user_role_and_status(user_id, role, user.get("status", "active"))
+        return {"Authorization": "Bearer " + session["token"]}
+
+    return existing_session

@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from app.db import Store
 from app.main import app
+from tests._helpers import register_fixture
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 
@@ -326,10 +327,7 @@ def test_project_owner_can_retry_own_failed_export(monkeypatch):
     password = f"ExportOwner-{suffix}-8a"
 
     for name in (owner_name, other_name):
-        registered = client.post("/api/auth/register", json={
-            "username": name, "password": password, "display_name": "导出作者",
-        })
-        assert registered.status_code == 201, registered.text
+        register_fixture(client, name, password, display_name="导出作者")
 
     def _headers(username: str) -> dict[str, str]:
         login = client.post("/api/auth/login", json={"username": username, "password": password})
@@ -727,10 +725,7 @@ def test_project_image_download_is_resource_scoped():
     )
     assert uploaded.status_code == 201, uploaded.text
 
-    outsider = client.post("/api/auth/register", json={
-        "username": "image-outsider", "password": "OutsiderPassword123", "role": "student",
-    })
-    assert outsider.status_code == 201, outsider.text
+    outsider = register_fixture(client, "image-outsider", "OutsiderPassword123")
     login = client.post("/api/auth/login", json={
         "username": "image-outsider", "password": "OutsiderPassword123",
     })
@@ -1371,10 +1366,7 @@ def test_import_detects_numeric_heading_style_ids():
 def test_register_and_student_isolation():
     """学生注册后: 只能看到自己的项目, 不能管理模板。"""
     # 注册学生
-    resp = client.post("/api/auth/register", json={
-        "username": "stu001", "password": "StudentPass123", "display_name": "学生一",
-    })
-    assert resp.status_code == 201
+    register_fixture(client, "stu001", "StudentPass123", display_name="学生一")
 
     # 学生登录
     login = client.post("/api/auth/login", json={

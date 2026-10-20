@@ -13,9 +13,10 @@ from app.core.saas_contract import (
     MembershipView, TenantView, SaasRoute, AiRequestView, RecoveryPlan, envelope,
 )
 from app.db import Store, new_id
-from app.services.tenant_access import ROLE_CAPABILITIES, TENANT_CAPABILITIES
+from app.services.tenant_access import TENANT_CAPABILITIES
 from app.services import ai_recovery, saas_identity, tenant_projects
 from app.models.project import WritingProject, ProjectSection
+from app.services.role_access import BUSINESS_ROLES
 
 router = APIRouter(prefix="/api/saas/v1", tags=["saas"], route_class=SaasRoute, responses=ERROR_RESPONSES)
 
@@ -69,7 +70,7 @@ class MembershipCreate(ContractModel):
     @field_validator("role")
     @classmethod
     def known_role(cls, value: str) -> str:
-        if value not in ROLE_CAPABILITIES:
+        if value not in BUSINESS_ROLES:
             raise ValueError("unsupported tenant role")
         return value
 

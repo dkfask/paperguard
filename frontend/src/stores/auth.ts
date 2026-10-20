@@ -94,7 +94,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function canManage() {
-    return Boolean(user.value && ['admin', 'college_admin', 'teacher'].includes(user.value.role)
+    return Boolean(user.value && ['admin', 'teacher'].includes(user.value.role)
       && (user.value.role === 'admin' || user.value.status === 'active'))
   }
 

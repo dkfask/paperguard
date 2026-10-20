@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from app.api import routes
 from app.main import app
+from tests._helpers import register_fixture_response
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 
@@ -119,21 +120,13 @@ def test_logout_revokes_token():
 
 def test_user_registration_roles_and_admin_management():
     # 1. 学生注册：默认为 student 且 active
-    st_res = client.post(
-        "/api/auth/register",
-        json={"username": "student_alice", "password": "AlicePassword123", "display_name": "爱丽丝同学", "role": "student"},
-    )
-    assert st_res.status_code == 201
+    st_res = register_fixture_response(client, "student_alice", "AlicePassword123", role="student", display_name="爱丽丝同学")
     st_data = st_res.json()
     assert st_data["role"] == "student"
     assert st_data["status"] == "active"
 
     # 2. 教师注册：申请为 teacher，初始状态为 pending
-    tc_res = client.post(
-        "/api/auth/register",
-        json={"username": "teacher_bob", "password": "BobPassword123", "display_name": "鲍勃老师", "role": "teacher"},
-    )
-    assert tc_res.status_code == 201
+    tc_res = register_fixture_response(client, "teacher_bob", "BobPassword123", role="teacher", display_name="鲍勃老师")
     tc_data = tc_res.json()
     assert tc_data["role"] == "teacher"
     assert tc_data["status"] == "pending"

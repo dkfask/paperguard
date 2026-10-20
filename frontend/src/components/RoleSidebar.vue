@@ -96,7 +96,7 @@ const groups = computed(() => {
       { label: t('personalTemplates.title'), icon: 'settings', to: '/document-packages/publish' },
     ] }]
   }
-  if (!['admin', 'college_admin'].includes(role)) return []
+  if (role !== 'admin') return []
   const adminItems = [
     { label: t('sidebar.overview'), icon: 'dashboard', to: '/workspace' },
     { label: t('sidebar.workflow'), icon: 'assignment', to: '/workflow' },
@@ -117,7 +117,7 @@ const groups = computed(() => {
     resources.push({ label: t('sidebar.operations'), icon: 'settings', to: '/operations' })
   }
   return [
-    { label: role === 'admin' ? t('sidebar.schoolOps') : t('sidebar.collegeOps'), items: adminItems },
+    { label: t('sidebar.schoolOps'), items: adminItems },
     { label: t('sidebar.resourcesGovernance'), items: resources },
   ]
 })

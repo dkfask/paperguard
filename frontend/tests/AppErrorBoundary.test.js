@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 
 const router = vi.hoisted(() => ({ push: vi.fn() }))
-const authState = vi.hoisted(() => ({ user: { role: 'college_admin' } }))
+const authState = vi.hoisted(() => ({ user: { role: 'teacher' } }))
 
 vi.mock('vue-router', () => ({ useRouter: () => router }))
 vi.mock('../src/auth.js', () => ({ auth: authState }))
@@ -20,9 +20,9 @@ const Boom = defineComponent({
 })
 
 describe('AppErrorBoundary', () => {
-  it('returns college admins to the role workspace', async () => {
+  it('returns an open role to the role workspace', async () => {
     router.push.mockReset()
-    authState.user = { role: 'college_admin' }
+    authState.user = { role: 'teacher' }
     const wrapper = mount(AppErrorBoundary, {
       slots: { default: Boom },
     })

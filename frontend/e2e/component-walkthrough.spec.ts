@@ -3,7 +3,7 @@ import { LoginPage, PaperGuardPage } from './pages/paperguard.page'
 
 // 本 spec 覆盖 2026-10-01 测试报告第五节列为「未验证」的界面验收缺口：
 // 1) BUG-20261001-01 教师认证死路的界面级回归锁定
-// 2) 8 个此前从未做界面走查的组件 + college_admin 角色闭环
+// 2) 8 个此前从未做界面走查的组件 + 试点关闭角色的入口拦截
 //
 // 验收标准：页面可渲染、无错误横幅、主标题非空、且存在可交互控件
 //（BUG-01 的本质就是"能进页面但没有任何操作可用"，只看 HTTP 200 抓不到）。
@@ -238,38 +238,13 @@ test.describe('2026-10-01 界面走查与 BUG-01 回归', () => {
     }
   })
 
-  test('college_admin 闭环：角色可用性与越权边界', async ({ page, browser }) => {
+  test('试点管理员不能再分配学院管理员身份', async ({ page }) => {
     const base = await createAccount(page, 'student')
     await loginAdmin(page)
-    await promoteViaUi(page, base.username, '设为学院管理员')
-
-    const caContext = await browser.newContext()
-    const caPage = await caContext.newPage()
-    try {
-      await new LoginPage(caPage).login(base.username, base.password)
-
-      const caPages: Array<[string, string]> = [
-        ['/cohorts', '批次与阶段配置'],
-        ['/audit', '审计记录'],
-        ['/organizations', '组织与作用域'],
-      ]
-      for (const [route, label] of caPages) {
-        await caPage.goto(route)
-        await caPage.waitForLoadState('networkidle').catch(() => {})
-        await expect(caPage, `college_admin 进入 ${label} 被拒`).toHaveURL(new RegExp(`${route.replace(/\//g, '\\/')}$`))
-        const info = await assertPageUsable(caPage, `[college_admin] ${label}`)
-        console.log(`  [college_admin] ${route} → 标题「${info.heading}」，可交互控件 ${info.controls} 个`)
-      }
-
-      // 平台运维也遵循当前管理员路由边界，不为沿用旧用例而放宽权限。
-      for (const route of ['/admin/users', '/admin/ai', '/operations']) {
-        await caPage.goto(route)
-        await caPage.waitForLoadState('networkidle').catch(() => {})
-        await expect(caPage, `college_admin 越权进入 ${route}`).not.toHaveURL(new RegExp(`${route.replace(/\//g, '\\/')}$`))
-        console.log(`  [college_admin] ${route} → 被守卫挡回 ${new URL(caPage.url()).pathname}`)
-      }
-    } finally {
-      await caContext.close()
-    }
+    await page.goto('/admin/users')
+    const dialog = await new PaperGuardPage(page).openUserDetails(base.username)
+    await expect(dialog.getByRole('button', { name: '设为学院管理员', exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: '设为教师', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '设为管理员', exact: true })).toBeVisible()
   })
 })
