@@ -122,6 +122,26 @@ def test_placeholder_mapping_does_not_clear_unsupported_equations():
     assert any(item["code"] == "source_equation_omml" for item in report["blockers"])
 
 
+def test_placeholder_preservation_does_not_approve_dynamic_footer_fields():
+    from app.services.template_engine import parse_docx_template
+
+    path = Path(__file__).parent / "fixtures" / "templates" / "generic-anchored.docx"
+    candidate = parse_docx_template(path, candidate_id="dynamic-field", template_id="dynamic-field", filename=path.name)
+    data = path.read_bytes()
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        root = etree.fromstring(archive.read("word/footer1.xml"))
+    paragraph = root.find("{%s}p" % "http://schemas.openxmlformats.org/wordprocessingml/2006/main")
+    etree.SubElement(paragraph, "{%s}fldSimple" % "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+                     {"{%s}instr" % "http://schemas.openxmlformats.org/wordprocessingml/2006/main": "PAGE"})
+    changed = _replace_docx_part(data, "word/footer1.xml", etree.tostring(root))
+    report = assess_template_definition(
+        template_id=candidate.template_id, version=candidate.version,
+        definition=candidate.definition, source_data=changed,
+    )
+    assert not report["can_use_for_draft"]
+    assert any(item["code"] == "unmapped_footer" for item in report["blockers"])
+
+
 def test_source_xml_equations_and_unmapped_headers_are_blocked():
     xml_report = assess_template_definition(
         template_id="candidate", version="1",
