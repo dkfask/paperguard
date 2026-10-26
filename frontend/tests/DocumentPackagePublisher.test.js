@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const api = vi.hoisted(() => ({
   parseDocumentTemplate: vi.fn(),
+  assessDocumentTemplateCandidate: vi.fn(),
   getDocumentTemplateCandidates: vi.fn(),
   confirmDocumentTemplateCandidate: vi.fn(),
   parseDocumentSpec: vi.fn(),
@@ -28,6 +29,12 @@ const templateCandidate = {
   name: '实验报告模板',
   version: '1',
   status: 'needs_confirmation',
+  admission_assessment: {
+    status: 'office_review_required', assessment_hash: 'assessment-v1', blockers: [],
+    auto_verifiable_constraints: [{ property: 'size_pt', rule: 'format.font_size' }],
+    manual_checks: [{ code: 'office_pagination', message: 'Word/WPS 分页复核' }],
+    can_claim_compliant_delivery: false,
+  },
   issues: [],
   definition: {
     sections: [{ key: 'intro', title: '引言', children: [] }],
@@ -72,6 +79,14 @@ describe('DocumentPackagePublisher', () => {
     api.getDocumentTemplateCandidates.mockResolvedValue([])
     api.getDocumentSpecCandidates.mockResolvedValue([])
     api.parseDocumentTemplate.mockImplementation(async () => JSON.parse(JSON.stringify(templateCandidate)))
+    api.assessDocumentTemplateCandidate.mockImplementation(async candidate => ({
+      ...candidate,
+      admission_assessment: {
+        ...candidate.admission_assessment,
+        status: candidate.admission_assessment?.blockers?.length ? 'blocked' : 'office_review_required',
+        assessment_hash: `assessment-${candidate.version}-${JSON.stringify(candidate.definition).length}`,
+      },
+    }))
     api.confirmDocumentTemplateCandidate.mockImplementation(async candidate => ({ ...candidate, status: 'confirmed' }))
     api.parseDocumentSpec.mockImplementation(async () => JSON.parse(JSON.stringify(specCandidate)))
     api.confirmDocumentSpecCandidate.mockImplementation(async candidate => ({ ...candidate, status: 'confirmed' }))
@@ -169,6 +184,10 @@ describe('DocumentPackagePublisher', () => {
     await wrapper.get('[data-test="template-candidate-name"]').setValue('修订后的模板')
     await wrapper.get('[data-test="template-field-label"]').setValue('报告作者')
     await wrapper.get('[data-test="template-section-title"]').setValue('背景与目标')
+    expect(wrapper.get('[data-test="template-confirm"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="template-reassess"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="template-confirm"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('[role="dialog"] .base-modal-close').trigger('click')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     await wrapper.get('[data-test="template-review"]').trigger('click')
@@ -236,5 +255,26 @@ describe('DocumentPackagePublisher', () => {
     await wrapper.get('[data-test="template-confirm"]').trigger('click')
     await flushPromises()
     expect(api.confirmDocumentTemplateCandidate).toHaveBeenCalledWith(expect.objectContaining({ definition }))
+  })
+
+  it('blocks confirmation and publication when the template has unsupported features', async () => {
+    const blocked = {
+      ...templateCandidate,
+      admission_assessment: {
+        ...templateCandidate.admission_assessment,
+        status: 'blocked',
+        blockers: [{ code: 'source_table_not_mapped', path: 'source_docx/word/document.xml', message: '原始表格未映射' }],
+      },
+    }
+    api.parseDocumentTemplate.mockResolvedValue(blocked)
+    const wrapper = mountPublisher()
+    await chooseFile(wrapper, '[data-test="template-file"]', new File(['docx'], 'table-template.docx'))
+    await wrapper.get('[data-test="template-parse"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('原始表格未映射')
+    expect(wrapper.get('[data-test="template-confirm"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="publish"]').attributes('disabled')).toBeDefined()
+    expect(api.confirmDocumentTemplateCandidate).not.toHaveBeenCalled()
+    expect(api.publishDocumentPackage).not.toHaveBeenCalled()
   })
 })

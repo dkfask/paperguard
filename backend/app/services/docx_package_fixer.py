@@ -171,6 +171,7 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
                 counters["parts"] += 1
                 continue
             data = zin.read(name)
+            changed = False
             if _is_story_xml(name):
                 root = parse_xml(data)
                 for element in list(root.iter()):
@@ -179,7 +180,9 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
                         if parent is not None:
                             parent.remove(element)
                             counters["anchors"] += 1
-                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                            changed = True
+                if changed:
+                    data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
             elif name.endswith(".rels"):
                 root = parse_xml(data)
                 for relationship in list(root):
@@ -188,16 +191,20 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
                     if _is_comment_relationship(rel_type, target):
                         root.remove(relationship)
                         counters["relationships"] += 1
-                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                        changed = True
+                if changed:
+                    data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
             elif name == "[Content_Types].xml":
                 root = parse_xml(data)
                 for override in list(root):
                     part_name = override.get("PartName", "").lower()
                     content_type = override.get("ContentType", "").lower()
-                    if _COMMENT_CONTENT_MARKER in part_name or _COMMENT_CONTENT_MARKER in content_type:
+                    if _is_comment_part(part_name.lstrip("/")) or any(marker in content_type for marker in _COMMENT_RELATIONSHIP_MARKERS):
                         root.remove(override)
                         counters["content_types"] += 1
-                data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+                        changed = True
+                if changed:
+                    data = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
             rewritten[name] = data
 
         with zipfile.ZipFile(output, "w") as zout:
@@ -210,7 +217,7 @@ def strip_comments_from_docx(source: str | Path, output: str | Path) -> dict[str
 
 def _is_comment_part(name: str) -> bool:
     lower = name.lower()
-    return lower in _COMMENT_PART_NAMES or "/comments" in lower or "threadedcomments" in lower
+    return lower in {n.lower() for n in _COMMENT_PART_NAMES} or "/comments" in lower or "threadedcomments" in lower
 
 
 def _is_comment_relationship(rel_type: str, target: str) -> bool:

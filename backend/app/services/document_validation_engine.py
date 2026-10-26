@@ -87,6 +87,38 @@ def _keywords(text: str) -> list[str]:
     return [item.strip() for item in re.split(r"[;,；，、\n]+", text) if item.strip()]
 
 
+def _section_table_count(project: DocumentProject, section_key: str) -> int:
+    """Count non-empty tables that the current renderer will actually emit."""
+    count = 0
+    for block in sorted(project.sections.get(section_key, []), key=lambda item: (item.order, item.id)):
+        kind = str(getattr(block, "kind", "") or "").lower()
+        if kind not in {"table", "grid"}:
+            continue
+        data = getattr(block, "data", {})
+        if not isinstance(data, dict):
+            continue
+        try:
+            rows = int(data.get("rows") or 1)
+            cols = int(data.get("cols") or 1)
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= rows <= 50 and 1 <= cols <= 20):
+            continue
+        cells = data.get("cells")
+        has_cell_content = (
+            isinstance(cells, list)
+            and any(
+                isinstance(row, list)
+                and any(str(value or "").strip() for value in row[:cols])
+                for row in cells[:rows]
+            )
+        )
+        # Empty 1x1 defaults do not satisfy a data-table requirement.
+        if has_cell_content:
+            count += 1
+    return count
+
+
 def _expectation(params: dict[str, Any]) -> str | dict[str, Any]:
     expected = {key: params[key] for key in ("min", "max") if key in params}
     if "min" in expected and "max" in expected:
@@ -133,6 +165,28 @@ def _not_checked(rule: SpecRule, reason: str, spec_version_id: str) -> dict[str,
         "reason": reason,
         "fixable": False,
     }
+
+
+def _record_unverifiable_auto_rule(rule: SpecRule, reason: str, spec_version_id: str,
+                                  findings: list[ValidationFinding],
+                                  not_checked: list[dict[str, Any]]) -> None:
+    """Fail closed when a rule declared automatic cannot actually be checked."""
+    if rule.enforce == "hard":
+        findings.append(ValidationFinding(
+            rule_id=rule.id,
+            checker=rule.checker,
+            severity="error",
+            enforce="hard",
+            message=rule.description or "A required automatic rule cannot be verified",
+            actual={"status": "unverifiable", "reason": reason},
+            expected="automatic verification completed",
+            section_key=str(rule.params.get("section_key") or rule.target or ""),
+            fixable=False,
+            source=rule.provenance.get("source") or "document specification",
+            source_version=spec_version_id,
+        ))
+    else:
+        not_checked.append(_not_checked(rule, reason, spec_version_id))
 
 
 def _recent_reference_count(text: str, params: dict[str, Any]) -> tuple[int, int]:
@@ -196,7 +250,7 @@ def validate_document_project(
         params = rule.params or {}
         checker = rule.checker
         if checker == "chapter.page_break":
-            not_checked.append(_not_checked(rule, "renderer_required", spec_version.id))
+            _record_unverifiable_auto_rule(rule, "renderer_required", spec_version.id, findings, not_checked)
             continue
 
         if checker == "section.exists":
@@ -204,7 +258,7 @@ def validate_document_project(
             keys = keys if isinstance(keys, list) else [keys or rule.target]
             keys = [str(key).strip() for key in keys if str(key).strip()]
             if not keys:
-                not_checked.append(_not_checked(rule, "section_key_required", spec_version.id))
+                _record_unverifiable_auto_rule(rule, "section_key_required", spec_version.id, findings, not_checked)
                 continue
             for key in keys:
                 if key not in nodes or not _section_text(project, key):
@@ -216,6 +270,28 @@ def validate_document_project(
                         section_key=key,
                         spec_version_id=spec_version.id,
                     ))
+            continue
+
+        if checker == "section.table_required":
+            section_key = str(params.get("section_key") or "").strip()
+            minimum_value = params.get("min", 1)
+            if not section_key or section_key not in nodes:
+                _record_unverifiable_auto_rule(rule, "section_not_mapped", spec_version.id, findings, not_checked)
+                continue
+            if type(minimum_value) is not int or minimum_value < 1:
+                _record_unverifiable_auto_rule(rule, "invalid_table_count_minimum", spec_version.id, findings, not_checked)
+                continue
+            minimum = minimum_value
+            actual = _section_table_count(project, section_key)
+            if actual < minimum:
+                findings.append(_finding(
+                    rule,
+                    message=rule.description or f"Section {section_key} must contain at least one table",
+                    actual=actual,
+                    expected={"min": minimum},
+                    section_key=section_key,
+                    spec_version_id=spec_version.id,
+                ))
             continue
 
         if checker in {"section.word_count", "abstract.word_count"}:
@@ -253,7 +329,7 @@ def validate_document_project(
         if checker in {"cover.field_present", "meta.field_present"}:
             field_key = str(params.get("field_key") or rule.target or "").strip()
             if not field_key or field_key in _SECTION_TARGETS:
-                not_checked.append(_not_checked(rule, "field_key_required", spec_version.id))
+                _record_unverifiable_auto_rule(rule, "field_key_required", spec_version.id, findings, not_checked)
                 continue
             actual = bool(str(project.field_values.get(field_key, "") or "").strip())
             if not actual:
@@ -312,7 +388,7 @@ def validate_document_project(
                 ))
             continue
 
-        not_checked.append(_not_checked(rule, "unsupported_checker", spec_version.id))
+        _record_unverifiable_auto_rule(rule, "unsupported_checker", spec_version.id, findings, not_checked)
 
     summary = {
         "total": len(findings),
@@ -341,4 +417,19 @@ def validate_document_project(
     )
 
 
-__all__ = ["validate_document_project"]
+def required_delivery_issues(run: ValidationRun) -> list[str]:
+    """List required findings that must be resolved before a DOCX is delivered."""
+    issues = [
+        item.message
+        for item in run.findings
+        if item.enforce == "hard" and item.severity == "error"
+    ]
+    issues.extend(
+        f"{item.get('description') or item.get('checker') or item.get('rule_id') or '必需规范'}（待人工核查）"
+        for item in run.not_checked
+        if item.get("enforce") == "hard"
+    )
+    return issues
+
+
+__all__ = ["required_delivery_issues", "validate_document_project"]

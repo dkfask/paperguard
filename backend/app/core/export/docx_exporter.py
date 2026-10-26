@@ -178,6 +178,9 @@ def _apply_paragraph_format(par, style: TextStyle) -> None:
     pf.alignment = _align_to_word(style.align)
     if style.line_spacing_rule in ("exact", "atLeast"):
         pf.line_spacing = Pt(style.line_spacing)      # 固定值/最小值按磅
+        if style.line_spacing_rule == "atLeast":
+            spacing = par._p.get_or_add_pPr().get_or_add_spacing()
+            spacing.set(qn("w:lineRule"), "atLeast")
     else:
         pf.line_spacing = style.line_spacing          # 倍数
     pf.space_before = Pt(style.space_before_pt)
@@ -762,22 +765,23 @@ def _clear_body(doc: Document) -> None:
 
 
 def _open_base_document(template_path: str | Path | None) -> tuple[Document, bool, list]:
-    """打开排版基底: 优先用模板 docx, 缺失/损坏时回退空白文档。
+    """Open the declared DOCX base; never silently discard a requested master.
 
     返回 (文档, 是否模板基底, 源文档各节设置)。模板基底沿用模板的
     styles.xml、页边距、页眉页脚与主题字体, 不再硬编码页面设置。
     """
     if template_path:
         path = Path(template_path)
-        if path.is_file() and path.suffix.lower() == ".docx":
-            try:
-                doc = Document(str(path))
-                section_layouts = [copy.deepcopy(section._sectPr)
-                                   for section in doc.sections]
-                _clear_body(doc)
-                return doc, True, section_layouts
-            except Exception as exc:
-                _LOGGER.warning("模板基底不可用, 回退空白文档: %s (%s)", path, exc)
+        if not path.is_file() or path.suffix.lower() != ".docx":
+            raise ValueError("指定的 Word 母版不存在或不是 DOCX，已停止导出")
+        try:
+            doc = Document(str(path))
+        except Exception as exc:
+            raise ValueError("指定的 Word 母版无法读取，已停止导出") from exc
+        section_layouts = [copy.deepcopy(section._sectPr)
+                           for section in doc.sections]
+        _clear_body(doc)
+        return doc, True, section_layouts
     return Document(), False, []
 
 
@@ -853,6 +857,10 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
     内容、封面字段和导出相关模板设置都与源稿一致时直接保留源 DOCX，避免无意义的
     XML 重建造成分页/布局损失；任一项变化时，以模板为基底重新渲染项目。
     """
+    if template.source_execution:
+        from app.services.master_docx_renderer import render_master_docx
+        render_master_docx(project, template, out_path, source_path=template_path)
+        return
     if _copy_unchanged_source(project, template, out_path, template_path):
         return
 
@@ -1123,6 +1131,11 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
         return
     if not par.text:
         return
+    if template is not None and par.type.value == "paragraph":
+        if _is_caption_paragraph(par, "图"):
+            style = _style_for(template, "figure_caption", None)
+        elif _is_caption_paragraph(par, "表"):
+            style = _style_for(template, "table_caption", None)
     p = doc.add_paragraph()
     _apply_paragraph_format(p, style)
     inline_runs = par.inline_runs

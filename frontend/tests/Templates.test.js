@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   importDocxTemplate: vi.fn(),
   stripTemplateComments: vi.fn(),
   saveTemplate: vi.fn(),
+  assessTemplateAdmission: vi.fn(),
   fetchTemplate: vi.fn(),
 }))
 const router = vi.hoisted(() => ({ push: vi.fn() }))
@@ -39,6 +40,12 @@ describe('Templates', () => {
     vi.clearAllMocks()
     api.fetchTemplates.mockResolvedValue([template])
     api.deleteTemplateApi.mockResolvedValue(undefined)
+    api.assessTemplateAdmission.mockImplementation(async value => ({
+      status: 'office_review_required', assessment_hash: 'template-assessment', definition_sha256: 'definition',
+      source_docx_sha256: '', blockers: [], auto_verifiable_constraints: [], manual_checks: [],
+      can_claim_compliant_delivery: false,
+      template_id: value.id, version: value.version,
+    }))
   })
 
   it('opens the delete confirmation without throwing a page-level error', async () => {
@@ -112,11 +119,29 @@ describe('Templates', () => {
     expect(groups[1].findAll('summary').map(el => el.text())).toEqual(['section.englishAbstract', 'section.keywords', 'section.englishKeywords'])
     api.fetchTemplate.mockResolvedValue({ sections: [], meta_fields: [] })
     api.saveTemplate.mockResolvedValue({ id: 'imported' })
-    await wrapper.findAll('button').find(el => el.text().includes('templates.confirmCreate')).trigger('click')
+    await wrapper.get('.import-actions button.primary').trigger('click')
     await flushPromises()
     const saved = api.saveTemplate.mock.calls[0][0]
     expect(saved.styles).toEqual(result.styles)
     expect(saved.sections).toEqual([{ ...result.sections[0], required: true }, result.sections[1]])
+    expect(router.push).toHaveBeenCalledWith('/templates/imported/edit')
+    wrapper.unmount()
+  })
+
+  it('keeps an unsupported imported template as a draft for correction without making it usable', async () => {
+    const { wrapper } = await importPreview()
+    const blocker = { code: 'cover_table', path: 'cover_blocks[0]', message: '封面表格尚未映射' }
+    api.assessTemplateAdmission.mockResolvedValue({
+      status: 'blocked', assessment_hash: 'blocked-assessment', blockers: [blocker],
+      auto_verifiable_constraints: [], manual_checks: [], can_claim_compliant_delivery: false,
+    })
+    api.saveTemplate.mockResolvedValue({ id: 'imported' })
+    api.fetchTemplate.mockResolvedValue({ sections: [], meta_fields: [] })
+    await wrapper.get('.import-actions button.primary').trigger('click')
+    await flushPromises()
+    expect(api.assessTemplateAdmission).not.toHaveBeenCalled()
+    expect(api.saveTemplate.mock.calls[0][0].id).toBe('')
+    expect(api.saveTemplate).toHaveBeenCalledWith(expect.objectContaining({ sections: expect.any(Array), source_docx: expect.any(String) }), true)
     expect(router.push).toHaveBeenCalledWith('/templates/imported/edit')
     wrapper.unmount()
   })

@@ -160,6 +160,22 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
                 if current is None or not _section_text(current):
                     findings.append(_finding(descriptor, descriptor["description"] or f"章节 {key} 缺失或为空", 0, "存在且非空", str(key)))
             continue
+        if checker == "section.table_required":
+            section = section or _section_for(project, target, params)
+            actual = sum(
+                1 for block in (section.paragraphs if section else [])
+                if block.type.value == "table" and block.table is not None
+            )
+            minimum = int(params.get("min", 1))
+            if actual < minimum:
+                findings.append(_finding(
+                    descriptor,
+                    descriptor["description"] or "本章节至少需要一个表格。",
+                    actual,
+                    {"min": minimum},
+                    section.key if section else target,
+                ))
+            continue
         if checker in ("section.word_count", "abstract.word_count"):
             section = section or _section_for(project, "abstract" if checker.startswith("abstract") else target, params)
             text = _target_text(project, target, params) if target in ("document", "body") and not checker.startswith("abstract") else _section_text(section)

@@ -10,7 +10,7 @@ from app.db import Store
 from app.main import app
 from app.services.document_access import document_package_visible
 
-FIXTURE = Path(__file__).parent / "fixtures/templates/minimal.docx"
+FIXTURE = Path(__file__).parent / "fixtures/templates/admissible.docx"
 SPEC = """---
 name: Personal writing standard
 version: '1'

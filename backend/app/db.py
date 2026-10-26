@@ -2741,27 +2741,36 @@ class Store:
         expected_revision: int,
     ) -> WritingProject | None:
         """保存项目的同时检查 revision，避免并发请求静默覆盖。"""
+        with self._connect() as conn:
+            return self.update_project_if_revision_conn(conn, proj, expected_revision)
+
+    def update_project_if_revision_conn(
+        self,
+        conn: sqlite3.Connection,
+        proj: WritingProject,
+        expected_revision: int,
+    ) -> WritingProject | None:
+        """Compare and save within an existing workflow transaction."""
         if proj.tenant_id or proj.membership_id:
             raise PermissionError("tenant projects require scoped repository")
         next_revision = expected_revision + 1
         proj.revision = next_revision
         proj.updated_at = _now()
-        with self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE projects SET template_id = ?, data = ?, updated_at = ? "
-                "WHERE id = ? AND json_extract(data, '$.revision') = ? "
-                "AND coalesce(json_extract(data, '$.tenant_id'), '') = '' "
-                "AND coalesce(json_extract(data, '$.membership_id'), '') = ''",
-                (
-                    proj.template_id,
-                    proj.model_dump_json(),
-                    proj.updated_at,
-                    proj.id,
-                    expected_revision,
-                ),
-            )
-            if cur.rowcount != 1:
-                return None
+        cur = conn.execute(
+            "UPDATE projects SET template_id = ?, data = ?, updated_at = ? "
+            "WHERE id = ? AND json_extract(data, '$.revision') = ? "
+            "AND coalesce(json_extract(data, '$.tenant_id'), '') = '' "
+            "AND coalesce(json_extract(data, '$.membership_id'), '') = ''",
+            (
+                proj.template_id,
+                proj.model_dump_json(),
+                proj.updated_at,
+                proj.id,
+                expected_revision,
+            ),
+        )
+        if cur.rowcount != 1:
+            return None
         return proj
 
     def update_project_check_runs(

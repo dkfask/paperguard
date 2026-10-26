@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.extract.specification import extract_writing_specification, render_specification_markdown
+
 from app.domain.documents.schemas import (
     TemplateAsset,
     TemplateDefinition,
@@ -46,6 +48,7 @@ class TemplateParseCandidate(BaseModel):
     parser_version: str = "docx-template-engine@2"
     definition: TemplateDefinition
     source_asset: TemplateAsset | None = None
+    admission_assessment: dict[str, Any] = Field(default_factory=dict)
     issues: list[TemplateParseIssue] = Field(default_factory=list)
     status: str = "needs_confirmation"
     confirmed_by: str = ""
@@ -179,6 +182,7 @@ def parse_docx_template(
         elif anchor.required and not existing.required:
             fields_by_key[anchor.key] = existing.model_copy(update={"required": True})
 
+    writing_specification = extract_writing_specification(path)
     definition = TemplateDefinition(
         sections=[_generic_section(section, order) for order, section in enumerate(raw_sections)],
         fields=list(fields_by_key.values()),
@@ -189,7 +193,11 @@ def parse_docx_template(
         },
         source_docx=source_asset.storage_key if source_asset else "",
         cover_blocks=[block.model_dump(mode="json") for block in extract_cover_blocks(path)],
-        extensions={"source_document": source_document},
+        extensions={
+            "source_document": source_document,
+            "writing_specification": writing_specification.model_dump(mode="json"),
+            "writing_specification_markdown": render_specification_markdown(writing_specification),
+        },
     )
     return TemplateParseCandidate(
         candidate_id=candidate_id,
@@ -216,7 +224,7 @@ def validate_template_candidate(candidate: TemplateParseCandidate) -> TemplatePa
         add("unsupported_document_mode", "error", f"不支持的文档模式: {candidate.definition.mode}", "definition.mode")
     if candidate.definition.export_strategy not in {"auto", "source_template", "legacy_adapter"}:
         add("unsupported_export_strategy", "error", f"不支持的导出策略: {candidate.definition.export_strategy}", "definition.export_strategy")
-    if candidate.definition.export_strategy == "source_template" and not candidate.definition.anchors:
+    if candidate.definition.export_strategy == "source_template" and not candidate.definition.anchors and not candidate.definition.extensions.get("source_execution"):
         add("source_template_anchor_required", "error", "源模板导出策略必须至少配置一个稳定 DOCX 锚点", "definition.anchors")
 
     section_keys: set[str] = set()
@@ -292,6 +300,21 @@ def confirm_template_candidate(
 ) -> TemplateParseCandidate:
     """Return a confirmed copy; this function does not publish or persist it."""
     checked = validate_template_candidate(candidate)
+    from app.services.template_admission import assess_template_candidate
+    admission = assess_template_candidate(checked)
+    if admission["blockers"]:
+        admission_issues = [
+            TemplateParseIssue(
+                code=item["code"], severity="error", message=item["message"], path=item["path"]
+            )
+            for item in admission["blockers"]
+        ]
+        checked = checked.model_copy(update={
+            "issues": [*checked.issues, *admission_issues],
+            "admission_assessment": admission,
+        })
+    else:
+        checked = checked.model_copy(update={"admission_assessment": admission})
     if any(issue.severity == "error" for issue in checked.issues):
         raise TemplateCandidateError(checked.issues)
     return checked.model_copy(update={

@@ -88,12 +88,13 @@
 
 
 
-          <section v-if="activeSection === 'submissions'" class="panel archive-panel"><div class="panel-heading"><div><h3>{{ t('workflow.submissionsTitle') }}</h3><p>{{ t('workflow.submissionsDetail') }}</p></div><span class="material-symbols-outlined panel-icon" aria-hidden="true">inventory_2</span></div><div v-if="reviewQueue.length" class="archive-list"><ScreenCollection :items="reviewQueue" :row-height="72" v-slot="{ items: visibleItems }"><div v-for="task in visibleItems" :key="'submission-' + task.id" class="archive-row"><div><strong>{{ task.project_title || t('workflow.unnamedThesis') }}</strong><span>{{ task.cohort_name }} · {{ task.stage_name }} · {{ task.current_submission?.number || t('workflow.formalSubmission') }}</span></div><span class="state-tag submitted">{{ t('workflow.pendingApproval') }}</span></div></ScreenCollection></div><div v-if="archiveCandidates.length" class="archive-list"><ScreenCollection :items="archiveCandidates" :row-height="72" v-slot="{ items: visibleItems }"><div v-for="task in visibleItems" :key="task.id" class="archive-row"><div><strong>{{ task.project_title || t('workflow.unnamedThesis') }}</strong><span>{{ task.cohort_name }} · {{ task.stage_name }} · {{ task.current_submission.number }}</span></div><button class="small primary" :disabled="saving" @click="handleArchive(task)"><span class="material-symbols-outlined" aria-hidden="true">archive</span>{{ t('workflow.generateArchive') }}</button></div></ScreenCollection></div><div v-if="!reviewQueue.length && !archiveCandidates.length && !archives.length" class="muted-row">{{ t('workflow.noSubmissionsArchives') }}</div><div v-if="archives.length" class="archive-list"><ScreenCollection :items="archives" :row-height="72" v-slot="{ items: visibleItems }"><div v-for="archive in visibleItems" :key="archive.id" class="archive-row"><div><strong>{{ archiveTask(archive)?.project_title || t('workflow.unnamedThesis') }}</strong><span>{{ archiveTask(archive)?.student_name }} · {{ archiveTask(archive)?.stage_name }} · {{ archiveSubmission(archive)?.submission_number || t('workflow.formalSubmission') }}<br />{{ archiveStatusLabel(archive.status) }} · {{ formatDate(archive.completed_at || archive.created_at) }}</span></div><div class="stage-row-actions"><button v-if="archive.status === 'succeeded'" class="tiny" @click="downloadArchiveFile(archive)"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('common.download') }}</button><button v-if="archive.status === 'failed'" class="tiny" @click="handleRetryArchive(archive)"><span class="material-symbols-outlined" aria-hidden="true">refresh</span>{{ t('workflow.retry') }}</button></div></div></ScreenCollection></div></section>
+          <section v-if="activeSection === 'submissions'" class="panel archive-panel"><div class="panel-heading"><div><h3>{{ t('workflow.submissionsTitle') }}</h3><p>{{ t('workflow.submissionsDetail') }}</p></div><span class="material-symbols-outlined panel-icon" aria-hidden="true">inventory_2</span></div><div v-if="reviewQueue.length" class="archive-list"><ScreenCollection :items="reviewQueue" :row-height="72" v-slot="{ items: visibleItems }"><div v-for="task in visibleItems" :key="'submission-' + task.id" class="archive-row"><div><strong>{{ task.project_title || t('workflow.unnamedThesis') }}</strong><span>{{ task.cohort_name }} · {{ task.stage_name }} · {{ task.current_submission?.number || t('workflow.formalSubmission') }}</span></div><span class="state-tag submitted">{{ t('workflow.pendingApproval') }}</span></div></ScreenCollection></div><div v-if="archiveCandidates.length" class="archive-list"><ScreenCollection :items="archiveCandidates" :row-height="72" v-slot="{ items: visibleItems }"><div v-for="task in visibleItems" :key="task.id" class="archive-row"><div><strong>{{ task.project_title || t('workflow.unnamedThesis') }}</strong><span>{{ task.cohort_name }} · {{ task.stage_name }} · {{ task.current_submission.number }}</span></div><button class="small primary" :disabled="saving" @click="handleArchive(task)"><span class="material-symbols-outlined" aria-hidden="true">archive</span>{{ t('workflow.generateArchive') }}</button></div></ScreenCollection></div><div v-if="!reviewQueue.length && !archiveCandidates.length && !archives.length" class="muted-row">{{ t('workflow.noSubmissionsArchives') }}</div><div v-if="archives.length" class="archive-list"><ScreenCollection :items="archives" :row-height="72" v-slot="{ items: visibleItems }"><div v-for="archive in visibleItems" :key="archive.id" class="archive-row"><div><strong>{{ archiveTask(archive)?.project_title || t('workflow.unnamedThesis') }}</strong><span>{{ archiveTask(archive)?.student_name }} · {{ archiveTask(archive)?.stage_name }} · {{ archiveSubmission(archive)?.submission_number || t('workflow.formalSubmission') }}<br />{{ archiveStatusLabel(archive.status) }}<template v-if="archive.manual_review?.status === 'required'"> · {{ t('workflow.archiveReviewRequired') }}</template><template v-else-if="archive.status === 'succeeded'"> · {{ formatDate(archive.completed_at || archive.created_at) }}</template></span></div><div class="stage-row-actions"><button v-if="archive.status === 'succeeded' && archive.manual_review?.status === 'required' && canReviewArchives" class="tiny primary" @click="openArchiveReview(archive)"><span class="material-symbols-outlined" aria-hidden="true">fact_check</span>{{ t('workflow.reviewArchive') }}</button><button v-else-if="archive.status === 'succeeded' && archive.manual_review?.status !== 'required'" class="tiny" @click="downloadArchiveFile(archive)"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('common.download') }}</button><button v-if="archive.status === 'failed'" class="tiny" @click="handleRetryArchive(archive)"><span class="material-symbols-outlined" aria-hidden="true">refresh</span>{{ t('workflow.retry') }}</button></div></div></ScreenCollection></div></section>
         </template>
 
         <template v-if="isTeacher && activeSection === 'submissions'">
           <AsyncState v-if="!reviewQueue.length" state="empty" :title="t('workflow.noReviewSubmissions')" :detail="t('workflow.noReviewSubmissionsDetail')" />
           <ScreenCollection v-if="reviewQueue.length" :aria-label="t('workflow.pendingApproval')" :items="reviewQueue" :row-height="88" v-slot="{ items }"><button type="button" v-for="task in items" :key="task.id" class="panel task-row" :class="{ selected: selectedTask?.id === task.id }" @click="selectReviewTask(task)"><div class="task-state" :class="task.state"><span class="material-symbols-outlined" aria-hidden="true">rate_review</span></div><div class="task-copy"><div class="eyebrow-row"><span>{{ task.cohort_name }}</span><span>·</span><span>{{ task.stage_name }}</span></div><h3>{{ task.project_title || t('workflow.unnamedThesis') }}</h3><p>{{ task.current_submission?.number }} · {{ task.is_late ? t('workflow.late') : t('workflow.onTime') }}</p></div><div class="task-side"><span class="state-tag submitted">{{ t('workflow.pendingApproval') }}</span><span>{{ formatDate(task.updated_at) }}</span></div></button></ScreenCollection>
+          <section v-if="archiveCandidates.length || archives.length" class="panel archive-panel" data-test="teacher-archives"><div class="panel-heading"><div><h3>{{ t('workflow.submissionsTitle') }}</h3><p>{{ t('workflow.archiveReviewDetail') }}</p></div><span class="material-symbols-outlined panel-icon" aria-hidden="true">inventory_2</span></div><div v-if="archiveCandidates.length" class="archive-list"><div v-for="task in archiveCandidates" :key="'archive-candidate-' + task.id" class="archive-row"><div><strong>{{ task.project_title || t('workflow.unnamedThesis') }}</strong><span>{{ task.cohort_name }} · {{ task.stage_name }} · {{ task.current_submission?.number || t('workflow.formalSubmission') }}</span></div><button class="small primary" :disabled="saving" @click="handleArchive(task)">{{ saving ? t('workflow.archiveReviewWorking') : t('workflow.generateArchive') }}</button></div></div><div v-if="archives.length" class="archive-list"><div v-for="archive in archives" :key="'teacher-archive-' + archive.id" class="archive-row"><div><strong>{{ archiveTask(archive)?.project_title || t('workflow.unnamedThesis') }}</strong><span>{{ archiveTask(archive)?.student_name }} · {{ archiveTask(archive)?.stage_name }} · {{ archiveSubmission(archive)?.submission_number || t('workflow.formalSubmission') }}<br />{{ archiveStatusLabel(archive.status) }}<template v-if="archive.manual_review?.status === 'required'"> · {{ t('workflow.archiveReviewRequired') }}</template></span></div><button v-if="archive.status === 'succeeded' && archive.manual_review?.status === 'required'" class="tiny primary" @click="openArchiveReview(archive)">{{ t('workflow.reviewArchive') }}</button><button v-else-if="archive.status === 'succeeded' && archive.manual_review?.status !== 'required'" class="tiny" @click="downloadArchiveFile(archive)">{{ t('common.download') }}</button><button v-if="archive.status === 'failed'" class="tiny" @click="handleRetryArchive(archive)">{{ t('workflow.retry') }}</button></div></div></section>
           <BaseModal presentation="drawer" :open="Boolean(selectedSubmission)" :title="t('workflow.pendingApproval')" @close="selectedSubmission = null"><ScreenDeck><section v-if="selectedSubmission" class="panel review-panel">
             <div class="panel-heading"><div><p class="workflow-kicker">{{ selectedSubmission.submission.submission_number }}</p><h3>{{ t('workflow.submitReview') }}</h3><p>{{ selectedSubmission.version.source_revision }} revision · {{ selectedSubmission.version.content_hash.slice(0, 12) }}</p></div><button class="small" @click="selectedSubmission = null">{{ t('workflow.backToList') }}</button></div>
             <div class="gate-strip"><div v-for="gate in (selectedSubmission.candidate?.gates || [])" :key="gate.key"><span>{{ gate.label }}</span><strong>{{ gate.passed ? t('workflow.approve') : t('workflow.handleGates') }}</strong></div><div><span>{{ t('workflow.bodyVersion') }}</span><strong>{{ t('workflow.readonlySnapshot') }}</strong></div></div>
@@ -197,6 +198,7 @@
     <div v-if="versionHistory.length > 1" class="version-compare"><div class="panel-heading"><div><h4>{{ t('workflow.versionCompare') }}</h4></div><button class="small" @click="compareSelectedVersions"><span class="material-symbols-outlined" aria-hidden="true">compare</span>{{ t('workflow.compare') }}</button></div><div class="compare-selects"><label>{{ t('workflow.baselineVersion') }}<select v-model="versionSelection.left"><option v-for="version in versionHistory" :key="version.id" :value="version.id">revision {{ version.source_revision }} · {{ formatDate(version.created_at) }}</option></select></label><label>{{ t('workflow.compareVersion') }}<select v-model="versionSelection.right"><option v-for="version in versionHistory" :key="version.id" :value="version.id">revision {{ version.source_revision }} · {{ formatDate(version.created_at) }}</option></select></label></div><div v-if="versionCompare" class="compare-result"><p>{{ versionCompare.diff.changed ? t('workflow.detectedChanges') : t('workflow.sameContent') }}</p><div v-for="section in versionCompare.diff.sections" :key="section.key" class="compare-section"><strong>{{ section.key }} · {{ versionDiffLabel(section.status) }}</strong><div v-for="block in (section.blocks || [])" :key="block.id" class="compare-block"><span>{{ block.id }} · {{ versionDiffLabel(block.status) }}</span><p v-if="block.status === 'changed'">{{ diffBlockText(block.before) }} → {{ diffBlockText(block.after) }}</p></div></div><div v-if="versionCompare.diff.attachments.added.length || versionCompare.diff.attachments.removed.length || versionCompare.diff.attachments.changed.length" class="compare-attachments">{{ t('workflow.attachmentChanges', { added: versionCompare.diff.attachments.added.length, removed: versionCompare.diff.attachments.removed.length, changed: versionCompare.diff.attachments.changed.length }) }}</div></div></div>
     <div v-if="selectedSubmission.submission.state === 'returned'" class="history-restore"><span>{{ t('workflow.restoreReturned') }}</span><button class="small" @click="restoreHistoricalVersion(versionHistory.find((version) => version.id === versionSelection.right))"><span class="material-symbols-outlined" aria-hidden="true">restore</span>{{ t('workflow.restoreSelected') }}</button></div>
   </section></BaseModal>
+  <BaseModal presentation="drawer" :open="Boolean(archiveReview)" :title="t('workflow.reviewArchive')" @close="archiveReview = null"><section v-if="archiveReview" class="panel archive-review-panel" data-test="archive-manual-review"><div class="panel-heading"><div><p class="workflow-kicker">{{ archiveReview.id }}</p><h3>{{ t('workflow.archiveReviewTitle') }}</h3><p>{{ t('workflow.archiveReviewDetail') }}</p></div><button class="small" @click="archiveReview = null">{{ t('common.close') }}</button></div><button class="small" :disabled="archiveReviewBusy" @click="downloadArchiveCandidate">{{ archiveReviewBusy ? t('workflow.archiveReviewWorking') : t('workflow.downloadArchiveCandidate') }}</button><p v-if="archiveCandidateDownloaded" class="muted-row">{{ t('workflow.archiveCandidateDownloaded') }}</p><div class="manual-checks"><label v-for="item in archiveReview.manual_review.checklist || []" :key="item.id"><input v-model="archiveReviewConfirmIds" type="checkbox" :value="item.id" :disabled="!archiveCandidateDownloaded || archiveReviewBusy" /><span>{{ item.description }}</span></label></div><label class="archive-review-attestation"><input v-model="archiveCandidateDownloaded" type="checkbox" disabled />{{ t('workflow.archiveReviewAttestation') }}</label><button class="small primary" :disabled="!archiveCandidateDownloaded || !archiveReviewReady || archiveReviewBusy" @click="confirmArchiveReview">{{ archiveReviewBusy ? t('workflow.archiveReviewWorking') : t('workflow.confirmArchiveReview') }}</button></section></BaseModal>
 </template>
 
 <script setup>
@@ -228,7 +230,7 @@ import {
   fetchArchive, fetchArchives, fetchParticipantProcessRecords, fetchParticipantQualification, fetchProcessCatalog,
   fetchProcessRecordInbox, fetchTemplates, fetchWorkflowNotifications, fetchWorkflowReport, markWorkflowNotificationRead,
   previewCohortStage, publishCohortStage, createStageVersion, publishStageVersion, reviewSubmission, retryArchive, updateSubmissionCommentStatus,
-  submitProcessRecord, uploadProcessRecordAttachment, downloadArchive, reopenStageParticipant, exitStageParticipant,
+  submitProcessRecord, uploadProcessRecordAttachment, downloadArchive, downloadArchiveReviewCandidate, confirmArchiveManualReview, reopenStageParticipant, exitStageParticipant,
   closeCohort, importCohortMembers, reopenCohort, restoreProjectVersion,
 } from '../api'
 
@@ -245,6 +247,14 @@ const organizations = ref([])
 const templates = ref([])
 const submissions = ref([])
 const archives = ref([])
+const archiveReview = ref(null)
+const archiveReviewConfirmIds = ref([])
+const archiveReviewBusy = ref(false)
+const archiveCandidateDownloaded = ref(false)
+const archiveReviewReady = computed(() => {
+  const checks = archiveReview.value?.manual_review?.checklist || []
+  return checks.length > 0 && checks.every((item) => archiveReviewConfirmIds.value.includes(item.id))
+})
 const notifications = ref({ items: [], unread: 0 })
 const processCatalog = ref({ participant: [], cohort: [] })
 const processRecords = ref([])
@@ -305,6 +315,7 @@ const route = useRoute()
 const router = useRouter()
 const isTeacher = computed(() => auth.user?.role === 'teacher')
 const canManage = computed(() => ['admin', 'college_admin'].includes(auth.user?.role))
+const canReviewArchives = computed(() => auth.user?.role === 'admin' || (auth.user?.role === 'teacher' && auth.user?.status === 'active'))
 const canConfigure = computed(() => canManage.value || (auth.user?.role === 'teacher' && auth.user?.status === 'active'))
 const roleLabel = computed(() => t(`role.${auth.user?.role || 'user'}`))
 const panelTarget = computed(() => String(route.query.panel || ''))
@@ -354,8 +365,10 @@ const sectionKicker = computed(() => activeSection.value === 'reports' ? t('work
 const sectionTitle = computed(() => workflowPageTitle(panelTarget.value, auth.user, t))
 const openTaskCount = computed(() => tasks.value.filter((item) => !['approved', 'archived'].includes(item.state)).length)
 const reviewQueue = computed(() => tasks.value.filter((item) => item.state === 'submitted'))
-// 归档接口为管理员专属（_ensure_manager），教师角色点下去必然 403，因此按钮只对管理者渲染。
-const archiveCandidates = computed(() => canManage.value && tasks.value.filter((item) => item.state === 'pending_archive' && item.current_submission))
+const archiveCandidates = computed(() => canReviewArchives.value && tasks.value.filter((item) =>
+  item.state === 'pending_archive' && item.current_submission
+  && !archives.value.some((archive) => archive.submission_id === item.current_submission.id && ['queued', 'running', 'succeeded'].includes(archive.status)),
+))
 const reopenCandidates = computed(() => tasks.value.filter((item) => ['approved', 'pending_archive', 'archived'].includes(item.state)))
 
 function selectSection(key) {
@@ -373,14 +386,14 @@ async function loadAll() {
     tasks.value = taskData; notifications.value = notificationData; submissions.value = submissionData; processCatalog.value = catalogData; processInbox.value = inboxData
     if (canConfigure.value) {
       const [cohortData, orgData, templateData, archiveData] = await Promise.all([
-        fetchCohorts(), fetchOrganizations(), fetchTemplates(), canManage.value ? fetchArchives() : Promise.resolve([]),
+        fetchCohorts(), fetchOrganizations(), fetchTemplates(), (canManage.value || isTeacher.value) ? fetchArchives() : Promise.resolve([]),
       ])
       cohorts.value = await Promise.all(cohortData.map(async (item) => fetchCohort(item.id)))
       // Refresh open details by identity without reopening a drawer the user closed.
       if (cohortDrawer.value) cohortDrawer.value = cohorts.value.find(item => item.id === cohortDrawer.value.id) || null
       if (selectedCohort.value) selectedCohort.value = cohorts.value.find(item => item.id === selectedCohort.value.id) || null
-      organizations.value = orgData; templates.value = templateData; archives.value = canManage.value ? archiveData : []
-      if (!stageForm.template_id && templateData.length) stageForm.template_id = templateData[0].id
+      organizations.value = orgData; templates.value = templateData; archives.value = (canManage.value || isTeacher.value) ? archiveData : []
+      if (!stageForm.template_id && templateData.length) stageForm.template_id = templateData.find((item) => item.admission?.can_use_for_draft !== false)?.id || ''
       if (canManage.value) {
         if (!reportCohortId.value && cohorts.value[0]?.id) reportCohortId.value = cohorts.value[0].id
         if (reportCohortId.value) await loadReport()
@@ -722,6 +735,42 @@ async function handleRetryArchive(archive) {
 
 async function downloadArchiveFile(archive) {
   try { await downloadArchive(archive.id); notice.value = t('workflow.archiveDownloadStarted') } catch (e) { error.value = e.message }
+}
+
+function openArchiveReview(archive) {
+  archiveReview.value = archive
+  archiveReviewConfirmIds.value = []
+  archiveCandidateDownloaded.value = false
+  error.value = ''
+}
+
+async function downloadArchiveCandidate() {
+  if (!archiveReview.value || archiveReviewBusy.value) return
+  archiveReviewBusy.value = true
+  error.value = ''
+  try {
+    const downloaded = await downloadArchiveReviewCandidate(archiveReview.value.id)
+    if (downloaded.outputSha256 !== archiveReview.value.manual_review?.output_sha256) throw new Error(t('workflow.archiveCandidateChanged'))
+    archiveCandidateDownloaded.value = true
+  } catch (e) {
+    archiveCandidateDownloaded.value = false
+    error.value = e.message || t('workflow.archiveCandidateFailed')
+  } finally { archiveReviewBusy.value = false }
+}
+
+async function confirmArchiveReview() {
+  if (!archiveReview.value || !archiveCandidateDownloaded.value || !archiveReviewReady.value || archiveReviewBusy.value) return
+  archiveReviewBusy.value = true
+  error.value = ''
+  try {
+    await confirmArchiveManualReview(archiveReview.value.id, {
+      output_sha256: archiveReview.value.manual_review.output_sha256,
+      confirmed_check_ids: [...archiveReviewConfirmIds.value],
+    })
+    archiveReview.value = null
+    await loadAll()
+    notice.value = t('workflow.archiveReviewConfirmed')
+  } catch (e) { error.value = e.message || t('workflow.archiveReviewFailed') } finally { archiveReviewBusy.value = false }
 }
 
 function bindTask(task) {

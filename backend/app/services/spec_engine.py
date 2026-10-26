@@ -132,10 +132,14 @@ def validate_spec_candidate(candidate: SpecParseCandidate) -> SpecParseCandidate
                 add("unsupported_checker", "error", f"不支持的自动 checker: {rule.checker}", f"{path}.checker")
             else:
                 executable.setdefault((rule.target, rule.checker), []).append((index, rule))
-            if rule.checker in {"section.exists", "chapter.page_break"}:
+            if rule.checker in {"section.exists", "section.table_required", "chapter.page_break"}:
                 keys = rule.params.get("section_keys") or rule.params.get("section_key")
                 if not keys or (isinstance(keys, list) and not any(str(value).strip() for value in keys)):
                     add("section_key_required", "error", "章节检查规则必须指定 section_key", f"{path}.params")
+            if rule.checker == "section.table_required":
+                minimum = rule.params.get("min", 1)
+                if type(minimum) is not int or minimum < 1:
+                    add("table_count_min_invalid", "error", "表格数量下限必须是大于零的整数", f"{path}.params.min")
         elif rule.checker:
             add("manual_checker_ignored", "warning", "人工或文档规则不应携带 checker", f"{path}.checker")
 

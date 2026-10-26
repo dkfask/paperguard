@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import shutil
 import tempfile
 import uuid
@@ -10,14 +11,15 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
-from starlette.background import BackgroundTask
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.auth import can_manage, current_user
 from app.core.feature_flags import require_general_document_platform
 from app.db import Store, new_id
-from app.domain.documents.schemas import ContentBlock, DocumentProject, ValidationRun
+from app.domain.documents.hashing import canonical_hash
+from app.domain.documents.schemas import Artifact, ContentBlock, DocumentPackage, DocumentProject, DocumentTemplate, TemplateVersion, ValidationRun
+from app.domain.documents.specs import SpecVersion
 from app.services.document_project_engine import (
     DocumentProjectError,
     editor_schema,
@@ -25,7 +27,7 @@ from app.services.document_project_engine import (
     validate_field_values,
     validate_section_content,
 )
-from app.services.document_validation_engine import validate_document_project
+from app.services.document_validation_engine import required_delivery_issues, validate_document_project
 from app.services.document_render_jobs import (
     create_document_render_job,
     get_document_artifact,
@@ -40,7 +42,21 @@ from app.services.document_access import (
     document_package_visible,
     public_document_bundle,
 )
-from app.services.generic_docx_renderer import GenericDocxRenderError, render_document_project_to_docx
+from app.services.generic_docx_renderer import (
+    GenericDocxRenderError,
+    require_document_project_docx_output,
+    render_document_project_to_docx,
+)
+from app.services.docx_output_check import (
+    DocxOutputCheckError,
+    output_check_identity,
+    safe_output_check_diagnostics,
+    source_template_bytes,
+    verify_report_binding,
+    verify_source_template_binding,
+)
+from app.services.manual_output_review import confirm_review, review_identity, review_matches, review_required, review_view
+from app.services.template_source import resolve_template_source
 from app.services.document_assets import document_upload_dir
 from app.services.document_export_preflight import run_document_export_preflight
 from app.services.upload_security import IMAGE_MAX_BYTES, read_limited, validate_image
@@ -65,6 +81,11 @@ class UpdateDocumentProjectRequest(BaseModel):
     field_values: dict[str, Any] | None = None
     sections: dict[str, list[ContentBlock]] | None = None
     base_revision: int | None = Field(default=None, ge=0)
+
+
+class ManualOutputReviewRequest(BaseModel):
+    output_sha256: str = Field(min_length=64, max_length=64)
+    confirmed_check_ids: list[str] = Field(min_length=1)
 
 
 def get_store() -> Store:
@@ -345,7 +366,7 @@ def render_project(
     force: bool = False,
     store: Store = Depends(get_store),
     user: dict = Depends(current_user),
-) -> FileResponse:
+) -> Response:
     """Render a generic project through the existing DOCX export adapter."""
     project = store.get_document_project(project_id)
     if project is None:
@@ -355,13 +376,15 @@ def render_project(
     bundle = _project_package(store, project)
     _ensure_export_preflight(bundle, project)
     run = _create_validation_run(store, user, project, bundle)
-    if run.summary.get("hard_failures") and not force:
+    required_issues = required_delivery_issues(run)
+    if required_issues:
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "存在硬性规范问题, 无法导出",
+                "message": "存在必需规范问题或待核查项，force 不能绕过成品交付门禁",
                 "run_id": run.id,
                 "summary": run.summary,
+                "missing": required_issues,
             },
         )
 
@@ -385,13 +408,44 @@ def render_project(
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
+    try:
+        output_data = output.read_bytes()
+        output_check = require_document_project_docx_output(
+            output_data, project, bundle["package"], bundle["template"],
+            bundle["template_version"], bundle["spec_version"], context_kind="document-sync",
+        )
+    except DocxOutputCheckError as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise HTTPException(status_code=409, detail={"message": "生成文件未通过必需的 DOCX 成品检查", "output_check": safe_output_check_diagnostics(exc.report)}) from exc
+    except Exception as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise HTTPException(status_code=409, detail={"message": "DOCX 成品检查无法完成，未提供文件", "output_check": safe_output_check_diagnostics(None)}) from exc
+    if review_view(output_check, None)["status"] == "required":
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "成品需要 Word/WPS 人工核查；请使用异步导出生成核查候选并确认后下载。",
+                "manual_review": review_view(output_check, None),
+            },
+        )
     _audit(store, user, action="document.project.rendered", project_id=project.id, reason=f"run:{run.id}")
     safe_title = (project.title or "document").replace("/", "_").replace("\\", "_").strip()[:120] or "document"
-    return FileResponse(
-        output,
-        filename=f"{safe_title}.docx",
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    from urllib.parse import quote
+    return Response(
+        content=output_data,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        background=BackgroundTask(shutil.rmtree, temp_dir, True),
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(f'{safe_title}.docx')}",
+            "X-PaperGuard-Output-Check": output_check["status"],
+            "X-PaperGuard-Output-Check-Count": str(output_check["check_count"]),
+            "X-PaperGuard-Output-SHA256": output_check["output_sha256"],
+            "X-PaperGuard-Inspector-Version": output_check["inspector_version"],
+            "X-PaperGuard-Project-Content-SHA256": output_check["project_content_hash"],
+            "X-PaperGuard-Template-SHA256": output_check["template_hash"],
+            "X-PaperGuard-Source-Template-SHA256": output_check["source_template_sha256"] or "none",
+        },
     )
 
 
@@ -400,6 +454,58 @@ def _render_job_for_project(store: Store, project: DocumentProject, render_job_i
     if not record or record.get("project_id") != project.id:
         raise HTTPException(status_code=404, detail="渲染任务不存在")
     return record
+
+
+def _verified_render_output(store: Store, project_id: str, record: dict) -> tuple[Artifact, bytes, dict]:
+    """Recheck output against the same frozen inputs at every delivery boundary."""
+    if record.get("status") != "succeeded" or not record.get("artifact_id"):
+        raise HTTPException(status_code=409, detail="渲染产物尚未完成")
+    artifact = get_document_artifact(store, record["artifact_id"])
+    if artifact is None or artifact.project_id != project_id or artifact.render_job_id != record.get("id"):
+        raise HTTPException(status_code=404, detail="渲染产物不存在")
+    data = read_document_artifact(artifact)
+    if data is None or artifact.checksum != artifact.output_check.get("output_sha256") or not verify_report_binding(artifact.output_check, data):
+        raise HTTPException(status_code=409, detail="核查候选与成品摘要不一致")
+    snapshot = record.get("snapshot") or {}
+    if record.get("snapshot_hash") != canonical_hash(snapshot):
+        raise HTTPException(status_code=409, detail="渲染任务冻结快照校验失败")
+    try:
+        snapshot_project = DocumentProject.model_validate(snapshot["project"])
+        snapshot_package = DocumentPackage.model_validate(snapshot["package"])
+        snapshot_template = DocumentTemplate.model_validate(snapshot["template"])
+        snapshot_template_version = TemplateVersion.model_validate(snapshot["template_version"])
+        snapshot_spec_version = SpecVersion.model_validate(snapshot["spec_version"])
+        if snapshot_project.id != project_id or record.get("project_id") != project_id:
+            raise ValueError("project identity mismatch")
+        if (
+            snapshot_project.package_id != snapshot_package.id
+            or snapshot_project.template_version_id != snapshot_package.template_version_id
+            or snapshot_project.spec_version_id != snapshot_package.spec_version_id
+            or snapshot_template_version.id != snapshot_package.template_version_id
+            or snapshot_spec_version.id != snapshot_package.spec_version_id
+            or snapshot_template_version.template_id != snapshot_template.id
+            or snapshot_project.renderer_version != snapshot_package.renderer_version
+            or snapshot_project.rule_engine_version != snapshot_package.rule_engine_version
+        ):
+            raise ValueError("frozen package version references mismatch")
+        fresh_report = require_document_project_docx_output(
+            data, snapshot_project, snapshot_package, snapshot_template,
+            snapshot_template_version, snapshot_spec_version, context_kind="document-async",
+        )
+        if output_check_identity(artifact.output_check) != output_check_identity(fresh_report):
+            raise ValueError("output report identity mismatch")
+        source_ref = snapshot_template_version.definition.source_docx or ""
+        source_path = resolve_template_source(source_ref) if source_ref else None
+        source = source_template_bytes(source_path)
+        if snapshot.get("source_template_sha256") != (hashlib.sha256(source).hexdigest() if source is not None else ""):
+            raise ValueError("source template hash mismatch")
+        if not verify_source_template_binding(artifact.output_check, source):
+            raise ValueError("source template binding mismatch")
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="核查候选未通过冻结快照和源模板复核") from exc
+    if review_identity(artifact.output_check) != review_identity(fresh_report):
+        raise HTTPException(status_code=409, detail="人工核查清单与独立成品复核不一致，请重新导出")
+    return artifact, data, fresh_report
 
 
 @router.post("/{project_id}/render-jobs", status_code=202)
@@ -418,13 +524,15 @@ def create_render_job(
     bundle = _project_package(store, project)
     _ensure_export_preflight(bundle, project)
     run = _create_validation_run(store, user, project, bundle)
-    if run.summary.get("hard_failures") and not force:
+    required_issues = required_delivery_issues(run)
+    if required_issues:
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "存在硬性规范问题, 无法排队导出",
+                "message": "存在必需规范问题或待核查项，force 不能绕过成品交付门禁",
                 "run_id": run.id,
                 "summary": run.summary,
+                "missing": required_issues,
             },
         )
 
@@ -579,27 +687,87 @@ def download_render_artifact(
     render_job_id: str,
     store: Store = Depends(get_store),
     user: dict = Depends(current_user),
-) -> FileResponse:
+) -> Response:
     project = store.get_document_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(store, project, user)
     record = _render_job_for_project(store, project, render_job_id)
-    if record.get("status") != "succeeded" or not record.get("artifact_id"):
-        raise HTTPException(status_code=409, detail="渲染产物尚未完成")
-    artifact = get_document_artifact(store, record["artifact_id"])
-    if artifact is None or artifact.project_id != project.id or artifact.render_job_id != render_job_id:
-        raise HTTPException(status_code=404, detail="渲染产物不存在")
-    path = resolve_document_artifact(artifact)
-    if path is not None:
-        return FileResponse(path, filename=artifact.filename, media_type=artifact.content_type)
-    data = read_document_artifact(artifact)
-    if data is None:
-        raise HTTPException(status_code=404, detail="渲染产物文件不存在")
+    artifact, data, report = _verified_render_output(store, project_id, record)
+    if not review_matches(report, artifact.manual_review):
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "该成品尚未完成绑定当前文件的 Word/WPS 人工核查", "manual_review": review_view(report, artifact.manual_review)},
+        )
+    from urllib.parse import quote
     return Response(
         content=data,
         media_type=artifact.content_type,
-        headers={"Content-Disposition": f'attachment; filename="{artifact.filename}"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(artifact.filename)}"},
+    )
+
+
+@router.post("/{project_id}/render-jobs/{render_job_id}/manual-review")
+def confirm_render_manual_review(
+    project_id: str,
+    render_job_id: str,
+    request: ManualOutputReviewRequest,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict[str, Any]:
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(store, project, user)
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可以确认 Word/WPS 成品核查")
+    record = _render_job_for_project(store, project, render_job_id)
+    artifact, data, report = _verified_render_output(store, project_id, record)
+    try:
+        receipt = confirm_review(
+            report,
+            output_sha256=request.output_sha256,
+            confirmed_check_ids=request.confirmed_check_ids,
+            reviewer_id=user["id"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    updated = artifact.model_copy(update={"manual_review": receipt})
+    stored_artifact = store.get_workflow_record("document_artifact", artifact.id)
+    repository = WorkflowRepository(store)
+    saved = repository.save("document_artifact", updated.model_dump(mode="json"), expected_revision=stored_artifact.get("revision", 0))
+    if saved is None:
+        raise HTTPException(status_code=409, detail="成品核查记录已更新，请刷新后重试")
+    _audit(store, user, action="document.project.output.manual_reviewed", project_id=project_id, reason=f"artifact:{artifact.id};sha256:{receipt['output_sha256']}")
+    return render_job_view(record, updated)
+
+
+@router.get("/{project_id}/render-jobs/{render_job_id}/review-candidate")
+def download_render_review_candidate(
+    project_id: str,
+    render_job_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> Response:
+    project = store.get_document_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    _ensure_project_access(store, project, user)
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可以下载核查候选")
+    record = _render_job_for_project(store, project, render_job_id)
+    artifact, data, report = _verified_render_output(store, project_id, record)
+    if not review_required(report):
+        raise HTTPException(status_code=409, detail="当前成品没有待确认的 Office 人工核查项")
+    from urllib.parse import quote
+    return Response(
+        content=data,
+        media_type=artifact.content_type,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(artifact.filename.rsplit('.', 1)[0] + '.review-candidate.docx')}",
+            "X-PaperGuard-Review-Candidate": "true",
+            "X-PaperGuard-Output-SHA256": report.get("output_sha256", ""),
+        },
     )
 
 

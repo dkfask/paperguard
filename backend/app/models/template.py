@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.writing_specification import WritingSpecification
 
 
 class SectionType(str, Enum):
@@ -37,6 +39,8 @@ class Align(str, Enum):
 
 class TextStyle(BaseModel):
     """一类元素的排版样式。写作时由模板锁定, 学生不可修改。"""
+    model_config = ConfigDict(extra="allow")
+
     font_zh: str = "宋体"
     font_en: str = "Times New Roman"
     size_pt: float = 12.0
@@ -109,6 +113,8 @@ class PaperTemplate(BaseModel):
     rule_packs: list[str] = []              # 内置格式规则包, 与写作规范独立
     requirement_set_ids: list[str] = []     # 可绑定的学校/教师规范集合
     organization_context: dict[str, str] = {}  # 模板适用的默认组织作用域
+    writing_specification: WritingSpecification | None = None  # 源 Word 的待确认规范与证据
+    source_execution: dict = Field(default_factory=dict)  # 服务端确认并签名的母版执行配置
 
 
 # ---------------------------------------------------------------------------

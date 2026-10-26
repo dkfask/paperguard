@@ -164,6 +164,25 @@
               <span>{{ t('documentPackagePublisher.sections') }}: {{ templateSections.length }}</span>
               <span>{{ t('documentPackagePublisher.fields') }}: {{ templateCandidate.definition.fields.length }}</span>
             </div>
+            <WritingSpecificationPreview :specification="templateCandidate.definition.extensions?.writing_specification" :markdown="templateCandidate.definition.extensions?.writing_specification_markdown" />
+            <WritingProfileConfirmation v-if="templateCandidate.status !== 'confirmed'" :template="candidateWritingTemplate" :candidate="templateCandidate" @published="candidateProfilePrepared" />
+            <section v-if="templateCandidate.admission_assessment" class="template-admission" :class="templateCandidate.admission_assessment.status" data-test="template-admission">
+              <div class="admission-heading">
+                <strong>{{ t('templateAdmission.title') }}</strong>
+                <span>{{ templateCandidate.admission_assessment.status === 'blocked' ? t('templateAdmission.blocked') : t('templateAdmission.officeReview') }}</span>
+              </div>
+              <p>{{ t('templateAdmission.boundVersion', { version: templateCandidate.version, digest: templateCandidate.admission_assessment.assessment_hash?.slice(0, 12) }) }}</p>
+              <p>{{ t('templateAdmission.autoCoverage', { count: templateCandidate.admission_assessment.auto_verifiable_constraints?.length || 0 }) }}</p>
+              <ul v-if="templateCandidate.admission_assessment.blockers?.length" class="admission-findings">
+                <li v-for="item in templateCandidate.admission_assessment.blockers" :key="`${item.code}:${item.path}`">{{ item.message }} <small>{{ item.path }}</small></li>
+              </ul>
+              <ul v-if="templateCandidate.admission_assessment.manual_checks?.length" class="admission-findings manual">
+                <li v-for="item in templateCandidate.admission_assessment.manual_checks" :key="item.code">{{ item.message }}</li>
+              </ul>
+              <p class="admission-limit">{{ t('templateAdmission.noComplianceClaim') }}</p>
+              <button v-if="templateAssessmentStale" data-test="template-reassess" class="small" type="button" :disabled="templateBusy" @click="reassessTemplateCandidate">{{ t('templateAdmission.reassess') }}</button>
+              <p v-if="templateAssessmentStale" class="admission-stale" role="status">{{ t('templateAdmission.stale') }}</p>
+            </section>
             <ul v-if="templateCandidate.issues.length" class="issue-list">
               <li v-for="issue in templateCandidate.issues" :key="`${issue.code}:${issue.path}`" :class="issue.severity">
                 <span class="issue-severity">{{ issue.severity }}</span>
@@ -223,7 +242,7 @@
                 </label>
               </div>
             </details>
-            <button data-test="template-confirm" class="small" type="button" :disabled="templateBusy || templateCandidate.status === 'confirmed'" @click="confirmTemplate">
+            <button data-test="template-confirm" class="small" type="button" :disabled="templateBusy || templateCandidate.status === 'confirmed' || templateAssessmentStale || templateCandidate.admission_assessment?.blockers?.length" @click="confirmTemplate">
               <span class="material-symbols-outlined" aria-hidden="true">verified</span>
               {{ templateCandidate.status === 'confirmed' ? t('documentPackagePublisher.confirmed') : t('documentPackagePublisher.confirmTemplate') }}
             </button>
@@ -300,12 +319,15 @@
 <script setup>
 import ScreenDeck from '../components/ScreenDeck.vue'
 import BaseModal from '../components/base/BaseModal.vue'
+import WritingSpecificationPreview from '../components/WritingSpecificationPreview.vue'
+import WritingProfileConfirmation from '../components/WritingProfileConfirmation.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../i18n'
 import { auth } from '../auth'
 import {
   confirmDocumentSpecCandidate,
   confirmDocumentTemplateCandidate,
+  assessDocumentTemplateCandidate,
   getDocumentSpecCandidates,
   getDocumentTemplateCandidates,
   parseDocumentSpec,
@@ -321,6 +343,11 @@ const templateFile = ref(null)
 const specFile = ref(null)
 const specFileInput = ref(null)
 const templateCandidate = ref(null)
+const candidateWritingTemplate = computed(() => ({id:templateCandidate.value?.template_id, source_docx:templateCandidate.value?.definition.source_docx, writing_specification:templateCandidate.value?.definition.extensions?.writing_specification}))
+function candidateProfilePrepared(result) {
+  templateCandidate.value = result.candidate
+  templateAssessmentSnapshot.value = templateAssessmentInput(result.candidate)
+}
 const specCandidate = ref(null)
 const templateCandidates = ref([])
 const specCandidates = ref([])
@@ -336,9 +363,13 @@ const packageResult = ref(null)
 const error = ref('')
 const templateReviewOpen = ref(false)
 const specReviewOpen = ref(false)
+const templateAssessmentSnapshot = ref('')
 
-
-const templateReady = computed(() => templateCandidate.value?.status === 'confirmed')
+function templateAssessmentInput(candidate) {
+  return candidate ? JSON.stringify({ template_id: candidate.template_id, version: candidate.version, definition: candidate.definition }) : ''
+}
+const templateAssessmentStale = computed(() => Boolean(templateCandidate.value) && (!templateCandidate.value?.admission_assessment?.assessment_hash || templateAssessmentInput(templateCandidate.value) !== templateAssessmentSnapshot.value))
+const templateReady = computed(() => templateCandidate.value?.status === 'confirmed' && !templateCandidate.value?.admission_assessment?.blockers?.length && !templateAssessmentStale.value)
 const specReady = computed(() => !specIncluded.value || specCandidate.value?.status === 'confirmed')
 const readyToPublish = computed(() => Boolean(canManage.value && templateReady.value && specReady.value && documentTypeId.value.trim()))
 
@@ -448,6 +479,7 @@ async function parseTemplate() {
   error.value = ''
   try {
     templateCandidate.value = await parseDocumentTemplate(templateFile.value)
+    templateAssessmentSnapshot.value = templateAssessmentInput(templateCandidate.value)
     templateCandidateId.value = templateCandidate.value.candidate_id
     upsertCandidate(templateCandidates, templateCandidate.value)
     templateReviewOpen.value = true
@@ -463,10 +495,35 @@ async function confirmTemplate() {
   templateBusy.value = true
   error.value = ''
   try {
+    if (templateAssessmentStale.value || !templateCandidate.value.admission_assessment?.assessment_hash) {
+      templateCandidate.value = await assessDocumentTemplateCandidate(templateCandidate.value)
+      templateAssessmentSnapshot.value = templateAssessmentInput(templateCandidate.value)
+      upsertCandidate(templateCandidates, templateCandidate.value)
+    }
+    if (templateCandidate.value.admission_assessment?.blockers?.length) {
+      error.value = t('templateAdmission.blockedConfirm')
+      return
+    }
     templateCandidate.value = await confirmDocumentTemplateCandidate(templateCandidate.value)
+    templateAssessmentSnapshot.value = templateAssessmentInput(templateCandidate.value)
     templateCandidateId.value = templateCandidate.value.candidate_id
     upsertCandidate(templateCandidates, templateCandidate.value)
     templateReviewOpen.value = false
+  } catch (exception) {
+    error.value = exception.message
+  } finally {
+    templateBusy.value = false
+  }
+}
+
+async function reassessTemplateCandidate() {
+  if (!templateCandidate.value || templateBusy.value) return
+  templateBusy.value = true
+  error.value = ''
+  try {
+    templateCandidate.value = await assessDocumentTemplateCandidate(templateCandidate.value)
+    templateAssessmentSnapshot.value = templateAssessmentInput(templateCandidate.value)
+    upsertCandidate(templateCandidates, templateCandidate.value)
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -519,6 +576,7 @@ function restoreTemplate() {
   const candidate = templateCandidates.value.find(item => item.candidate_id === templateCandidateId.value)
   if (!candidate) return
   templateCandidate.value = candidate
+  templateAssessmentSnapshot.value = templateAssessmentInput(candidate)
   packageResult.value = null
   error.value = ''
 }
@@ -558,6 +616,13 @@ onMounted(loadSavedCandidates)
 
 <style scoped>
 .candidate-summary .review-heading strong { overflow-wrap: anywhere; }
+.template-admission { display: grid; gap: 8px; margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-container-low); }
+.template-admission.blocked { border-color: var(--error, #b42318); background: var(--error-container, #fff1f0); }
+.admission-heading { display: flex; justify-content: space-between; gap: 12px; }
+.admission-findings { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.admission-findings small { display: block; color: var(--on-surface-variant); }
+.admission-findings.manual { color: var(--on-surface-variant); }
+.admission-limit, .admission-stale { margin: 0; color: var(--on-surface-variant); font-size: 12px; }
 .publisher-page { max-width: 1240px; margin: 0 auto; padding: 22px 20px 56px; }
 /* This is an in-page heading, not the sticky 60px application header from style.css. */
 .publisher-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; min-height: 0; height: auto; position: static; z-index: auto; padding: 10px 0 28px; border-bottom: 1px solid var(--border); background: transparent; box-shadow: none; backdrop-filter: none; }

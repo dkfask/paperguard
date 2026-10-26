@@ -16,11 +16,23 @@ from app.core.export import docx_exporter
 from app.core.export.docx_exporter import (
     _add_page_number_footer,
     _export_paragraph,
+    _open_base_document,
     export_project_to_docx,
 )
 from app.models.project import ImageBlock, ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import CoverBlock, CoverField, DEFAULT_STYLES, PaperTemplate, SectionType, TextStyle
 from app.services.docx_project_import import import_docx_project
+
+
+@pytest.mark.parametrize("template_kind", ["missing", "corrupt", "wrong_extension"])
+def test_declared_template_never_silently_falls_back_to_blank_document(tmp_path, template_kind):
+    path = tmp_path / ("declared.docx" if template_kind != "wrong_extension" else "declared.doc")
+    if template_kind == "corrupt":
+        path.write_bytes(b"not a Word package")
+    elif template_kind == "wrong_extension":
+        Document().save(path)
+    with pytest.raises(ValueError, match="母版"):
+        _open_base_document(path)
 
 
 def _set_page_number_format(section, value: str) -> None:

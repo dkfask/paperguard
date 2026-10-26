@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import os
 import re
 import shutil
@@ -24,7 +25,11 @@ from app.domain.documents.schemas import (
 from app.domain.documents.specs import SpecVersion
 from app.domain.workflow_states import transition_state
 from app.repositories.workflow_repository import WorkflowRepository
-from app.services.generic_docx_renderer import render_document_project_to_docx
+from app.services.generic_docx_renderer import require_document_project_docx_output, render_document_project_to_docx
+from app.services.docx_output_check import DocxOutputCheckError, safe_output_check_diagnostics, source_template_bytes
+from app.services.manual_output_review import review_view
+from app.services.document_validation_engine import required_delivery_issues, validate_document_project
+from app.services.template_source import resolve_template_source
 from app.services.storage import LocalStorageAdapter, configured_storage
 from app.services.upload_security import DOCX_MAX_BYTES, validate_docx_bytes
 
@@ -38,6 +43,10 @@ _SAFE_STORAGE_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.docx$")
 
 class DocumentRenderCancelled(RuntimeError):
     """Raised when an in-flight render is cancelled before publication."""
+
+
+class DocumentDeliveryGateError(ValueError):
+    """A frozen generic project no longer satisfies required delivery rules."""
 
 
 def artifact_dir() -> Path:
@@ -74,7 +83,10 @@ def artifact_storage() -> LocalStorageAdapter | Any:
 def _artifact_view(artifact: Artifact | None) -> dict[str, Any] | None:
     if artifact is None:
         return None
-    return artifact.model_dump(mode="json", exclude={"storage_key"})
+    payload = artifact.model_dump(mode="json", exclude={"storage_key", "output_check"})
+    payload["output_check_status"] = artifact.output_check.get("status", "unverified")
+    payload["output_check_count"] = artifact.output_check.get("check_count", 0)
+    return payload
 
 
 def render_job_view(record: dict[str, Any], artifact: Artifact | None = None) -> dict[str, Any]:
@@ -83,11 +95,14 @@ def render_job_view(record: dict[str, Any], artifact: Artifact | None = None) ->
     payload = job.model_dump(mode="json", exclude={"snapshot", "last_error", "recovery_reason"})
     if artifact is not None:
         payload["artifact"] = _artifact_view(artifact)
+        payload["manual_review"] = review_view(artifact.output_check, artifact.manual_review)
     return payload
 
 
 def _snapshot(project: DocumentProject, bundle: dict[str, Any]) -> dict[str, Any]:
+    source = source_template_bytes(resolve_template_source(bundle["template_version"].definition.source_docx))
     return {
+        "source_template_sha256": hashlib.sha256(source).hexdigest() if source is not None else "",
         "project": project.model_dump(mode="json"),
         "package": bundle["package"].model_dump(mode="json"),
         "template": bundle["template"].model_dump(mode="json"),
@@ -232,8 +247,13 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
         return raw
 
     repository = WorkflowRepository(store)
+    if current == "failed":
+        current = transition_state(RENDER_JOB_KIND, current, "queued")
     raw["status"] = transition_state(RENDER_JOB_KIND, current, "running")
     raw["attempt_count"] = int(raw.get("attempt_count", 0)) + 1
+    raw.pop("artifact_id", None)
+    raw.pop("output_check_diagnostic", None)
+    raw["error_code"] = ""
     running = repository.save(RENDER_JOB_KIND, raw, expected_revision=raw.get("revision", 0))
     if running is None:
         return {"status": "failed", "error_code": "DOCUMENT_RENDER_JOB_CONFLICT"}
@@ -242,6 +262,7 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
     final_path: Path | None = None
     storage: LocalStorageAdapter | Any | None = None
     stored_key = ""
+    output_check_started = False
     try:
         snapshot = raw.get("snapshot") or {}
         actual_snapshot_hash = canonical_hash(snapshot)
@@ -254,6 +275,22 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
         template = DocumentTemplate.model_validate(snapshot["template"])
         template_version = TemplateVersion.model_validate(snapshot["template_version"])
         spec_version = SpecVersion.model_validate(snapshot["spec_version"])
+        validation = validate_document_project(
+            project,
+            template_version.definition,
+            spec_version,
+            run_id=f"worker-check:{render_job_id}",
+            performed_by=actor_id,
+            created_at=_now(),
+            rule_engine_version=project.rule_engine_version,
+        )
+        required_issues = required_delivery_issues(validation)
+        if required_issues:
+            raise DocumentDeliveryGateError("；".join(required_issues[:20]))
+        source = source_template_bytes(resolve_template_source(template_version.definition.source_docx))
+        expected_source = str(snapshot.get("source_template_sha256") or "")
+        if source is None or not expected_source or hashlib.sha256(source).hexdigest() != expected_source:
+            raise ValueError("source template differs from the frozen render request")
 
         artifact_id = new_id("artifact")
         artifact = Artifact(
@@ -275,6 +312,14 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
         if output.stat().st_size > DOCX_MAX_BYTES:
             raise ValueError("renderer artifact exceeds the DOCX size limit")
         validate_docx_bytes(output.read_bytes())
+        output_check_started = True
+        output_check = require_document_project_docx_output(
+            output.read_bytes(), project, package, template, template_version,
+            spec_version, context_kind="document-async",
+        )
+        if output_check["source_template_sha256"] != expected_source:
+            raise ValueError("checked source template differs from the frozen render request")
+        artifact = artifact.model_copy(update={"output_check": output_check})
         latest = get_document_render_job(store, render_job_id)
         if latest and latest.get("status") == "cancelled":
             raise DocumentRenderCancelled()
@@ -293,8 +338,11 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
             "size_bytes": stored["size_bytes"],
             "checksum": stored["checksum"],
         })
+        if artifact.checksum != output_check["output_sha256"]:
+            raise ValueError("stored artifact checksum differs from checked DOCX bytes")
         raw["status"] = transition_state(RENDER_JOB_KIND, "running", "succeeded")
         raw["artifact_id"] = artifact.id
+        raw.pop("output_check_diagnostic", None)
         raw["error_code"] = ""
         raw["last_error"] = ""
         raw["completed_at"] = _now()
@@ -327,8 +375,20 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
         elif final_path is not None:
             final_path.unlink(missing_ok=True)
         raw["status"] = transition_state(RENDER_JOB_KIND, "running", "failed")
-        raw["error_code"] = "DOCUMENT_RENDER_FAILED"
-        raw["last_error"] = str(exc)[:2000]
+        if isinstance(exc, DocxOutputCheckError):
+            raw["output_check_diagnostic"] = safe_output_check_diagnostics(exc.report)
+            raw["error_code"] = "DOCUMENT_OUTPUT_CHECK_FAILED"
+            raw["last_error"] = "DOCX output check rejected the rendered artifact"
+        elif output_check_started:
+            raw["output_check_diagnostic"] = safe_output_check_diagnostics(None)
+            raw["error_code"] = "DOCUMENT_OUTPUT_CHECK_FAILED"
+            raw["last_error"] = "DOCX output check could not complete"
+        elif isinstance(exc, DocumentDeliveryGateError):
+            raw["error_code"] = "DOCUMENT_DELIVERY_GATE_FAILED"
+            raw["last_error"] = str(exc)[:2000]
+        else:
+            raw["error_code"] = "DOCUMENT_RENDER_FAILED"
+            raw["last_error"] = str(exc)[:2000]
         raw["failed_at"] = _now()
         saved = repository.save(RENDER_JOB_KIND, raw, expected_revision=raw.get("revision", 0))
         store.save_audit_event({
@@ -350,6 +410,7 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
 __all__ = [
     "ARTIFACT_KIND",
     "DocumentRenderCancelled",
+    "DocumentDeliveryGateError",
     "RENDER_JOB_KIND",
     "RENDER_JOB_TYPE",
     "artifact_dir",

@@ -8,6 +8,7 @@ of being silently flattened into the paper.
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 from io import BytesIO
 from pathlib import Path
 import re
@@ -125,14 +126,100 @@ def _cover_metadata(document: DocumentType) -> dict[str, str]:
 
 
 def _heading_level(paragraph: Paragraph) -> int:
-    style = (paragraph.style.name if paragraph.style else "").lower()
-    if "heading 1" in style or "标题 1" in style or "标题1" in style:
-        return 1
-    if "heading 2" in style or "标题 2" in style or "标题2" in style:
-        return 2
-    if "heading 3" in style or "标题 3" in style or "标题3" in style:
-        return 3
-    return 0
+    explicit = paragraph._p.find(qn("w:pPr") + "/" + qn("w:outlineLvl"))
+    style = paragraph.style
+    seen = set()
+    while True:
+        if explicit is not None:
+            value = int(explicit.get(qn("w:val"), "9"))
+            if value == 9: return 0
+            level = value + 1
+            break
+        if style is None or style.style_id in seen:
+            return 0
+        seen.add(style.style_id)
+        named = re.fullmatch(r"(?:heading|标题)\s*([1-9])", style.name or "", re.IGNORECASE)
+        if named:
+            level = int(named.group(1))
+            break
+        explicit = style.element.find(qn("w:pPr") + "/" + qn("w:outlineLvl"))
+        style = style.base_style
+    if not 1 <= level <= 3:
+        raise ValueError(f"论文包含当前模板流程尚不支持的 {level} 级标题：{paragraph.text}")
+    return level
+
+
+class _HeadingNumbering:
+    """Materialize visible decimal heading labels stored in numbering.xml."""
+    def __init__(self, document):
+        try:
+            self.root = document.part.numbering_part.element
+        except (KeyError, NotImplementedError):
+            self.root = None
+        self.counters = {}
+
+    def text(self, paragraph, text, is_heading):
+        number = paragraph._p.find(qn("w:pPr") + "/" + qn("w:numPr"))
+        style = paragraph.style
+        seen = set()
+        while number is None and style is not None and style.style_id not in seen:
+            seen.add(style.style_id)
+            number = style.element.find(qn("w:pPr") + "/" + qn("w:numPr"))
+            style = style.base_style
+        if number is None:
+            return text
+        num_id = number.find(qn("w:numId"))
+        if num_id is None or num_id.get(qn("w:val")) == "0":
+            return text
+        num_id = num_id.get(qn("w:val"))
+        if self.root is None or not re.fullmatch(r"[0-9]{1,10}", num_id or ""):
+            raise ValueError("自动标题编号定义无效")
+        level = number.find(qn("w:ilvl"))
+        level = int(level.get(qn("w:val"), "0")) if level is not None else 0
+        if not 0 <= level <= 8:
+            raise ValueError("自动标题编号层级无效")
+        nums = self.root.xpath(f'./w:num[@w:numId="{num_id}"]')
+        if not nums:
+            raise ValueError("自动标题编号引用的定义不存在")
+        abstract = nums[0].find(qn("w:abstractNumId"))
+        abstract_id = abstract.get(qn("w:val")) if abstract is not None else ""
+        if not re.fullmatch(r"[0-9]{1,10}", abstract_id):
+            raise ValueError("自动标题编号引用无效")
+        definitions = self.root.xpath(f'./w:abstractNum[@w:abstractNumId="{abstract_id}"]/w:lvl')
+        definitions = {int(n.get(qn("w:ilvl"))): n for n in definitions}
+        definition = definitions.get(level)
+        if definition is None:
+            raise ValueError("自动标题编号缺少对应层级")
+        start = definition.find(qn("w:start"))
+        first = int(start.get(qn("w:val"), "1")) if start is not None else 1
+        overrides = nums[0].xpath(f'./w:lvlOverride[@w:ilvl="{level}"]/w:startOverride/@w:val')
+        if overrides: first = int(overrides[0])
+        values = self.counters.setdefault(num_id, {})
+        for higher in range(level):
+            if higher not in values and higher in definitions:
+                start_node = definitions[higher].find(qn("w:start"))
+                start_value = int(start_node.get(qn("w:val"), "1")) if start_node is not None else 1
+                override = nums[0].xpath(f'./w:lvlOverride[@w:ilvl="{higher}"]/w:startOverride/@w:val')
+                values[higher] = int(override[0]) if override else start_value
+        values[level] = values.get(level, first - 1) + 1
+        for deeper in list(values):
+            if deeper > level: values.pop(deeper)
+        if not is_heading:
+            return text
+        pattern = definition.find(qn("w:lvlText"))
+        if pattern is None:
+            raise ValueError("自动标题编号缺少显示格式")
+        label = pattern.get(qn("w:val"), "")
+        for token in re.findall(r"%([1-9])", label):
+            index = int(token) - 1
+            item = definitions.get(index)
+            fmt = item.find(qn("w:numFmt")) if item is not None else None
+            if fmt is None or fmt.get(qn("w:val")) != "decimal" or index not in values:
+                raise ValueError("此自动标题编号格式需要核对后导入：" + text)
+            label = label.replace("%" + token, str(values[index]))
+        suffix = definition.find(qn("w:suff"))
+        separator = "" if suffix is not None and suffix.get(qn("w:val")) == "nothing" else " "
+        return label + separator + text
 
 
 def _special_section_type(text: str) -> str | None:
@@ -307,6 +394,7 @@ def _paragraph_blocks(paragraph: Paragraph, block_prefix: str, unsupported: list
 
 def import_docx_project(data: bytes) -> dict[str, Any]:
     document = Document(BytesIO(data))
+    numbering = _HeadingNumbering(document)
     sections: list[dict[str, Any]] = []
     unsupported: list[str] = []
     current: dict[str, Any] | None = None
@@ -329,6 +417,7 @@ def import_docx_project(data: bytes) -> dict[str, Any]:
             paragraph_count += 1
             text = (item.text or "").strip()
             level = _heading_level(item)
+            text = numbering.text(item, text, bool(level))
             style = (item.style.name if item.style else "").strip().lower()
 
             # A manuscript's cover is represented by the project's cover form.
@@ -401,6 +490,7 @@ def import_docx_project(data: bytes) -> dict[str, Any]:
     metadata = {"title": properties.title or "", "author": properties.author or ""}
     metadata.update(_cover_metadata(document))
     return {
+        "source_sha256": hashlib.sha256(data).hexdigest(),
         "sections": sections,
         "metadata": metadata,
         "stats": {

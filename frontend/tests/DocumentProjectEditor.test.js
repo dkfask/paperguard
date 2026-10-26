@@ -3,6 +3,11 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const api = vi.hoisted(() => ({
   getDocumentProjectEditor: vi.fn(),
+  fetchDocumentRenderJobs: vi.fn(),
+  createDocumentRenderJob: vi.fn(),
+  fetchDocumentRenderJob: vi.fn(),
+  downloadDocumentRenderArtifact: vi.fn(),
+  confirmDocumentRenderReview: vi.fn(),
   renderDocumentProject: vi.fn(),
   updateDocumentProject: vi.fn(),
   uploadDocumentProjectImage: vi.fn(),
@@ -11,9 +16,10 @@ const api = vi.hoisted(() => ({
 const route = vi.hoisted(() => ({ params: { id: 'project-1' } }))
 
 vi.mock('../src/api.js', () => api)
+vi.mock('../src/auth.js', () => ({ isManager: () => true }))
 vi.mock('../src/i18n', () => ({
   useI18n: () => ({
-    t: (key, params = {}) => key === 'documentProjects.saved' ? `saved ${params.revision}` : key === 'documentProjects.blockKind.paragraph' ? '段落' : key,
+  t: (key, params = {}) => key === 'documentProjects.saved' ? `saved ${params.revision}` : key === 'documentProjects.blockKind.paragraph' ? '段落' : key === 'writer.exportFormatStatus' ? `${key} ${params.status} ${params.count}` : key,
   }),
 }))
 vi.mock('vue-router', () => ({ useRoute: () => route }))
@@ -44,6 +50,7 @@ describe('DocumentProjectEditor', () => {
       },
     })
     api.renderDocumentProject.mockResolvedValue(undefined)
+    api.fetchDocumentRenderJobs.mockResolvedValue([])
   })
 
   it('exports the current generic document project', async () => {
@@ -56,6 +63,133 @@ describe('DocumentProjectEditor', () => {
     await flushPromises()
 
     expect(api.renderDocumentProject).toHaveBeenCalledWith('project-1')
+  })
+
+  it('keeps review candidates separate until download and every item is confirmed', async () => {
+    const review = { status: 'required', output_sha256: 'sha-a', checklist: [{ id: 'page', description: '核对分页' }, { id: 'toc', description: '核对目录' }] }
+    api.renderDocumentProject.mockRejectedValue(Object.assign(new Error('需要核查'), { manualReview: review }))
+    api.createDocumentRenderJob.mockResolvedValue({ id: 'render-1', status: 'succeeded', manual_review: review })
+    api.downloadDocumentRenderArtifact.mockResolvedValue({ outputSha256: 'sha-a' })
+    api.confirmDocumentRenderReview.mockResolvedValue({ manual_review: { status: 'confirmed' }, artifact: { output_check_count: 12 } })
+    const wrapper = mount(DocumentProjectEditor, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    await wrapper.get('.export-action').trigger('click')
+    await flushPromises()
+    expect(api.downloadDocumentRenderArtifact).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="document-review-confirm"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="document-review-download"]').trigger('click')
+    await flushPromises()
+    const checks = wrapper.findAll('[data-test="document-manual-review"] input')
+    await checks[0].setValue(true)
+    expect(wrapper.get('[data-test="document-review-confirm"]').attributes('disabled')).toBeDefined()
+    await checks[1].setValue(true)
+    await wrapper.get('[data-test="document-review-confirm"]').trigger('click')
+    await flushPromises()
+    expect(api.confirmDocumentRenderReview).toHaveBeenCalledWith('project-1', 'render-1', { output_sha256: 'sha-a', confirmed_check_ids: ['page', 'toc'] })
+    expect(api.downloadDocumentRenderArtifact).toHaveBeenLastCalledWith('project-1', 'render-1')
+    expect(wrapper.find('[data-test="document-manual-review"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('refuses a changed review candidate and clears review when content changes', async () => {
+    const review = { status: 'required', output_sha256: 'sha-a', checklist: [{ id: 'page', description: '核对分页' }] }
+    api.renderDocumentProject.mockRejectedValue(Object.assign(new Error('需要核查'), { manualReview: review }))
+    api.createDocumentRenderJob.mockResolvedValue({ id: 'render-1', status: 'succeeded', manual_review: review })
+    api.downloadDocumentRenderArtifact.mockResolvedValue({ outputSha256: 'sha-other' })
+    const wrapper = mount(DocumentProjectEditor, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    await wrapper.get('.export-action').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="document-review-download"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('writer.manualReviewCandidateChanged')
+    expect(wrapper.get('[data-test="document-review-confirm"]').attributes('disabled')).toBeDefined()
+    expect(api.confirmDocumentRenderReview).not.toHaveBeenCalled()
+    await wrapper.get('[data-test="document-field-summary"]').setValue('修改内容')
+    expect(wrapper.find('[data-test="document-manual-review"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('restores the matching pending review after reopening without downloading it', async () => {
+    api.fetchDocumentRenderJobs.mockResolvedValue([
+      { id: 'old', project_revision: 1, status: 'succeeded', manual_review: { status: 'required', checklist: [{ id: 'old', description: 'old review' }] } },
+      { id: 'current', project_revision: 2, status: 'succeeded', manual_review: { status: 'required', output_sha256: 'sha-current', checklist: [{ id: 'current', description: 'current review' }] } },
+    ])
+    const wrapper = mount(DocumentProjectEditor, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="document-manual-review"]').text()).toContain('current review')
+    expect(wrapper.get('[data-test="document-manual-review"]').text()).not.toContain('old review')
+    expect(api.downloadDocumentRenderArtifact).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('shows generated, format-check and visual-review states separately', async () => {
+    api.renderDocumentProject.mockResolvedValue({ status: 'unverifiable', count: 5 })
+    const wrapper = mount(DocumentProjectEditor, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    })
+    await flushPromises()
+
+    await wrapper.find('.export-action').trigger('click')
+    await flushPromises()
+
+    const status = wrapper.get('.export-check-status')
+    expect(status.text()).toContain('writer.exportGenerated')
+    expect(status.text()).toContain('writer.exportCheckUnverifiable')
+    expect(status.text()).toContain('writer.exportVisualPending')
+    expect(status.text()).toContain('5')
+    await wrapper.get('[data-test="document-field-summary"]').setValue('修改后的摘要')
+    expect(wrapper.find('.export-check-status').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('saves pending edits before exporting and keeps newer edits if a save is in flight', async () => {
+    const fixture = await api.getDocumentProjectEditor()
+    let finishSave
+    api.updateDocumentProject.mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve }))
+    api.updateDocumentProject.mockImplementation(async (_, value) => ({ ...fixture.project, ...value, revision: value.base_revision + 1 }))
+    api.validateDocumentProject.mockResolvedValue({ findings: [], not_checked: [] })
+    api.renderDocumentProject.mockResolvedValue({ status: 'pass', count: 22 })
+    const wrapper = mount(DocumentProjectEditor, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    const field = wrapper.get('[data-test="document-field-summary"]')
+    await field.setValue('第一版摘要')
+    await wrapper.find('.export-action').trigger('click')
+    expect(api.renderDocumentProject).not.toHaveBeenCalled()
+    expect(api.updateDocumentProject).toHaveBeenCalledWith('project-1', expect.objectContaining({field_values: expect.objectContaining({summary: '第一版摘要'})}))
+    await field.setValue('第二版摘要')
+    finishSave({ ...fixture.project, field_values: { ...fixture.project.field_values, summary: '第一版摘要' }, revision: 3 })
+    await flushPromises()
+    expect(api.updateDocumentProject).toHaveBeenLastCalledWith('project-1', expect.objectContaining({base_revision: 3, field_values: expect.objectContaining({summary: '第二版摘要'})}))
+    expect(field.element.value).toBe('第二版摘要')
+    expect(api.renderDocumentProject).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('does not export an old server revision when saving edits fails', async () => {
+    api.updateDocumentProject.mockRejectedValue(new Error('保存失败'))
+    const wrapper = mount(DocumentProjectEditor, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    await wrapper.get('[data-test="document-field-summary"]').setValue('尚未保存的摘要')
+    await wrapper.find('.export-action').trigger('click')
+    await flushPromises()
+    expect(api.renderDocumentProject).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toContain('保存失败')
+    wrapper.unmount()
+  })
+
+  it('does not attach a completed export result to content edited during export', async () => {
+    let finishExport
+    api.renderDocumentProject.mockImplementationOnce(() => new Promise(resolve => { finishExport = resolve }))
+    const wrapper = mount(DocumentProjectEditor, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+    await flushPromises()
+    await wrapper.find('.export-action').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="document-field-summary"]').setValue('导出期间新输入')
+    finishExport({ status: 'pass', count: 22 })
+    await flushPromises()
+    expect(wrapper.find('.export-check-status').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('renders schema field types and structured content block controls', async () => {

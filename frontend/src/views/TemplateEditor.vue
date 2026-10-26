@@ -42,7 +42,19 @@
         </label>
         <p>{{ t('editor.allowStructureDetail') }}</p>
       </div>
+      <section class="template-admission" :class="admission?.status" data-test="editor-template-admission" aria-live="polite">
+        <div class="admission-heading"><strong>{{ t('templateAdmission.title') }}</strong><span v-if="admission">{{ admission.status === 'blocked' ? t('templateAdmission.blocked') : t('templateAdmission.officeReview') }}</span></div>
+        <p v-if="admission">{{ t('templateAdmission.boundVersion', { version: admission.version, digest: admission.assessment_hash?.slice(0, 12) }) }}</p>
+        <p v-if="admission">{{ admission.status === 'blocked' ? t('templateAdmission.blockedUse') : t('templateAdmission.draftAllowedOfficeReview') }}</p>
+        <p v-if="admissionStale" class="admission-stale" role="status">{{ t('templateAdmission.stale') }}</p>
+        <ul v-if="admission?.blockers?.length" class="admission-findings"><li v-for="item in admission.blockers" :key="`${item.code}:${item.path}`">{{ item.message }} <small>{{ item.path }}</small></li></ul>
+        <ul v-if="admission?.manual_checks?.length" class="admission-findings manual"><li v-for="item in admission.manual_checks" :key="item.code">{{ item.message }}</li></ul>
+        <p v-if="admission" class="admission-limit">{{ t('templateAdmission.noComplianceClaim') }}</p>
+        <button class="small" type="button" :disabled="admissionBusy" @click="refreshAdmission">{{ admissionBusy ? t('common.loading') : t('templateAdmission.reassess') }}</button>
+      </section>
 
+    <WritingSpecificationPreview :specification="tpl.writing_specification" :template-id="tpl.id" />
+    <WritingProfileConfirmation :template="tpl" :dirty="JSON.stringify(tpl) !== savedTemplateSnapshot" @published="profilePublished" />
     <!-- 写作规范绑定 -->
     </section><section class="screen-form-section"><h3 class="editor-section-title"><span class="material-symbols-outlined" aria-hidden="true">rule</span>{{ t('editor.policyBinding') }}</h3>
     <div class="policy-binding">
@@ -129,11 +141,13 @@
 
 <script setup>
 import BaseModal from '../components/base/BaseModal.vue'
+import WritingSpecificationPreview from '../components/WritingSpecificationPreview.vue'
+import WritingProfileConfirmation from '../components/WritingProfileConfirmation.vue'
 import ScreenCollection from '../components/ScreenCollection.vue'
 import ScreenDeck from '../components/ScreenDeck.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { fetchTemplate, fetchPolicies, saveTemplate } from '../api'
+import { fetchTemplate, fetchPolicies, saveTemplate, assessTemplateAdmission } from '../api'
 import SectionNode from '../components/SectionNode.vue'
 import { useI18n } from '../i18n'
 
@@ -161,6 +175,7 @@ const tpl = ref({
   sections: [], styles: {}, meta_fields: [],
 })
 const policyOptions = ref([])
+const savedTemplateSnapshot = ref('')
 const activeStyle = ref(null), activeNode = ref(null)
 const stylesKeys = ref([])
 const collapsed = ref({})
@@ -170,6 +185,10 @@ const savedAt = ref('')
 const saving = ref(false)
 const loadError = ref('')
 const loading = ref(true)
+const admission = ref(null)
+const admissionBusy = ref(false)
+const admissionSnapshot = ref('')
+const admissionStale = computed(() => !admission.value || admissionSnapshot.value !== JSON.stringify(tpl.value))
 
 onMounted(async () => {
   loading.value = true
@@ -194,11 +213,13 @@ onMounted(async () => {
   } else {
     try {
       tpl.value = await fetchTemplate(tplId.value)
+      savedTemplateSnapshot.value = JSON.stringify(tpl.value)
     } catch (e) {
       loadError.value = e.message || t('common.operationFailed')
     }
   }
   try { policyOptions.value = await fetchPolicies() } catch { /* 学生或旧后端可无规范列表 */ }
+  try { await refreshAdmission() } catch (e) { error.value = e.message || t('common.operationFailed') }
   stylesKeys.value = Object.keys(tpl.value.styles)
   for (const k of stylesKeys.value) collapsed.value[k] = true
   loading.value = false
@@ -206,6 +227,18 @@ onMounted(async () => {
 
 function setRulePacks(value) {
   tpl.value.rule_packs = value.split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+async function refreshAdmission() {
+  admissionBusy.value = true
+  try {
+    const payload = { ...tpl.value, id: tpl.value.id || 'unsaved-template' }
+    admission.value = await assessTemplateAdmission(payload)
+    admissionSnapshot.value = JSON.stringify(tpl.value)
+    return admission.value
+  } finally {
+    admissionBusy.value = false
+  }
 }
 
 function addSection() {
@@ -282,13 +315,27 @@ async function save() {
     return
   }
   try {
+    const currentAdmission = await refreshAdmission()
+    if (currentAdmission.blockers?.length && !tpl.value.source_docx) {
+      error.value = t('templateAdmission.blockedUse')
+      return
+    }
     const result = await saveTemplate(tpl.value, isNew.value)
     tpl.value = result
+    savedTemplateSnapshot.value = JSON.stringify(result)
+    await refreshAdmission()
     saved.value = true
     savedAt.value = formatDate(new Date(), { hour: '2-digit', minute: '2-digit' })
     if (isNew.value) router.replace('/templates/' + result.id + '/edit')
   } catch (e) { error.value = e.message || t('common.operationFailed') }
   finally { saving.value = false }
+}
+function profilePublished(result) {
+  tpl.value = result.template
+  admission.value = result.admission
+  admissionSnapshot.value = JSON.stringify(tpl.value)
+  savedTemplateSnapshot.value = JSON.stringify(tpl.value)
+  saved.value = true
 }
 </script>
 
@@ -323,6 +370,14 @@ async function save() {
 .template-editor-panel {
   padding-bottom: 22px;
 }
+.template-admission { display: grid; gap: 8px; margin: 14px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-container-low); }
+.template-admission.blocked { border-color: var(--error, #b42318); background: var(--error-container, #fff1f0); }
+.template-admission p { margin: 0; color: var(--on-surface-variant); font-size: 12px; line-height: 1.5; }
+.admission-heading { display: flex; justify-content: space-between; gap: 12px; }
+.admission-findings { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.admission-findings small { display: block; color: var(--on-surface-variant); }
+.admission-findings.manual { color: var(--on-surface-variant); }
+.admission-stale { color: var(--error, #b42318) !important; }
 
 .editor-loading {
   min-height: 180px;

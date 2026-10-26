@@ -32,13 +32,17 @@ def is_safe_source_name(name: str) -> bool:
     return bool(name) and bool(_SAFE_NAME_RE.match(name))
 
 
-def save_template_source(data: bytes) -> str:
-    """保存模板 docx (去掉批注), 返回文件名。
+def save_template_source(data: bytes, *, preserve_original: bool = False) -> str:
+    """保存模板 docx, 返回文件名。
 
-    去批注失败时回退保存原始字节, 不影响导入流程。
+    新的模板导入保留母版原字节。旧调用保持去批注的兼容行为；
+    批注清理仍可通过独立的副本下载入口执行。
     """
     name = f"{new_id('tplsrc')}.docx"
     target = template_source_dir() / name
+    if preserve_original:
+        target.write_bytes(data)
+        return name
     tmp_dir = Path(tempfile.mkdtemp(prefix="paperguard-tplsrc-"))
     raw = tmp_dir / "raw.docx"
     try:

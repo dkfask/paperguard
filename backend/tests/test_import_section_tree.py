@@ -11,6 +11,26 @@ from docx.oxml.ns import qn
 from app.services.import_template import extract_document_structure, extract_section_tree
 
 
+def test_numeric_third_level_headings_stay_under_their_second_level_parent(tmp_path):
+    for styled in (True, False):
+        document = docx.Document()
+        for text, level in [("第3章 系统分析", 1), ("3.1 系统功能分析", 2),
+                            ("3.1.1 数据采集功能分析", 3), ("3.1.2 数据查询功能分析", 3),
+                            ("3.2 物联网系统流程分析", 2), ("3.2.1 系统流程图", 3)]:
+            document.add_paragraph(text, style=f"Heading {level}" if styled else None)
+        path = tmp_path / f"chapter-tree-{styled}.docx"
+        document.save(path)
+        roots = extract_section_tree(path)
+        assert len(roots) == 1
+        chapter = roots[0]
+        assert chapter["type"] == "heading1"
+        assert [n["title"] for n in chapter["children"]] == ["3.1 系统功能分析", "3.2 物联网系统流程分析"]
+        assert [n["type"] for n in chapter["children"]] == ["heading2", "heading2"]
+        assert [n["title"] for n in chapter["children"][0]["children"]] == ["3.1.1 数据采集功能分析", "3.1.2 数据查询功能分析"]
+        assert all(n["type"] == "heading3" for p in chapter["children"] for n in p["children"])
+        assert chapter["children"][1]["children"][0]["title"] == "3.2.1 系统流程图"
+
+
 def test_extract_section_tree_recognizes_english_abstract_and_excludes_keywords_from_toc():
     doc = docx.Document()
     doc.add_paragraph("摘  要")
