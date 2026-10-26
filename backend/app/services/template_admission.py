@@ -17,6 +17,7 @@ from typing import Any
 from lxml import etree
 
 from app.core.extract.xml_utils import safe_xml_parser
+from app.domain.documents.schemas import TemplateDefinition
 from app.models.template import PaperTemplate, TextStyle
 from app.services.docx_output_check import TEXT_STYLE_COVERAGE, style_capability_issues
 from app.services.template_source import resolve_template_source
@@ -236,6 +237,17 @@ def assess_template_definition(
                 "path": f"{style_path}.{issue['property']}",
             })
     blockers.extend(_source_findings(source_data, expected_source_sha256))
+    # The explicit-placeholder checker compares complete story trees and every
+    # non-anchor package part. Its fixed tables/headers/footers are covered even
+    # though the legacy paragraph renderer cannot verify those same constructs.
+    # Keep all other capability, source-integrity and style blockers in place.
+    if (isinstance(definition, TemplateDefinition)
+            and definition.export_strategy != "legacy_adapter"
+            and definition.anchors
+            and all(anchor.kind in {"placeholder", "section_placeholder"}
+                    for anchor in definition.anchors)):
+        covered = {"source_table_not_mapped", "unmapped_header", "unmapped_footer"}
+        blockers = [item for item in blockers if item["code"] not in covered]
     blockers = list({(item["code"], item["path"]): item for item in blockers}.values())
     source_sha256 = hashlib.sha256(source_data).hexdigest() if source_data is not None else ""
     definition_sha256 = _canonical_hash(raw_definition)

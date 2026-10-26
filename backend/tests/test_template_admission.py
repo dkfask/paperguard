@@ -85,6 +85,43 @@ def test_cover_table_and_source_docx_table_block_template_use():
     assert any(item["code"] == "source_table_not_mapped" for item in source_report["blockers"])
 
 
+@pytest.mark.parametrize("unsupported", ["no_anchors", "legacy_adapter", "bookmark"])
+def test_static_objects_stay_blocked_without_supported_placeholder_checker(unsupported):
+    from app.services.template_engine import parse_docx_template
+
+    source = Path(__file__).parent / "fixtures" / "templates" / "generic-anchored.docx"
+    candidate = parse_docx_template(
+        source, candidate_id="anchor-admission", template_id="anchor-admission", filename=source.name,
+    )
+    definition = candidate.definition.model_copy(deep=True)
+    if unsupported == "no_anchors":
+        definition.anchors = []
+    elif unsupported == "legacy_adapter":
+        definition.export_strategy = "legacy_adapter"
+    else:
+        definition.anchors[0].kind = "bookmark"
+    report = assess_template_definition(
+        template_id=candidate.template_id, version=candidate.version,
+        definition=definition, source_data=source.read_bytes(),
+    )
+    assert not report["can_use_for_draft"]
+    assert {"source_table_not_mapped", "unmapped_header", "unmapped_footer"}.issubset(
+        {item["code"] for item in report["blockers"]},
+    )
+
+
+def test_placeholder_mapping_does_not_clear_unsupported_equations():
+    from app.domain.documents.schemas import TemplateAnchor, TemplateDefinition
+
+    definition = TemplateDefinition(anchors=[TemplateAnchor(key="name", selector="{{name}}", kind="placeholder")])
+    report = assess_template_definition(
+        template_id="unsupported-equation", version="1", definition=definition,
+        source_data=_docx_bytes(table=True, header="页眉", equation=True),
+    )
+    assert not report["can_use_for_draft"]
+    assert any(item["code"] == "source_equation_omml" for item in report["blockers"])
+
+
 def test_source_xml_equations_and_unmapped_headers_are_blocked():
     xml_report = assess_template_definition(
         template_id="candidate", version="1",
