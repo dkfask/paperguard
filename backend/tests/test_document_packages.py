@@ -20,7 +20,7 @@ from app.domain.documents.specs import SpecRule, SpecSet, SpecVersion
 from app.main import app
 
 
-FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "minimal.docx"
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "admissible.docx"
 SPEC = """---
 name: 实验报告规范
 version: '1'

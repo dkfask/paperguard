@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml import OxmlElement
@@ -47,6 +49,29 @@ def test_import_keeps_hyperlink_text_when_mixed_with_regular_text(tmp_path):
     blocks = imported["sections"][0]["paragraphs"]
     assert len(blocks) == 1
     assert blocks[0]["text"] == "前缀 参考链接 后缀"
+
+
+def test_word_automatic_heading_number_is_preserved_in_imported_title(tmp_path):
+    source = Document()
+    root = source.part.numbering_part.element
+    abstract = OxmlElement('w:abstractNum'); abstract.set(qn('w:abstractNumId'), '500')
+    level = OxmlElement('w:lvl'); level.set(qn('w:ilvl'), '0')
+    for tag, value in [('w:start', '2'), ('w:numFmt', 'decimal'), ('w:lvlText', '第%1章　'), ('w:suff', 'nothing')]:
+        node = OxmlElement(tag); node.set(qn('w:val'), value); level.append(node)
+    abstract.append(level); root.append(abstract)
+    number = OxmlElement('w:num'); number.set(qn('w:numId'), '501')
+    aid = OxmlElement('w:abstractNumId'); aid.set(qn('w:val'), '500'); number.append(aid); root.append(number)
+    paragraph = source.add_heading('关键技术', 1)
+    props = OxmlElement('w:numPr')
+    for tag, value in [('w:ilvl', '0'), ('w:numId', '501')]:
+        node = OxmlElement(tag); node.set(qn('w:val'), value); props.append(node)
+    paragraph._p.get_or_add_pPr().append(props)
+    source.add_paragraph('技术内容。')
+    path = tmp_path / 'automatic-chapter.docx'; source.save(path)
+    imported = import_docx_project(path.read_bytes())
+    assert imported['sections'][0]['title'] == '第2章　关键技术'
+    assert imported['sections'][0]['type'] == 'heading1'
+    assert imported['sections'][0]['paragraphs'][0]['text'] == '技术内容。'
 
 
 def test_import_groups_inline_runs_and_export_keeps_one_paragraph(tmp_path):
@@ -227,6 +252,211 @@ def test_apply_import_maps_by_section_number_and_keeps_source_order(tmp_path):
     assert "研究背景正文。" in "".join(block.text for block in project.sections[5].paragraphs)
     assert "硬件正文。" in "".join(block.text for block in project.sections[7].paragraphs)
     assert validate_project_completeness(project, PaperTemplate(id="template-import-order", name="test")) == []
+
+
+def test_frozen_master_does_not_consume_future_heading_for_unmatched_source_title():
+    def paragraph(block_id: str, text: str) -> dict:
+        return ParagraphBlock(id=block_id, text=text).model_dump(mode="json")
+
+    project = WritingProject(
+        id="project-frozen-heading-order", template_id="template-frozen-heading-order",
+        template_snapshot={"source_execution": {"profile_sha256": "profile-test"}},
+        sections=[
+            ProjectSection(key="body", type="body", title="正文", required=False),
+            ProjectSection(key="ch1", type="heading1", title="第1章 绪论"),
+            ProjectSection(key="ch2", type="heading1", title="第2章 系统设计"),
+        ],
+    )
+    imported = {
+        "sections": [
+            {"key": "ch1", "type": "heading1", "title": "第1章 绪论", "paragraphs": [paragraph("p1", "第一章正文")]},
+            {"key": "extra", "type": "heading1", "title": "实验补充", "paragraphs": [paragraph("p2", "补充正文")]},
+            {"key": "ch2", "type": "heading1", "title": "第2章 系统设计", "paragraphs": [paragraph("p3", "第二章正文")]},
+        ],
+        "metadata": {},
+    }
+
+    merge = _apply_imported_docx(project, imported)
+
+    assert merge["added_section_count"] == 0
+    assert merge["flattened_section_titles"] == ["实验补充"]
+    assert [section.title for section in project.sections] == ["正文", "第1章 绪论", "第2章 系统设计"]
+    assert "补充正文" in "".join(block.text for block in project.sections[1].paragraphs)
+    assert "第二章正文" in "".join(block.text for block in project.sections[2].paragraphs)
+    assert "补充正文" not in "".join(block.text for block in project.sections[2].paragraphs)
+
+
+def test_frozen_master_routes_keywords_and_rebuilds_table_from_cells():
+    project = WritingProject(
+        id="project-frozen-import-normalization", template_id="template-frozen-import-normalization",
+        template_snapshot={"source_execution": {"profile_sha256": "profile-test"}},
+        sections=[
+            ProjectSection(key="abstract", type="abstract", title="摘要"),
+            ProjectSection(key="keywords", type="keywords", title="关键词"),
+            ProjectSection(key="english_abstract", type="english_abstract", title="Abstract"),
+            ProjectSection(key="english_keywords", type="english_keywords", title="Key Words"),
+            ProjectSection(key="body", type="body", title="正文"),
+        ],
+    )
+    imported = {
+        "sections": [
+            {"key": "abstract", "type": "abstract", "title": "摘要", "paragraphs": [
+                {"id": "abstract-text", "text": "中文摘要内容。关键词：STM32；智能控制", "inline_runs": [
+                    {"text": "中文摘要内容。", "bold": False},
+                    {"text": "关键词：STM32；智能控制", "bold": True},
+                ]},
+            ]},
+            {"key": "english_abstract", "type": "english_abstract", "title": "Abstract", "paragraphs": [
+                {"id": "english-abstract-text", "text": "English abstract. Key Words: STM32; smart control"},
+            ]},
+            {"key": "import-body", "type": "body", "title": "导入正文", "paragraphs": [
+                {"id": "table-1", "type": "table", "table": {
+                    "rows": 1, "cols": 2, "cells": [["指标", "结果"]], "source_xml": "<w:tbl/>",
+                }},
+            ]},
+        ],
+        "metadata": {},
+    }
+
+    merge = _apply_imported_docx(project, imported)
+
+    assert merge["preserved_section_order"] is True
+    assert merge["added_section_count"] == 0
+    assert [section.key for section in project.sections] == [
+        "abstract", "keywords", "english_abstract", "english_keywords", "body",
+    ]
+    assert [block.text for block in project.sections[0].paragraphs] == ["中文摘要内容。"]
+    assert [block.text for block in project.sections[1].paragraphs] == ["STM32；智能控制"]
+    assert project.sections[1].paragraphs[0].inline_runs == []
+    assert [block.text for block in project.sections[2].paragraphs] == ["English abstract."]
+    assert [block.text for block in project.sections[3].paragraphs] == ["STM32; smart control"]
+    table = project.sections[4].paragraphs[0].table
+    assert table is not None
+    assert table.cells == [["指标", "结果"]]
+    assert table.source_xml == ""
+    assert merge["normalized_source_table_count"] == 1
+
+
+def test_frozen_master_assigns_unnumbered_chapter_to_gap_without_shifting_later_matches():
+    def paragraph(block_id: str, text: str) -> dict:
+        return ParagraphBlock(id=block_id, text=text).model_dump(mode="json")
+
+    project = WritingProject(
+        id="project-frozen-heading-gap", template_id="template-frozen-heading-gap",
+        template_snapshot={"source_execution": {"profile_sha256": "profile-test"}},
+        sections=[
+            ProjectSection(key="ch1", type="heading1", title="第一章 绪论"),
+            ProjectSection(key="ch2", type="heading1", title="第二章 技术基础"),
+            ProjectSection(key="ch3", type="heading1", title="第三章 系统分析"),
+        ],
+    )
+    imported = {
+        "sections": [
+            {"key": "ch1", "type": "heading1", "title": "1 绪论", "paragraphs": [paragraph("p1", "第一章正文")]},
+            {"key": "ch2", "type": "heading1", "title": "关键技术", "paragraphs": [paragraph("p2", "关键技术正文")]},
+            {"key": "ch3", "type": "heading1", "title": "第3章 系统分析", "paragraphs": [paragraph("p3", "第三章正文")]},
+        ],
+        "metadata": {},
+    }
+
+    merge = _apply_imported_docx(project, imported)
+
+    assert merge["added_section_count"] == 0
+    assert [section.key for section in project.sections] == ["ch1", "ch2", "ch3"]
+    assert "关键技术正文" in "".join(block.text for block in project.sections[1].paragraphs)
+    assert "第三章正文" in "".join(block.text for block in project.sections[2].paragraphs)
+    assert "关键技术正文" not in "".join(block.text for block in project.sections[2].paragraphs)
+
+
+def test_frozen_master_never_maps_heading_to_keyword_section_and_preserves_pending_content():
+    project = WritingProject(
+        id="project-frozen-heading-type", template_id="template-frozen-heading-type",
+        template_snapshot={"source_execution": {"profile_sha256": "profile-test"}},
+        sections=[
+            ProjectSection(key="keywords", type="keywords", title="关键词"),
+            ProjectSection(key="ch1", type="heading1", title="第1章 绪论"),
+        ],
+    )
+    imported = {
+        "sections": [
+            {"key": "import-body", "type": "body", "title": "导入正文", "paragraphs": [
+                {"id": "preface", "text": "章节前置文字"},
+            ]},
+            {"key": "misleading-title", "type": "heading1", "title": "关键词", "paragraphs": [
+                {"id": "misleading-content", "text": "这是一级章节，不是关键词"},
+            ]},
+            {"key": "ch1", "type": "heading1", "title": "第1章 绪论", "paragraphs": [
+                {"id": "ch1-content", "text": "第一章正文"},
+            ]},
+        ],
+        "metadata": {},
+    }
+
+    merge = _apply_imported_docx(project, imported)
+
+    assert merge["added_section_count"] == 0
+    assert merge["unplaced_section_titles"] == []
+    assert [section.key for section in project.sections] == ["keywords", "ch1"]
+    assert project.sections[0].paragraphs == []
+    chapter_text = "".join(block.text for block in project.sections[1].paragraphs)
+    assert all(text in chapter_text for text in ("章节前置文字", "这是一级章节，不是关键词", "第一章正文"))
+
+
+def test_frozen_master_rebuilds_inflated_project_sections_from_template_snapshot():
+    project = WritingProject(
+        id="project-frozen-restore-structure", template_id="template-frozen-restore-structure",
+        template_snapshot={
+            "id": "template-frozen-restore-structure", "name": "冻结模板",
+            "source_execution": {"profile_sha256": "profile-test"},
+            "sections": [
+                {"key": "cover", "type": "cover", "title": "封面", "children": []},
+                {"key": "toc", "type": "toc", "title": "目录", "children": []},
+                {"key": "abstract", "type": "abstract", "title": "摘要", "children": []},
+                {"key": "ch1", "type": "heading1", "title": "第1章 绪论", "children": []},
+                {"key": "ch2", "type": "heading1", "title": "第2章 系统设计", "children": []},
+            ],
+        },
+        sections=[
+            ProjectSection(key="abstract", type="abstract", title="旧摘要", paragraphs=[ParagraphBlock(id="old-a", text="旧导入")]),
+            ProjectSection(key="ch1", type="heading1", title="旧章节", paragraphs=[ParagraphBlock(id="old-1", text="旧导入")]),
+            ProjectSection(key="ch2", type="heading1", title="旧章节", paragraphs=[ParagraphBlock(id="old-2", text="旧导入")]),
+            ProjectSection(key="stale-import-section", type="heading1", title="旧的临时章节", paragraphs=[ParagraphBlock(id="old-x", text="旧导入")]),
+        ],
+    )
+    imported = {
+        "sections": [
+            {"key": "abstract", "type": "abstract", "title": "摘要", "paragraphs": [{"id": "a", "text": "摘要正文"}]},
+            {"key": "ch1", "type": "heading1", "title": "第1章 绪论", "paragraphs": [{"id": "one", "text": "第一章正文"}]},
+            {"key": "ch2", "type": "heading1", "title": "第2章 系统设计", "paragraphs": [{"id": "two", "text": "第二章正文"}]},
+        ],
+        "metadata": {},
+    }
+
+    _apply_imported_docx(project, imported)
+
+    assert [section.key for section in project.sections] == ["abstract", "ch1", "ch2"]
+    assert [section.title for section in project.sections] == ["摘要", "第1章 绪论", "第2章 系统设计"]
+    assert [section.paragraphs[0].text for section in project.sections] == ["摘要正文", "第一章正文", "第二章正文"]
+
+
+def test_frozen_master_rejects_complex_imported_table_xml():
+    project = WritingProject(
+        id="project-frozen-complex-table", template_id="template-frozen-complex-table",
+        template_snapshot={"source_execution": {"profile_sha256": "profile-test"}},
+        sections=[ProjectSection(key="body", type="body", title="正文")],
+    )
+    imported = {
+        "sections": [{"key": "import-body", "type": "body", "title": "正文", "paragraphs": [
+            {"id": "complex-table", "type": "table", "table": {
+                "rows": 1, "cols": 1, "cells": [["合并单元格"]],
+                "source_xml": '<w:tbl><w:tr><w:tc><w:gridSpan w:val="2"/></w:tc></w:tr></w:tbl>',
+            }},
+        ]}],
+        "metadata": {},
+    }
+
+    with pytest.raises(ValueError, match="合并单元格"):
+        _apply_imported_docx(project, imported)
 
 
 def test_export_writes_retained_office_math(tmp_path):

@@ -85,6 +85,8 @@ def validate_section_content(
             if len(block.text) > 200_000:
                 raise DocumentProjectError(f"内容块过大: {key}[{index}]")
             kind = str(block.kind or "paragraph").lower()
+            if definition.extensions.get("source_execution") and section["kind"] in {"keywords","english_keywords"} and (kind not in {"paragraph","text"} or '\n' in block.text or block.data.get("inline_runs")):
+                raise DocumentProjectError("关键词区域只接受一段关键词文字")
             if kind in {"image", "figure"}:
                 data = block.data if isinstance(block.data, dict) else {}
                 url = str(data.get("url") or data.get("path") or "")
@@ -108,6 +110,8 @@ def instantiate_document_project(
 
     def initial_blocks(section: dict[str, Any]) -> list[ContentBlock]:
         blocks: list[ContentBlock] = []
+        if definition.extensions.get("source_execution"):
+            return [ContentBlock(id=f"{project_id}:{section['key']}:0",order=0)]
         for table in source_tables:
             if not isinstance(table, dict) or table.get("section_title") != section["title"]:
                 continue

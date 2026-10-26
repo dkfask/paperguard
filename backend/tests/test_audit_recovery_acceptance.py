@@ -5,14 +5,12 @@ checkout under tmp_path, so hard-coded asset directories cannot touch real data.
 """
 from __future__ import annotations
 
-import hashlib
 import os
 from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
 import sys
-import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -116,7 +114,7 @@ def test_worker_restart_recovers_expired_outbox_without_duplicate(isolated_store
     assert before == after == [("delivered", 2)]
 
 
-def test_backend_and_worker_restart_complete_interrupted_export(isolated_store, tmp_path):
+def test_backend_and_worker_restart_recover_interrupted_export_and_fail_closed(isolated_store, tmp_path):
     store, _ = isolated_store
     admin = store.get_user_by_username("admin")
     template = PaperTemplate(id=new_id("tpl"), name="Synthetic recovery template")
@@ -138,16 +136,15 @@ def test_backend_and_worker_restart_complete_interrupted_export(isolated_store, 
     assert recovered["status"] == "queued" and recovered["recovery_reason"] == "process_restart"
     _run_process(checkout)
     completed = store.get_workflow_record("project_export", export["id"])
-    assert completed["status"] == "succeeded", completed
-    artifact = Path(completed["file_path"])
-    assert artifact.resolve().is_relative_to(checkout.resolve())
-    with zipfile.ZipFile(artifact) as docx:
-        assert "word/document.xml" in docx.namelist()
-    original_digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    assert completed["status"] == "failed", completed
+    assert not completed.get("file_path")
+    assert completed.get("output_check_diagnostic", {}).get("findings")
     _run_process(checkout)
-    assert hashlib.sha256(artifact.read_bytes()).hexdigest() == original_digest
+    after_restart = store.get_workflow_record("project_export", export["id"])
+    assert after_restart["status"] == "failed" and not after_restart.get("file_path")
     jobs = store.list_jobs(resource_type="project_export", resource_id=export["id"])
-    assert len(jobs) == 1 and jobs[0]["state"] == "succeeded" and jobs[0]["attempt_count"] == 2
+    assert len(jobs) == 1 and jobs[0]["state"] in {"queued", "failed"}
+    assert jobs[0]["state"] != "succeeded" and jobs[0]["attempt_count"] >= 2
 
 
 def test_restore_failure_rolls_back_database_and_uploads_together(isolated_store, tmp_path, monkeypatch):

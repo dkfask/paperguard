@@ -11,15 +11,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
-from starlette.background import BackgroundTask
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from app.api.templates import get_store
+from app.api.templates import ensure_template_admitted_for_writing, get_store
 from app.auth import can_manage, current_user
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, new_id
-from app.models.project import InlineTextRun, ParagraphBlock, ProjectSection, WritingProject
+from app.models.project import BlockType, InlineTextRun, ParagraphBlock, ProjectSection, WritingProject
 from app.models.policy import (
     DisputeStatus,
     RequirementAcknowledgement,
@@ -41,9 +40,22 @@ from app.services.policy_resolver import (
     build_requirement_snapshot,
     hydrate_snapshot_format_overrides,
 )
-from app.services.template_source import resolve_template_source
+from app.services.template_source import resolve_template_source, template_source_dir, delete_template_source
+from app.services.source_template_profile import ProfileError
+from app.services.docx_output_check import (
+    DocxOutputCheckError,
+    expected_output_check_identity,
+    output_check_identity,
+    require_docx_output_pass,
+    safe_output_check_diagnostics,
+    source_template_bytes,
+    verify_report_binding,
+    verify_report_identity,
+    verify_source_template_binding,
+)
 from app.services.docx_project_import import import_docx_project, public_import_sections
 from app.services.document_assets import document_upload_dir
+from app.services.manual_output_review import confirm_review, review_identity, review_matches, review_view
 from app.services.upload_security import IMPORT_MAX_BYTES, IMAGE_MAX_BYTES, read_limited, validate_docx_bytes, validate_image
 
 router = APIRouter(prefix="/api/projects")
@@ -53,6 +65,11 @@ class CreateProjectRequest(BaseModel):
     title: str = ""
     organization_context: dict[str, str] = {}
     stage: str = ""
+
+
+class ManualOutputReviewRequest(BaseModel):
+    output_sha256: str = Field(min_length=64, max_length=64)
+    confirmed_check_ids: list[str] = Field(min_length=1)
 
 
 def _project_writing_metrics(project: WritingProject) -> dict[str, object]:
@@ -236,6 +253,7 @@ def create_project(req: CreateProjectRequest, store: Store = Depends(get_store),
     tpl = store.get_template(req.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")
+    ensure_template_admitted_for_writing(tpl)
     owner = user["id"]
     teacher_id = user.get("teacher_id")
     organization_context = dict(user.get("organization_context") or {})
@@ -354,9 +372,13 @@ def update_section(proj_id: str, section_key: str, req: UpdateSectionRequest,
     for sec in proj.sections:
         if sec.key == section_key:
             if req.title is not None:
+                if not proj.allow_structure_edit and req.title != sec.title:
+                    raise HTTPException(status_code=409,detail="当前母版的章节标题已冻结，请由教师修改模板并重新发布")
                 sec.title = req.title
             if req.paragraphs is not None:
                 parsed = [_parse_par(p, proj.id) for p in req.paragraphs]
+                if (proj.template_snapshot or {}).get("source_execution") and sec.type in {"keywords","english_keywords"} and (len(parsed)!=1 or parsed[0].type.value!="paragraph" or '\n' in parsed[0].text or parsed[0].inline_runs):
+                    raise HTTPException(status_code=422,detail="关键词区域只接受一段关键词文字")
                 sec.paragraphs = parsed
             saved = store.update_project_if_revision(proj, expected_revision)
             if saved is None:
@@ -463,31 +485,38 @@ async def upload_image(proj_id: str, file: UploadFile = File(...),
 def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
     """Merge an imported manuscript in document order while retaining required gaps."""
     heading_types = {SectionType.HEADING1.value, SectionType.HEADING2.value, SectionType.HEADING3.value}
+    master_bound = bool((proj.template_snapshot or {}).get("source_execution"))
 
     def normalized_title(title: str) -> str:
         value = unicodedata.normalize("NFKC", title or "")
         value = re.sub(r"[（(].*?[）)]\s*$", "", value)
-        value = re.sub(r"^第(?:\d+|[一二三四五六七八九十]+)章\s*", "", value)
-        value = re.sub(r"^\d+(?:\.\d+)+\s*", "", value)
+        value = re.sub(r"^第(?:\d+|[一二三四五六七八九十]+)章[：:、.．]?\s*", "", value)
+        value = re.sub(r"^\d+(?:\.\d+)*[、.．]?\s*", "", value)
+        value = re.sub(r"^[一二三四五六七八九十]+[、.．]\s*", "", value)
         return re.sub(r"\s+", "", value).casefold()
 
     def section_number(title: str) -> str:
         value = re.sub(r"\s+", "", unicodedata.normalize("NFKC", title or ""))
+        digits = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+        def chinese_integer(token: str) -> str:
+            if "十" not in token:
+                return str(digits.get(token, 0))
+            tens, _, ones = token.partition("十")
+            return str((digits.get(tens, 1) if tens else 1) * 10 + digits.get(ones, 0))
+
         chapter = re.match(r"^第(\d+|[一二三四五六七八九十]+)章", value)
         if chapter:
             token = chapter.group(1)
-            if token.isdigit():
-                return str(int(token))
-            digits = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
-            if token == "十":
-                return "10"
-            if token.startswith("十"):
-                return str(10 + digits.get(token[1:], 0))
-            if token.endswith("十"):
-                return str(digits.get(token[0], 0) * 10)
-            return str(digits.get(token, 0))
-        numbered = re.match(r"^(\d+(?:\.\d+)+)", value)
-        return numbered.group(1) if numbered else ""
+            return str(int(token)) if token.isdigit() else chinese_integer(token)
+        numbered = re.match(r"^(\d+(?:\.\d+)*)(?:[.．、]|$)", value)
+        if numbered:
+            return numbered.group(1)
+        numbered = re.match(r"^(\d+(?:\.\d+)*)(?=[^\d.]|$)", value)
+        if numbered:
+            return numbered.group(1).rstrip(".")
+        chinese = re.match(r"^([一二三四五六七八九十]+)[、.．]", value)
+        return chinese_integer(chinese.group(1)) if chinese else ""
 
     def section_has_content(section: ProjectSection) -> bool:
         for block in section.paragraphs:
@@ -507,12 +536,61 @@ def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
         return False
 
     existing_sections = list(proj.sections)
+    if master_bound and (proj.template_snapshot or {}).get("sections"):
+        template = PaperTemplate.model_validate(proj.template_snapshot)
+        existing_by_key: dict[str, ProjectSection] = {}
+        for section in existing_sections:
+            existing_by_key.setdefault(section.key, section)
+        frozen_sections: list[ProjectSection] = []
+
+        def restore_frozen_nodes(nodes) -> None:
+            for node in nodes:
+                node_type = getattr(node.type, "value", node.type)
+                if node_type in {SectionType.COVER.value, SectionType.TOC.value}:
+                    restore_frozen_nodes(node.children)
+                    continue
+                section = existing_by_key.get(node.key)
+                if section is None:
+                    section = ProjectSection(
+                        key=node.key, type=node_type, title=node.title, required=node.required,
+                        paragraphs=[ParagraphBlock(id=f"{node.key}-p1", text="")],
+                    )
+                else:
+                    section = section.model_copy(deep=True)
+                    section.type = node_type
+                    section.title = node.title
+                    section.required = node.required
+                frozen_sections.append(section)
+                restore_frozen_nodes(node.children)
+
+        restore_frozen_nodes(template.sections)
+        if not frozen_sections:
+            raise ValueError("冻结母版没有可写章节，不能应用论文内容")
+        existing_sections = frozen_sections
     candidates = [section for section in existing_sections if section.type not in {"cover", "toc"}]
     used: set[str] = set()
     imported_in_order: list[ProjectSection] = []
     added_section_count = 0
+    flattened_section_titles: list[str] = []
+    normalized_table_count = 0
+    unplaced_section_titles: list[str] = []
+    pending_master_blocks: list[ParagraphBlock] = []
+    pending_master_titles: list[str] = []
     first_body = next((section for section in candidates if section.type == SectionType.BODY.value), None)
-    for imported_section in imported.get("sections", []):
+    current_heading1: ProjectSection | None = None
+    source_sections = imported.get("sections", [])
+
+    def append_flattened(target: ProjectSection, title: str, blocks: list[ParagraphBlock]) -> None:
+        """Keep source content inside the frozen master section without changing its tree."""
+        if title:
+            target.paragraphs.append(ParagraphBlock(
+                id=f"import-heading-{uuid.uuid4().hex[:10]}", text=title, bold=True,
+            ))
+        target.paragraphs.extend(blocks)
+        if title:
+            flattened_section_titles.append(title)
+
+    for source_index, imported_section in enumerate(source_sections):
         title = str(imported_section.get("title", "")).strip()
         imported_type = str(imported_section.get("type", SectionType.BODY.value))
         target = None
@@ -523,14 +601,20 @@ def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
                            if section.key not in used and section.type == imported_type), None)
         if target is None and title:
             normalized = normalized_title(title)
-            target = next((section for section in candidates
-                           if section.key not in used and normalized_title(section.title) == normalized), None)
+            title_matches = [section for section in candidates
+                             if section.key not in used
+                             and section.type == imported_type
+                             and normalized_title(section.title) == normalized]
+            if len(title_matches) == 1:
+                target = title_matches[0]
         if target is None and imported_type in heading_types:
             imported_number = section_number(title)
             if imported_number:
-                target = next((section for section in candidates
-                               if section.key not in used and section.type in heading_types
-                               and section_number(section.title) == imported_number), None)
+                number_matches = [section for section in candidates
+                                  if section.key not in used and section.type == imported_type
+                                  and section_number(section.title) == imported_number]
+                if len(number_matches) == 1:
+                    target = number_matches[0]
         if target is None and imported_section.get("key") == "import-body":
             if first_body is not None and first_body.key not in used:
                 target = first_body
@@ -538,6 +622,18 @@ def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
         blocks = []
         for raw_block in imported_section.get("paragraphs", []):
             block = dict(raw_block)
+            if master_bound and block.get("type") == "table" and isinstance(block.get("table"), dict) and block["table"].get("source_xml"):
+                # The source table XML belongs to the uploaded document package.
+                # A frozen master can safely preserve its cell text, but cannot
+                # carry source relationships/styles into the master's package.
+                table = dict(block["table"])
+                source_xml = str(table.get("source_xml") or "")
+                if (re.search(r"<w:(?:gridSpan|vMerge|drawing|pict)\b", source_xml)
+                        or len(re.findall(r"<w:tbl(?:\s|>)", source_xml)) > 1):
+                    raise ValueError("冻结母版暂不支持带合并单元格、嵌套表格或单元格图片的源表格，请先拆分为普通文本表格")
+                table["source_xml"] = ""
+                block["table"] = table
+                normalized_table_count += 1
             if block.get("type") == "image":
                 image_data = block.pop("_image_data", None)
                 extension = block.pop("_image_extension", ".png")
@@ -550,19 +646,96 @@ def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
                     destination.write_bytes(image_data)
                     block.setdefault("image", {})["url"] = f"/media/uploads/{filename}"
             blocks.append(ParagraphBlock.model_validate(block))
+        if master_bound and imported_type in {SectionType.ABSTRACT.value, SectionType.ENGLISH_ABSTRACT.value}:
+            keyword_type = SectionType.KEYWORDS.value if imported_type == SectionType.ABSTRACT.value else SectionType.ENGLISH_KEYWORDS.value
+            keyword_target = next((section for section in candidates if section.key not in used and section.type == keyword_type), None)
+            keyword_blocks: list[ParagraphBlock] = []
+            retained_blocks: list[ParagraphBlock] = []
+            prefix_re = re.compile(r"^\s*(?:关键词|key\s*words?)\s*[：:]\s*", re.IGNORECASE)
+            for block in blocks:
+                if block.type != BlockType.PARAGRAPH:
+                    retained_blocks.append(block)
+                    continue
+                text = block.text or ""
+                match = prefix_re.match(text) or re.search(r"(?:关键词|key\s*words?)\s*[：:]\s*", text, re.IGNORECASE)
+                if not match:
+                    retained_blocks.append(block)
+                    continue
+                before = text[:match.start()].strip()
+                after = text[match.end():].strip()
+                if before:
+                    retained_blocks.append(block.model_copy(update={"text": before, "inline_runs": []}))
+                if after:
+                    keyword_blocks.append(block.model_copy(update={"text": after, "inline_runs": []}))
+            if keyword_target is not None and keyword_blocks:
+                keyword_target.paragraphs = keyword_blocks
+                used.add(keyword_target.key)
+                imported_in_order.append(keyword_target)
+                blocks = retained_blocks
         if target is not None and target.key not in used:
+            if master_bound and imported_type == SectionType.HEADING1.value and pending_master_blocks:
+                blocks = pending_master_blocks + blocks
+                pending_master_blocks.clear()
             target.paragraphs = blocks
             if imported_section.get("key") != "import-body" and title:
-                if section_number(title) or not section_number(target.title):
+                if not master_bound and (section_number(title) or not section_number(target.title)):
                     target.title = title
-                if imported_type in heading_types or imported_type in {
+                if not master_bound and (imported_type in heading_types or imported_type in {
                     SectionType.ABSTRACT.value, SectionType.ENGLISH_ABSTRACT.value,
                     SectionType.REFERENCES.value, SectionType.ACKNOWLEDGEMENT.value,
                     SectionType.APPENDIX.value,
-                }:
+                }):
                     target.type = imported_type
             used.add(target.key)
+            if imported_type == SectionType.HEADING1.value:
+                current_heading1 = target
             imported_in_order.append(target)
+            continue
+        if target is None and master_bound:
+            # A published source profile is a fixed layout, but manuscript headings
+            # commonly differ from its examples or contain deeper levels. Preserve
+            # their text and blocks in the current chapter rather than creating
+            # sections the master renderer cannot place.
+            # Do not consume a future frozen heading slot for an unmatched
+            # source heading. Keep it with the current matched chapter, or
+            # with the body fallback before the first matched chapter.
+            fallback = current_heading1 or first_body
+            if imported_type == SectionType.HEADING1.value:
+                current_number_raw = section_number(current_heading1.title) if current_heading1 else ""
+                current_number = int(current_number_raw) if current_number_raw.isdigit() else 0
+                next_number = next((section_number(str(item.get("title", "")))
+                                    for item in source_sections[source_index + 1:]
+                                    if item.get("type") == SectionType.HEADING1.value
+                                    and section_number(str(item.get("title", "")))), "")
+                next_number_int = int(next_number) if next_number.isdigit() else 0
+                wanted_number = current_number + 1
+                if next_number_int == wanted_number + 1:
+                    gaps = [section for section in candidates
+                            if section.key not in used and section.type == SectionType.HEADING1.value
+                            and section_number(section.title) == str(wanted_number)]
+                    if len(gaps) == 1:
+                        fallback = gaps[0]
+                elif current_heading1 is None and first_body is None and next_number_int > 1:
+                    first_chapter = [section for section in candidates
+                                     if section.key not in used and section.type == SectionType.HEADING1.value
+                                     and section_number(section.title) == "1"]
+                    if len(first_chapter) == 1:
+                        fallback = first_chapter[0]
+            if fallback is not None:
+                if fallback.key not in used:
+                    used.add(fallback.key)
+                    imported_in_order.append(fallback)
+                append_flattened(fallback, title, blocks)
+                if fallback.type == SectionType.HEADING1.value:
+                    current_heading1 = fallback
+                continue
+            if title:
+                pending_master_blocks.append(ParagraphBlock(
+                    id=f"import-heading-{uuid.uuid4().hex[:10]}", text=title, bold=True,
+                ))
+                pending_master_titles.append(title)
+                flattened_section_titles.append(title)
+            pending_master_blocks.extend(blocks)
             continue
         imported_in_order.append(ProjectSection(
             key=f"import-{uuid.uuid4().hex[:10]}", type=imported_type,
@@ -570,18 +743,35 @@ def _apply_imported_docx(proj: WritingProject, imported: dict) -> dict:
         ))
         added_section_count += 1
 
+    if pending_master_blocks:
+        fallback = current_heading1 or first_body or next(
+            (section for section in candidates if section.type == SectionType.HEADING1.value), None,
+        )
+        if fallback is None:
+            unplaced_section_titles.extend(pending_master_titles or ["未命名章节"])
+        else:
+            fallback.paragraphs = pending_master_blocks + fallback.paragraphs
+
     structural = [section for section in existing_sections if section.type in {"cover", "toc"}]
     retained_existing = [
         section for section in existing_sections
         if section.type not in {"cover", "toc"} and section.key not in used
         and (section.required or section_has_content(section))
     ]
-    proj.sections = structural + imported_in_order + retained_existing
+    proj.sections = existing_sections if master_bound else structural + imported_in_order + retained_existing
     for key, value in (imported.get("metadata") or {}).items():
         normalized = str(value or "").strip()
         if normalized and not str(proj.meta.get(key, "") or "").strip():
             proj.meta[key] = normalized
-    return {"matched_section_keys": sorted(used), "added_section_count": added_section_count}
+    return {
+        "matched_section_keys": sorted(used),
+        "added_section_count": added_section_count,
+        "flattened_section_count": len(flattened_section_titles),
+        "flattened_section_titles": flattened_section_titles,
+        "normalized_source_table_count": normalized_table_count,
+        "preserved_section_order": master_bound,
+        "unplaced_section_titles": unplaced_section_titles,
+    }
 
 
 @router.post("/{proj_id}/import-docx")
@@ -609,25 +799,62 @@ def import_project_docx(proj_id: str, file: UploadFile = File(...), apply: bool 
         "sections": public_import_sections(imported["sections"]),
         "applied": False,
         "project_revision": proj.revision,
+        "structure_mode": "manuscript" if ((proj.template_snapshot or {}).get("source_execution") or {}).get("preserve_manuscript_structure") else "template",
     }
     if not apply:
         return preview
     expected_revision = proj.revision if base_revision is None else base_revision
     if expected_revision != proj.revision:
         raise HTTPException(status_code=409, detail={"message": "项目已被更新，请重新预览后应用", "revision": proj.revision})
+    derived_source_name = None
     try:
+        if preview["structure_mode"] == "manuscript":
+            from app.services.manuscript_template import derive_manuscript_template
+            base = proj.layout_template_snapshot or proj.template_source_snapshot or proj.template_snapshot
+            layout = PaperTemplate.model_validate(base)
+            source_path = resolve_template_source(layout.source_docx)
+            if source_path is None:
+                raise ProfileError("原版式模板源文件缺失，未应用导入内容")
+            derived, payload = derive_manuscript_template(layout, source_path, imported, actor=user["id"])
+            derived_source_name = derived.source_docx
+            with (template_source_dir() / derived_source_name).open("xb") as target:
+                target.write(payload)
+            proj.layout_template_snapshot = layout.model_dump(mode="json")
+            proj.template_source_snapshot = derived.model_dump(mode="json")
+            proj.template_snapshot = derived.model_dump(mode="json")
         merge = _apply_imported_docx(proj, imported)
+        if merge.get("unplaced_section_titles"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "冻结母版没有可承载的固定章节，未应用导入内容",
+                    "unplaced_section_titles": merge["unplaced_section_titles"],
+                },
+            )
         saved = store.update_project_if_revision(proj, expected_revision)
     except HTTPException:
+        if derived_source_name: delete_template_source(derived_source_name)
         cleanup_orphan_images(store)
         raise
     except Exception as exc:
+        if derived_source_name: delete_template_source(derived_source_name)
         cleanup_orphan_images(store)
         raise HTTPException(status_code=422, detail=f"论文正文应用失败: {exc}") from exc
     if saved is None:
+        if derived_source_name: delete_template_source(derived_source_name)
         cleanup_orphan_images(store)
         raise HTTPException(status_code=409, detail={"message": "项目已被更新，请重新预览后应用"})
-    return preview | {"applied": True, "project": saved, "merge": merge}
+    applied_preview = dict(preview)
+    warnings = list(applied_preview.get("warnings") or [])
+    if merge.get("flattened_section_count"):
+        warnings.append(
+            f"{merge['flattened_section_count']} 个源文档标题未在冻结母版中找到，已保留在对应章节正文中："
+            + "、".join(merge.get("flattened_section_titles") or [])
+        )
+    if merge.get("normalized_source_table_count"):
+        warnings.append("源文档表格已按母版列宽和文字样式重建，原文档表格 XML 样式与关系未直接带入")
+    applied_preview["warnings"] = list(dict.fromkeys(warnings))
+    return applied_preview | {"applied": True, "project": saved, "merge": merge}
 
 
 class UpdateMetaRequest(BaseModel):
@@ -860,6 +1087,7 @@ def _rebind_template(proj: WritingProject, tpl: PaperTemplate) -> WritingProject
     proj.template_name = tpl.name
     proj.template_snapshot = tpl.model_dump(mode="json")
     proj.template_source_snapshot = tpl.model_dump(mode="json")
+    proj.layout_template_snapshot = None
     # 补齐新模板的封面字段, 已填写的值保留
     for field in tpl.meta_fields:
         proj.meta.setdefault(field.key, "")
@@ -883,6 +1111,7 @@ def switch_project_template(proj_id: str, req: SwitchTemplateRequest,
     tpl = store.get_template(req.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="目标模板不存在")
+    ensure_template_admitted_for_writing(tpl)
     _rebind_template(proj, tpl)
     owner = store.get_user(proj.owner_id) if proj.owner_id else None
     proj.requirement_snapshot = build_requirement_snapshot(
@@ -912,6 +1141,7 @@ def refresh_project_template(proj_id: str,
     tpl = store.get_template(proj.template_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="项目绑定的模板不存在")
+    ensure_template_admitted_for_writing(tpl)
     _rebind_template(proj, tpl)
     owner = store.get_user(proj.owner_id) if proj.owner_id else None
     proj.requirement_snapshot = build_requirement_snapshot(
@@ -1513,10 +1743,6 @@ def compliance_report(proj_id: str, store: Store = Depends(get_store),
     return report
 
 
-def _cleanup_export(path: Path) -> None:
-    shutil.rmtree(path.parent, ignore_errors=True)
-
-
 def _export_missing(proj: WritingProject, tpl: PaperTemplate, store: Store, actor_id: str) -> list[str]:
     """Run the same export gate used by both synchronous and durable exports."""
     missing = validate_project_completeness(proj, tpl)
@@ -1528,6 +1754,11 @@ def _export_missing(proj: WritingProject, tpl: PaperTemplate, store: Store, acto
         if finding.get("source_type") == "requirement"
         and finding.get("enforce") == "hard"
         and finding.get("severity") == "error"
+    )
+    missing.extend(
+        f"{item.get('source', '规范要求')}: {item.get('description') or '必需规范无法自动核验'}（待人工核查）"
+        for item in report.get("not_checked", [])
+        if item.get("enforce") == "hard"
     )
     return missing
 
@@ -1545,10 +1776,9 @@ def create_project_export_job(proj_id: str, force: bool = False,
     _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
     force = force and can_manage(user)
-    if not force:
-        missing = _export_missing(proj, tpl, store, user["id"])
-        if missing:
-            raise HTTPException(status_code=409, detail={"message": "以下必填项未完成, 无法导出", "missing": missing})
+    missing = _export_missing(proj, tpl, store, user["id"])
+    if missing:
+        raise HTTPException(status_code=409, detail={"message": "存在必需项未完成或待核查，无法交付 DOCX", "missing": missing})
     from app.services.export_jobs import create_export_job, export_job_view
     return export_job_view(create_export_job(store, proj, tpl, force=force, actor_id=user["id"]))
 
@@ -1618,9 +1848,54 @@ def retry_project_export_job(proj_id: str, export_id: str, store: Store = Depend
     return export_job_view(record)
 
 
+def _verified_project_export_output(record: dict, proj_id: str) -> tuple[bytes, dict]:
+    """Use one independent artifact check for review and final download."""
+    if record.get("status") != "succeeded" or not record.get("file_path"):
+        raise HTTPException(status_code=409, detail="导出尚未完成")
+    from app.services.export_jobs import EXPORT_DIR
+    path = Path(record["file_path"])
+    if path.parent != EXPORT_DIR or not path.is_file():
+        raise HTTPException(status_code=404, detail="导出制品不存在")
+    data = path.read_bytes()
+    if not verify_report_binding(record.get("output_check"), data):
+        raise HTTPException(status_code=409, detail="导出制品检查凭据缺失或与当前文件不匹配，请重新导出")
+    try:
+        snapshot_project = WritingProject.model_validate(record.get("project_snapshot") or {})
+        snapshot_template = PaperTemplate.model_validate(record.get("template_snapshot") or {})
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="导出任务冻结快照缺失或无效，请重新导出") from exc
+    if (snapshot_project.id != proj_id or record.get("project_id") != proj_id
+            or snapshot_project.template_id != snapshot_template.id
+            or record.get("content_hash") != project_content_hash(snapshot_project)
+            or record.get("project_revision") != snapshot_project.revision):
+        raise HTTPException(status_code=409, detail="导出任务与冻结项目身份不匹配，请重新导出")
+    snapshot_source = resolve_template_source(snapshot_template.source_docx) if snapshot_template.source_docx else None
+    snapshot_source_bytes = source_template_bytes(snapshot_source)
+    if str(record.get("source_template_sha256") or "") != str((record.get("output_check") or {}).get("source_template_sha256") or ""):
+        raise HTTPException(status_code=409, detail="导出报告与任务发起时的源模板摘要不匹配，请重新导出")
+    expected_identity = expected_output_check_identity(snapshot_project, snapshot_template, snapshot_source_bytes)
+    if not verify_report_identity(record.get("output_check"), expected_identity):
+        raise HTTPException(status_code=409, detail="导出报告与任务冻结项目/模板快照不匹配，请重新导出")
+    if not verify_source_template_binding(record.get("output_check"), snapshot_source_bytes):
+        raise HTTPException(status_code=409, detail="导出模板源文件已变化或检查凭据无效，请重新导出")
+    try:
+        fresh_report = require_docx_output_pass(
+            data, snapshot_project, snapshot_template,
+            source_template_bytes=snapshot_source_bytes,
+            context_kind="paper-async",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="导出制品未通过冻结快照复核，请重新导出") from exc
+    if output_check_identity(record.get("output_check")) != output_check_identity(fresh_report):
+        raise HTTPException(status_code=409, detail="导出检查报告与冻结快照复核不一致，请重新导出")
+    if review_identity(record.get("output_check") or {}) != review_identity(fresh_report):
+        raise HTTPException(status_code=409, detail="人工核查清单与独立成品复核不一致，请重新导出")
+    return data, fresh_report
+
+
 @router.get("/{proj_id}/export-jobs/{export_id}/download")
 def download_project_export(proj_id: str, export_id: str, store: Store = Depends(get_store),
-                            user: dict = Depends(current_user)) -> FileResponse:
+                            user: dict = Depends(current_user)) -> Response:
     proj = store.get_project(proj_id)
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -1628,17 +1903,91 @@ def download_project_export(proj_id: str, export_id: str, store: Store = Depends
     record = store.get_workflow_record("project_export", export_id)
     if not record or record.get("project_id") != proj_id:
         raise HTTPException(status_code=404, detail="导出任务不存在")
-    if record.get("status") != "succeeded" or not record.get("file_path"):
-        raise HTTPException(status_code=409, detail="导出尚未完成")
-    from app.services.export_jobs import EXPORT_DIR
-    path = Path(record["file_path"])
-    if path.parent != EXPORT_DIR or not path.is_file():
-        raise HTTPException(status_code=404, detail="导出制品不存在")
-    return FileResponse(
-        path,
-        filename=record.get("filename") or "paper.docx",
+    data, report = _verified_project_export_output(record, proj_id)
+    if not review_matches(report, record.get("manual_review")):
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "该成品尚未完成绑定当前文件的 Word/WPS 人工核查", "manual_review": review_view(report, record.get("manual_review"))},
+        )
+    from urllib.parse import quote
+    filename = record.get("filename") or "paper.docx"
+    return Response(
+        content=data,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+@router.post("/{proj_id}/export-jobs/{export_id}/manual-review")
+def confirm_project_export_manual_review(
+    proj_id: str,
+    export_id: str,
+    request: ManualOutputReviewRequest,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    assert_resource_read(store, user, "project", proj)
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可以确认 Word/WPS 成品核查")
+    record = store.get_workflow_record("project_export", export_id)
+    if not record or record.get("project_id") != proj_id:
+        raise HTTPException(status_code=404, detail="导出任务不存在")
+    from app.services.export_jobs import export_job_view
+    data, report = _verified_project_export_output(record, proj_id)
+    try:
+        receipt = confirm_review(
+            report,
+            output_sha256=request.output_sha256,
+            confirmed_check_ids=request.confirmed_check_ids,
+            reviewer_id=user["id"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    record["manual_review"] = receipt
+    saved = store.save_workflow_record("project_export", record, expected_revision=record.get("revision", 0))
+    if saved is None:
+        raise HTTPException(status_code=409, detail="导出核查记录已更新，请刷新后重试")
+    store.save_audit_event({
+        "id": f"audit-{export_id}-manual-review-{receipt['output_sha256'][:12]}",
+        "actor_id": user["id"],
+        "action": "project.export.output.manual_reviewed",
+        "resource_type": "project_export",
+        "resource_id": export_id,
+        "result": "success",
+        "created_at": receipt["reviewed_at"],
+    })
+    return export_job_view(saved)
+
+
+@router.get("/{proj_id}/export-jobs/{export_id}/review-candidate")
+def download_project_export_review_candidate(
+    proj_id: str,
+    export_id: str,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> Response:
+    proj = store.get_project(proj_id)
+    if proj is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    assert_resource_read(store, user, "project", proj)
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可以下载核查候选")
+    record = store.get_workflow_record("project_export", export_id)
+    if not record or record.get("project_id") != proj_id or record.get("status") != "succeeded":
+        raise HTTPException(status_code=404, detail="导出核查候选不存在")
+    data, report = _verified_project_export_output(record, proj_id)
+    if review_view(report, record.get("manual_review"))["status"] != "required":
+        raise HTTPException(status_code=409, detail="当前成品没有待确认的 Word/WPS 人工核查项")
+    from urllib.parse import quote
+    filename = Path(record.get("filename") or "paper.docx").stem + ".review-candidate.docx"
+    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+        "X-PaperGuard-Review-Candidate": "true",
+        "X-PaperGuard-Output-SHA256": str(report.get("output_sha256") or ""),
+    })
 
 
 @router.post("/{proj_id}/export")
@@ -1648,7 +1997,7 @@ def export_docx(proj_id: str, force: bool = False,
     """按模板导出为 .docx, 下载新文件。
 
     导出前校验必填章节与封面字段; 未完成时返回 409 与缺失清单,
-    教师/管理员可用 force=true 导出未完成草稿；学生始终经过校验。
+    force 仅记录教师/管理员的试验请求，不绕过任何成品交付门禁。
     """
     proj = store.get_project(proj_id)
     if proj is None:
@@ -1659,43 +2008,71 @@ def export_docx(proj_id: str, force: bool = False,
     tpl = _project_template(proj, store)
 
     force = force and can_manage(user)
-    if not force:
-        missing = validate_project_completeness(proj, tpl)
-        from app.services.project_check import check_project as run_check
-        report = run_check(proj, tpl, pack=None, store=store, performed_by=user["id"])
-        missing.extend(
-            f"{finding.get('source', '规范要求')}: {finding['message']}"
-            for finding in report.get("findings", [])
-            if finding.get("source_type") == "requirement"
-            and finding.get("enforce") == "hard"
-            and finding.get("severity") == "error"
+    missing = _export_missing(proj, tpl, store, user["id"])
+    if missing:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "存在必需项未完成或待核查，无法交付 DOCX", "missing": missing},
         )
-        if missing:
-            raise HTTPException(
-                status_code=409,
-                detail={"message": "以下必填项未完成, 无法导出", "missing": missing},
-            )
 
     out_dir = Path(tempfile.mkdtemp(prefix="paperguard-export-"))
     out = out_dir / "paper.docx"
     try:
-        export_project_to_docx(proj, tpl, str(out),
-                               template_path=resolve_template_source(tpl.source_docx))
+        source_path = resolve_template_source(tpl.source_docx) if tpl.source_docx else None
+        if tpl.source_docx and source_path is None:
+            raise HTTPException(status_code=409, detail="冻结母版源文件缺失，请重新导入并确认模板")
+        export_project_to_docx(proj, tpl, str(out), template_path=source_path)
+    except HTTPException:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise
+    except ProfileError as exc:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise HTTPException(status_code=409, detail=f"冻结母版无法导出：{exc}") from exc
     except Exception:
         shutil.rmtree(out_dir, ignore_errors=True)
         raise
+    try:
+        output_data = out.read_bytes()
+        report = require_docx_output_pass(
+            output_data, proj, tpl,
+            source_template_bytes=source_template_bytes(source_path),
+            context_kind="paper-sync",
+        )
+    except DocxOutputCheckError as exc:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise HTTPException(status_code=409, detail={"message": "生成文件未通过必需的 DOCX 成品检查", "output_check": safe_output_check_diagnostics(exc.report)}) from exc
+    except Exception as exc:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise HTTPException(status_code=409, detail={"message": "DOCX 成品检查无法完成，未提供文件", "output_check": safe_output_check_diagnostics(None)}) from exc
+    if review_view(report, None)["status"] == "required":
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "成品需要 Word/WPS 人工核查；请使用异步导出生成核查候选并确认后下载。",
+                "manual_review": review_view(report, None),
+            },
+        )
     safe_title = (proj.title or "paper").replace("/", "_").replace("\\", "_")
     # 中文文件名用 RFC 5987 filename* 编码, 避免 header 编码错误
     from urllib.parse import quote
     filename_ascii = "paper.docx"
-    return StreamingResponse(
-        out.open("rb"),
+    shutil.rmtree(out_dir, ignore_errors=True)
+    return Response(
+        content=output_data,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
             "Content-Disposition":
-                f'attachment; filename="{filename_ascii}"; filename*=UTF-8\'\'{quote(f"{safe_title}.docx")}'
+                f'attachment; filename="{filename_ascii}"; filename*=UTF-8\'\'{quote(f"{safe_title}.docx")}',
+            "X-PaperGuard-Output-Check": report["status"],
+            "X-PaperGuard-Output-Check-Count": str(report["check_count"]),
+            "X-PaperGuard-Output-SHA256": report["output_sha256"],
+            "X-PaperGuard-Inspector-Version": report["inspector_version"],
+            "X-PaperGuard-Project-Revision": str(report["project_revision"]),
+            "X-PaperGuard-Project-Content-SHA256": report["project_content_hash"],
+            "X-PaperGuard-Template-SHA256": report["template_hash"],
+            "X-PaperGuard-Source-Template-SHA256": report["source_template_sha256"] or "none",
         },
-        background=BackgroundTask(_cleanup_export, out),
     )
 
 
@@ -1730,7 +2107,7 @@ def export_preview(proj_id: str, force: bool = False,
         "project_id": proj.id, "revision": proj.revision, "title": proj.title,
         "template_id": tpl.id, "template_name": tpl.name,
         "content_hash": project_content_hash(proj),
-        "can_export": bool(force or not missing), "force": force,
+        "can_export": not missing, "force": force,
         "missing": missing, "check_summary": report.get("summary", {}),
         "counts": {
             "sections": len(proj.sections), "blocks": len(blocks),

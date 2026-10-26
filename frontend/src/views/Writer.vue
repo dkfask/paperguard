@@ -110,6 +110,28 @@
     <!-- 右侧编辑区 -->
     <section class="editor-pane">
       <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}<button v-if="exportJob && !exporting" class="small" @click="retryExportJob">{{ t('writer.exportRetry') }}</button></div>
+      <div v-if="exportCheck" class="notice-banner export-check-status" role="status" aria-live="polite">
+        <strong>{{ manualReview?.status === 'required' ? t('writer.exportCandidateGenerated') : t('writer.exportGenerated') }}</strong>
+        <span>{{ t('writer.exportFormatStatus', { status: exportCheckLabel(exportCheck.status), count: exportCheck.count }) }}</span>
+        <span>{{ t('writer.exportVisualPending') }}</span>
+      </div>
+      <div v-if="manualReview?.status === 'required'" class="manual-review-panel" data-test="writer-manual-review">
+        <strong>{{ t('writer.manualReviewTitle') }}</strong>
+        <p>{{ isManager() ? t('writer.manualReviewTeacherDetail') : t('writer.manualReviewStudentDetail') }}</p>
+        <button v-if="isManager()" class="small" :disabled="manualReviewBusy" @click="downloadReviewCandidate">
+          {{ manualReviewBusy ? t('writer.manualReviewWorking') : t('writer.downloadReviewCandidate') }}
+        </button>
+        <span v-if="candidateDownloaded" class="review-downloaded">{{ t('writer.reviewCandidateDownloaded') }}</span>
+        <div v-if="isManager()" class="manual-review-checklist">
+          <label v-for="item in manualReview.checklist || []" :key="item.id">
+            <input v-model="manualReviewConfirmations[item.id]" type="checkbox" :disabled="!candidateDownloaded || manualReviewBusy" />
+            <span>{{ item.description }}</span>
+          </label>
+        </div>
+        <button v-if="isManager()" class="primary" :disabled="!candidateDownloaded || !manualReviewReady || manualReviewBusy" @click="confirmManualReview">
+          {{ manualReviewBusy ? t('writer.manualReviewWorking') : t('writer.confirmManualReview') }}
+        </button>
+      </div>
       <div v-if="templateNotice" class="notice-banner">✅ {{ templateNotice }}</div>
       <div v-if="fixNotice" class="notice-banner" role="status">{{ fixNotice }}</div>
       <div v-if="recoveryUnavailable" class="hint recovery-status" role="status">{{ t('writer.recoveryUnavailable') }}</div>
@@ -581,8 +603,11 @@
               <div class="template-desc">
                 {{ tpl.description || t('common.noDescription') }} · {{ t('common.sectionsCount', { count: tpl.section_count }) }}
               </div>
+              <div v-if="tpl.admission" class="template-desc" :class="{ 'template-admission-blocked': !tpl.admission.can_use_for_draft }">
+                {{ !tpl.admission.can_use_for_draft ? t('templateAdmission.blockedUse') : t('templateAdmission.draftAllowedOfficeReview') }}
+              </div>
             </div>
-            <button class="small primary" :disabled="!!templateBusy"
+            <button class="small primary" :disabled="!!templateBusy || tpl.admission?.can_use_for_draft === false"
                     @click="applyTemplate(tpl.id)">
               {{ templateBusy === tpl.id ? t('writer.applyingTemplate') : (tpl.id === project.template_id ? t('writer.reapplyTemplate') : t('writer.applyTemplate')) }}
             </button>
@@ -636,12 +661,13 @@
 </template>
 
 <script setup>
+import { exportCheckMessage } from '../utils/exportCheckMessage'
 import BaseModal from '../components/base/BaseModal.vue'
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth, isManager } from '../auth'
 import {
-  fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, restoreProjectSnapshot, createProjectExportJob, fetchProjectExportJob, downloadProjectExportJob, retryProjectExportJob, previewProjectExport,
+  fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, restoreProjectSnapshot, createProjectExportJob, fetchProjectExportJob, fetchProjectExportJobs, downloadProjectExportJob, downloadProjectExportReviewCandidate, confirmProjectExportManualReview, retryProjectExportJob, previewProjectExport,
   checkProject, checkProjectTemplate, fixProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
   importProjectDocx,
   acknowledgeRequirements, assistRequirement, listRequirementWaivers, listRequirementDisputes, previewRequirementUpgrade,
@@ -673,6 +699,16 @@ const saving = ref(false)
 const savedAt = ref('')
 const exporting = ref(false)
 const exportJob = ref(null)
+const exportCheck = ref(null)
+const manualReview = ref(null)
+const manualReviewConfirmations = reactive({})
+const manualReviewBusy = ref(false)
+const candidateDownloaded = ref(false)
+const manualReviewReady = computed(() => {
+  const checklist = manualReview.value?.checklist || []
+  return checklist.length > 0 && checklist.every((item) => manualReviewConfirmations[item.id] === true)
+})
+let exportEditGeneration = 0
 const exportPreview = ref(null)
 const importing = ref(false)
 const importPreview = ref(null)
@@ -1296,9 +1332,26 @@ async function loadProject() {
     window.addEventListener('beforeunload', beforeUnloadHandler)
     void runCheckNow()
     void loadWaivers()
+    void restorePendingOutputReview(p)
   } catch (e) {
     loading.value = false
     loadError.value = e.message || t('writer.projectLoadFailed')
+  }
+}
+
+async function restorePendingOutputReview(loaded) {
+  const generation = exportEditGeneration
+  try {
+    const jobs = await fetchProjectExportJobs(projectId)
+    if (generation !== exportEditGeneration || project.value?.revision !== loaded.revision) return
+    const job = jobs.find(item => item.project_revision === loaded.revision && item.status === 'succeeded' && item.manual_review?.status === 'required')
+    if (job) {
+      manualReview.value = { ...job.manual_review, exportId: job.id, filename: job.filename || 'paper.docx' }
+      candidateDownloaded.value = false
+      exportCheck.value = { status: job.output_check_status, count: Number(job.output_check_count || 0) }
+    }
+  } catch (exception) {
+    error.value = exception.message || t('writer.manualReviewCandidateFailed')
   }
 }
 
@@ -1535,7 +1588,14 @@ async function reloadAfterConflict() {
   }
 }
 
-function markDirty(key) { dirtyKeys.add(key) }
+function markDirty(key) {
+  dirtyKeys.add(key)
+  exportEditGeneration += 1
+  exportCheck.value = null
+  manualReview.value = null
+  candidateDownloaded.value = false
+  Object.keys(manualReviewConfirmations).forEach((key) => delete manualReviewConfirmations[key])
+}
 function markClean(key) { dirtyKeys.delete(key) }
 
 function scheduleSave() {
@@ -1871,6 +1931,8 @@ async function applyDocxImport() {
   try {
     await flushPendingSaves()
     const result = await importProjectDocx(projectId, importPreview.value.file, true, project.value.revision)
+    exportEditGeneration += 1
+    exportCheck.value = null
     project.value = result.project
     template.value = result.project.template_snapshot || template.value
     importPreview.value = null
@@ -1886,10 +1948,11 @@ async function applyDocxImport() {
 }
 
 async function pollExportJob(jobId, initial) {
+  const generation = exportEditGeneration
   let current = initial
   for (let attempt = 0; attempt < 120 && current.status !== 'succeeded'; attempt += 1) {
     if (current.status === 'failed') {
-      throw new Error(t('writer.exportBackendFailed', { code: current.error_code || 'PROJECT_EXPORT_FAILED', id: current.id }))
+      throw new Error(exportCheckMessage(current.output_check_diagnostic) || t('writer.exportBackendFailed', { code: current.error_code || 'PROJECT_EXPORT_FAILED', id: current.id }))
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
     current = await fetchProjectExportJob(projectId, jobId)
@@ -1897,13 +1960,80 @@ async function pollExportJob(jobId, initial) {
   if (current.status !== 'succeeded') {
     throw new Error(t('writer.exportStillProcessing', { id: jobId }))
   }
+  if (current.manual_review?.status === 'required') {
+    if (generation !== exportEditGeneration) return
+    manualReview.value = { ...current.manual_review, exportId: current.id, filename: current.filename || 'paper.docx' }
+    candidateDownloaded.value = false
+    Object.keys(manualReviewConfirmations).forEach((key) => delete manualReviewConfirmations[key])
+    if (generation === exportEditGeneration) exportCheck.value = {
+      status: current.output_check_status || 'unverifiable',
+      count: Number(current.output_check_count || 0),
+    }
+    return
+  }
   await downloadProjectExportJob(projectId, jobId, current.filename || 'paper.docx')
+  if (generation === exportEditGeneration) exportCheck.value = {
+    status: current.output_check_status || 'unverifiable',
+    count: Number(current.output_check_count || 0),
+  }
+}
+
+async function downloadReviewCandidate() {
+  if (!manualReview.value?.exportId || manualReviewBusy.value) return
+  manualReviewBusy.value = true
+  error.value = ''
+  try {
+    const downloaded = await downloadProjectExportReviewCandidate(projectId, manualReview.value.exportId, manualReview.value.filename)
+    if (downloaded.outputSha256 !== manualReview.value.output_sha256) throw new Error(t('writer.manualReviewCandidateChanged'))
+    candidateDownloaded.value = true
+  } catch (e) {
+    candidateDownloaded.value = false
+    error.value = e.message || t('writer.manualReviewCandidateFailed')
+  } finally {
+    manualReviewBusy.value = false
+  }
+}
+
+async function confirmManualReview() {
+  if (!manualReview.value?.exportId || !candidateDownloaded.value || !manualReviewReady.value || manualReviewBusy.value) return
+  const generation = exportEditGeneration
+  manualReviewBusy.value = true
+  error.value = ''
+  try {
+    const saved = await confirmProjectExportManualReview(projectId, manualReview.value.exportId, {
+      output_sha256: manualReview.value.output_sha256,
+      confirmed_check_ids: manualReview.value.checklist.map((item) => item.id),
+    })
+    if (saved.manual_review?.status !== 'confirmed') throw new Error(t('writer.manualReviewNotConfirmed'))
+    await downloadProjectExportJob(projectId, manualReview.value.exportId, manualReview.value.filename)
+    exportJob.value = null
+    manualReview.value = null
+    candidateDownloaded.value = false
+    if (generation === exportEditGeneration) exportCheck.value = {
+      status: saved.output_check_status || 'unverifiable',
+      count: Number(saved.output_check_count || 0),
+    }
+  } catch (e) {
+    error.value = e.message || t('writer.manualReviewFailed')
+  } finally {
+    manualReviewBusy.value = false
+  }
+}
+
+function exportCheckLabel(status) {
+  if (status === 'pass') return t('writer.exportCheckPassed')
+  if (status === 'fail') return t('writer.exportCheckFailed')
+  return t('writer.exportCheckUnverifiable')
 }
 
 async function exportDocx(force = false) {
   if (exporting.value) return
   exporting.value = true
   error.value = ''
+  exportCheck.value = null
+  manualReview.value = null
+  candidateDownloaded.value = false
+  Object.keys(manualReviewConfirmations).forEach((key) => delete manualReviewConfirmations[key])
   missing.value = []
   try {
     await flushPendingSaves()
@@ -1924,6 +2054,7 @@ async function retryExportJob() {
   if (exporting.value || !exportJob.value) return
   exporting.value = true
   error.value = ''
+  exportCheck.value = null
   try {
     const task = await retryProjectExportJob(projectId, exportJob.value)
     await pollExportJob(task.id, task)
@@ -1982,6 +2113,10 @@ async function openTemplateModal() {
 
 async function applyTemplate(templateId) {
   if (templateBusy.value) return
+  if (templateList.value.find((item) => item.id === templateId)?.admission?.can_use_for_draft === false) {
+    templateError.value = t('templateAdmission.blockedUse')
+    return
+  }
   templateBusy.value = templateId
   templateError.value = ''
   try {

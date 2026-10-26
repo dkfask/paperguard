@@ -403,7 +403,51 @@ def build_requirement_snapshot(
                     for rule_id, override in item.rule_pack_params.items():
                         pack_overrides[str(rule_id)] = override
 
+    template_instruction_items: list[dict[str, Any]] = []
+    template_instruction_identity: dict[str, Any] = {}
+    execution_profile = template.source_execution or {}
+    if execution_profile.get("content_requirements"):
+        # These entries were compiled from the exact source/specification and
+        # signed into the teacher-published template profile. Do not trust a
+        # client-provided or stale profile when freezing a student project.
+        from app.services.source_template_profile import ProfileError, verify_profile
+        from app.services.template_source import resolve_template_source
+
+        source_path = resolve_template_source(template.source_docx)
+        try:
+            verified_profile = verify_profile(
+                template,
+                source_path.read_bytes() if source_path is not None else None,
+            )
+        except ProfileError as exc:
+            raise ValueError("Word 内容规范签名或母版摘要无效，不能创建写作快照") from exc
+        template_instruction_items = list(verified_profile.get("content_requirements") or [])
+        template_instruction_identity = {
+            "source_sha256": verified_profile.get("source_sha256", ""),
+            "specification_sha256": verified_profile.get("specification_sha256", ""),
+            "profile_sha256": verified_profile.get("profile_sha256", ""),
+            "compiler_version": verified_profile.get("content_rule_compiler_version", ""),
+            "confirmed_rule_ids": list(verified_profile.get("confirmed_content_rule_ids") or []),
+        }
+        for item in template_instruction_items:
+            if item.get("type") != "auto":
+                continue
+            item_payload = dict(item)
+            item_payload["source_detail"] = {
+                "id": item_payload["id"],
+                "name": item_payload.get("source", template.name),
+                "level": "template",
+                "version": item_payload.get("source_version", template.version),
+                "provenance": item_payload.get("provenance", {}),
+            }
+            all_items.append(item_payload)
+
     resolved_items, conflicts = _merge_items(all_items)
+    # Manual review items use distinct IDs but have no checker; append them
+    # after checker de-duplication so they cannot collapse into one row.
+    resolved_items.extend(
+        dict(item) for item in template_instruction_items if item.get("type") != "auto"
+    )
     snapshot = {
         "snapshot_created_at": now.isoformat(timespec="seconds"),
         "template": {
@@ -416,6 +460,8 @@ def build_requirement_snapshot(
         "rule_pack_refs": list(dict.fromkeys(rule_pack_refs)),
         "rule_pack_overrides": rule_pack_overrides,
         "policy_sets": policy_snapshots,
+        "template_instruction_identity": template_instruction_identity,
+        "template_instruction_items": template_instruction_items,
         "resolved_items": resolved_items,
         "format_overrides": all_format_overrides,
         "layout_overrides": all_layout_overrides,

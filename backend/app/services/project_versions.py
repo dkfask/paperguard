@@ -26,6 +26,7 @@ def _omit_empty_project_defaults(value: Any) -> Any:
             for key, item in value.items()
             if not (key == "inline_runs" and isinstance(item, list) and not item)
             and not (key in {"width_cm", "height_cm", "alignment"} and item is None)
+            and not (key == "layout_template_snapshot" and item is None)
         }
     if isinstance(value, list):
         return [_omit_empty_project_defaults(item) for item in value]

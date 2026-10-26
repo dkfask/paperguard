@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import shutil
 import tempfile
@@ -16,10 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 
-from app.api.templates import get_store
+from app.api.templates import ensure_template_admitted_for_writing, get_store, template_admission
 from app.auth import can_manage, current_user
 from app.contracts.common import JobResponse
 from app.core.context import get_request_context
@@ -61,6 +62,16 @@ from app.services.project_versions import project_attachment_refs, project_conte
 from app.services.resource_access import assert_resource_read
 from app.services.policy_resolver import hydrate_requirement_set
 from app.services.template_source import resolve_template_source
+from app.services.docx_output_check import (
+    DocxOutputCheckError,
+    output_check_identity,
+    require_docx_output_pass,
+    safe_output_check_diagnostics,
+    source_template_bytes,
+    verify_report_binding,
+    verify_report_identity,
+)
+from app.services.manual_output_review import confirm_review, review_identity, review_matches, review_required, review_view
 from app.services.wechat_content_security import assert_ugc_safe
 
 router = APIRouter(prefix="/api", tags=["workflow"])
@@ -68,6 +79,11 @@ router = APIRouter(prefix="/api", tags=["workflow"])
 _MANAGER_ROLES = {"admin", "college_admin"}
 _WORKFLOW_MANAGER_ROLES = _MANAGER_ROLES | {"teacher"}
 _ACTIVE_STUDENT_STATES = set(ACTIVE_PARTICIPANT_STATES)
+
+
+class ManualOutputReviewRequest(BaseModel):
+    output_sha256: str
+    confirmed_check_ids: list[str]
 
 
 def _archive_dir() -> Path:
@@ -513,8 +529,13 @@ def _task_view(store: Store, participant: dict) -> dict:
 def _stage_preview(store: Store, stage: dict, cohort: dict, config: dict) -> dict:
     errors: list[str] = []
     warnings: list[str] = []
-    if not config.get("template_id") or store.get_template(config["template_id"]) is None:
+    template = store.get_template(config.get("template_id", "")) if config.get("template_id") else None
+    if template is None:
         errors.append("阶段必须绑定已存在的模板")
+    else:
+        admission = template_admission(template)
+        if not admission["can_use_for_draft"]:
+            errors.append("阶段模板含有当前检查器无法覆盖的结构，不能发布此阶段")
     for set_id in config.get("requirement_set_ids", []) or []:
         requirement_set = store.get_requirement_set(set_id)
         if requirement_set is None:
@@ -610,8 +631,15 @@ def _archive_view(archive: dict) -> dict:
     """Return the public archive contract without exposing server filesystem paths."""
     result = {key: value for key, value in archive.items() if key != "file_path"}
     result.setdefault("job_id", archive.get("id", ""))
+    if isinstance(archive.get("manifest"), dict):
+        report = (archive.get("manifest") or {}).get("output_check")
+        result["manual_review"] = review_view(report, archive.get("manual_review"))
     if archive.get("status") == "succeeded":
-        result["download_url"] = f"/api/archives/{archive['id']}/download"
+        if result.get("manual_review", {}).get("status") == "required":
+            result["review_candidate_url"] = f"/api/archives/{archive['id']}/review-candidate"
+            result.pop("download_url", None)
+        else:
+            result["download_url"] = f"/api/archives/{archive['id']}/download"
     return result
 
 
@@ -836,8 +864,10 @@ def create_stage(cohort_id: str, req: StageCreate, store: Store = Depends(get_st
     if any(item.get("key") == req.key for item in store.list_workflow_records("stage") if item.get("cohort_id") == cohort_id):
         raise HTTPException(status_code=409, detail="同一批次中阶段 key 不能重复")
     template_id = req.template_id or "default-gb7713"
-    if store.get_template(template_id) is None:
+    template = store.get_template(template_id)
+    if template is None:
         raise HTTPException(status_code=422, detail="阶段模板不存在")
+    ensure_template_admitted_for_writing(template)
     unknown_materials = [item for item in req.required_materials if catalog_item(item) is None]
     if unknown_materials:
         raise HTTPException(status_code=422, detail=f"阶段必交材料未登记: {', '.join(unknown_materials)}")
@@ -917,8 +947,10 @@ def create_stage_version(stage_id: str, req: StageVersionCreate,
         if value is not None:
             new_config[field] = value
     template_id = new_config.get("template_id") or "default-gb7713"
-    if store.get_template(template_id) is None:
+    template = store.get_template(template_id)
+    if template is None:
         raise HTTPException(status_code=422, detail="阶段模板不存在")
+    ensure_template_admitted_for_writing(template)
     unknown_materials = [item for item in new_config.get("required_materials", []) if catalog_item(item) is None]
     if unknown_materials:
         raise HTTPException(status_code=422, detail=f"阶段必交材料未登记: {', '.join(unknown_materials)}")
@@ -1234,6 +1266,10 @@ def bind_project(participant_id: str, req: BindProjectRequest, store: Store = De
     if cohort.get("status") == "closed":
         raise HTTPException(status_code=409, detail="批次已关闭，不能绑定主论文")
     template_id = config["template_id"]
+    template = store.get_template(template_id)
+    if template is None:
+        raise HTTPException(status_code=404, detail="阶段要求的模板不存在")
+    ensure_template_admitted_for_writing(template)
     if req.project_id:
         project = store.get_project(req.project_id)
         if project is None or project.owner_id != user["id"]:
@@ -1244,7 +1280,6 @@ def bind_project(participant_id: str, req: BindProjectRequest, store: Store = De
         if bound_batch_id and bound_batch_id != cohort["id"]:
             raise HTTPException(status_code=409, detail="论文已绑定其他批次，不能跨批次复用")
     else:
-        template = store.get_template(template_id)
         context = dict(user.get("organization_context") or {})
         context["batch_id"] = cohort["id"]
         project = create_project_from_template(
@@ -1256,6 +1291,11 @@ def bind_project(participant_id: str, req: BindProjectRequest, store: Store = De
     if participant.get("project_id") and participant["project_id"] != project.id:
         raise HTTPException(status_code=409, detail="一个阶段只能绑定一篇主论文")
     with store.workflow_transaction() as conn:
+        if req.project_id and ((project.organization_context or {}).get("batch_id") != cohort["id"] or project.stage != stage["key"]):
+            project.organization_context = {**project.organization_context, "batch_id": cohort["id"]}
+            project.stage = stage["key"]
+            if store.update_project_if_revision_conn(conn, project, project.revision) is None:
+                raise HTTPException(status_code=409, detail="论文已更新，请刷新后重新绑定")
         participant["project_id"] = project.id
         if participant.get("state") == "not_started":
             opened = _parse_time(config.get("open_at", ""), "开放时间", required=True)
@@ -1761,16 +1801,23 @@ def update_comment_status(comment_id: str, req: CommentStatusRequest, store: Sto
 @router.post("/archives", status_code=202)
 def create_archive(req: ArchiveCreate,
                    store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
-    _ensure_manager(user)
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或系统管理员可以归档终稿")
     submission = _must(store, "submission", req.submission_id, "提交")
     submission, participant, stage, config = _submission_access(store, user, submission)
     cohort = _must(store, "cohort", participant["cohort_id"], "批次")
     if submission.get("state") != "approved" or not config.get("is_final"):
         raise HTTPException(status_code=409, detail="只有已通过的终稿可以归档")
+    version = _must(store, "project_version", submission["project_version_id"], "论文版本")
+    frozen_project = WritingProject.model_validate(version["content_snapshot"])
+    frozen_template = PaperTemplate.model_validate(frozen_project.template_snapshot or frozen_project.template_source_snapshot)
+    source_path = resolve_template_source(frozen_template.source_docx) if frozen_template.source_docx else None
+    source = source_template_bytes(source_path)
     archive = {
         "id": new_id("archive"), "submission_id": submission["id"], "participant_id": participant["id"],
         "status": "queued", "manifest_hash": "", "file_path": "", "attempt": 0, "error_code": "",
         "previous_archive_id": participant.get("previous_archive_id", ""),
+        "source_template_sha256": hashlib.sha256(source).hexdigest() if source is not None else "",
         "revision": 0, "created_at": _now(),
     }
     archive["job_id"] = new_id("job")
@@ -1827,6 +1874,10 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
     archive = _must(store, "archive", archive_id, "归档")
     if archive.get("status") not in {"queued", "failed"}:
         return archive
+    archive.pop("file_path", None)
+    archive.pop("manifest_hash", None)
+    archive.pop("manifest", None)
+    archive.pop("output_check_diagnostic", None)
     with store.workflow_transaction() as conn:
         current_status = str(archive.get("status") or "")
         if current_status == "failed":
@@ -1835,6 +1886,8 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
         archive["attempt"] = int(archive.get("attempt", 0)) + 1
         _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
     temp_dir = None
+    output_check_started = False
+    archive_output = _archive_dir() / f"{archive_id}.zip"
     try:
         submission = _must(store, "submission", archive["submission_id"], "提交")
         version = _must(store, "project_version", submission["project_version_id"], "论文版本")
@@ -1847,7 +1900,19 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
         temp_dir = Path(tempfile.mkdtemp(prefix=f"{archive_id}-", dir=str(archive_dir)))
         docx_path = temp_dir / "final.docx"
         source_path = resolve_template_source(template.source_docx) if template.source_docx else None
+        source = source_template_bytes(source_path)
+        source_hash = hashlib.sha256(source).hexdigest() if source is not None else ""
+        if source_hash != str(archive.get("source_template_sha256") or "") or (template.source_docx and not source_hash):
+            raise ValueError("source template differs from the frozen archive request")
         export_project_to_docx(project, template, str(docx_path), template_path=source_path)
+        output_check_started = True
+        output_check = require_docx_output_pass(
+            docx_path.read_bytes(), project, template,
+            source_template_bytes=source,
+            context_kind="workflow-archive",
+        )
+        if source_template_bytes(source_path) != source:
+            raise ValueError("source template changed during archive generation")
         candidate = store.get_workflow_record("candidate", submission["candidate_id"])
         reviews = [item for item in store.list_workflow_records("review") if item.get("submission_id") == submission["id"]]
         comments = _comment_records(store, submission["id"])
@@ -1931,32 +1996,47 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
             "material_refs": (candidate or {}).get("materials", []),
             "process_record_ids": [item["id"] for item in process_records],
             "attachment_refs": attachment_refs,
+            "output_check": output_check,
+            "output_check_identity": output_check_identity(output_check),
             "files": file_entries,
         }
         manifest_path = temp_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-        output = archive_dir / f"{archive_id}.zip"
-        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        with zipfile.ZipFile(archive_output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
             for path, archive_name in (*bundle_entries, (manifest_path, "manifest.json")):
                 bundle.write(path, archive_name)
         archive["status"] = transition_state("archive", str(archive.get("status") or ""), "succeeded")
         archive["manifest_hash"] = _hash(manifest)
-        archive["file_path"] = str(output)
+        archive["file_path"] = str(archive_output)
         archive["manifest"] = manifest
         archive["completed_at"] = _now()
         with store.workflow_transaction() as conn:
             _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
             participant = store.get_workflow_record("participant", archive["participant_id"])
             cohort = store.get_workflow_record("cohort", participant["cohort_id"])
-            _transition(participant, "participant", "archived")
             participant["archive_id"] = archive["id"]
+            requires_review = review_required(output_check)
+            if not requires_review:
+                _transition(participant, "participant", "archived")
             _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
-            _notify(store, conn, participant["student_id"], "archive.succeeded", "archive", archive_id, "终稿归档已完成")
-            _audit(store, conn, actor_id=actor_id, action="archive.succeeded", resource_type="archive", resource_id=archive_id, organization_id=cohort["organization_id"])
+            event_type = "archive.review_required" if requires_review else "archive.succeeded"
+            message = "归档文件已生成，等待教师完成 Word/WPS 核查后交付" if requires_review else "终稿归档已完成"
+            _notify(store, conn, participant["student_id"], event_type, "archive", archive_id, message)
+            _audit(store, conn, actor_id=actor_id, action=event_type, resource_type="archive", resource_id=archive_id, organization_id=cohort["organization_id"])
         return archive
-    except Exception:
+    except Exception as exc:
+        try:
+            archive_output.unlink(missing_ok=True)
+        except OSError:
+            pass
         archive["status"] = transition_state("archive", str(archive.get("status") or ""), "failed")
         archive["error_code"] = "ARCHIVE_GENERATION_FAILED"
+        if isinstance(exc, DocxOutputCheckError):
+            archive["output_check_diagnostic"] = safe_output_check_diagnostics(exc.report)
+            archive["error_code"] = "ARCHIVE_OUTPUT_CHECK_FAILED"
+        elif output_check_started:
+            archive["output_check_diagnostic"] = safe_output_check_diagnostics(None)
+            archive["error_code"] = "ARCHIVE_OUTPUT_CHECK_FAILED"
         archive["failed_at"] = _now()
         store.save_workflow_record("archive", archive, expected_revision=archive.get("revision", 0))
         return archive
@@ -2013,18 +2093,144 @@ def retry_archive(archive_id: str, req: RetryRequest, store: Store = Depends(get
     return _archive_view(archive)
 
 
+def _verified_archive_output(store: Store, archive_id: str, archive: dict) -> tuple[bytes, bytes, dict]:
+    """Rebind an archive's final DOCX to its manifest and frozen source snapshot."""
+    if archive.get("status") != "succeeded" or not archive.get("file_path"):
+        raise ValueError("archive is not ready")
+    path = Path(archive["file_path"]).resolve()
+    legacy_root = (Path(__file__).resolve().parent.parent.parent / "data" / "archives").resolve()
+    if path.parent not in {_archive_dir().resolve(), legacy_root} or not path.is_file():
+        raise FileNotFoundError("archive artifact is missing")
+    archive_bytes = path.read_bytes()
+    with zipfile.ZipFile(io.BytesIO(archive_bytes), "r") as bundle:
+        names = bundle.namelist()
+        if len(names) != len(set(names)):
+            raise ValueError("archive contains duplicate member names")
+        manifest = json.loads(bundle.read("manifest.json"))
+        if not isinstance(manifest, dict):
+            raise ValueError("invalid archive manifest")
+        files = {item.get("name"): item for item in manifest.get("files", []) if isinstance(item, dict)}
+        if set(names) != set(files) | {"manifest.json"}:
+            raise ValueError("archive member list differs from the manifest")
+        for name, entry in files.items():
+            payload = bundle.read(name)
+            if entry.get("sha256") != hashlib.sha256(payload).hexdigest() or entry.get("size_bytes") != len(payload):
+                raise ValueError(f"archive member digest mismatch: {name}")
+        final_docx = bundle.read("final.docx")
+    if (
+        manifest.get("archive_id") != archive_id
+        or manifest.get("submission_id") != archive.get("submission_id")
+        or _hash(manifest) != archive.get("manifest_hash")
+    ):
+        raise ValueError("archive manifest digest mismatch")
+    output_check = manifest.get("output_check")
+    if (
+        not verify_report_binding(output_check, final_docx)
+        or not verify_report_identity(output_check, manifest.get("output_check_identity") or {})
+        or str(output_check.get("source_template_sha256") or "") != str(archive.get("source_template_sha256") or "")
+    ):
+        raise ValueError("missing or stale output check")
+    submission = _must(store, "submission", archive["submission_id"], "提交")
+    version = _must(store, "project_version", submission["project_version_id"], "论文版本")
+    project = WritingProject.model_validate(version["content_snapshot"])
+    template = PaperTemplate.model_validate(project.template_snapshot or project.template_source_snapshot)
+    source_path = resolve_template_source(template.source_docx) if template.source_docx else None
+    source = source_template_bytes(source_path)
+    source_hash = hashlib.sha256(source).hexdigest() if source is not None else ""
+    if source_hash != str(archive.get("source_template_sha256") or "") or (template.source_docx and not source_hash):
+        raise ValueError("source template differs from the frozen archive")
+    fresh_report = require_docx_output_pass(
+        final_docx, project, template, source_template_bytes=source, context_kind="workflow-archive-download",
+    )
+    if output_check_identity(output_check) != output_check_identity(fresh_report):
+        raise ValueError("archive report differs from the frozen output")
+    if review_identity(output_check) != review_identity(fresh_report):
+        raise ValueError("archive manual checklist differs from the independently checked output")
+    return archive_bytes, final_docx, fresh_report
+
+
 @router.get("/archives/{archive_id}/download")
 def download_archive(archive_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)):
     archive = _must(store, "archive", archive_id, "归档")
     participant = _must(store, "participant", archive["participant_id"], "阶段任务")
     assert_resource_read(store, user, "archive", archive)
-    if archive.get("status") != "succeeded" or not archive.get("file_path"):
-        raise HTTPException(status_code=409, detail="归档尚未生成完成")
-    path = Path(archive["file_path"]).resolve()
-    legacy_root = (Path(__file__).resolve().parent.parent.parent / "data" / "archives").resolve()
-    if path.parent not in {_archive_dir().resolve(), legacy_root} or not path.is_file():
-        raise HTTPException(status_code=404, detail="归档制品不存在")
-    return FileResponse(path, filename=f"{archive_id}.zip", media_type="application/zip", headers={"X-PaperGuard-Manifest-Hash": archive.get("manifest_hash", "")})
+    try:
+        archive_bytes, _, output_check = _verified_archive_output(store, archive_id, archive)
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="归档成品检查凭据缺失或制品校验失败，请重新归档") from exc
+    if not review_matches(output_check, archive.get("manual_review")):
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "该归档尚未完成绑定当前文件的 Word/WPS 人工核查", "manual_review": review_view(output_check, archive.get("manual_review"))},
+        )
+    return Response(content=archive_bytes, media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="{archive_id}.zip"',
+        "X-PaperGuard-Manifest-Hash": archive.get("manifest_hash", ""),
+    })
+
+
+@router.get("/archives/{archive_id}/review-candidate")
+def download_archive_review_candidate(archive_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> Response:
+    archive = _must(store, "archive", archive_id, "归档")
+    participant = _must(store, "participant", archive["participant_id"], "阶段任务")
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或系统管理员可以下载核查候选")
+    _participant_access(store, user, participant["id"])
+    try:
+        _, final_docx, report = _verified_archive_output(store, archive_id, archive)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="归档成品不存在") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="归档核查候选校验失败，请重新归档") from exc
+    if not review_required(report):
+        raise HTTPException(status_code=409, detail="该归档不需要 Word/WPS 人工核查")
+    from urllib.parse import quote
+    return Response(content=final_docx, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(archive_id + '.review-candidate.docx')}",
+        "X-PaperGuard-Review-Candidate": "true",
+        "X-PaperGuard-Output-SHA256": str(report.get("output_sha256") or ""),
+    })
+
+
+@router.post("/archives/{archive_id}/manual-review")
+def confirm_archive_manual_review(
+    archive_id: str,
+    request: ManualOutputReviewRequest,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict:
+    archive = _must(store, "archive", archive_id, "归档")
+    participant = _must(store, "participant", archive["participant_id"], "阶段任务")
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或系统管理员可以确认 Word/WPS 成品核查")
+    _participant_access(store, user, participant["id"])
+    try:
+        _, _, report = _verified_archive_output(store, archive_id, archive)
+        if not review_required(report):
+            raise ValueError("当前归档没有待确认的 Office 人工核查项")
+        receipt = confirm_review(
+            report,
+            output_sha256=request.output_sha256,
+            confirmed_check_ids=request.confirmed_check_ids,
+            reviewer_id=user["id"],
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="归档成品不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="归档核查候选校验失败，请重新归档") from exc
+    archive["manual_review"] = receipt
+    with store.workflow_transaction() as conn:
+        _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
+        participant = _must(store, "participant", archive["participant_id"], "阶段任务")
+        if participant.get("state") == "pending_archive":
+            _transition(participant, "participant", "archived")
+            _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
+            _notify(store, conn, participant["student_id"], "archive.succeeded", "archive", archive_id, "教师已完成 Word/WPS 核查，终稿归档已交付")
+        cohort = _must(store, "cohort", participant["cohort_id"], "批次")
+        _audit(store, conn, actor_id=user["id"], action="archive.output.manual_reviewed", resource_type="archive", resource_id=archive_id, organization_id=cohort["organization_id"], reason=f"sha256:{receipt['output_sha256']}")
+    return _archive_view(archive)
 
 
 def _job_visible(store: Store, user: dict, job: dict) -> bool:

@@ -91,6 +91,8 @@ class WritingProject(BaseModel):
     revision: int = Field(default=0, ge=0)
     template_snapshot: dict | None = None
     template_source_snapshot: dict | None = None
+    # Original approved layout before a manuscript-specific chapter instance.
+    layout_template_snapshot: dict | None = Field(default=None, json_schema_extra={"readOnly": True})
     requirement_snapshot: dict | None = None  # 项目创建时冻结的有效规范与版本
     organization_context: dict[str, str] = {}  # school/college/major/batch/course 等作用域
     stage: str = ""
