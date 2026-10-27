@@ -2,8 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+COPY app/services/office_worker/dependency.json /tmp/office-dependency.json
+
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libreoffice-writer \
+    && apt-get install -y --no-install-recommends libreoffice-writer openjdk-21-jre-headless \
+    && python -c 'import hashlib,json,pathlib,urllib.request; d=json.load(open("/tmp/office-dependency.json")); p=pathlib.Path("/app/office/libreoffice.jar"); p.parent.mkdir(parents=True); urllib.request.urlretrieve(d["url"],p); actual=hashlib.sha256(p.read_bytes()).hexdigest(); assert actual==d["sha256"], f"LibreOffice UNO JAR SHA-256 mismatch: {actual}"' \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

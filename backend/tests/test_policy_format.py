@@ -1,5 +1,7 @@
 """规范排版解析、模板冲突优先级与写作检查回归。"""
 
+import pytest
+
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import PaperTemplate, TextStyle
 from app.core.export.docx_exporter import export_project_to_docx
@@ -109,6 +111,54 @@ def test_policy_overrides_win_over_template_and_rule_pack_defaults():
     assert report["summary"]["not_checked"] == 0
     assert report["context"]["format_override_count"] == 1
     assert report["context"]["format_resolution"]["policy_over_template"] is True
+
+
+def test_policy_overrides_resign_source_execution_profile_and_bind_snapshot(tmp_path, monkeypatch):
+    from docx import Document
+
+    from app.core.extract.specification import extract_writing_specification
+    from app.services.import_template import extract_section_tree, import_template_styles
+    from app.services.source_template_profile import ConfirmWritingProfile, ProfileError, compile_profile, verify_profile
+
+    path = tmp_path / "policy-profile.docx"
+    document = Document()
+    document.add_heading("第1章 正文", 1)
+    document.add_paragraph("正文样例段落用于确认源模板规范。" * 8)
+    document.save(path)
+    monkeypatch.setattr("app.services.template_source.resolve_template_source", lambda _: path)
+    template = PaperTemplate(
+        id="policy-profile-template",
+        name="策略签名模板",
+        source_docx=path.name,
+        sections=extract_section_tree(path),
+        styles=import_template_styles(path)["styles"],
+    )
+    specification = extract_writing_specification(path)
+    template = compile_profile(
+        template,
+        path,
+        ConfirmWritingProfile(
+            expected_specification_sha256=specification.specification_sha256,
+            accept_recommended=True,
+            accept_new_object_defaults=True,
+            remove_template_instructions=True,
+        ),
+        actor="teacher-test",
+    )
+    snapshot = {"content_hash": "sha256:policy-v1", "format_overrides": {"body": {"size_pt": 14.0}}}
+
+    effective = apply_requirement_format_overrides(template, snapshot)
+
+    assert effective.styles["body"].size_pt == 14.0
+    assert template.styles["body"].size_pt != 14.0
+    assert effective.source_execution["policy_snapshot_sha256"]
+    assert effective.source_execution["policy_format_overrides_sha256"]
+    verify_profile(effective, path.read_bytes())
+    verify_profile(template, path.read_bytes())
+    corrupted = effective.model_copy(deep=True)
+    corrupted.styles["body"].size_pt = 15.0
+    with pytest.raises(ProfileError):
+        verify_profile(corrupted, path.read_bytes())
 
 
 def test_policy_page_layout_is_written_to_exported_docx(tmp_path):

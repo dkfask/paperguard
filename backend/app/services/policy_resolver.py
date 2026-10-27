@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -220,6 +221,66 @@ def _requirement_layout_overrides(requirement_set: RequirementSet) -> dict[str, 
     return result
 
 
+def _style_override_properties(fields: dict[str, Any]) -> dict[str, Any]:
+    properties: dict[str, Any] = {}
+    simple = {
+        "font_zh": "font.eastAsia",
+        "font_en": "font.ascii",
+        "bold": "font.bold",
+        "italic": "font.italic",
+        "color": "font.color",
+        "align": "paragraph.align",
+        "page_break_before": "paragraph.page_break_before",
+    }
+    for field, property_name in simple.items():
+        if field in fields:
+            value = fields[field]
+            if field == "color" and not value:
+                value = "auto"
+            properties[property_name] = value
+    if "font_en" in fields:
+        properties["font.hAnsi"] = fields["font_en"]
+        properties["font.cs"] = fields["font_en"]
+    if "size_pt" in fields:
+        properties["font.size"] = {"value": fields["size_pt"], "unit": "pt"}
+    if "underline" in fields:
+        properties["font.underline"] = "single" if fields["underline"] else "none"
+    if "highlight" in fields:
+        properties["font.highlight"] = fields["highlight"] or "none"
+    if "vert_align" in fields:
+        properties["font.vertical_alignment"] = fields["vert_align"] or "baseline"
+    if "line_spacing" in fields:
+        properties["paragraph.spacing.line"] = {
+            "value": fields["line_spacing"],
+            "kind": fields.get("line_spacing_rule", "auto"),
+            "unit": "multiple" if fields.get("line_spacing_rule", "auto") == "auto" else "pt",
+        }
+    for field, property_name in (
+        ("space_before_pt", "paragraph.spacing.before"),
+        ("space_after_pt", "paragraph.spacing.after"),
+    ):
+        if field in fields:
+            properties[property_name] = {"value": fields[field], "unit": "pt"}
+    if "first_line_indent_chars" in fields:
+        properties["paragraph.indent.first_line"] = {
+            "value": fields["first_line_indent_chars"], "unit": "character",
+        }
+    if "hanging_indent_cm" in fields:
+        properties["paragraph.indent.hanging"] = {
+            "value": fields["hanging_indent_cm"] * 72 / 2.54, "unit": "pt",
+        }
+    return properties
+
+
+def _merge_profile_style(properties: dict[str, Any], fields: dict[str, Any]) -> dict[str, Any]:
+    fields = dict(fields)
+    if {"line_spacing", "line_spacing_rule"}.intersection(fields):
+        previous = properties.get("paragraph.spacing.line") or {}
+        fields.setdefault("line_spacing", previous.get("value", 1.5))
+        fields.setdefault("line_spacing_rule", previous.get("kind", "auto"))
+    return {**properties, **_style_override_properties(fields)}
+
+
 def apply_requirement_format_overrides(
     template: PaperTemplate,
     snapshot: dict | None,
@@ -229,6 +290,19 @@ def apply_requirement_format_overrides(
     layout_overrides = normalize_layout_overrides((snapshot or {}).get("layout_overrides"))
     if not overrides and not layout_overrides:
         return template
+
+    source_execution = template.source_execution
+    profile_tools = None
+    if source_execution:
+        from app.services.source_template_profile import ProfileError, digest, execution_basis, sign_profile
+
+        profile_tools = (digest, execution_basis, sign_profile)
+        digest_profile = sign_profile(source_execution)
+        if (not hmac.compare_digest(str(source_execution.get("signature", "")), digest_profile["signature"])
+                or source_execution.get("profile_sha256") != digest_profile["profile_sha256"]):
+            raise ProfileError("模板执行配置签名无效，不能应用规范格式覆盖")
+        if source_execution.get("template_basis_sha256") != digest(execution_basis(template)):
+            raise ProfileError("模板格式或章节已变化，不能应用规范格式覆盖")
 
     payload = template.model_dump(mode="json")
     styles = payload.setdefault("styles", {})
@@ -253,7 +327,70 @@ def apply_requirement_format_overrides(
             apply_to_nodes(node.get("children") or [])
 
     apply_to_nodes(payload.get("sections") or [])
-    return PaperTemplate.model_validate(payload)
+    effective = PaperTemplate.model_validate(payload)
+    if source_execution and profile_tools:
+        digest, execution_basis, sign_profile = profile_tools
+        import io
+        import zipfile
+        from app.core.extract.xml_utils import load_part
+        from app.services.source_template_profile import commentless_source, freeze_protected_structure, verify_profile
+        from app.services.template_source import resolve_template_source
+
+        source_path = resolve_template_source(template.source_docx)
+        source_bytes = source_path.read_bytes() if source_path else None
+        verify_profile(template, source_bytes)
+        profile = deepcopy(source_execution)
+        profile["body_properties"] = _merge_profile_style(
+            dict(profile.get("body_properties") or {}), overrides.get("body", {}),
+        )
+        content_styles = {
+            "heading1": "body", "heading2": "body", "heading3": "body",
+            "body": "body", "references": "references",
+            "acknowledgement": "acknowledgement", "appendix": "appendix",
+            "abstract": "abstract_body", "english_abstract": "english_abstract_body",
+            "keywords": "keywords", "english_keywords": "english_keywords",
+        }
+        for heading in profile.get("headings", []):
+            kind = str(heading.get("kind") or "")
+            content_style = content_styles.get(kind, "")
+            if content_style in overrides:
+                heading["properties"] = _merge_profile_style(
+                    dict(heading.get("properties") or {}), overrides[content_style],
+                )
+            if kind in overrides and kind not in {"heading1", "heading2", "heading3"}:
+                heading["title_properties"] = _merge_profile_style(
+                    dict(heading.get("title_properties") or {}), overrides[kind],
+                )
+                if not heading.get("inline"):
+                    heading["properties"] = _merge_profile_style(
+                        dict(heading.get("properties") or {}), overrides[kind],
+                    )
+            if kind in {"heading1", "heading2", "heading3"} and kind in overrides:
+                heading["title_properties"] = _merge_profile_style(
+                    dict(heading.get("title_properties") or {}), overrides[kind],
+                )
+                heading["title_overridden"] = True
+        object_styles = {
+            "figure_caption": "figure_caption",
+            "table_caption": "table_caption",
+            "table_cell": "table_text",
+        }
+        for style_key, profile_key in object_styles.items():
+            if style_key in overrides:
+                profile["object_properties"][profile_key] = _merge_profile_style(
+                    dict(profile["object_properties"].get(profile_key) or {}), overrides[style_key],
+                )
+        profile["policy_layout_overrides"] = {**profile.get("policy_layout_overrides", {}), **layout_overrides}
+        with zipfile.ZipFile(io.BytesIO(commentless_source(source_bytes))) as package:
+            profile["protected_document_sha256"] = freeze_protected_structure(load_part(package, "word/document.xml"), profile)
+        profile["template_basis_sha256"] = digest(execution_basis(effective))
+        profile["policy_snapshot_sha256"] = digest(snapshot or {})
+        profile["policy_format_overrides_sha256"] = digest({
+            "format_overrides": overrides,
+            "layout_overrides": layout_overrides,
+        })
+        effective.source_execution = sign_profile(profile)
+    return effective
 
 
 def hydrate_snapshot_format_overrides(snapshot: dict | None) -> dict:

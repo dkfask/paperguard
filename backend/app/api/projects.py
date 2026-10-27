@@ -816,12 +816,33 @@ def import_project_docx(proj_id: str, file: UploadFile = File(...), apply: bool 
             if source_path is None:
                 raise ProfileError("原版式模板源文件缺失，未应用导入内容")
             derived, payload = derive_manuscript_template(layout, source_path, imported, actor=user["id"])
+            requirement_snapshot = proj.requirement_snapshot
+            if not requirement_snapshot:
+                owner = store.get_user(proj.owner_id) if proj.owner_id else None
+                requirement_snapshot = build_requirement_snapshot(
+                    store,
+                    layout,
+                    teacher_id=owner.get("teacher_id") if owner else None,
+                    student_id=proj.owner_id,
+                    organization_context=proj.organization_context,
+                    project_id=proj.id,
+                    stage=proj.stage,
+                )
+            from app.services.manuscript_template import remap_requirement_snapshot
+            requirement_snapshot = remap_requirement_snapshot(
+                requirement_snapshot,
+                derived.source_execution.get("manuscript_section_key_map"),
+                derived.source_execution.get("manuscript_source_section_keys", []),
+            )
+            layout_instance = derived
             derived_source_name = derived.source_docx
             with (template_source_dir() / derived_source_name).open("xb") as target:
                 target.write(payload)
+            derived = apply_requirement_format_overrides(layout_instance, requirement_snapshot)
             proj.layout_template_snapshot = layout.model_dump(mode="json")
-            proj.template_source_snapshot = derived.model_dump(mode="json")
+            proj.template_source_snapshot = layout_instance.model_dump(mode="json")
             proj.template_snapshot = derived.model_dump(mode="json")
+            proj.requirement_snapshot = requirement_snapshot
         merge = _apply_imported_docx(proj, imported)
         if merge.get("unplaced_section_titles"):
             raise HTTPException(
@@ -1285,7 +1306,7 @@ class RequirementAssistRequest(BaseModel):
 
 def _current_requirement_snapshot(proj: WritingProject, tpl: PaperTemplate, store: Store) -> dict:
     owner = store.get_user(proj.owner_id) if proj.owner_id else None
-    return build_requirement_snapshot(
+    snapshot = build_requirement_snapshot(
         store,
         tpl,
         teacher_id=owner.get("teacher_id") if owner else None,
@@ -1293,6 +1314,13 @@ def _current_requirement_snapshot(proj: WritingProject, tpl: PaperTemplate, stor
         organization_context=proj.organization_context,
         project_id=proj.id,
         stage=proj.stage,
+    )
+    profile = tpl.source_execution or {}
+    from app.services.manuscript_template import remap_requirement_snapshot
+    return remap_requirement_snapshot(
+        snapshot,
+        profile.get("manuscript_section_key_map"),
+        profile.get("manuscript_source_section_keys", []),
     )
 
 
@@ -1791,9 +1819,14 @@ def list_project_export_jobs(proj_id: str, store: Store = Depends(get_store),
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     assert_resource_read(store, user, "project", proj)
-    from app.services.export_jobs import export_job_view
+    from app.services.export_jobs import export_identity, export_job_view
+    from app.models.template import PaperTemplate
+    current_identity = (
+        export_identity(proj, PaperTemplate.model_validate(proj.template_snapshot))
+        if proj.template_snapshot else None
+    )
     return [
-        export_job_view(item)
+        export_job_view(item, current_identity=current_identity)
         for item in store.list_workflow_records("project_export")
         if item.get("project_id") == proj_id
     ]
@@ -1809,8 +1842,13 @@ def get_project_export_job(proj_id: str, export_id: str, store: Store = Depends(
     record = store.get_workflow_record("project_export", export_id)
     if not record or record.get("project_id") != proj_id:
         raise HTTPException(status_code=404, detail="导出任务不存在")
-    from app.services.export_jobs import export_job_view
-    return export_job_view(record)
+    from app.services.export_jobs import export_identity, export_job_view
+    from app.models.template import PaperTemplate
+    current_identity = (
+        export_identity(proj, PaperTemplate.model_validate(proj.template_snapshot))
+        if proj.template_snapshot else None
+    )
+    return export_job_view(record, current_identity=current_identity)
 
 
 @router.post("/{proj_id}/export-jobs/{export_id}/retry")
@@ -1828,6 +1866,7 @@ def retry_project_export_job(proj_id: str, export_id: str, store: Store = Depend
         raise HTTPException(status_code=404, detail="导出任务不存在")
     if record.get("status") not in {"failed", "queued"}:
         raise HTTPException(status_code=409, detail="当前导出任务不可重试")
+    _ensure_current_project_export(proj, record)
     from app.domain.workflow_states import transition_state
     from app.repositories.workflow_repository import WorkflowRepository
     repository = WorkflowRepository(store)
@@ -1893,6 +1932,16 @@ def _verified_project_export_output(record: dict, proj_id: str) -> tuple[bytes, 
     return data, fresh_report
 
 
+def _ensure_current_project_export(proj: WritingProject, record: dict) -> None:
+    from app.services.export_jobs import export_identity, export_job_is_current
+
+    if not proj.template_snapshot or not export_job_is_current(
+        record,
+        export_identity(proj, PaperTemplate.model_validate(proj.template_snapshot)),
+    ):
+        raise HTTPException(status_code=409, detail="论文内容或模板已变化，请重新导出并完成核查")
+
+
 @router.get("/{proj_id}/export-jobs/{export_id}/download")
 def download_project_export(proj_id: str, export_id: str, store: Store = Depends(get_store),
                             user: dict = Depends(current_user)) -> Response:
@@ -1903,6 +1952,7 @@ def download_project_export(proj_id: str, export_id: str, store: Store = Depends
     record = store.get_workflow_record("project_export", export_id)
     if not record or record.get("project_id") != proj_id:
         raise HTTPException(status_code=404, detail="导出任务不存在")
+    _ensure_current_project_export(proj, record)
     data, report = _verified_project_export_output(record, proj_id)
     if not review_matches(report, record.get("manual_review")):
         raise HTTPException(
@@ -1936,6 +1986,7 @@ def confirm_project_export_manual_review(
     if not record or record.get("project_id") != proj_id:
         raise HTTPException(status_code=404, detail="导出任务不存在")
     from app.services.export_jobs import export_job_view
+    _ensure_current_project_export(proj, record)
     data, report = _verified_project_export_output(record, proj_id)
     try:
         receipt = confirm_review(
@@ -1978,6 +2029,7 @@ def download_project_export_review_candidate(
     record = store.get_workflow_record("project_export", export_id)
     if not record or record.get("project_id") != proj_id or record.get("status") != "succeeded":
         raise HTTPException(status_code=404, detail="导出核查候选不存在")
+    _ensure_current_project_export(proj, record)
     data, report = _verified_project_export_output(record, proj_id)
     if review_view(report, record.get("manual_review"))["status"] != "required":
         raise HTTPException(status_code=409, detail="当前成品没有待确认的 Word/WPS 人工核查项")

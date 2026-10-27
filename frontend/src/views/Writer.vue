@@ -115,6 +115,12 @@
         <span>{{ t('writer.exportFormatStatus', { status: exportCheckLabel(exportCheck.status), count: exportCheck.count }) }}</span>
         <span>{{ t('writer.exportVisualPending') }}</span>
       </div>
+      <div v-if="confirmedExport" class="notice-banner confirmed-export" data-test="writer-confirmed-export">
+        <span>{{ t('writer.confirmedExportAvailable') }}</span>
+        <button class="small" :disabled="confirmedExportBusy || exporting || saving || dirtyCount > 0" @click="downloadConfirmedExport">
+          {{ confirmedExportBusy ? t('writer.manualReviewWorking') : t('writer.downloadConfirmedExport') }}
+        </button>
+      </div>
       <div v-if="manualReview?.status === 'required'" class="manual-review-panel" data-test="writer-manual-review">
         <strong>{{ t('writer.manualReviewTitle') }}</strong>
         <p>{{ isManager() ? t('writer.manualReviewTeacherDetail') : t('writer.manualReviewStudentDetail') }}</p>
@@ -701,6 +707,8 @@ const exporting = ref(false)
 const exportJob = ref(null)
 const exportCheck = ref(null)
 const manualReview = ref(null)
+const confirmedExport = ref(null)
+const confirmedExportBusy = ref(false)
 const manualReviewConfirmations = reactive({})
 const manualReviewBusy = ref(false)
 const candidateDownloaded = ref(false)
@@ -876,6 +884,7 @@ async function confirmAddSection() {
     })
 
     const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
+    invalidateExportReviewState()
     project.value = updated
     current.value = newKey
     computeChapterNumbers()
@@ -901,6 +910,7 @@ async function moveSection(node, delta) {
     const currentList = project.value.sections.map(structureItem)
     ;[currentList[index], currentList[targetIndex]] = [currentList[targetIndex], currentList[index]]
     const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
+    invalidateExportReviewState()
     project.value = updated
     computeChapterNumbers()
     void runCheckNow()
@@ -926,6 +936,7 @@ async function performRemoveSection(node) {
       .filter((s) => s.key !== node.key)
       .map(structureItem)
     const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
+    invalidateExportReviewState()
     project.value = updated
     if (current.value === node.key) {
       current.value = updated.sections[Math.min(deletedIndex, updated.sections.length - 1)]?.key || 'cover'
@@ -1344,7 +1355,16 @@ async function restorePendingOutputReview(loaded) {
   try {
     const jobs = await fetchProjectExportJobs(projectId)
     if (generation !== exportEditGeneration || project.value?.revision !== loaded.revision) return
-    const job = jobs.find(item => item.project_revision === loaded.revision && item.status === 'succeeded' && item.manual_review?.status === 'required')
+    const approved = jobs.find(item => item.is_current_for_project === true && item.status === 'succeeded' && item.manual_review?.status === 'confirmed')
+    if (approved) {
+      confirmedExport.value = { id: approved.id, filename: approved.filename || 'paper.docx' }
+      manualReview.value = null
+      candidateDownloaded.value = false
+      exportCheck.value = { status: approved.output_check_status, count: Number(approved.output_check_count || 0) }
+      return
+    }
+    confirmedExport.value = null
+    const job = jobs.find(item => item.is_current_for_project === true && item.status === 'succeeded' && item.manual_review?.status === 'required')
     if (job) {
       manualReview.value = { ...job.manual_review, exportId: job.id, filename: job.filename || 'paper.docx' }
       candidateDownloaded.value = false
@@ -1553,6 +1573,7 @@ async function restoreLocalDraft() {
   if (!recoveryDraft.value || !project.value) return
   try {
     const updated = await restoreProjectSnapshot(projectId, recoveryDraft.value.snapshot, recoveryDraft.value.base_revision)
+    invalidateExportReviewState()
     project.value = updated
     template.value = updated.template_snapshot || template.value
     clearLocalRecovery()
@@ -1574,6 +1595,7 @@ function discardLocalDraft() {
 async function reloadAfterConflict() {
   try {
     const updated = await fetchProject(projectId)
+    invalidateExportReviewState()
     project.value = updated
     template.value = updated.template_snapshot || template.value
     pendingSaves.clear()
@@ -1583,18 +1605,24 @@ async function reloadAfterConflict() {
     error.value = ''
     loadLocalRecovery()
     computeChapterNumbers()
+    void restorePendingOutputReview(updated)
   } catch (e) {
     error.value = e.message || t('writer.reloadServerFailed')
   }
 }
 
-function markDirty(key) {
-  dirtyKeys.add(key)
+function invalidateExportReviewState() {
   exportEditGeneration += 1
   exportCheck.value = null
   manualReview.value = null
+  confirmedExport.value = null
   candidateDownloaded.value = false
   Object.keys(manualReviewConfirmations).forEach((key) => delete manualReviewConfirmations[key])
+}
+
+function markDirty(key) {
+  dirtyKeys.add(key)
+  invalidateExportReviewState()
 }
 function markClean(key) { dirtyKeys.delete(key) }
 
@@ -1779,6 +1807,7 @@ async function runOneClickFix() {
   try {
     await flushPendingSaves()
     const result = await fixProject(projectId, project.value.revision)
+    if (result.project.revision !== project.value.revision) invalidateExportReviewState()
     project.value = result.project
     if (result.project.template_snapshot) template.value = result.project.template_snapshot
     checkStale.value = true
@@ -1870,6 +1899,7 @@ async function confirmUpgrade() {
   upgradeBusy.value = true
   try {
     const result = await upgradeRequirements(projectId, { expected_snapshot_hash: upgradePreview.value.from_snapshot_hash, reason: t('writer.upgradeReasonDefault'), confirm: true })
+    invalidateExportReviewState()
     project.value = result.project; upgradePreview.value = null; await runCheckNow()
   } catch (e) { error.value = e.message || t('writer.upgradeApplyFailed') }
   finally { upgradeBusy.value = false }
@@ -1890,6 +1920,9 @@ async function openAssist(item) {
     await flushPendingSaves()
     if (!await confirmAiDisclosure()) return
     const result = await assistRequirement(projectId, item.id, item.description)
+    if (Number.isInteger(result.project_revision) && result.project_revision !== project.value.revision) {
+      invalidateExportReviewState()
+    }
     const previous = project.value.ai_assist_results || []
     project.value.ai_assist_results = previous.filter((saved) => saved.requirement_item_id !== item.id).concat(result)
     if (Number.isInteger(result.project_revision)) project.value.revision = result.project_revision
@@ -1931,8 +1964,7 @@ async function applyDocxImport() {
   try {
     await flushPendingSaves()
     const result = await importProjectDocx(projectId, importPreview.value.file, true, project.value.revision)
-    exportEditGeneration += 1
-    exportCheck.value = null
+    invalidateExportReviewState()
     project.value = result.project
     template.value = result.project.template_snapshot || template.value
     importPreview.value = null
@@ -2007,6 +2039,7 @@ async function confirmManualReview() {
     if (saved.manual_review?.status !== 'confirmed') throw new Error(t('writer.manualReviewNotConfirmed'))
     await downloadProjectExportJob(projectId, manualReview.value.exportId, manualReview.value.filename)
     exportJob.value = null
+    confirmedExport.value = { id: manualReview.value.exportId, filename: manualReview.value.filename }
     manualReview.value = null
     candidateDownloaded.value = false
     if (generation === exportEditGeneration) exportCheck.value = {
@@ -2017,6 +2050,20 @@ async function confirmManualReview() {
     error.value = e.message || t('writer.manualReviewFailed')
   } finally {
     manualReviewBusy.value = false
+  }
+}
+
+async function downloadConfirmedExport() {
+  if (!confirmedExport.value?.id || confirmedExportBusy.value || dirtyCount.value > 0) return
+  confirmedExportBusy.value = true
+  error.value = ''
+  try {
+    await downloadProjectExportJob(projectId, confirmedExport.value.id, confirmedExport.value.filename)
+  } catch (e) {
+    confirmedExport.value = null
+    error.value = e.message || t('writer.exportFailed')
+  } finally {
+    confirmedExportBusy.value = false
   }
 }
 
@@ -2084,6 +2131,7 @@ async function refreshTemplate() {
   openConfirmDialog({ title: t('writer.updateStandardsTitle'), description: t('writer.updateStandardsDetail'), confirmLabel: t('writer.updateStandardsConfirm') }, async () => {
     error.value = ''
     const updated = await refreshProjectTemplate(projectId)
+    invalidateExportReviewState()
     project.value = updated
     template.value = updated.template_snapshot || template.value
   })
@@ -2122,6 +2170,7 @@ async function applyTemplate(templateId) {
   try {
     await flushPendingSaves()
     const updated = await switchProjectTemplate(projectId, templateId)
+    invalidateExportReviewState()
     project.value = updated
     template.value = updated.template_snapshot || template.value
     showTemplateModal.value = false
