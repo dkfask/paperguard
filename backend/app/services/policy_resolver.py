@@ -361,7 +361,8 @@ def apply_requirement_format_overrides(
                 heading["title_properties"] = _merge_profile_style(
                     dict(heading.get("title_properties") or {}), overrides[kind],
                 )
-                if not heading.get("inline"):
+                heading["title_overridden"] = True
+                if not heading.get("inline") and content_style == kind:
                     heading["properties"] = _merge_profile_style(
                         dict(heading.get("properties") or {}), overrides[kind],
                     )
@@ -543,6 +544,16 @@ def build_requirement_snapshot(
     template_instruction_items: list[dict[str, Any]] = []
     template_instruction_identity: dict[str, Any] = {}
     execution_profile = template.source_execution or {}
+    # Policies still use the original template's chapter keys. Translate them
+    # before merging with the signed profile's already translated instructions.
+    from app.services.manuscript_template import remap_requirement_snapshot
+
+    mapped_policies = remap_requirement_snapshot(
+        {"resolved_items": all_items},
+        execution_profile.get("manuscript_section_key_map"),
+        execution_profile.get("manuscript_source_section_keys", []),
+    )
+    all_items = mapped_policies["resolved_items"]
     if execution_profile.get("content_requirements"):
         # These entries were compiled from the exact source/specification and
         # signed into the teacher-published template profile. Do not trust a
@@ -614,6 +625,8 @@ def build_requirement_snapshot(
         "student_id": student_id or "",
         "teacher_id": teacher_id or "",
     }
+    if "manuscript_target_mapping" in mapped_policies:
+        snapshot["manuscript_target_mapping"] = mapped_policies["manuscript_target_mapping"]
     snapshot["content_hash"] = content_hash(snapshot)
     return snapshot
 

@@ -1306,7 +1306,7 @@ class RequirementAssistRequest(BaseModel):
 
 def _current_requirement_snapshot(proj: WritingProject, tpl: PaperTemplate, store: Store) -> dict:
     owner = store.get_user(proj.owner_id) if proj.owner_id else None
-    snapshot = build_requirement_snapshot(
+    return build_requirement_snapshot(
         store,
         tpl,
         teacher_id=owner.get("teacher_id") if owner else None,
@@ -1314,13 +1314,6 @@ def _current_requirement_snapshot(proj: WritingProject, tpl: PaperTemplate, stor
         organization_context=proj.organization_context,
         project_id=proj.id,
         stage=proj.stage,
-    )
-    profile = tpl.source_execution or {}
-    from app.services.manuscript_template import remap_requirement_snapshot
-    return remap_requirement_snapshot(
-        snapshot,
-        profile.get("manuscript_section_key_map"),
-        profile.get("manuscript_source_section_keys", []),
     )
 
 

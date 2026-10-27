@@ -310,8 +310,9 @@ def test_master_export_checker_compares_equation_omml_to_project_snapshot(manusc
     assert any(check['rule'] == 'master.equation_omml' and check['status'] == 'fail' for check in damaged_report['checks'])
 
 
-def test_requirement_upgrade_snapshot_keeps_manuscript_chapter_targets(monkeypatch):
+def test_requirement_upgrade_snapshot_keeps_manuscript_chapter_targets(tmp_path):
     from app.api import projects as projects_module
+    from app.models.policy import RequirementSet
 
     source_key = 'template-results'
     manuscript_key = 'manuscript-results'
@@ -324,17 +325,18 @@ def test_requirement_upgrade_snapshot_keeps_manuscript_chapter_targets(monkeypat
         'id': 'results-table', 'target': source_key, 'enforce': 'hard', 'severity': 'error',
         'params': {'section_key': source_key, 'section_keys': [source_key]},
     }
-    monkeypatch.setattr(projects_module, 'build_requirement_snapshot', lambda *_args, **_kwargs: {
-        'content_hash': 'old-hash', 'resolved_items': [expected_item],
-    })
+    store = Store(tmp_path / 'mapped-requirement.db')
+    store.save_requirement_set(RequirementSet(
+        id='mapped-policy', name='章节表格规范', status='published', items=[expected_item],
+    ))
 
-    snapshot = projects_module._current_requirement_snapshot(project, template, object())
+    snapshot = projects_module._current_requirement_snapshot(project, template, store)
 
     remapped = snapshot['resolved_items'][0]
     assert remapped['target'] == manuscript_key
     assert remapped['params']['section_key'] == manuscript_key
     assert remapped['params']['section_keys'] == [manuscript_key]
-    assert snapshot['content_hash'] != 'old-hash'
+    assert snapshot['content_hash'].startswith('sha256:')
 
 
 def test_reimport_rebases_previous_chapter_mapping_before_applying_new_keys():
@@ -380,3 +382,91 @@ def test_reimport_relaxes_unmapped_soft_target_to_document():
     second = remap_requirement_snapshot(first, {}, ['ch1'])
 
     assert second['resolved_items'][0]['target'] == 'document'
+
+
+@pytest.mark.parametrize('titles', [
+    ['第1章 系统设计', '第2章 系统分析'],
+    ['第1章 新增引言', '第2章 系统分析', '第3章 系统设计'],
+])
+def test_requirement_upgrade_maps_policies_once_before_merging_template_rules(tmp_path, monkeypatch, titles):
+    from app.models.policy import RequirementSet
+    from app.services.policy_resolver import build_requirement_snapshot
+
+    monkeypatch.setenv('PAPERGUARD_TEMPLATE_DIR', str(tmp_path))
+    source = tmp_path / 'upgrade-master.docx'
+    document = Document()
+    for title in ['第1章 系统分析', '第2章 系统设计']:
+        document.add_heading(title, 1)
+        document.add_paragraph('原模板正文格式样例。' * 12)
+    document.save(source)
+    template = PaperTemplate(id='upgrade-master', name='章节升级模板', source_docx=source.name,
+        sections=extract_section_tree(source), styles=import_template_styles(source)['styles'])
+    specification = extract_writing_specification(source)
+    template = compile_profile(template, source, ConfirmWritingProfile(
+        expected_specification_sha256=specification.specification_sha256, accept_recommended=True,
+        accept_new_object_defaults=True, remove_template_instructions=True,
+        preserve_manuscript_structure=True), actor='teacher')
+    old_key = template.sections[0].key
+    template.source_execution['content_requirements'] = [
+        {'id': 'template-table', 'type': 'auto', 'target': old_key, 'checker': 'section.table_required',
+         'enforce': 'hard', 'severity': 'error', 'params': {'section_key': old_key, 'min_count': 1}},
+        {'id': 'template-manual', 'type': 'manual', 'target': old_key,
+         'enforce': 'soft', 'severity': 'warning', 'params': {'section_key': old_key}},
+    ]
+    template.source_execution['confirmed_content_rule_ids'] = ['template-table']
+    for item in template.source_execution['content_requirements']:
+        item['source_version'] = template.version
+        item['provenance'] = {'rule_id': item['id'],
+            'source_sha256': template.source_execution['source_sha256'],
+            'specification_sha256': specification.specification_sha256}
+    template.source_execution = sign_profile(template.source_execution)
+    manuscript = Document()
+    for title in titles:
+        manuscript.add_heading(title, 1)
+        manuscript.add_paragraph('导入论文正文。')
+    raw = io.BytesIO(); manuscript.save(raw)
+    derived, payload = derive_manuscript_template(template, source, import_docx_project(raw.getvalue()), actor='teacher')
+    (tmp_path / derived.source_docx).write_bytes(payload)
+    expected_key = derived.source_execution['manuscript_section_key_map'][old_key]
+    assert expected_key != old_key
+    store = Store(tmp_path / 'upgrade.db')
+    store.save_requirement_set(RequirementSet(
+        id='upgrade-policy', name='学校表格规范', status='published', items=[{
+            'id': 'policy-table', 'target': old_key, 'checker': 'section.table_required',
+            'enforce': 'hard', 'severity': 'error', 'params': {'section_key': old_key, 'min_count': 2},
+        }],
+    ))
+    snapshot = build_requirement_snapshot(store, derived)
+
+    def assert_targets(frozen):
+        assert len(frozen['resolved_items']) == 2
+        for item in frozen['resolved_items'] + frozen['template_instruction_items']:
+            assert item['target'] == expected_key
+            assert item['params']['section_key'] == expected_key
+        merged = next(item for item in frozen['resolved_items'] if item.get('checker'))
+        assert merged['params']['min_count'] == 2
+        assert len(merged['sources']) == 2
+        assert frozen['manuscript_target_mapping']['section_key_map'][old_key] == expected_key
+
+    assert_targets(snapshot)
+    actor = {'id': 'upgrade-owner', 'role': 'teacher', 'status': 'active'}
+    project = WritingProject(id='upgrade-project', owner_id=actor['id'], template_id=derived.id,
+        template_snapshot=derived.model_dump(mode='json'), template_source_snapshot=derived.model_dump(mode='json'),
+        requirement_snapshot=snapshot)
+    store.save_project(project)
+    previous = dict(app.dependency_overrides)
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[current_user] = lambda: actor
+    try:
+        client = TestClient(app)
+        preview = client.get(f'/api/projects/{project.id}/requirements/upgrade-preview')
+        assert preview.status_code == 200, preview.text
+        assert_targets(preview.json()['snapshot'])
+        upgraded = client.post(f'/api/projects/{project.id}/requirements/upgrade', json={
+            'expected_snapshot_hash': snapshot['content_hash'], 'confirm': True,
+        })
+        assert upgraded.status_code == 200, upgraded.text
+        assert_targets(upgraded.json()['project']['requirement_snapshot'])
+        assert_targets(store.get_project(project.id).requirement_snapshot)
+    finally:
+        app.dependency_overrides.clear(); app.dependency_overrides.update(previous)
