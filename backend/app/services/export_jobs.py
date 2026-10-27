@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import re
 import hashlib
+import json
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -23,7 +24,7 @@ from app.services.docx_output_check import (
     safe_output_check_diagnostics,
     source_template_bytes,
 )
-from app.services.manual_output_review import review_view
+from app.services.manual_output_review import review_matches, review_view
 
 
 EXPORT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "exports"
@@ -36,6 +37,50 @@ def _safe_filename(title: str) -> str:
     return f"{clean[:120] or 'paper'}.docx"
 
 
+def _template_snapshot_sha256(snapshot: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def export_identity(project: WritingProject, template: PaperTemplate) -> dict[str, Any]:
+    source_path = resolve_template_source(template.source_docx) if template.source_docx else None
+    source = source_template_bytes(source_path)
+    return {
+        "project_revision": project.revision,
+        "content_hash": project_content_hash(project),
+        "template_snapshot_sha256": _template_snapshot_sha256(template.model_dump(mode="json")),
+        "source_template_sha256": hashlib.sha256(source).hexdigest() if source is not None else "",
+    }
+
+
+def _confirmed_artifact_matches(record: dict, identity: dict[str, Any], force: bool) -> bool:
+    if record.get("status") != "succeeded" or bool(record.get("force")) != bool(force):
+        return False
+    if not export_job_is_current(record, identity):
+        return False
+    report = record.get("output_check") or {}
+    receipt = record.get("manual_review")
+    if not review_matches(report, receipt):
+        return False
+    output = Path(str(record.get("file_path") or "")).resolve()
+    root = EXPORT_DIR.resolve()
+    if output.parent != root or not output.is_file():
+        return False
+    expected_sha = str((receipt or {}).get("output_sha256") or report.get("output_sha256") or "")
+    return bool(expected_sha and hashlib.sha256(output.read_bytes()).hexdigest() == expected_sha)
+
+
+def export_job_is_current(record: dict, identity: dict[str, Any]) -> bool:
+    frozen_template = record.get("template_snapshot") or {}
+    stored_template_hash = record.get("template_snapshot_sha256") or _template_snapshot_sha256(frozen_template)
+    return all(
+        record.get(key) == value
+        for key, value in identity.items()
+        if key != "template_snapshot_sha256"
+    ) and stored_template_hash == identity["template_snapshot_sha256"]
+
+
 def _organization_id(store: Store, project: WritingProject) -> str:
     context = project.organization_context or {}
     batch_id = context.get("batch_id", "")
@@ -43,17 +88,21 @@ def _organization_id(store: Store, project: WritingProject) -> str:
     return str((cohort or {}).get("organization_id") or context.get("college_id") or context.get("school_id") or "")
 
 
-def export_job_view(record: dict) -> dict:
+def export_job_view(record: dict, *, current_identity: dict[str, Any] | None = None) -> dict:
     """Return a public task projection without content snapshots or paths."""
-    hidden = {"file_path", "project_snapshot", "template_snapshot", "output_check"}
+    hidden = {"file_path", "project_snapshot", "template_snapshot", "template_snapshot_sha256", "output_check"}
     result = {key: value for key, value in record.items() if key not in hidden}
     report = record.get("output_check") or {}
     result["output_check_status"] = report.get("status", "unverified")
     result["output_check_count"] = report.get("check_count", 0)
     result["manual_review"] = review_view(report, record.get("manual_review"))
+    if current_identity is not None:
+        result["is_current_for_project"] = export_job_is_current(record, current_identity)
     if record.get("output_check_diagnostic"):
         result["output_check_diagnostic"] = record["output_check_diagnostic"]
     if record.get("status") == "succeeded":
+        if result.get("is_current_for_project") is False:
+            return result
         if result["manual_review"]["status"] == "required":
             result["review_candidate_url"] = f"/api/projects/{record['project_id']}/export-jobs/{record['id']}/review-candidate"
         else:
@@ -75,11 +124,16 @@ def create_export_job(
     now = _now()
     source_path = resolve_template_source(template.source_docx) if template.source_docx else None
     source = source_template_bytes(source_path)
+    identity = {
+        "project_revision": project.revision,
+        "content_hash": project_content_hash(project),
+        "template_snapshot_sha256": _template_snapshot_sha256(template.model_dump(mode="json")),
+        "source_template_sha256": hashlib.sha256(source).hexdigest() if source is not None else "",
+    }
     record = {
         "id": new_id("export"),
         "project_id": project.id,
-        "project_revision": project.revision,
-        "content_hash": project_content_hash(project),
+        **identity,
         "force": bool(force),
         "status": "queued",
         "filename": _safe_filename(project.title),
@@ -88,7 +142,6 @@ def create_export_job(
         "job_id": new_id("job"),
         "project_snapshot": project.model_dump(mode="json"),
         "template_snapshot": template.model_dump(mode="json"),
-        "source_template_sha256": hashlib.sha256(source).hexdigest() if source is not None else "",
         "revision": 0,
         "created_at": now,
     }
@@ -96,15 +149,26 @@ def create_export_job(
     organization_id = _organization_id(store, project)
     repository = WorkflowRepository(store)
     with store.workflow_transaction() as conn:
+        records = repository.list("project_export")
         existing = [
-            item for item in repository.list("project_export")
+            item for item in records
             if item.get("project_id") == project.id
-            and int(item.get("project_revision", -1)) == project.revision
-            and bool(item.get("force")) == bool(force)
-            and item.get("status") in {"queued", "running"}
+            and _confirmed_artifact_matches(item, identity, force)
         ]
         if existing:
             return existing[0]
+        active = [
+            item for item in records
+            if item.get("project_id") == project.id
+            and item.get("project_revision") == identity["project_revision"]
+            and item.get("content_hash") == identity["content_hash"]
+            and item.get("template_snapshot_sha256", _template_snapshot_sha256(item.get("template_snapshot") or {})) == identity["template_snapshot_sha256"]
+            and item.get("source_template_sha256", "") == identity["source_template_sha256"]
+            and bool(item.get("force")) == bool(force)
+            and item.get("status") in {"queued", "running"}
+        ]
+        if active:
+            return active[0]
         repository.save_in_transaction(conn, "project_export", record)
         repository.create_job_in_transaction(
             conn,

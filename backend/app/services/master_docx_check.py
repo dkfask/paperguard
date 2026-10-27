@@ -60,6 +60,29 @@ def inspect_master_output(data, project, template, source, report):
             source_root, root = load_part(original,"word/document.xml"), load_part(output,"word/document.xml")
             if any(n.getroottree().docinfo.doctype for n in (source_root,root)):
                 raise ValueError("DTD is forbidden")
+            layout_attributes = {
+                "page_width_cm": ("w:pgSz", "w:w"),
+                "page_height_cm": ("w:pgSz", "w:h"),
+                "left_margin_cm": ("w:pgMar", "w:left"),
+                "right_margin_cm": ("w:pgMar", "w:right"),
+                "top_margin_cm": ("w:pgMar", "w:top"),
+                "bottom_margin_cm": ("w:pgMar", "w:bottom"),
+                "header_distance_cm": ("w:pgMar", "w:header"),
+                "footer_distance_cm": ("w:pgMar", "w:footer"),
+            }
+            section_properties = root.findall(".//"+qn("w:sectPr"))
+            for key, (section_tag, attribute) in layout_attributes.items():
+                if key not in profile.get("policy_layout_overrides", {}):
+                    continue
+                expected_value = round(float(profile["policy_layout_overrides"][key]) * 567)
+                actual_values = [
+                    int(section.find(qn(section_tag)).get(qn(attribute)))
+                    if section.find(qn(section_tag)) is not None and section.find(qn(section_tag)).get(qn(attribute)) is not None
+                    else None
+                    for section in section_properties
+                ]
+                check("page_layout", bool(section_properties) and actual_values == [expected_value] * len(section_properties),
+                      key, expected=expected_value, actual=actual_values)
             resolver = EffectiveFormatResolver(load_part(output,"word/styles.xml"),load_part(output,"word/theme/theme1.xml"),load_part(output,"word/settings.xml"))
             source_names, output_names = set(original.namelist()),set(output.namelist())
             mutable = {"word/document.xml","word/_rels/document.xml.rels","[Content_Types].xml","word/settings.xml"}
@@ -112,13 +135,12 @@ def inspect_master_output(data, project, template, source, report):
                 for content in doc.xpath(".//w:sdt[starts-with(w:sdtPr/w:tag/@w:val,'pg-region:') or starts-with(w:sdtPr/w:tag/@w:val,'pg-field:')]/w:sdtContent",namespaces=NS):
                     for item in list(content):
                         content.remove(item)
-                if doc is actual_static:
-                    toc_styles=set(profile.get("toc_style_ids", []))
-                    body=doc.find(qn("w:body"))
-                    for paragraph in list(doc.findall(".//"+qn("w:p"))):
-                        style=paragraph.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
-                        if style is not None and style.get(qn("w:val")) in toc_styles and paragraph.getparent() is body:
-                            body.remove(paragraph)
+                toc_styles=set(profile.get("toc_style_ids", []))
+                body=doc.find(qn("w:body"))
+                for paragraph in list(doc.findall(".//"+qn("w:p"))):
+                    style=paragraph.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+                    if style is not None and style.get(qn("w:val")) in toc_styles and paragraph.getparent() is body:
+                        body.remove(paragraph)
             def structural(node):
                 return [node.tag,sorted(node.attrib.items()),node.text or "",[structural(c) for c in node]]
             check("fixed_body_and_sections",digest(structural(actual_static))==profile["protected_document_sha256"],"cover, fixed text, section breaks, heading order")
@@ -188,12 +210,32 @@ def inspect_master_output(data, project, template, source, report):
                     if key.startswith("paragraph."):
                         good &= properties.get(key)==value
                     elif key.startswith("font."):
+                        if key == "font.vertical_alignment":
+                            continue
                         for index,run in enumerate(runs):
                             wanted = value
                             if key in {"font.bold","font.italic"} and inline and index < len(inline):
                                 wanted = value or getattr(inline[index],key.split(".")[1],False)
                             good &= run["properties"].get(key)==wanted
                 check("effective_format",bool(good),obj)
+
+            def vertical_alignment(p, runs, block, properties, obj):
+                inline = block.inline_runs or []
+                base = properties.get("font.vertical_alignment")
+                expected = []
+                if inline and len(inline) != len(runs):
+                    check("vertical_alignment",False,obj,expected=len(inline),actual=len(runs))
+                    return
+                for index in range(len(runs)):
+                    override = inline[index].vert_align if inline else None
+                    expected.append(override or block.vert_align or base)
+                actual = []
+                well_formed = True
+                for run in runs:
+                    alignments = run.findall(f"{qn('w:rPr')}/{qn('w:vertAlign')}")
+                    well_formed &= len(alignments) <= 1
+                    actual.append(alignments[0].get(qn("w:val")) if alignments else None)
+                check("vertical_alignment",well_formed and actual==expected,obj,expected=expected,actual=actual)
 
             for field in profile["fields"]:
                 content = get("pg-field:"+field["key"])
@@ -236,11 +278,13 @@ def inspect_master_output(data, project, template, source, report):
                                 if ppr is not None:virtual.append(copy.deepcopy(ppr))
                                 virtual.extend(copy.deepcopy(n) for n in nodes)
                                 style(virtual,props,block.id,[block])
+                                vertical_alignment(virtual,nodes,block,props,block.id)
                             continue
                         check("text",len(nodes)==1 and nodes[0].tag==qn("w:p") and paragraph_text(nodes[0])==text,block.id)
                         if len(nodes)==1 and nodes[0].tag==qn("w:p"):
                             flags=block.inline_runs or [block]
                             style(nodes[0],props,block.id,flags)
+                            vertical_alignment(nodes[0],nodes[0].findall(".//"+qn("w:r")),block,props,block.id)
                             check("text_only",not nodes[0].xpath(".//w:drawing | .//w:object | .//w:instrText | .//w:fldSimple | .//w:fldChar",namespaces=NS),block.id)
                     elif block.type==BlockType.IMAGE and block.image:
                         path=resolve_document_image_path(project.id,block.image.url)
@@ -292,6 +336,20 @@ def inspect_master_output(data, project, template, source, report):
                                 style(nodes[0],{**profile["object_properties"]["table_caption"],"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"}},block.id+":caption")
                         else:
                             check("table_structure",len(nodes)==1 and len(tables)==1,block.id)
+                    elif block.type==BlockType.EQUATION and block.equation:
+                        from app.domain.documents.schemas import ContentBlock
+                        from app.services.docx_anchors import _safe_omml
+                        expected_math = _safe_omml(ContentBlock(
+                            id=block.id, kind="equation", data={"omml": block.equation.omml},
+                        ))
+                        actual_math = content.findall(".//"+qn("m:oMath"))
+                        good = expected_math is not None and len(actual_math)==1 and semantic(expected_math)==semantic(actual_math[0])
+                        check("equation_omml",good,block.id,
+                              expected=semantic(expected_math) if expected_math is not None else None,
+                              actual=[semantic(item) for item in actual_math])
+                        check("equation_structure",len(nodes)==1 and nodes[0].tag==qn("w:p") and len(actual_math)==1,block.id)
+                        if len(nodes)==1 and nodes[0].tag==qn("w:p"):
+                            style(nodes[0],props,block.id)
                     else:
                         check("unsupported_dynamic_block",False,block.id)
             report["source_profile_sha256"]=profile["profile_sha256"]

@@ -527,7 +527,9 @@ Object.assign(translations.zh, {
   'writer.manualReviewCandidateChanged': '候选文件与当前核查清单不一致，请重新导出。',
   'writer.manualReviewCandidateFailed': '核查候选下载失败',
   'writer.manualReviewNotConfirmed': '服务器未确认全部核查项，请刷新后重试。',
-  'writer.manualReviewFailed': '人工核查确认失败'
+  'writer.manualReviewFailed': '人工核查确认失败',
+  'writer.confirmedExportAvailable': '与当前论文版本一致的已核查成品可下载。',
+  'writer.downloadConfirmedExport': '下载已核查成品'
 })
 
 Object.assign(translations.en, {
@@ -541,7 +543,9 @@ Object.assign(translations.en, {
   'writer.manualReviewCandidateChanged': 'The candidate does not match the current review checklist. Export it again.',
   'writer.manualReviewCandidateFailed': 'Could not download the review candidate',
   'writer.manualReviewNotConfirmed': 'The server did not confirm every review item. Refresh and try again.',
-  'writer.manualReviewFailed': 'Manual review confirmation failed'
+  'writer.manualReviewFailed': 'Manual review confirmation failed',
+  'writer.confirmedExportAvailable': 'A reviewed file matching this manuscript version is ready to download.',
+  'writer.downloadConfirmedExport': 'Download reviewed file'
 })
 
 Object.assign(translations.zh, {

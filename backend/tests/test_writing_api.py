@@ -569,6 +569,10 @@ def test_durable_project_export_job_roundtrip():
     saved_export = Store().get_workflow_record("project_export", task["id"])
     original_report = saved_export["output_check"]
 
+    reused = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert reused.status_code == 202, reused.text
+    assert reused.json()["id"] == task["id"]
+
     other_project_id = _create_full_default_gb7713_project()
     changed_other_project = client.put(f"/api/projects/{other_project_id}/section/ch1", json={
         "title": "第一章 绪论",
@@ -610,7 +614,26 @@ def test_durable_project_export_job_roundtrip():
     })
     assert edited.status_code == 200
     historical = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
-    assert historical.status_code == 200
+    assert historical.status_code == 409
+    stale_candidate = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/review-candidate")
+    assert stale_candidate.status_code == 409
+    assert stale_candidate.json()["detail"] == "论文内容或模板已变化，请重新导出并完成核查"
+    stale_confirmation = client.post(
+        f"/api/projects/{project_id}/export-jobs/{task['id']}/manual-review",
+        json={"output_sha256": original_report["output_sha256"], "confirmed_check_ids": ["stale-check"]},
+    )
+    assert stale_confirmation.status_code == 409
+    assert stale_confirmation.json()["detail"] == "论文内容或模板已变化，请重新导出并完成核查"
+    stale_view = next(
+        item for item in client.get(f"/api/projects/{project_id}/export-jobs").json()
+        if item["id"] == task["id"]
+    )
+    assert stale_view["is_current_for_project"] is False
+    assert "download_url" not in stale_view and "review_candidate_url" not in stale_view
+    replacement = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert replacement.status_code == 202, replacement.text
+    assert replacement.json()["id"] != task["id"]
+    assert replacement.json()["content_hash"] != saved_export["content_hash"]
 
     saved_export = Store().get_workflow_record("project_export", task["id"])
     original_report = saved_export["output_check"]
@@ -732,6 +755,34 @@ def test_durable_project_export_failure_can_be_retried(monkeypatch):
     output = EXPORT_DIR / f"{task['id']}.docx"
     if output.exists():
         output.unlink()
+
+
+def test_stale_failed_export_cannot_be_retried(monkeypatch):
+    from app.services import export_jobs
+    from app.worker import run_once
+
+    project_id = _create_full_default_gb7713_project()
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+
+    def fail_export(*_args, **_kwargs):
+        raise RuntimeError("synthetic stale export failure")
+
+    monkeypatch.setattr(export_jobs, "export_project_to_docx", fail_export)
+    failed_run = run_once()
+    assert task["job_id"] in {item["job_id"] for item in failed_run["exports"]["failed"]}
+
+    project = client.get(f"/api/projects/{project_id}").json()
+    section = next(item for item in project["sections"] if item["required"])
+    edited = client.put(f"/api/projects/{project_id}/section/{section['key']}", json={
+        "paragraphs": [{"id": f"{section['key']}-changed", "text": "已更新论文正文，旧快照不得重试。"}],
+    })
+    assert edited.status_code == 200, edited.text
+
+    retried = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry")
+    assert retried.status_code == 409
+    assert retried.json()["detail"] == "论文内容或模板已变化，请重新导出并完成核查"
 
 
 def test_project_owner_can_retry_own_failed_export(monkeypatch):
@@ -1849,3 +1900,263 @@ def test_large_batch_export_can_queue_without_reading_through_its_own_write_lock
     assert event['organization_id'] == 'large-school'
     same = create_export_job(store, project, template, force=False, actor_id='local-test')
     assert same['id'] == queued['id']
+
+
+def test_only_current_file_digest_and_review_receipt_can_be_reused_as_export(tmp_path, monkeypatch):
+    from app.models.project import WritingProject
+    from app.services import export_jobs
+    from app.services.docx_output_check import template_output_hash
+    from app.services.export_jobs import create_export_job, export_identity
+    from app.services.manual_output_review import confirm_review, review_checklist
+
+    store = Store(tmp_path / "export-reuse.db")
+    output_dir = tmp_path / "exports"
+    monkeypatch.setattr(export_jobs, "EXPORT_DIR", output_dir)
+    template = PaperTemplate(id="reusable-export-template", name="复用测试模板", version="2")
+    project = WritingProject(id="reusable-export-project", template_id=template.id, title="版本一")
+    queued = create_export_job(store, project, template, force=True, actor_id="teacher")
+    output_dir.mkdir()
+    data = b"reviewed-docx-bytes"
+    output = output_dir / f"{queued['id']}.docx"
+    output.write_bytes(data)
+    identity = export_identity(project, template)
+    report = {
+        "office_review_required": True,
+        "manual_checks": ["核对 Word 页面版式"],
+        "output_sha256": hashlib.sha256(data).hexdigest(),
+        "project_id": project.id,
+        "project_revision": project.revision,
+        "project_content_hash": identity["content_hash"],
+        "template_id": template.id,
+        "template_version": template.version,
+        "template_hash": template_output_hash(template),
+        "source_template_sha256": identity["source_template_sha256"],
+    }
+    receipt = confirm_review(
+        report,
+        output_sha256=report["output_sha256"],
+        confirmed_check_ids=[item["id"] for item in review_checklist(report)],
+        reviewer_id="teacher",
+    )
+    queued.update({"status": "succeeded", "file_path": str(output), "output_check": report, "manual_review": receipt})
+    queued = store.save_workflow_record("project_export", queued, expected_revision=queued["revision"])
+
+    reused = create_export_job(store, project, template, force=True, actor_id="teacher")
+    assert reused["id"] == queued["id"]
+
+    output.write_bytes(data + b"tampered")
+    after_digest_change = create_export_job(store, project, template, force=True, actor_id="teacher")
+    assert after_digest_change["id"] != queued["id"]
+    assert after_digest_change["status"] == "queued"
+
+    project.title = "版本二"
+    after_content_change = create_export_job(store, project, template, force=True, actor_id="teacher")
+    assert after_content_change["id"] not in {queued["id"], after_digest_change["id"]}
+    assert after_content_change["content_hash"] != queued["content_hash"]
+
+
+def test_signed_master_policy_overrides_roundtrip_project_export_and_archive(tmp_path, monkeypatch):
+    import json
+    import zipfile
+    from lxml import etree
+
+    from app.api import workflow as workflow_api
+    from app.core.extract.xml_utils import qn
+    from app.core.extract.specification import extract_writing_specification
+    from app.services.import_template import extract_section_tree, import_template_styles
+    from app.services.project_versions import project_content_hash
+    from app.services.source_template_profile import ConfirmWritingProfile
+
+    suffix = uuid.uuid4().hex[:10]
+    policy_id = f"master-policy-{suffix}"
+    template_id = f"master-policy-template-{suffix}"
+    source_name = ""
+    policy_created = False
+    source = Document()
+    source.add_heading("第1章 正文", 1)
+    source.add_paragraph("母版中的正文样例用于确认可写区域和格式。" * 12)
+    source_buffer = BytesIO()
+    source.save(source_buffer)
+
+    try:
+        from app.services.template_source import delete_template_source
+
+        source_name = save_template_source(source_buffer.getvalue(), preserve_original=True)
+        source_path = resolve_template_source(source_name)
+        assert source_path is not None
+        template = PaperTemplate(
+            id=template_id,
+            name="规范覆盖签名母版",
+            source_docx=source_name,
+            sections=extract_section_tree(source_path),
+            styles=import_template_styles(source_path)["styles"],
+        )
+        specification = extract_writing_specification(source_path)
+        confirmation = ConfirmWritingProfile(
+            expected_specification_sha256=specification.specification_sha256,
+            accept_recommended=True,
+            accept_new_object_defaults=True,
+            remove_template_instructions=True,
+            preserve_manuscript_structure=True,
+        )
+
+        policy = client.post("/api/policies", json={
+            "id": policy_id,
+            "family_id": policy_id,
+            "name": "母版成品格式覆盖测试",
+            "level": "school",
+            "scope": "global",
+            "status": "draft",
+            "version": "1",
+            "format_overrides": {
+                "body": {"size_pt": 14.0},
+                "heading1": {"size_pt": 18.0},
+            },
+            "layout_overrides": {"left_margin_cm": 2.0},
+            "items": [],
+        })
+        assert policy.status_code == 201, policy.text
+        policy_created = True
+        published = client.post(f"/api/policies/{policy_id}/publish")
+        assert published.status_code == 200, published.text
+
+        template.requirement_set_ids = [policy_id]
+        created_template = client.post("/api/templates", json=template.model_dump(mode="json"))
+        assert created_template.status_code == 201, created_template.text
+        proposal = client.post(
+            f"/api/templates/{template_id}/writing-profile/propose",
+            json=confirmation.model_dump(mode="json"),
+        )
+        assert proposal.status_code == 200, proposal.text
+        confirmation = confirmation.model_copy(update={"proposal_id": proposal.json()["proposal_id"]})
+        published = client.post(
+            f"/api/templates/{template_id}/publish-writing-profile",
+            json=confirmation.model_dump(mode="json"),
+        )
+        assert published.status_code == 200, published.text
+        created = client.post("/api/projects", json={"template_id": template_id, "title": "冻结规范往返样稿"})
+        assert created.status_code == 201, created.text
+        project_id = created.json()["id"]
+
+        loaded = client.get(f"/api/projects/{project_id}")
+        assert loaded.status_code == 200, loaded.text
+        project = loaded.json()
+        assert project["template_snapshot"]["styles"]["body"]["size_pt"] == 14.0
+        assert project["template_source_snapshot"]["styles"]["body"]["size_pt"] != 14.0
+        assert project["template_snapshot"]["page_layout"]["left_margin_cm"] == 2.0
+        assert project["template_snapshot"]["source_execution"]["signature"]
+
+        section = next(item for item in project["sections"] if item["type"] == "heading1")
+        saved = client.put(f"/api/projects/{project_id}/section/{section['key']}", json={
+            "base_revision": project["revision"],
+            "title": section["title"],
+            "paragraphs": [{"id": "policy-body", "text": "学生正文用于核对冻结规范样式。"}],
+        })
+        assert saved.status_code == 200, saved.text
+
+        queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+        assert queued.status_code == 202, queued.text
+        task = queued.json()
+        from app.worker import run_once
+
+        worker_result = run_once()
+        completed = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+        assert completed.status_code == 200, completed.text
+        assert task["job_id"] in worker_result["exports"]["succeeded"], completed.json().get("output_check_diagnostic")
+        assert completed.json()["output_check_status"] == "pass"
+        review = completed.json()["manual_review"]
+        assert review["status"] == "required"
+        confirmed = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/manual-review", json={
+            "output_sha256": review["output_sha256"],
+            "confirmed_check_ids": [item["id"] for item in review["checklist"]],
+        })
+        assert confirmed.status_code == 200, confirmed.text
+        downloaded = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+        assert downloaded.status_code == 200, downloaded.text
+
+        def assert_policy_format(data: bytes) -> None:
+            with zipfile.ZipFile(BytesIO(data)) as package:
+                root = etree.fromstring(package.read("word/document.xml"))
+            paragraphs = root.findall(".//" + qn("w:p"))
+            body_paragraph = next(
+                paragraph for paragraph in paragraphs
+                if "学生正文用于核对冻结规范样式。" in "".join(
+                    text.text or "" for text in paragraph.findall(".//" + qn("w:t"))
+                )
+            )
+            body_sizes = [run.find(qn("w:rPr")).find(qn("w:sz")).get(qn("w:val"))
+                          for run in body_paragraph.findall(".//" + qn("w:r"))
+                          if run.find(qn("w:rPr")) is not None and run.find(qn("w:rPr")).find(qn("w:sz")) is not None]
+            assert body_sizes and set(body_sizes) == {"28"}
+            heading_paragraph = next(
+                paragraph for paragraph in paragraphs
+                if "第1章 正文" in "".join(
+                    text.text or "" for text in paragraph.findall(".//" + qn("w:t"))
+                )
+            )
+            heading_sizes = [run.find(qn("w:rPr")).find(qn("w:sz")).get(qn("w:val"))
+                             for run in heading_paragraph.findall(".//" + qn("w:r"))
+                             if run.find(qn("w:rPr")) is not None and run.find(qn("w:rPr")).find(qn("w:sz")) is not None]
+            assert heading_sizes and set(heading_sizes) == {"36"}
+            section_properties = root.findall(".//" + qn("w:sectPr"))
+            assert section_properties
+            assert all(
+                int(section.find(qn("w:pgMar")).get(qn("w:left"))) == round(2.0 * 567)
+                for section in section_properties
+            )
+
+        assert_policy_format(downloaded.content)
+
+        store = Store()
+        project = store.get_project(project_id)
+        version_id = f"master-policy-version-{suffix}"
+        submission_id = f"master-policy-submission-{suffix}"
+        participant_id = f"master-policy-participant-{suffix}"
+        cohort_id = f"master-policy-cohort-{suffix}"
+        archive_id = f"master-policy-archive-{suffix}"
+        store.save_workflow_record("project_version", {
+            "id": version_id,
+            "content_hash": project_content_hash(project),
+            "content_snapshot": project.model_dump(mode="json"),
+        })
+        store.save_workflow_record("submission", {
+            "id": submission_id,
+            "project_version_id": version_id,
+            "participant_id": participant_id,
+            "candidate_id": "",
+            "submission_number": 1,
+            "stage_config_id": "test-stage",
+            "stage_config_snapshot": {},
+        })
+        admin_id = project.owner_id
+        store.save_workflow_record("cohort", {"id": cohort_id, "organization_id": ""})
+        store.save_workflow_record("participant", {
+            "id": participant_id,
+            "cohort_id": cohort_id,
+            "student_id": admin_id,
+            "state": "pending_archive",
+        })
+        monkeypatch.setattr(workflow_api, "_archive_dir", lambda: tmp_path / "archives")
+        store.save_workflow_record("archive", {
+            "id": archive_id,
+            "submission_id": submission_id,
+            "participant_id": participant_id,
+            "source_template_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "status": "queued",
+        })
+        archived = workflow_api._run_archive(store, archive_id, actor_id=admin_id)
+        assert archived["status"] == "succeeded", archived
+        with zipfile.ZipFile(archived["file_path"]) as bundle:
+            manifest = json.loads(bundle.read("manifest.json"))
+            requirements = json.loads(bundle.read("requirements.json"))
+            archived_template = json.loads(bundle.read("template.json"))
+            final_docx = bundle.read("final.docx")
+        assert requirements["format_overrides"]["body"]["size_pt"] == 14.0
+        assert manifest["requirements_hash"] == workflow_api._hash(requirements)
+        assert archived_template["source_execution"]["policy_snapshot_sha256"]
+        assert_policy_format(final_docx)
+    finally:
+        if policy_created:
+            client.post(f"/api/policies/{policy_id}/archive")
+        if source_name:
+            delete_template_source(source_name)

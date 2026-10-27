@@ -40,6 +40,79 @@ def child(parent, tag, **attrs):
     return node
 
 
+_SECTPR_ORDER = (
+    "w:headerReference", "w:footerReference", "w:footnotePr", "w:endnotePr", "w:type",
+    "w:pgSz", "w:pgMar", "w:paperSrc", "w:pgBorders", "w:lnNumType", "w:pgNumType",
+    "w:cols", "w:formProt", "w:vAlign", "w:noEndnote", "w:titlePg", "w:textDirection",
+    "w:bidi", "w:rtlGutter", "w:docGrid", "w:printerSettings", "w:sectPrChange",
+)
+
+
+def _section_property(section, tag):
+    target = qn(tag)
+    existing = section.find(target)
+    if existing is not None:
+        return existing
+    node = OxmlElement(tag)
+    order = {qn(name): index for index, name in enumerate(_SECTPR_ORDER)}
+    target_order = order[target]
+    for index, current in enumerate(section):
+        if order.get(current.tag, -1) > target_order:
+            section.insert(index, node)
+            break
+    else:
+        section.append(node)
+    return node
+
+
+def apply_page_layout(root, page_layout: dict[str, float] | None):
+    """Apply signed template page settings to every section in the emitted document."""
+    layout = page_layout or {}
+    attributes = {
+        "page_width_cm": ("w:pgSz", "w:w"),
+        "page_height_cm": ("w:pgSz", "w:h"),
+        "left_margin_cm": ("w:pgMar", "w:left"),
+        "right_margin_cm": ("w:pgMar", "w:right"),
+        "top_margin_cm": ("w:pgMar", "w:top"),
+        "bottom_margin_cm": ("w:pgMar", "w:bottom"),
+        "header_distance_cm": ("w:pgMar", "w:header"),
+        "footer_distance_cm": ("w:pgMar", "w:footer"),
+    }
+    active = [(key, *attributes[key]) for key in attributes if key in layout]
+    if not active:
+        return
+    section_properties = root.xpath(".//w:sectPr", namespaces=NS)
+    if not section_properties:
+        body = root.find(qn("w:body"))
+        if body is None:
+            raise ProfileError("母版缺少页面布局")
+        section = OxmlElement("w:sectPr")
+        body.append(section)
+        section_properties = [section]
+    for section in section_properties:
+        for key, tag, attribute in active:
+            node = _section_property(section, tag)
+            node.set(qn(attribute), str(round(float(layout[key]) * 567)))
+
+
+def apply_run_vertical_alignment(run, value):
+    if value is None:
+        return
+    if value not in {"superscript", "subscript"}:
+        raise ProfileError("论文内容包含不支持的上下标格式")
+    rpr = run.find(qn("w:rPr"))
+    if rpr is None:
+        rpr = OxmlElement("w:rPr")
+        run.insert(0, rpr)
+    vertical_alignments = rpr.findall(qn("w:vertAlign"))
+    if vertical_alignments:
+        vertical_alignments[0].set(qn("w:val"), value)
+        for duplicate in vertical_alignments[1:]:
+            rpr.remove(duplicate)
+    else:
+        child(rpr, "w:vertAlign", val=value)
+
+
 def apply_properties(paragraph, properties: dict):
     """Write normalized properties with their original units; no point/line mixing."""
     ppr = paragraph.find(qn("w:pPr"))
@@ -139,6 +212,7 @@ def control(tag: str, nodes):
 
 
 def prepare_source(root, profile, meta=None):
+    apply_page_layout(root, profile.get("policy_layout_overrides"))
     """Apply the approved editable boundaries; all other source nodes stay in order."""
     body = root.find(qn("w:body"))
     original = list(body)
@@ -353,6 +427,7 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                             for flag, tag in (("bold", "b"), ("italic", "i"), ("underline", "u")):
                                 if getattr(inline, flag, False):
                                     child(run.find(qn("w:rPr")), "w:"+tag, val="single" if tag=="u" else "1")
+                            apply_run_vertical_alignment(run, inline.vert_align or block.vert_align)
                     # Paragraph properties apply before the explicit inline emphasis.
                     ppr = text_paragraph("", props).find(qn("w:pPr")); p.insert(0,ppr)
                 else:
@@ -361,6 +436,7 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                         for flag, tag in (("bold", "b"), ("italic", "i"), ("underline", "u")):
                             if getattr(block, flag, False):
                                 child(run.find(qn("w:rPr")), "w:"+tag, val="single" if tag=="u" else "1")
+                        apply_run_vertical_alignment(run, block.vert_align)
                 nodes = [p]
             elif block.type == BlockType.IMAGE and block.image:
                 path = resolve_document_image_path(project.id, block.image.url)
