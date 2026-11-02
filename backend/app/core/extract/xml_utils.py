@@ -22,6 +22,7 @@ NS: dict[str, str] = {
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
     "w14": "http://schemas.microsoft.com/office/word/2010/wordml",
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    "m": "http://schemas.openxmlformats.org/officeDocument/2006/math",
 }
 
 

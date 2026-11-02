@@ -14,6 +14,8 @@ services:
       - PAPERGUARD_WECHAT_SUBSCRIBE_TEMPLATES=${PAPERGUARD_WECHAT_SUBSCRIBE_TEMPLATES:-}
       - PAPERGUARD_DATA_DIR=/app/data
       - PAPERGUARD_DB_PATH=/app/data/paperguard.db
+      - PAPERGUARD_JAVA_PATH=/usr/bin/java
+      - PAPERGUARD_OFFICE_JAR=/app/office/libreoffice.jar
     env_file:
       - path: .env
         required: false
@@ -39,6 +41,8 @@ services:
       - PAPERGUARD_WECHAT_SUBSCRIBE_TEMPLATES=${PAPERGUARD_WECHAT_SUBSCRIBE_TEMPLATES:-}
       - PAPERGUARD_DATA_DIR=/app/data
       - PAPERGUARD_DB_PATH=/app/data/paperguard.db
+      - PAPERGUARD_JAVA_PATH=/usr/bin/java
+      - PAPERGUARD_OFFICE_JAR=/app/office/libreoffice.jar
     volumes:
       - paperguard_data:/app/data
     depends_on:
