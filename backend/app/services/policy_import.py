@@ -48,6 +48,8 @@ _CHECKER_ALIASES = {
     "references.recent_ratio": "references.recent_ratio",
     "reference_format": "references.format",
     "references.format": "references.format",
+    "section.table_required": "section.table_required",
+    "table_required": "section.table_required",
     "chapter_page_break": "chapter.page_break",
     "chapter.page_break": "chapter.page_break",
     "cover_field_present": "cover.field_present",

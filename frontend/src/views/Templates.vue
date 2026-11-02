@@ -24,6 +24,7 @@
         </div>
         <span class="material-symbols-outlined panel-icon" aria-hidden="true">document_scanner</span>
       </div>
+      <WritingSpecificationPreview :specification="importResult.writing_specification" :markdown="importResult.writing_specification_markdown" />
       <div class="style-preview-list">
         <section v-for="group in importStyleGroups" :key="group.key" class="style-preview-group" :aria-label="t(group.label)">
           <h3>{{ t(group.label) }}</h3>
@@ -43,10 +44,22 @@
           </details>
         </section>
       </div>
+      <section v-if="importResult.admission" class="template-admission" :class="importResult.admission.status" data-test="import-template-admission">
+        <div class="admission-heading"><strong>{{ t('templateAdmission.title') }}</strong><span>{{ importResult.admission.status === 'blocked' ? t('templateAdmission.blocked') : t('templateAdmission.officeReview') }}</span></div>
+        <p>{{ t('templateAdmission.boundVersion', { version: importResult.admission.version, digest: importResult.admission.assessment_hash?.slice(0, 12) }) }}</p>
+        <p>{{ t('templateAdmission.autoCoverage', { count: importResult.admission.auto_verifiable_constraints?.length || 0 }) }}</p>
+        <ul v-if="importResult.admission.blockers?.length" class="admission-findings">
+          <li v-for="item in importResult.admission.blockers" :key="`${item.code}:${item.path}`">{{ item.message }} <small>{{ item.path }}</small></li>
+        </ul>
+        <ul v-if="importResult.admission.manual_checks?.length" class="admission-findings manual">
+          <li v-for="item in importResult.admission.manual_checks" :key="item.code">{{ item.message }}</li>
+        </ul>
+        <p class="admission-limit">{{ t('templateAdmission.noComplianceClaim') }}</p>
+      </section>
       <div class="form-actions import-actions">
         <button class="small primary" :disabled="saving" @click="createFromImport">
           <span class="material-symbols-outlined" aria-hidden="true">check_circle</span>
-          {{ saving ? t('common.creating') : t('templates.confirmCreate') }}
+          {{ saving ? t('common.creating') : (lang === 'zh' ? '保存草稿并确认规范' : 'Save draft and review rules') }}
         </button>
         <button class="small" :disabled="strippingComments" @click="downloadWithoutComments">
           <span class="material-symbols-outlined" aria-hidden="true">cleaning_services</span>
@@ -104,6 +117,10 @@
                 <span><span class="material-symbols-outlined" aria-hidden="true">schedule</span>{{ t('templates.updated', { date: shortDate(template.updated_at) }) }}</span>
                 <code>{{ template.id }}</code>
               </div>
+              <p v-if="template.admission" class="template-admission-summary" :class="template.admission.status" data-test="template-admission-summary">
+                {{ template.admission.status === 'blocked' ? t('templateAdmission.blocked') : t('templateAdmission.draftAllowedOfficeReview') }}
+                <span v-if="template.admission.blockers?.length">· {{ template.admission.blockers.length }}</span>
+              </p>
             </div>
             <div class="template-row-actions">
               <button v-if="canManage" class="small primary" type="button" @click="$router.push('/templates/' + template.id + '/edit')">
@@ -148,6 +165,7 @@
 
 <script setup>
 import BaseModal from '../components/base/BaseModal.vue'
+import WritingSpecificationPreview from '../components/WritingSpecificationPreview.vue'
 import ScreenDeck from '../components/ScreenDeck.vue'
 import ScreenCollection from '../components/ScreenCollection.vue'
 import { computed, ref, onMounted } from 'vue'
@@ -244,13 +262,8 @@ async function downloadWithoutComments() {
 }
 
 function mergeImportedSections(imported, baseSections) {
-  if (!imported.length) return baseSections
-
-  // 只把"封面"提到最前(封面不在 Word 正文里), 其余保持模板文档里的真实顺序
+  // 封面字段由结构化表单承载；其余章节必须来自 Word 的识别结果。
   const structural = baseSections.filter((section) => section.type === 'cover')
-  const fallbackAbstract = baseSections.find((section) => section.type === 'abstract')
-  const fallbackToc = baseSections.find((section) => section.type === 'toc')
-  const fallbackTail = baseSections.filter((section) => ['references', 'acknowledgement', 'appendix'].includes(section.type))
   const normalize = (section) => {
     const title = String(section.title || '').replace(/\s+/g, '').toLowerCase()
     let normalized = section
@@ -272,17 +285,11 @@ function mergeImportedSections(imported, baseSections) {
 
   const sections = [...structural, ...imported.map(normalize)]
   const seen = new Set()
-  if (!sections.some((section) => section.type === 'abstract') && fallbackAbstract) sections.splice(1, 0, fallbackAbstract)
-  // 模板文档里没有目录节点时, 在摘要之后补一个内置目录
-  if (!sections.some((section) => section.type === 'toc') && fallbackToc) {
-    const abstractIndex = sections.findIndex((section) => section.type === 'abstract')
-    sections.splice(abstractIndex >= 0 ? abstractIndex + 1 : 1, 0, fallbackToc)
-  }
   return sections.filter((section) => {
     if (seen.has(section.key)) return false
     seen.add(section.key)
     return true
-  }).concat(fallbackTail.filter((section) => !seen.has(section.key)))
+  })
 }
 
 
@@ -290,24 +297,21 @@ async function createFromImport() {
   saving.value = true
   error.value = ''
   try {
-    // 章节结构优先使用识别结果, 未识别到时沿用内置模板
+    // 默认模板只提供封面容器和未识别到的封面字段。
     const base = await fetchTemplate('default-gb7713')
     const importedMeta = importResult.value.meta_fields || []
     const tpl = {
       id: '',
       name: importResult.value.filename.replace(/\.docx?$/i, '') + ` (${t('templates.importWord')})`,
       description: t('templates.importDescription', { styles: importResult.value.style_names.join(lang.value === 'zh' ? '、' : ', ') }),
-      sections: mergeImportedSections(
-        importResult.value.sections && importResult.value.sections.length
-          ? importResult.value.sections : [],
-        base.sections,
-      ),
+      sections: mergeImportedSections(importResult.value.sections || [], base.sections || []),
       // 封面字段优先用模板识别结果(学院/班级等), 识别不到时沿用内置模板
       meta_fields: importedMeta.length ? importedMeta : base.meta_fields,
       // 封面版式(校名/报告类型/信息表): 有则按模板版式渲染封面
       cover_blocks: importResult.value.cover_blocks || [],
       // 模板源文件: 导出时以它为排版基底, 完整继承模板的样式/页眉页脚/页边距
       source_docx: importResult.value.source_docx || '',
+      writing_specification: importResult.value.writing_specification || null,
       styles: importResult.value.styles,
     }
     const saved = await saveTemplate(tpl, true)
@@ -497,6 +501,24 @@ function alignLabel(a) { return t(`editor.${a}`) }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
 }
+
+.template-admission {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-container-low);
+}
+.template-admission.blocked { border-color: var(--error, #b42318); background: var(--error-container, #fff1f0); }
+.template-admission p, .template-admission-summary { margin: 0; color: var(--on-surface-variant); font-size: 12px; line-height: 1.5; }
+.template-admission-summary { margin-top: 6px; }
+.admission-heading { display: flex; justify-content: space-between; gap: 12px; }
+.admission-findings { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.admission-findings small { display: block; color: var(--on-surface-variant); }
+.admission-findings.manual { color: var(--on-surface-variant); }
+.admission-limit { color: var(--on-surface-variant); font-size: 12px; }
 
 .template-row-actions {
   justify-content: flex-end;

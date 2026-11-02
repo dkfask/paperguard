@@ -17,7 +17,7 @@
             <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
             {{ validating ? t('documentProjects.validating') : t('documentProjects.validate') }}
           </button>
-          <button class="export-action" type="button" :disabled="validating || saving || exporting" @click="exportProject">
+          <button v-if="formalDeliveryEnabled" class="export-action" type="button" :disabled="validating || saving || exporting" @click="exportProject">
             <span class="material-symbols-outlined" aria-hidden="true">download</span>
             {{ exporting ? t('documentProjects.exporting') : t('documentProjects.export') }}
           </button>
@@ -29,6 +29,22 @@
       </header>
 
       <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
+      <div v-if="exportCheck" class="notice-banner export-check-status" role="status" aria-live="polite">
+        <strong>{{ t('writer.exportGenerated') }}</strong>
+        <span>{{ t('writer.exportFormatStatus', { status: exportCheckLabel(exportCheck.status), count: exportCheck.count }) }}</span>
+        <span>{{ t('writer.exportVisualPending') }}</span>
+      </div>
+
+      <section v-if="manualReview?.status === 'required'" class="notice-banner document-manual-review" data-test="document-manual-review">
+        <strong>{{ t('writer.manualReviewTitle') }}</strong>
+        <p>{{ isManager() ? t('writer.manualReviewTeacherDetail') : t('writer.manualReviewStudentDetail') }}</p>
+        <button v-if="isManager()" :disabled="reviewBusy" data-test="document-review-download" @click="downloadReviewCandidate">{{ t('writer.downloadReviewCandidate') }}</button>
+        <label v-for="item in manualReview.checklist" :key="item.id">
+          <input v-if="isManager()" v-model="reviewConfirmations[item.id]" type="checkbox" :disabled="!candidateDownloaded || reviewBusy" />
+          {{ item.description }}
+        </label>
+        <button v-if="isManager()" :disabled="!reviewReady || reviewBusy" data-test="document-review-confirm" @click="confirmManualReview">{{ t('writer.confirmManualReview') }}</button>
+      </section>
 
       <BaseModal presentation="drawer" :open="validationOpen" :title="t('documentProjects.validationTitle')" @close="validationOpen = false"><section v-if="validation" class="validation-panel" aria-live="polite">
         <div class="validation-heading">
@@ -148,7 +164,8 @@ import ScreenDeck from '../components/ScreenDeck.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from '../i18n'
-import { getDocumentProjectEditor, renderDocumentProject, updateDocumentProject, uploadDocumentProjectImage, validateDocumentProject } from '../api.js'
+import { isManager } from '../auth.js'
+import { fetchDocumentRenderJobs, createDocumentRenderJob, fetchDocumentRenderJob, downloadDocumentRenderArtifact, confirmDocumentRenderReview, getDocumentProjectEditor, renderDocumentProject, updateDocumentProject, uploadDocumentProjectImage, validateDocumentProject } from '../api.js'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -164,14 +181,29 @@ const draft = reactive({
   sections: {},
 })
 const loading = ref(true)
+const formalDeliveryEnabled = computed(() => editor.value?.capabilities?.formal_delivery_enabled !== false)
 const saving = ref(false)
 const validating = ref(false)
 const exporting = ref(false)
+const exportCheck = ref(null)
+const manualReview = ref(null)
+const reviewConfirmations = reactive({})
+const candidateDownloaded = ref(false)
+const reviewBusy = ref(false)
+const reviewReady = computed(() => candidateDownloaded.value && manualReview.value?.checklist?.length > 0 && manualReview.value.checklist.every(item => reviewConfirmations[item.id] === true))
+function resetReview() {
+  manualReview.value = null
+  candidateDownloaded.value = false
+  Object.keys(reviewConfirmations).forEach(key => delete reviewConfirmations[key])
+}
 const documentContextOpen = ref(false), validationOpen = ref(false)
 const validation = ref(null)
 const error = ref('')
 const uploadingBlockId = ref('')
 let saveTimer = null
+let savePromise = null
+let editGeneration = 0
+let savedGeneration = 0
 
 const editableSections = computed(() => {
   if (editor.value?.editor_schema.mode === 'fixed_form') return []
@@ -223,6 +255,11 @@ async function load() {
   try {
     editor.value = await getDocumentProjectEditor(route.params.id)
     applyProject(editor.value.project)
+    if (formalDeliveryEnabled.value) {
+      const jobs = await fetchDocumentRenderJobs(route.params.id)
+      const current = jobs.find(item => item.project_revision === draft.revision && item.status === 'succeeded' && item.manual_review?.status === 'required')
+      if (current) manualReview.value = { ...current.manual_review, jobId: current.id }
+    }
   } catch (exception) {
     error.value = exception.message
   } finally {
@@ -231,28 +268,55 @@ async function load() {
 }
 
 function scheduleSave() {
+  editGeneration += 1
+  exportCheck.value = null
+  resetReview()
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(save, 500)
 }
 
 async function save() {
+  if (savePromise) {
+    if (!await savePromise) return false
+    return savedGeneration < editGeneration ? save() : true
+  }
+  if (saveTimer) clearTimeout(saveTimer)
   saveTimer = null
+  if (savedGeneration >= editGeneration) return true
   saving.value = true
   error.value = ''
+  const generation = editGeneration
+  const payload = JSON.parse(JSON.stringify({
+    title: draft.title, field_values: draft.field_values,
+    sections: draft.sections, base_revision: draft.revision,
+  }))
+  savePromise = (async () => {
   try {
-    const updated = await updateDocumentProject(route.params.id, {
-      title: draft.title,
-      field_values: draft.field_values,
-      sections: draft.sections,
-      base_revision: draft.revision,
-    })
-    applyProject(updated)
+    const updated = await updateDocumentProject(route.params.id, payload)
+    if (editGeneration === generation) applyProject(updated)
+    else draft.revision = updated.revision
+    savedGeneration = generation
     await runValidation({ openDrawer: false })
+    return true
   } catch (exception) {
     error.value = exception.message
+    return false
   } finally {
     saving.value = false
+    savePromise = null
   }
+  })()
+  return savePromise
+}
+
+async function flushPendingSave() {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = null
+  if (savePromise && !await savePromise) return false
+  while (savedGeneration < editGeneration) {
+    if (!await save()) return false
+  }
+  return true
 }
 
 async function runValidation({ openDrawer = true } = {}) {
@@ -269,15 +333,76 @@ async function runValidation({ openDrawer = true } = {}) {
 }
 
 async function exportProject() {
+  if (exporting.value) return
   exporting.value = true
   error.value = ''
+  exportCheck.value = null
   try {
-    await renderDocumentProject(route.params.id)
+    if (!await flushPendingSave()) return
+    const generation = editGeneration
+    resetReview()
+    try {
+      const checked = await renderDocumentProject(route.params.id)
+      if (generation === editGeneration) exportCheck.value = checked
+    } catch (exception) {
+      if (!exception.manualReview || exception.manualReview.status !== 'required') throw exception
+      let job = await createDocumentRenderJob(route.params.id)
+      for (let attempt = 0; ['queued', 'running'].includes(job.status) && attempt < 120; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        job = await fetchDocumentRenderJob(route.params.id, job.id)
+      }
+      if (job.status !== 'succeeded') throw new Error(job.error_code || t('writer.manualReviewCandidateFailed'))
+      if (generation !== editGeneration) return
+      if (job.manual_review?.status === 'required') {
+        manualReview.value = { ...job.manual_review, jobId: job.id }
+      } else {
+        await downloadDocumentRenderArtifact(route.params.id, job.id)
+        exportCheck.value = { status: 'pass', count: job.artifact?.output_check_count || 0 }
+      }
+    }
   } catch (exception) {
     error.value = exception.message
   } finally {
     exporting.value = false
   }
+}
+
+async function downloadReviewCandidate() {
+  if (!manualReview.value || reviewBusy.value) return
+  reviewBusy.value = true
+  candidateDownloaded.value = false
+  const current = manualReview.value
+  try {
+    const candidate = await downloadDocumentRenderArtifact(route.params.id, current.jobId, true)
+    if (manualReview.value !== current || candidate.outputSha256 !== current.output_sha256) throw new Error(t('writer.manualReviewCandidateChanged'))
+    candidateDownloaded.value = true
+  } catch (exception) {
+    error.value = exception.message
+  } finally { reviewBusy.value = false }
+}
+
+async function confirmManualReview() {
+  if (!reviewReady.value || reviewBusy.value) return
+  reviewBusy.value = true
+  const current = manualReview.value
+  try {
+    const saved = await confirmDocumentRenderReview(route.params.id, current.jobId, {
+      output_sha256: current.output_sha256,
+      confirmed_check_ids: current.checklist.map(item => item.id),
+    })
+    if (saved.manual_review?.status !== 'confirmed') throw new Error(t('writer.manualReviewNotConfirmed'))
+    if (manualReview.value !== current) return
+    await downloadDocumentRenderArtifact(route.params.id, current.jobId)
+    resetReview()
+    exportCheck.value = { status: 'pass', count: saved.artifact?.output_check_count || 0 }
+  } catch (exception) { error.value = exception.message }
+  finally { reviewBusy.value = false }
+}
+
+function exportCheckLabel(status) {
+  if (status === 'pass') return t('writer.exportCheckPassed')
+  if (status === 'fail') return t('writer.exportCheckFailed')
+  return t('writer.exportCheckUnverifiable')
 }
 
 function addBlock(sectionKey) {
@@ -394,6 +519,8 @@ onBeforeUnmount(() => { if (saveTimer) clearTimeout(saveTimer) })
 </script>
 
 <style scoped>
+.document-manual-review { display: grid; gap: .75rem; overflow-wrap: anywhere; }
+.document-manual-review label { display: flex; align-items: start; gap: .5rem; }
 .editor-page { max-width: 1280px; margin: 0 auto; padding: 22px 20px 56px; }
 .editor-state { display: grid; place-items: center; min-height: 50vh; color: var(--on-surface-variant); }
 .editor-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px; padding: 10px 0 16px; border-bottom: 1px solid var(--border); }

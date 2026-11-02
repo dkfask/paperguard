@@ -311,6 +311,8 @@ class RenderJob(BaseModel):
     attempt_count: int = Field(default=0, ge=0)
     error_code: str = ""
     last_error: str = ""
+    output_check_diagnostic: dict[str, Any] = Field(default_factory=dict)
+    manual_review: dict[str, Any] = Field(default_factory=dict)
     snapshot: dict[str, Any] = Field(default_factory=dict)
     revision: int = Field(default=0, ge=0)
     created_at: str = ""
@@ -335,6 +337,8 @@ class Artifact(BaseModel):
     content_type: str = "application/octet-stream"
     size_bytes: int = Field(default=0, ge=0)
     checksum: str = ""
+    output_check: dict[str, Any] = Field(default_factory=dict)
+    manual_review: dict[str, Any] = Field(default_factory=dict)
     status: str = "available"
     renderer_version: str = ""
     created_at: str = ""

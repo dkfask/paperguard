@@ -1,8 +1,10 @@
+import { formatReference } from './references.js'
+
 function hasContent(section) {
   return (section.paragraphs || []).some(block => {
     if (block.type === 'image') return Boolean(block.image?.url)
     if (block.type === 'table') return (block.table?.cells || []).flat().some(cell => String(cell ?? '').trim())
-    return Boolean((block.text || '').trim())
+    return Boolean((block.reference ? formatReference(block.reference) : block.text || '').trim())
   })
 }
 
@@ -36,4 +38,44 @@ export function mergeWritingChecks(report, templateReport) {
   }
   summary.hard_failures = (summary.hard_failures || 0) + (templateReport.summary.error || 0)
   return { ...report, summary, findings: [...report.findings, ...findings] }
+}
+
+export function findHeadingHierarchyIssues(sections = []) {
+  const issues = []
+  let hasChapter = false
+  let hasSection = false
+  for (const section of sections) {
+    const title = String(section.title || '').trim()
+    if (section.type === 'heading1') {
+      hasChapter = Boolean(title)
+      hasSection = false
+    } else if (section.type === 'heading2') {
+      if (title && !hasChapter) issues.push({ key: section.key, title, missing: 'heading1' })
+      hasSection = Boolean(title) && hasChapter
+    } else if (section.type === 'heading3') {
+      if (title && !hasSection) issues.push({ key: section.key, title, missing: hasChapter ? 'heading2' : 'heading1and2' })
+    } else if (['references', 'acknowledgement', 'appendix'].includes(section.type)) {
+      hasChapter = Boolean(title)
+      hasSection = false
+    } else if (section.type !== 'body') {
+      hasChapter = false
+      hasSection = false
+    }
+  }
+  return issues
+}
+
+export function affectedHeadingDescendants(sections = [], key) {
+  const index = sections.findIndex(section => section.key === key)
+  const levels = { heading1: 1, heading2: 2, heading3: 3 }
+  const parentLevel = levels[sections[index]?.type]
+  if (index < 0 || !parentLevel) return []
+  const descendants = []
+  for (const section of sections.slice(index + 1)) {
+    if (section.type === 'body') continue
+    const level = levels[section.type]
+    if (!level || level <= parentLevel) break
+    descendants.push({ key: section.key, title: section.title || section.key })
+  }
+  return descendants
 }

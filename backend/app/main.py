@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
@@ -25,6 +25,7 @@ from app.db import Store
 from app.services.image_cleanup import project_image_urls
 from app.services.document_access import can_access_document_project
 from app.services.resource_access import assert_resource_read
+from app.services.references import ReferenceNumberError
 from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
@@ -99,6 +100,11 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 app.state.build_identity = load_build_identity()
+
+
+@app.exception_handler(ReferenceNumberError)
+async def reference_number_error(_request: Request, exc: ReferenceNumberError):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 LOGGER = logging.getLogger("paperguard.http")
 LOGGER.setLevel(os.environ.get("PAPERGUARD_LOG_LEVEL", "INFO"))

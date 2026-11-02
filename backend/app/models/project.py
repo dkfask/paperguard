@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,26 @@ class ImageBlock(BaseModel):
     alignment: Literal["left", "center", "right", "justify", "distribute"] | None = None
 
 
+class TableBorderEdge(BaseModel):
+    style: Literal["nil", "none", "single", "double", "dotted", "dashed", "dashSmallGap",
+                   "dotDash", "dotDotDash", "triple", "thick", "thinThickSmallGap",
+                   "thickThinSmallGap", "thinThickThinSmallGap", "thinThickMediumGap",
+                   "thickThinMediumGap", "thinThickThinMediumGap", "thinThickLargeGap",
+                   "thickThinLargeGap", "thinThickThinLargeGap"]
+    color: str = Field(default="auto", pattern=r"^(?:auto|[0-9A-Fa-f]{6})$")
+    size: int = Field(default=4, ge=0, le=96)
+    space: int = Field(default=0, ge=0, le=31)
+
+
+class TableBorders(BaseModel):
+    top: TableBorderEdge
+    bottom: TableBorderEdge
+    left: TableBorderEdge
+    right: TableBorderEdge
+    insideH: TableBorderEdge
+    insideV: TableBorderEdge
+
+
 class TableBlock(BaseModel):
     """表格块: 单元格文本矩阵 + 题注。"""
     rows: int = Field(default=2, ge=1, le=50)
@@ -36,6 +56,7 @@ class TableBlock(BaseModel):
     cells: list[list[str]] = []   # rows x cols
     caption: str = ""             # 题注文本 (表 3.1 xxx)
     source_xml: str = Field(default="", max_length=600_000)
+    borders: TableBorders | None = None
 
 
 class EquationBlock(BaseModel):
@@ -54,6 +75,54 @@ class InlineTextRun(BaseModel):
     vert_align: str | None = None
 
 
+class ReferenceLanguageFact(BaseModel):
+    """Language information is a factual claim; confirmation is server-owned."""
+    languages: list[Annotated[str, Field(pattern=r"^[a-z]{2,3}$")]] = Field(default_factory=list, max_length=8)
+    evidence: str = Field(default="", max_length=2000)
+    source: Literal["student", "system"] = "student"
+    suggested_languages: list[Annotated[str, Field(pattern=r"^[a-z]{2,3}$")]] = Field(default_factory=list, max_length=8)
+    status: Literal["unconfirmed", "confirmed"] = "unconfirmed"
+    confirmed_by: str = ""
+    confirmed_at: str = ""
+
+
+class ReferenceYearFact(BaseModel):
+    """Publication year evidence; confirmation is server-owned and bound to ``year``."""
+    value: str = Field(default="", max_length=32)
+    evidence: str = Field(default="", max_length=2000)
+    source: Literal["student", "system"] = "student"
+    suggested_year: str = Field(default="", max_length=32)
+    status: Literal["unconfirmed", "confirmed"] = "unconfirmed"
+    confirmed_by: str = ""
+    confirmed_at: str = ""
+
+
+class ReferenceEntry(BaseModel):
+    """Structured bibliography fields used to generate a formatted reference line."""
+    kind: Literal["unparsed", "journal", "book", "thesis", "conference", "online", "standard"]
+    authors: str = Field(default="", max_length=2000)
+    title: str = Field(default="", max_length=2000)
+    source: str = Field(default="", max_length=2000)
+    collection: str = Field(default="", max_length=2000)
+    place: str = Field(default="", max_length=500)
+    publisher: str = Field(default="", max_length=1000)
+    institution: str = Field(default="", max_length=1000)
+    organization: str = Field(default="", max_length=1000)
+    number: str = Field(default="", max_length=500)
+    year: str = Field(default="", max_length=32)
+    volume: str = Field(default="", max_length=100)
+    issue: str = Field(default="", max_length=100)
+    pages: str = Field(default="", max_length=200)
+    url: str = Field(default="", max_length=4000)
+    publish_date: str = Field(default="", max_length=32)
+    access_date: str = Field(default="", max_length=32)
+    doi: str = Field(default="", max_length=500)
+    unformatted_text: str = Field(default="", max_length=20000)
+    original_pasted_text: str | None = Field(default=None, max_length=20000)
+    language_fact: ReferenceLanguageFact | None = None
+    year_fact: ReferenceYearFact | None = None
+
+
 class ParagraphBlock(BaseModel):
     """一个内容块。文本/图片/表格三选一, 样式来自模板。"""
     id: str = Field(min_length=1)
@@ -65,6 +134,8 @@ class ParagraphBlock(BaseModel):
     highlight: str | None = None
     vert_align: str | None = None
     inline_runs: list[InlineTextRun] = Field(default_factory=list)
+    reference: ReferenceEntry | None = None
+    reference_number: int | None = Field(default=None, ge=1)
     image: ImageBlock | None = None
     table: TableBlock | None = None
     equation: EquationBlock | None = None
@@ -91,6 +162,8 @@ class WritingProject(BaseModel):
     revision: int = Field(default=0, ge=0)
     template_snapshot: dict | None = None
     template_source_snapshot: dict | None = None
+    # Original approved layout before a manuscript-specific chapter instance.
+    layout_template_snapshot: dict | None = Field(default=None, json_schema_extra={"readOnly": True})
     requirement_snapshot: dict | None = None  # 项目创建时冻结的有效规范与版本
     organization_context: dict[str, str] = {}  # school/college/major/batch/course 等作用域
     stage: str = ""
@@ -102,6 +175,7 @@ class WritingProject(BaseModel):
     ai_assist_results: list[dict] = []
     check_run_ids: list[str] = []
     meta: dict[str, str] = {}          # 封面字段值 key -> value
+    reference_number_owners: dict[str, str] = Field(default_factory=dict)
     sections: list[ProjectSection] = []
     allow_structure_edit: bool = True  # 是否允许学生修改整体论文的框架
     deleted_at: str = ""               # 软删除时间；进入回收站后保留引用和附件

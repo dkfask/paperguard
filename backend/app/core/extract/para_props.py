@@ -81,8 +81,11 @@ def para_props(ppr: etree._Element | None) -> dict[str, str]:
             ("right", "paragraph.indent.right"),
             ("firstLine", "paragraph.indent.first_line"),
             ("hanging", "paragraph.indent.hanging"),
-            # 首行缩进按字符数 (中文模板最常用)
+            # Character-based indentation takes precedence over length-based values.
             ("firstLineChars", "paragraph.indent.first_line_chars"),
+            ("hangingChars", "paragraph.indent.hanging_chars"),
+            ("leftChars", "paragraph.indent.left_chars"),
+            ("rightChars", "paragraph.indent.right_chars"),
         ):
             v = ind.get(_w(sub))
             if v:

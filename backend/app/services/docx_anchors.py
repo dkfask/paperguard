@@ -390,7 +390,7 @@ def _table_node(block: ContentBlock) -> etree._Element:
     return table
 
 
-def _image_drawing(block: ContentBlock, relationship_id: str, image_path: Path) -> etree._Element:
+def _image_drawing(block: ContentBlock, relationship_id: str, image_path: Path, drawing_id: int) -> etree._Element:
     try:
         image = DocxImage.from_blob(image_path.read_bytes())
         px_width = int(image.px_width)
@@ -406,7 +406,7 @@ def _image_drawing(block: ContentBlock, relationship_id: str, image_path: Path) 
     drawing = etree.Element(W("drawing"))
     inline = etree.SubElement(drawing, WP("inline"), distT="0", distB="0", distL="0", distR="0")
     etree.SubElement(inline, WP("extent"), cx=str(cx), cy=str(cy))
-    etree.SubElement(inline, WP("docPr"), id="1", name=f"Picture {block.id}")
+    etree.SubElement(inline, WP("docPr"), id=str(drawing_id), name=f"Picture {block.id}")
     graphic = etree.SubElement(inline, A("graphic"))
     graphic_data = etree.SubElement(graphic, A("graphicData"), uri="http://schemas.openxmlformats.org/drawingml/2006/picture")
     picture = etree.SubElement(graphic_data, PIC("pic"))
@@ -433,6 +433,7 @@ def _rich_block_nodes(
     part: str,
     add_image,
     resolve_image,
+    next_drawing_id,
 ) -> list[etree._Element]:
     kind = _block_kind(block)
     if kind not in _RICH_BLOCK_KINDS:
@@ -446,7 +447,7 @@ def _rich_block_nodes(
         clone = copy.deepcopy(paragraph)
         _clear_paragraph_content(clone)
         run = etree.SubElement(clone, W("r"))
-        run.append(_image_drawing(block, relationship_id, image_path))
+        run.append(_image_drawing(block, relationship_id, image_path, next_drawing_id()))
         result = [clone]
         caption = str(data.get("caption") or "")
         if caption:
@@ -485,6 +486,7 @@ def _replace_section_paragraph(
     part: str,
     add_image,
     resolve_image,
+    next_drawing_id,
 ) -> bool:
     text = _visible_text(paragraph).strip()
     match = _ANCHOR_TOKEN_RE.fullmatch(text)
@@ -502,6 +504,7 @@ def _replace_section_paragraph(
             part=part,
             add_image=add_image,
             resolve_image=resolve_image,
+            next_drawing_id=next_drawing_id,
         ):
             parent.insert(position, node)
             position += 1
@@ -683,6 +686,13 @@ def render_anchored_docx(
     relationship_roots: dict[str, etree._Element] = {}
     content_types_name = "[Content_Types].xml"
     content_types_root = etree.fromstring(data_by_name[content_types_name], _xml_parser())
+    used_drawing_ids = [int(node.get("id")) for part in _xml_parts(data_by_name) for node in etree.fromstring(data_by_name[part], _xml_parser()).iter(WP("docPr")) if str(node.get("id", "")).isdigit()]
+    drawing_id = max(used_drawing_ids, default=0)
+
+    def next_drawing_id() -> int:
+        nonlocal drawing_id
+        drawing_id += 1
+        return drawing_id
 
     def add_image(part: str, image_path: Path) -> str:
         path = image_path.resolve()
@@ -746,6 +756,7 @@ def render_anchored_docx(
                         part=part,
                         add_image=lambda current_part, path: add_image(current_part, path),
                         resolve_image=image_path_for,
+                        next_drawing_id=next_drawing_id,
                     ):
                         used[(part, anchor.kind, anchor.selector)] += 1
                     elif anchor.kind == "section_bookmark" and _replace_bookmark(paragraph, anchor, section_values.get(anchor.section_key or anchor.key, "")):

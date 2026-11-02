@@ -1538,6 +1538,11 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   .app-shell-viewport .policy-list-panel, .app-shell-viewport .policy-list { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   .app-shell-viewport .policy-list { flex: 1; }
   .app-shell-viewport .template-editor-panel { display: flex; flex-direction: column; overflow: hidden !important; }
+  .app-shell-viewport .template-form-deck .screen-deck-pane > .screen-form-section {
+    overflow: auto;
+    overscroll-behavior: contain;
+    scroll-padding: 8px;
+  }
   .app-shell-viewport .template-form-deck .editor-section-title { margin: 0; padding-top: 0; border-top: 0; }
   .app-shell-viewport .template-form-deck :is(.template-description-field, .structure-edit-toggle, .field-hint) { margin: 0; }
   .app-shell-viewport .template-form-deck .policy-binding { padding: 10px; gap: 8px; }

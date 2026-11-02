@@ -52,12 +52,24 @@ def test_parse_existing_docx_into_generic_candidate() -> None:
 
 
 def test_confirm_candidate_is_review_only_and_does_not_publish() -> None:
+    from app.services.template_source import save_template_source
+
+    source = (FIXTURES / "templates" / "admissible.docx").read_bytes()
+    storage_key = save_template_source(source)
     candidate = parse_docx_template(
-        FIXTURES / "templates" / "minimal.docx",
+        FIXTURES / "templates" / "admissible.docx",
         candidate_id="candidate-2",
         template_id="template-2",
-        filename="minimal.docx",
-        source_asset=_asset(),
+        filename="admissible.docx",
+        source_asset=TemplateAsset(
+            id="candidate:source",
+            storage_key=storage_key,
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            size_bytes=len(source),
+            checksum=hashlib.sha256(source).hexdigest(),
+            purpose="template-source",
+            scan_status="validated",
+        ),
     )
 
     confirmed = confirm_template_candidate(
@@ -187,7 +199,7 @@ def test_template_parse_and_confirm_api_requires_manager_and_keeps_candidate_sta
     client = TestClient(app)
     unauthenticated = client.post(
         "/api/templates/parse",
-        files={"file": ("minimal.docx", (FIXTURES / "templates" / "minimal.docx").read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        files={"file": ("admissible.docx", (FIXTURES / "templates" / "admissible.docx").read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
     )
     assert unauthenticated.status_code == 401
 
@@ -197,12 +209,23 @@ def test_template_parse_and_confirm_api_requires_manager_and_keeps_candidate_sta
     parsed = client.post(
         "/api/templates/parse",
         headers=headers,
-        files={"file": ("minimal.docx", (FIXTURES / "templates" / "minimal.docx").read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        files={"file": ("admissible.docx", (FIXTURES / "templates" / "admissible.docx").read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
     )
     assert parsed.status_code == 200, parsed.text
     body = parsed.json()
     assert body["status"] == "needs_confirmation"
-    assert body["source_asset"]["checksum"] == hashlib.sha256((FIXTURES / "templates" / "minimal.docx").read_bytes()).hexdigest()
+    assert body["source_asset"]["checksum"] == hashlib.sha256((FIXTURES / "templates" / "admissible.docx").read_bytes()).hexdigest()
+    original_assessment = body["admission_assessment"]
+    assert original_assessment["status"] == "office_review_required"
+    assert original_assessment["can_claim_compliant_delivery"] is False
+
+    changed_candidate = {**body, "version": "2"}
+    reassessed = client.post("/api/templates/parse/assess", headers=headers, json=changed_candidate)
+    assert reassessed.status_code == 200, reassessed.text
+    assert reassessed.json()["admission_assessment"]["assessment_hash"] != original_assessment["assessment_hash"]
+    unchanged = client.get(f"/api/templates/parse/candidates/{body['candidate_id']}", headers=headers)
+    assert unchanged.status_code == 200
+    assert unchanged.json()["admission_assessment"]["assessment_hash"] == original_assessment["assessment_hash"]
 
     confirmed = client.post("/api/templates/parse/confirm", headers=headers, json=body)
     assert confirmed.status_code == 200, confirmed.text
@@ -228,6 +251,46 @@ def test_template_parse_and_confirm_api_requires_manager_and_keeps_candidate_sta
     assert {"template.candidate.parsed", "template.candidate.confirmed"}.issubset(actions)
     serialized = " ".join(str(event) for event in audit.json())
     assert body["source_asset"]["checksum"] not in serialized
+
+
+def test_template_parse_blocks_an_unmapped_header_before_confirmation() -> None:
+    client = TestClient(app)
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    parsed = client.post(
+        "/api/templates/parse",
+        headers=headers,
+        files={"file": ("minimal.docx", (FIXTURES / "templates" / "minimal.docx").read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert parsed.status_code == 200, parsed.text
+    assert parsed.json()["admission_assessment"]["status"] == "blocked"
+    rejected = client.post("/api/templates/parse/confirm", headers=headers, json=parsed.json())
+    assert rejected.status_code == 422, rejected.text
+    assert any(item["code"] == "unmapped_header" for item in rejected.json()["detail"]["admission"]["blockers"])
+
+
+def test_template_candidate_nested_style_is_blocked_before_confirmation():
+    client = TestClient(app)
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    parsed = client.post(
+        "/api/templates/parse",
+        headers=headers,
+        files={"file": ("admissible.docx", (FIXTURES / "templates" / "admissible.docx").read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert parsed.status_code == 200, parsed.text
+    candidate = parsed.json()
+    candidate["definition"]["sections"][0]["style"] = {"color": "NOTRGB"}
+
+    assessed = client.post("/api/templates/parse/assess", headers=headers, json=candidate)
+    assert assessed.status_code == 200, assessed.text
+    report = assessed.json()["admission_assessment"]
+    assert report["status"] == "blocked"
+    assert any(item["code"] == "style_color" for item in report["blockers"])
+
+    rejected = client.post("/api/templates/parse/confirm", headers=headers, json=candidate)
+    assert rejected.status_code == 422, rejected.text
+    assert any(item["code"] == "style_color" for item in rejected.json()["detail"]["admission"]["blockers"])
 
 
 def test_closed_college_admin_cannot_review_generic_template_candidate(closed_role_session) -> None:

@@ -7,22 +7,26 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import os
+import re
 import shutil
 import tempfile
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 
-from app.api.templates import get_store
+from app.api.templates import ensure_template_admitted_for_writing, get_store, template_admission
 from app.auth import can_manage, current_user
 from app.contracts.common import JobResponse
 from app.core.context import get_request_context
+from app.core.feature_flags import require_m2_workflow, require_template_migration, teacher_student_workflow_enabled
 from app.core.export.docx_exporter import export_project_to_docx
 from app.db import Store, data_dir, new_id
 from app.models.project import WritingProject
@@ -56,11 +60,24 @@ from app.services.access_service import visible_organization_ids
 from app.services.audit_service import list_audit_events
 from app.services.projects import create_project_from_template
 from app.services.project_check import check_project
-from app.services.project_validation import validate_project_completeness
+from app.services.project_validation import validate_heading_hierarchy, validate_project_completeness
 from app.services.project_versions import project_attachment_refs, project_content_hash, project_snapshot, resolve_project_attachment
+from app.services.references import ReferenceNumberError, merge_reference_number_owners, reconcile_reference_numbers
 from app.services.resource_access import assert_resource_read
 from app.services.policy_resolver import hydrate_requirement_set
 from app.services.template_source import resolve_template_source
+from app.services.upload_security import IMAGE_MAX_BYTES
+from app.services.docx_output_check import (
+    DocxOutputCheckError,
+    expected_output_check_identity,
+    output_check_identity,
+    require_docx_output_pass,
+    safe_output_check_diagnostics,
+    source_template_bytes,
+    verify_report_binding,
+    verify_report_identity,
+)
+from app.services.manual_output_review import review_identity, review_required, review_view
 from app.services.wechat_content_security import assert_ugc_safe
 
 router = APIRouter(prefix="/api", tags=["workflow"])
@@ -68,6 +85,17 @@ router = APIRouter(prefix="/api", tags=["workflow"])
 _MANAGER_ROLES = {"admin", "college_admin"}
 _WORKFLOW_MANAGER_ROLES = _MANAGER_ROLES | {"teacher"}
 _ACTIVE_STUDENT_STATES = set(ACTIVE_PARTICIPANT_STATES)
+
+
+@router.get("/workflow-capabilities")
+def workflow_capabilities(user: dict = Depends(current_user)) -> dict:
+    from app.services.word_optional_pdf import word_pdf_available
+    return {"m2_workflow_enabled": teacher_student_workflow_enabled(), "optional_pdf_enabled": word_pdf_available()}
+
+
+class ManualOutputReviewRequest(BaseModel):
+    output_sha256: str
+    confirmed_check_ids: list[str]
 
 
 def _archive_dir() -> Path:
@@ -78,6 +106,213 @@ def _archive_dir() -> Path:
     改为函数式，避免在 import 期把环境变量固化，测试与运维切换后即时生效。
     """
     return data_dir() / "archives"
+
+
+def _candidate_artifact_path(candidate_id: str) -> Path:
+    if not re.fullmatch(r"candidate-[0-9a-f]{12}", str(candidate_id)):
+        raise ValueError("invalid candidate identity")
+    return data_dir() / "submission-artifacts" / f"{candidate_id}.docx"
+
+
+def _require_automatic_candidate_check(report: dict) -> None:
+    if not review_required(report):
+        return
+    raise DocxOutputCheckError({
+        "status": "unverifiable",
+        "checks": [{
+            "rule": "workflow.automatic_output_check",
+            "status": "unverifiable",
+            "object": "document",
+            "evidence": "成品仍有未完成的自动版面检查",
+        }],
+        "check_count": 1,
+        "passed_count": 0,
+        "unsupported": [],
+    })
+
+
+def _freeze_candidate_artifact(candidate: dict, version: dict) -> dict:
+    """Render and check the document once for this frozen submission candidate."""
+    project = WritingProject.model_validate(version["content_snapshot"])
+    if validate_heading_hierarchy(project.sections):
+        raise ValueError("frozen project has invalid heading hierarchy")
+    template = PaperTemplate.model_validate(project.template_snapshot or project.template_source_snapshot)
+    source_path = resolve_template_source(template.source_docx) if template.source_docx else None
+    source = source_template_bytes(source_path)
+    if template.source_docx and source is None:
+        raise ValueError("source template is missing")
+    if project_content_hash(project) != version.get("content_hash") or project_attachment_refs(project) != version.get("attachment_refs"):
+        raise ValueError("submission snapshot or attachments changed")
+    target = _candidate_artifact_path(candidate["id"])
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f"{candidate['id']}-", dir=target.parent) as temporary:
+        rendered = Path(temporary) / "document.docx"
+        export_project_to_docx(project, template, str(rendered), template_path=source_path)
+        data = rendered.read_bytes()
+        report = require_docx_output_pass(data, project, template, source_template_bytes=source, context_kind="workflow-candidate")
+        _require_automatic_candidate_check(report)
+        if source_template_bytes(source_path) != source or project_attachment_refs(project) != version.get("attachment_refs"):
+            raise ValueError("template or attachments changed during rendering")
+        if not verify_report_binding(report, data) or not verify_report_identity(report, expected_output_check_identity(project, template, source)):
+            raise ValueError("output check does not match the frozen candidate")
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.write(data)
+                output.flush()
+                os.fsync(output.fileno())
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
+    return {"docx_sha256": hashlib.sha256(data).hexdigest(), "output_check": report}
+
+
+def _verified_candidate_artifact(store: Store, candidate: dict, version: dict) -> tuple[bytes, dict]:
+    """Recheck the candidate bytes against its snapshot and current checker."""
+    if (candidate.get("project_version_id") != version.get("id")
+            or candidate.get("project_id") != version.get("project_id")
+            or candidate.get("content_hash") != version.get("content_hash")):
+        raise ValueError("candidate and version differ")
+    project = WritingProject.model_validate(version["content_snapshot"])
+    if validate_heading_hierarchy(project.sections):
+        raise ValueError("frozen project has invalid heading hierarchy")
+    if (project_content_hash(project) != version.get("content_hash")
+            or project_attachment_refs(project) != version.get("attachment_refs")):
+        raise ValueError("submission snapshot or attachments changed")
+    template = PaperTemplate.model_validate(project.template_snapshot or project.template_source_snapshot)
+    source_path = resolve_template_source(template.source_docx) if template.source_docx else None
+    source = source_template_bytes(source_path)
+    if template.source_docx and source is None:
+        raise ValueError("source template is missing")
+    artifact = candidate.get("artifact") or {}
+    data = _candidate_artifact_path(candidate["id"]).read_bytes()
+    report = artifact.get("output_check") or {}
+    if (artifact.get("docx_sha256") != hashlib.sha256(data).hexdigest()
+            or not verify_report_binding(report, data)
+            or not verify_report_identity(report, expected_output_check_identity(project, template, source))):
+        raise ValueError("submission artifact no longer matches its check")
+    fresh_report = require_docx_output_pass(data, project, template, source_template_bytes=source, context_kind="workflow-candidate")
+    if (source_template_bytes(source_path) != source or project_attachment_refs(project) != version.get("attachment_refs")
+            or output_check_identity(report) != output_check_identity(fresh_report)
+            or review_identity(report) != review_identity(fresh_report)):
+        raise ValueError("submission artifact check has changed")
+    return data, fresh_report
+
+
+def _candidate_material_dir(candidate_id: str) -> Path:
+    _candidate_artifact_path(candidate_id)
+    return data_dir() / "submission-artifacts" / candidate_id / "materials"
+
+
+def _freeze_candidate_materials(store: Store, candidate: dict, states: list[dict]) -> dict:
+    """Freeze only the materials required by this submission's stage."""
+    from app.api.process_records import _process_file_dir, _record_view
+    from app.services.upload_security import IMPORT_MAX_BYTES
+
+    requirements = [
+        {"requirement": state["requirement"], "record_ids": sorted(set(state["record_ids"]))}
+        for state in states
+    ]
+    record_ids = sorted({record_id for state in requirements for record_id in state["record_ids"]})
+    parent = _candidate_material_dir(candidate["id"]).parent
+    parent.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if parent.exists():
+        raise ValueError("submission material directory already exists")
+    records = []
+    seen_files = set()
+    with tempfile.TemporaryDirectory(prefix=f"{candidate['id']}-materials-", dir=parent.parent) as temporary:
+        temp_dir = Path(temporary) / "materials"
+        temp_dir.mkdir(mode=0o700)
+        for record_id in record_ids:
+            record = store.get_workflow_record("process_record", record_id)
+            if (not record or record.get("scope_type") != "participant"
+                    or record.get("scope_id") != candidate["participant_id"]):
+                raise ValueError("submission material is unavailable")
+            public = _record_view(record)
+            for source, attachment in zip(record.get("attachments", []), public.get("attachments", []), strict=True):
+                file_id = str(source.get("id") or "")
+                if not re.fullmatch(r"file-[0-9a-f]{12}", file_id) or file_id in seen_files:
+                    raise ValueError("invalid submission material identity")
+                seen_files.add(file_id)
+                path = Path(source.get("storage_path") or "").resolve()
+                base = _process_file_dir().resolve()
+                if not path.is_file() or not path.is_relative_to(base):
+                    raise ValueError("submission material is unavailable")
+                with path.open("rb") as source_file:
+                    data = source_file.read(IMPORT_MAX_BYTES + 1)
+                if (len(data) > IMPORT_MAX_BYTES or len(data) != source.get("size_bytes")
+                        or hashlib.sha256(data).hexdigest() != source.get("sha256")):
+                    raise ValueError("submission material differs from its recorded digest")
+                fd = os.open(temp_dir / file_id, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as output:
+                    output.write(data)
+                    output.flush()
+                    os.fsync(output.fileno())
+                attachment.pop("download_url", None)
+            records.append({"record": public, "source_record_sha256": _hash(record)})
+        if seen_files:
+            parent.mkdir(mode=0o700)
+            temp_dir.rename(_candidate_material_dir(candidate["id"]))
+    body = {"version": 1, "candidate_id": candidate["id"], "participant_id": candidate["participant_id"],
+            "requirements": requirements, "records": records}
+    return {**body, "sha256": _hash(body)}
+
+
+def _verified_candidate_materials(store: Store, candidate: dict, *, check_live: bool = False,
+                                  conn=None) -> tuple[list[dict], dict[str, bytes]]:
+    from app.services.upload_security import IMPORT_MAX_BYTES
+
+    snapshot = candidate.get("material_snapshot")
+    required = (candidate.get("stage_config_snapshot") or {}).get("required_materials") or []
+    if snapshot is None and not required:
+        return [], {}
+    if not isinstance(snapshot, dict):
+        raise ValueError("submission materials were not frozen")
+    body = {key: value for key, value in snapshot.items() if key != "sha256"}
+    if (snapshot.get("sha256") != _hash(body) or body.get("version") != 1
+            or body.get("candidate_id") != candidate.get("id")
+            or body.get("participant_id") != candidate.get("participant_id")
+            or [item.get("requirement") for item in body.get("requirements", [])] != required):
+        raise ValueError("submission material snapshot does not match candidate")
+    expected_ids = {record_id for item in body["requirements"] for record_id in item.get("record_ids", [])}
+    entries = body.get("records")
+    if not isinstance(entries, list) or len(entries) != len(expected_ids):
+        raise ValueError("submission material snapshot is incomplete")
+    records, files, seen_ids = [], {}, set()
+    for entry in entries:
+        record = entry.get("record") or {}
+        record_id = record.get("id")
+        if (record_id not in expected_ids or record_id in seen_ids
+                or record.get("scope_type") != "participant"
+                or record.get("scope_id") != candidate.get("participant_id")):
+            raise ValueError("submission material identity mismatch")
+        seen_ids.add(record_id)
+        if check_live:
+            current = _must(store, "process_record", record_id, "过程材料", conn=conn)
+            if _hash(current) != entry.get("source_record_sha256"):
+                raise ValueError("submission material changed after precheck")
+        for attachment in record.get("attachments", []):
+            file_id = str(attachment.get("id") or "")
+            if not re.fullmatch(r"file-[0-9a-f]{12}", file_id) or file_id in files:
+                raise ValueError("invalid submission material file identity")
+            path = _candidate_material_dir(candidate["id"]) / file_id
+            with path.open("rb") as source:
+                data = source.read(IMPORT_MAX_BYTES + 1)
+            if (len(data) > IMPORT_MAX_BYTES or len(data) != attachment.get("size_bytes")
+                    or hashlib.sha256(data).hexdigest() != attachment.get("sha256")):
+                raise ValueError("submission material file changed")
+            files[file_id] = data
+        records.append(record)
+    if seen_ids != expected_ids:
+        raise ValueError("submission material records do not match requirements")
+    if check_live and required:
+        from app.api.process_records import material_requirement_state
+        for item in body["requirements"]:
+            state = material_requirement_state(store, candidate["participant_id"], item["requirement"], candidate.get("materials"))
+            if not state["passed"] or sorted(set(state["record_ids"])) != item["record_ids"]:
+                raise ValueError("submission material requirements changed")
+    return records, files
+
 
 _OUTBOX_MAX_ATTEMPTS = 5
 
@@ -120,8 +355,14 @@ def _record(store: Store, kind: str, record: dict, *, expected_revision: int | N
     return record
 
 
-def _must(store: Store, kind: str, record_id: str, label: str) -> dict:
-    record = WorkflowRepository(store).get(kind, record_id)
+def _must(store: Store, kind: str, record_id: str, label: str, *, conn=None) -> dict:
+    if conn is None:
+        record = WorkflowRepository(store).get(kind, record_id)
+    else:
+        row = conn.execute(
+            "SELECT data FROM workflow_records WHERE kind = ? AND id = ?", (kind, record_id),
+        ).fetchone()
+        record = json.loads(row["data"]) if row else None
     if record is None:
         raise HTTPException(status_code=404, detail=f"{label}不存在")
     return record
@@ -250,23 +491,49 @@ def _ensure_cohort_access(store: Store, user: dict, cohort_id: str) -> dict:
     return cohort
 
 
-def _supervisions(store: Store, cohort_id: str, student_id: str | None = None) -> list[dict]:
-    records = [
-        item for item in store.list_workflow_records("supervision", limit=None)
-        if item.get("cohort_id") == cohort_id
-        and (student_id is None or item.get("student_id") == student_id)
-    ]
+def _supervisions(store: Store, cohort_id: str, student_id: str | None = None, *, conn=None) -> list[dict]:
+    if conn is None:
+        records = store.list_workflow_records("supervision", limit=None)
+    else:
+        rows = conn.execute(
+            "SELECT data FROM workflow_records WHERE kind = 'supervision' "
+            "AND json_extract(data, '$.cohort_id') = ?",
+            (cohort_id,),
+        ).fetchall()
+        records = [json.loads(row["data"]) for row in rows]
+    records = [item for item in records if item.get("cohort_id") == cohort_id
+               and (student_id is None or item.get("student_id") == student_id)]
     return sorted(records, key=lambda item: item.get("effective_from") or item.get("created_at", ""), reverse=True)
 
 
-def _current_supervision(store: Store, cohort_id: str, student_id: str, now: datetime | None = None) -> dict | None:
+def _current_supervision(store: Store, cohort_id: str, student_id: str, now: datetime | None = None, *, conn=None) -> dict | None:
     now = now or datetime.now(timezone.utc)
-    for item in _supervisions(store, cohort_id, student_id):
+    for item in _supervisions(store, cohort_id, student_id, conn=conn):
         start = _parse_time(item.get("effective_from", ""), "生效时间") or datetime.min.replace(tzinfo=timezone.utc)
         end = _parse_time(item.get("effective_to", ""), "结束时间")
         if item.get("active", True) and start <= now and (end is None or now < end):
             return item
     return None
+
+
+def _ensure_current_teacher_for_write(store: Store, user: dict, participant: dict, *, conn) -> None:
+    if user["role"] == "teacher":
+        relation = _current_supervision(store, participant["cohort_id"], participant["student_id"], conn=conn)
+        if not relation or relation.get("teacher_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="当前教师不是该学生的有效指导教师")
+
+
+def _ensure_teacher_supervision_write(user: dict, teacher_id: str, records: list[dict]) -> None:
+    if user["role"] != "teacher":
+        return
+    now = datetime.now(timezone.utc)
+    other_assignment = any(
+        item.get("active", True) and item.get("teacher_id") != user["id"]
+        and ((end := _parse_time(item.get("effective_to", ""), "结束时间")) is None or end > now)
+        for item in records
+    )
+    if teacher_id != user["id"] or other_assignment:
+        raise HTTPException(status_code=403, detail="教师只能维护自己的指导关系；转交请联系管理员")
 
 
 def supervised_student_ids(store: Store, teacher_id: str) -> dict[str, str]:
@@ -367,7 +634,7 @@ def _prerequisites_satisfied(store: Store, participant: dict, config: dict) -> b
     required_stage_ids = config.get("prerequisite_stage_ids", [])
     if not required_stage_ids:
         return True
-    participants = store.list_workflow_records("participant")
+    participants = store.list_workflow_records("participant", limit=None)
     return all(
         any(
             item.get("stage_id") == stage_id
@@ -410,7 +677,7 @@ def _ensure_project_workflow_access(store: Store, user: dict, project_id: str) -
     if user["role"] == "teacher":
         if getattr(project, "teacher_id", "") == user["id"] or project.owner_id == user["id"]:
             return project
-        participant = next((item for item in store.list_workflow_records("participant")
+        participant = next((item for item in store.list_workflow_records("participant", limit=None)
                             if item.get("project_id") == project_id and item.get("student_id")), None)
         relation = _current_supervision(store, participant["cohort_id"], participant["student_id"]) if participant else None
         if relation and relation.get("teacher_id") == user["id"]:
@@ -513,8 +780,13 @@ def _task_view(store: Store, participant: dict) -> dict:
 def _stage_preview(store: Store, stage: dict, cohort: dict, config: dict) -> dict:
     errors: list[str] = []
     warnings: list[str] = []
-    if not config.get("template_id") or store.get_template(config["template_id"]) is None:
+    template = store.get_template(config.get("template_id", "")) if config.get("template_id") else None
+    if template is None:
         errors.append("阶段必须绑定已存在的模板")
+    else:
+        admission = template_admission(template)
+        if not admission["can_use_for_draft"]:
+            errors.append("阶段模板含有当前检查器无法覆盖的结构，不能发布此阶段")
     for set_id in config.get("requirement_set_ids", []) or []:
         requirement_set = store.get_requirement_set(set_id)
         if requirement_set is None:
@@ -545,7 +817,15 @@ def _stage_preview(store: Store, stage: dict, cohort: dict, config: dict) -> dic
 
 
 def _gate(candidate: dict) -> list[dict]:
-    return [item for item in candidate.get("gates", []) if item.get("blocking")]
+    blocked = [item for item in candidate.get("gates", []) if item.get("blocking")]
+    unchecked = [item for item in (candidate.get("check_report") or {}).get("not_checked", [])
+                 if isinstance(item, dict) and item.get("enforce") == "hard"]
+    if unchecked and not any(item.get("key") == "automatic_unverified" for item in blocked):
+        blocked.append({
+            "key": "automatic_unverified", "label": "必需规则尚未自动检查", "passed": False,
+            "blocking": True, "detail": [item.get("description") or item.get("id") or "未命名规则" for item in unchecked],
+        })
+    return blocked
 
 
 def _stale_candidate_waiver_ids(store: Store, candidate: dict) -> list[str]:
@@ -569,8 +849,63 @@ def _stale_candidate_waiver_ids(store: Store, candidate: dict) -> list[str]:
     )
 
 
-def _comment_records(store: Store, submission_id: str) -> list[dict]:
-    return [item for item in store.list_workflow_records("comment") if item.get("submission_id") == submission_id]
+def _comment_records(store: Store, submission_id: str, *, conn=None) -> list[dict]:
+    if conn is not None:
+        rows = conn.execute(
+            "SELECT data FROM workflow_records WHERE kind = 'comment' "
+            "AND json_extract(data, '$.submission_id') = ? ORDER BY updated_at DESC, id",
+            (submission_id,),
+        ).fetchall()
+        return [json.loads(row["data"]) for row in rows]
+    return [item for item in store.list_workflow_records("comment", limit=None) if item.get("submission_id") == submission_id]
+
+
+def _prior_unresolved_comments(store: Store, submission: dict, *, conn=None) -> list[dict]:
+    """Keep unresolved feedback visible and enforceable across revision rounds."""
+    def load(kind: str, record_id: str) -> dict | None:
+        if conn is None:
+            return store.get_workflow_record(kind, record_id)
+        row = conn.execute(
+            "SELECT data FROM workflow_records WHERE kind = ? AND id = ?", (kind, record_id),
+        ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    result = []
+    seen = {submission["id"]}
+    prior_id = submission.get("prior_submission_id") or ""
+    while prior_id:
+        if prior_id in seen:
+            raise _conflict("SUBMISSION_HISTORY_INVALID", "提交历史存在循环，请联系系统管理员")
+        seen.add(prior_id)
+        prior = load("submission", prior_id)
+        if not prior or prior.get("participant_id") != submission.get("participant_id"):
+            raise _conflict("SUBMISSION_HISTORY_INVALID", "提交历史缺失或不属于当前任务，请联系系统管理员")
+        comments = [item for item in _comment_records(store, prior_id, conn=conn) if item.get("status") != "resolved"]
+        version = load("project_version", prior.get("project_version_id", "")) if comments else None
+        sections = ((version or {}).get("content_snapshot") or {}).get("sections") or []
+        for comment in comments:
+            matches = [
+                (section, block) for section in sections for block in section.get("paragraphs", [])
+                if block.get("id") == comment.get("block_id") and comment.get("block_id")
+            ]
+            section, block = matches[0] if len(matches) == 1 else ({}, {})
+            result.append({
+                **comment,
+                "source_submission_number": prior.get("submission_number", ""),
+                "source_section_title": section.get("title") or section.get("key") or "",
+                "source_text": (block.get("text") or (block.get("image") or {}).get("caption")
+                                or (block.get("table") or {}).get("caption") or ""),
+            })
+        prior_id = prior.get("prior_submission_id") or ""
+    return result
+
+
+def _open_blocking_feedback(store: Store, participant_id: str, prior_id: str, *, conn=None) -> list[dict]:
+    if not prior_id:
+        return []
+    history = {"id": "", "participant_id": participant_id, "prior_submission_id": prior_id}
+    return [item for item in _prior_unresolved_comments(store, history, conn=conn)
+            if item.get("severity") == "blocking" and item.get("status") == "open"]
 
 
 def _conflict(code: str, message: str, **extra: Any) -> HTTPException:
@@ -599,7 +934,7 @@ def _latest_review(store: Store, submission: dict) -> dict | None:
         record = store.get_workflow_record("review", review_id)
         if record:
             return _public_review(record)
-    reviews = [item for item in store.list_workflow_records("review") if item.get("submission_id") == submission.get("id")]
+    reviews = [item for item in store.list_workflow_records("review", limit=None) if item.get("submission_id") == submission.get("id")]
     if not reviews:
         return None
     reviews.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
@@ -610,16 +945,50 @@ def _archive_view(archive: dict) -> dict:
     """Return the public archive contract without exposing server filesystem paths."""
     result = {key: value for key, value in archive.items() if key != "file_path"}
     result.setdefault("job_id", archive.get("id", ""))
+    if isinstance(archive.get("manifest"), dict):
+        report = (archive.get("manifest") or {}).get("output_check")
+        result["manual_review"] = review_view(report, None)
     if archive.get("status") == "succeeded":
-        result["download_url"] = f"/api/archives/{archive['id']}/download"
+        if result.get("manual_review", {}).get("status") == "required":
+            result.pop("review_candidate_url", None)
+            result.pop("download_url", None)
+        else:
+            result["download_url"] = f"/api/archives/{archive['id']}/download"
     return result
+
+
+def _submission_stage_config(store: Store, submission: dict, stage: dict, fallback: dict, *, conn=None) -> dict:
+    snapshot = submission.get("stage_config_snapshot")
+    config_id = submission.get("stage_config_id")
+    if snapshot is not None:
+        if (not isinstance(snapshot, dict) or not config_id or snapshot.get("id") != config_id
+                or snapshot.get("stage_id") != stage.get("id")):
+            raise _conflict("SUBMISSION_CONFIG_INVALID", "提交时的阶段配置不可用，请联系系统管理员恢复")
+        candidate_id = submission.get("candidate_id")
+        try:
+            candidate = _must(store, "candidate", candidate_id, "提交候选版本", conn=conn) if candidate_id else None
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            candidate = None
+        if (not candidate or candidate.get("submission_id") != submission.get("id")
+                or candidate.get("stage_config_id") != config_id
+                or candidate.get("stage_config_snapshot") != snapshot):
+            raise _conflict("SUBMISSION_CONFIG_INVALID", "提交时的阶段配置不可用，请联系系统管理员恢复")
+        return snapshot
+    if config_id:
+        config = _must(store, "stage_config", config_id, "提交时的阶段配置", conn=conn)
+        if config.get("stage_id") != stage.get("id"):
+            raise _conflict("SUBMISSION_CONFIG_INVALID", "提交时的阶段配置不可用，请联系系统管理员恢复")
+        return config
+    return fallback
 
 
 def _submission_access(store: Store, user: dict, submission: dict) -> tuple[dict, dict, dict, dict]:
     participant, stage, cohort, config = _participant_access(store, user, submission["participant_id"])
     if user["role"] in _MANAGER_ROLES and not _cohort_access(store, user, cohort):
         raise HTTPException(status_code=403, detail="无权访问此提交")
-    return submission, participant, stage, config
+    return submission, participant, stage, _submission_stage_config(store, submission, stage, config)
 
 
 @router.post("/cohorts", status_code=201)
@@ -673,12 +1042,17 @@ def upsert_member(cohort_id: str, req: MemberUpsert, store: Store = Depends(get_
     teacher = _ensure_active_person(store, teacher_id, "teacher", "教师")
     effective_from = req.effective_from or _now()
     _parse_time(effective_from, "生效时间", required=True)
-    if student_id not in cohort.get("member_ids", []):
-        cohort["member_ids"] = [*cohort.get("member_ids", []), student_id]
-    current = _current_supervision(store, cohort_id, student_id)
     with store.workflow_transaction() as conn:
+        cohort = _must(store, "cohort", cohort_id, "批次")
+        if cohort.get("status") == "closed":
+            raise HTTPException(status_code=409, detail="批次已关闭，不能新增或变更指导关系")
+        records = _supervisions(store, cohort_id, student_id, conn=conn)
+        _ensure_teacher_supervision_write(user, teacher_id, records)
+        current = _current_supervision(store, cohort_id, student_id, conn=conn)
         if current and current.get("teacher_id") == teacher_id:
             return current
+        if student_id not in cohort.get("member_ids", []):
+            cohort["member_ids"] = [*cohort.get("member_ids", []), student_id]
         now = _now()
         if current:
             current["active"] = False
@@ -692,7 +1066,7 @@ def upsert_member(cohort_id: str, req: MemberUpsert, store: Store = Depends(get_
         _record(store, "supervision", relation, conn=conn)
         _record(store, "cohort", cohort, expected_revision=cohort.get("revision", 0), conn=conn)
         # 未完成审核的任务跟随当前有效指导关系，历史审核者不变。
-        for participant in store.list_workflow_records("participant"):
+        for participant in store.list_workflow_records("participant", limit=None):
             if participant.get("cohort_id") == cohort_id and participant.get("student_id") == student_id \
                     and participant.get("state") not in {"approved", "archived"}:
                 previous_teacher_id = participant.get("teacher_id", "")
@@ -753,7 +1127,7 @@ def _normalize_member_payload(store: Store, payload: dict[str, Any]) -> dict[str
 
 
 def _member_import_row(store: Store, cohort: dict, raw: dict[str, Any], row_number: int,
-                       seen_students: set[str]) -> dict[str, Any]:
+                       seen_students: set[str], user: dict) -> dict[str, Any]:
     base = {
         "row_number": row_number,
         "student_id": str(raw.get("student_id", "")).strip() if isinstance(raw, dict) else "",
@@ -784,6 +1158,10 @@ def _member_import_row(store: Store, cohort: dict, raw: dict[str, Any], row_numb
         _ensure_active_person(store, member.teacher_id, "teacher", "教师")
     except HTTPException as exc:
         base["errors"].append(str(exc.detail))
+    try:
+        _ensure_teacher_supervision_write(user, member.teacher_id, _supervisions(store, cohort["id"], member.student_id))
+    except HTTPException as exc:
+        base["errors"].append(str(exc.detail))
     current = _current_supervision(store, cohort["id"], member.student_id)
     if current and current.get("teacher_id") == member.teacher_id:
         base["warnings"].append("该指导关系已存在，重试不会重复创建")
@@ -798,7 +1176,7 @@ def import_members(cohort_id: str, req: MemberImportRequest, store: Store = Depe
     _ensure_manager(user, workflow=True)
     cohort = _ensure_cohort_access(store, user, cohort_id)
     seen_students: set[str] = set()
-    results = [_member_import_row(store, cohort, raw, index + 1, seen_students) for index, raw in enumerate(req.rows)]
+    results = [_member_import_row(store, cohort, raw, index + 1, seen_students, user) for index, raw in enumerate(req.rows)]
     if not req.dry_run:
         for result in results:
             if result["status"] != "ready":
@@ -836,8 +1214,10 @@ def create_stage(cohort_id: str, req: StageCreate, store: Store = Depends(get_st
     if any(item.get("key") == req.key for item in store.list_workflow_records("stage") if item.get("cohort_id") == cohort_id):
         raise HTTPException(status_code=409, detail="同一批次中阶段 key 不能重复")
     template_id = req.template_id or "default-gb7713"
-    if store.get_template(template_id) is None:
+    template = store.get_template(template_id)
+    if template is None:
         raise HTTPException(status_code=422, detail="阶段模板不存在")
+    ensure_template_admitted_for_writing(template)
     unknown_materials = [item for item in req.required_materials if catalog_item(item) is None]
     if unknown_materials:
         raise HTTPException(status_code=422, detail=f"阶段必交材料未登记: {', '.join(unknown_materials)}")
@@ -917,8 +1297,10 @@ def create_stage_version(stage_id: str, req: StageVersionCreate,
         if value is not None:
             new_config[field] = value
     template_id = new_config.get("template_id") or "default-gb7713"
-    if store.get_template(template_id) is None:
+    template = store.get_template(template_id)
+    if template is None:
         raise HTTPException(status_code=422, detail="阶段模板不存在")
+    ensure_template_admitted_for_writing(template)
     unknown_materials = [item for item in new_config.get("required_materials", []) if catalog_item(item) is None]
     if unknown_materials:
         raise HTTPException(status_code=422, detail=f"阶段必交材料未登记: {', '.join(unknown_materials)}")
@@ -950,6 +1332,8 @@ def publish_stage_version(stage_id: str, config_id: str, req: StageVersionPublis
                           store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict[str, Any]:
     """Publish one draft config and explicitly migrate only selected tasks."""
     _ensure_manager(user, workflow=True)
+    if req.participant_ids:
+        require_template_migration()
     stage = _must(store, "stage", stage_id, "阶段")
     cohort = _ensure_cohort_access(store, user, stage["cohort_id"])
     if stage.get("status") != "published":
@@ -966,15 +1350,15 @@ def publish_stage_version(stage_id: str, config_id: str, req: StageVersionPublis
     if not preview["ok"]:
         raise HTTPException(status_code=409, detail={"message": "阶段配置存在发布阻断项", "errors": preview["errors"], "warnings": preview["warnings"]})
     requested_ids = list(dict.fromkeys(req.participant_ids))
-    participants = [item for item in store.list_workflow_records("participant") if item.get("stage_id") == stage_id]
+    participants = [item for item in store.list_workflow_records("participant", limit=None) if item.get("stage_id") == stage_id]
     by_id = {item["id"]: item for item in participants}
     missing_ids = [item for item in requested_ids if item not in by_id]
     if missing_ids:
         raise HTTPException(status_code=404, detail={"message": "待迁移阶段任务不存在", "participant_ids": missing_ids})
     selected = [by_id[item] for item in requested_ids]
-    blocked = [item["id"] for item in selected if item.get("state") in {"archived", "exited"}]
+    blocked = [item["id"] for item in selected if item.get("state") not in ACTIVE_PARTICIPANT_STATES]
     if blocked:
-        raise HTTPException(status_code=409, detail={"message": "已归档或已退出任务不能迁移配置版本", "participant_ids": blocked})
+        raise HTTPException(status_code=409, detail={"message": "只有可编辑的阶段任务可以切换配置；审核中或已完成任务请先撤回、退回或重开", "participant_ids": blocked})
     incompatible = []
     for item in selected:
         project = store.get_project(item.get("project_id", "")) if item.get("project_id") else None
@@ -1068,7 +1452,7 @@ def publish_stage(stage_id: str, store: Store = Depends(get_store), user: dict =
 @router.get("/my-tasks")
 def my_tasks(store: Store = Depends(get_store), user: dict = Depends(current_user)) -> list[dict]:
     result = []
-    for participant in store.list_workflow_records("participant"):
+    for participant in store.list_workflow_records("participant", limit=None):
         cohort_id = participant.get("cohort_id")
         student_id = participant.get("student_id")
         if not cohort_id or not student_id or not participant.get("stage_id"):
@@ -1094,7 +1478,7 @@ def get_participant(participant_id: str, store: Store = Depends(get_store), user
 @router.get("/projects/{project_id}/versions")
 def list_project_versions(project_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> list[dict]:
     _ensure_project_workflow_access(store, user, project_id)
-    return [item for item in store.list_workflow_records("project_version") if item.get("project_id") == project_id]
+    return [item for item in store.list_workflow_records("project_version", limit=None) if item.get("project_id") == project_id]
 
 
 def _version_summary(version: dict) -> dict:
@@ -1196,30 +1580,71 @@ def restore_project_version(project_id: str, req: RestoreVersionRequest,
     if user.get("role") == "student":
         from app.api.projects import _ensure_student_can_write
         _ensure_student_can_write(current, user, store)
-    version = _must(store, "project_version", req.version_id, "论文版本")
-    if version.get("project_id") != project_id:
-        raise HTTPException(status_code=404, detail="论文版本不存在")
     expected = current.revision if req.base_revision is None else req.base_revision
     if expected != current.revision:
         raise HTTPException(status_code=409, detail={"message": "当前论文已被更新，请刷新后重试", "revision": current.revision})
-    snapshot = WritingProject.model_validate(version["content_snapshot"])
-    current.title = snapshot.title
-    current.meta = snapshot.meta
-    current.sections = snapshot.sections
-    saved = store.update_project_if_revision(current, expected)
-    if saved is None:
-        raise HTTPException(status_code=409, detail="当前论文已被更新，请刷新后重试")
-    restored_version = {
-        "id": new_id("version"), "project_id": project_id, "source_revision": saved.revision,
-        "content_snapshot": project_snapshot(saved), "attachment_refs": project_attachment_refs(saved),
-        "content_hash": project_content_hash(saved), "created_by": user["id"],
-        "created_reason": "restore_version", "restored_from_version_id": version["id"],
-        "immutable": True, "revision": 0, "created_at": _now(),
-    }
+    observed_hash = project_content_hash(current)
     with store.workflow_transaction() as conn:
+        row = conn.execute("SELECT data FROM projects WHERE id = ?", (project_id,)).fetchone()
+        locked = WritingProject.model_validate_json(row["data"]) if row else None
+        if (locked is None or locked.tenant_id or locked.membership_id or locked.revision != expected
+                or project_content_hash(locked) != observed_hash):
+            raise HTTPException(status_code=409, detail="当前论文已被更新，请刷新后重试")
+        row = conn.execute(
+            "SELECT data FROM workflow_records WHERE kind = 'project_version' AND id = ?", (req.version_id,),
+        ).fetchone()
+        version = json.loads(row["data"]) if row else None
+        if not version or version.get("project_id") != project_id:
+            raise HTTPException(status_code=404, detail="论文版本不存在")
+        raw_snapshot = version.get("content_snapshot")
+        required = {"id", "template_id", "template_snapshot", "template_source_snapshot",
+                    "layout_template_snapshot", "requirement_snapshot", "meta", "sections"}
+        if (not isinstance(raw_snapshot, dict) or not required.issubset(raw_snapshot)
+                or raw_snapshot.get("id") != project_id or not version.get("immutable")
+                or not version.get("content_hash")
+                or project_content_hash(raw_snapshot) != version["content_hash"]):
+            raise HTTPException(status_code=409, detail="历史版本快照不完整或校验失败，无法恢复")
+        try:
+            snapshot = WritingProject.model_validate(raw_snapshot)
+            historical = snapshot.model_copy(deep=True)
+            reconcile_reference_numbers(snapshot, historical)
+            current_with_owners = locked.model_copy(deep=True)
+            reconcile_reference_numbers(locked, current_with_owners)
+            current_with_owners.reference_number_owners = merge_reference_number_owners(
+                current_with_owners.reference_number_owners, historical.reference_number_owners,
+            )
+            restored = locked.model_copy(deep=True)
+            for field in ("template_id", "template_name", "template_snapshot", "template_source_snapshot",
+                          "layout_template_snapshot", "requirement_snapshot", "title", "meta", "sections"):
+                setattr(restored, field, getattr(historical, field))
+            reconcile_reference_numbers(current_with_owners, restored)
+            # The store reconciles again against the actual current project.
+            # Its baseline must include every historical reservation too.
+            before_version = {
+                "id": new_id("version"), "project_id": project_id, "source_revision": locked.revision,
+                "content_snapshot": project_snapshot(locked), "attachment_refs": project_attachment_refs(locked),
+                "content_hash": project_content_hash(locked), "created_by": user["id"],
+                "created_reason": "before_restore_version", "immutable": True, "revision": 0, "created_at": _now(),
+            }
+            _record(store, "project_version", before_version, conn=conn)
+            saved = store.update_project_if_revision_conn(
+                conn, restored, expected, reference_number_owners=current_with_owners.reference_number_owners,
+            )
+        except (ValidationError, ReferenceNumberError) as exc:
+            raise HTTPException(status_code=409, detail=f"历史版本无法安全恢复: {exc}") from exc
+        if saved is None:
+            raise HTTPException(status_code=409, detail="当前论文已被更新，请刷新后重试")
+        restored_version = {
+            "id": new_id("version"), "project_id": project_id, "source_revision": saved.revision,
+            "content_snapshot": project_snapshot(saved), "attachment_refs": project_attachment_refs(saved),
+            "content_hash": project_content_hash(saved), "created_by": user["id"],
+            "created_reason": "restore_version", "restored_from_version_id": version["id"],
+            "immutable": True, "revision": 0, "created_at": _now(),
+        }
         _record(store, "project_version", restored_version, conn=conn)
         batch_id = (saved.organization_context or {}).get("batch_id", "")
-        cohort = store.get_workflow_record("cohort", batch_id)
+        row = conn.execute("SELECT data FROM workflow_records WHERE kind = 'cohort' AND id = ?", (batch_id,)).fetchone()
+        cohort = json.loads(row["data"]) if row else None
         _audit(store, conn, actor_id=user["id"], action="project.restore_version", resource_type="project", resource_id=project_id, organization_id=cohort.get("organization_id", "") if cohort else "")
     return {"project": saved, "version": restored_version}
 
@@ -1234,6 +1659,10 @@ def bind_project(participant_id: str, req: BindProjectRequest, store: Store = De
     if cohort.get("status") == "closed":
         raise HTTPException(status_code=409, detail="批次已关闭，不能绑定主论文")
     template_id = config["template_id"]
+    template = store.get_template(template_id)
+    if template is None:
+        raise HTTPException(status_code=404, detail="阶段要求的模板不存在")
+    ensure_template_admitted_for_writing(template)
     if req.project_id:
         project = store.get_project(req.project_id)
         if project is None or project.owner_id != user["id"]:
@@ -1244,7 +1673,6 @@ def bind_project(participant_id: str, req: BindProjectRequest, store: Store = De
         if bound_batch_id and bound_batch_id != cohort["id"]:
             raise HTTPException(status_code=409, detail="论文已绑定其他批次，不能跨批次复用")
     else:
-        template = store.get_template(template_id)
         context = dict(user.get("organization_context") or {})
         context["batch_id"] = cohort["id"]
         project = create_project_from_template(
@@ -1256,6 +1684,11 @@ def bind_project(participant_id: str, req: BindProjectRequest, store: Store = De
     if participant.get("project_id") and participant["project_id"] != project.id:
         raise HTTPException(status_code=409, detail="一个阶段只能绑定一篇主论文")
     with store.workflow_transaction() as conn:
+        if req.project_id and ((project.organization_context or {}).get("batch_id") != cohort["id"] or project.stage != stage["key"]):
+            project.organization_context = {**project.organization_context, "batch_id": cohort["id"]}
+            project.stage = stage["key"]
+            if store.update_project_if_revision_conn(conn, project, project.revision) is None:
+                raise HTTPException(status_code=409, detail="论文已更新，请刷新后重新绑定")
         participant["project_id"] = project.id
         if participant.get("state") == "not_started":
             opened = _parse_time(config.get("open_at", ""), "开放时间", required=True)
@@ -1298,11 +1731,19 @@ def extend_deadline(participant_id: str, req: ExtensionRequest, store: Store = D
     _ensure_manager(user, workflow=True)
     participant, stage, cohort, _ = _participant_access(store, user, participant_id)
     effective = _parse_time(req.effective_deadline_at, "延期截止时间", required=True)
-    current = _parse_time(participant.get("effective_deadline_at", ""), "现有截止时间")
-    if current and effective <= current:
-        raise HTTPException(status_code=422, detail="延期截止时间必须晚于现有截止时间")
     with store.workflow_transaction() as conn:
+        participant = _must(store, "participant", participant_id, "阶段任务", conn=conn)
+        _ensure_current_teacher_for_write(store, user, participant, conn=conn)
+        deadlines = [
+            _parse_time(participant.get(key, ""), "现有截止时间")
+            for key in ("effective_deadline_at", "revision_deadline_at")
+        ]
+        current = max((value for value in deadlines if value), default=None)
+        if current and effective <= current:
+            raise HTTPException(status_code=422, detail="延期截止时间必须晚于现有截止时间")
         participant["effective_deadline_at"] = effective.isoformat(timespec="seconds")
+        if participant.get("revision_deadline_at"):
+            participant["revision_deadline_at"] = participant["effective_deadline_at"]
         participant["extension"] = {"reason": req.reason.strip(), "approved_by": user["id"], "approved_at": _now()}
         _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
         _notify(store, conn, participant["student_id"], "participant.extended", "participant", participant_id, "阶段任务截止时间已延期")
@@ -1325,23 +1766,43 @@ def exit_participant(participant_id: str, req: ParticipantLifecycleRequest, stor
     return _task_view(store, participant)
 
 
-@router.post("/stage-participants/{participant_id}/reopen")
+@router.post("/stage-participants/{participant_id}/reopen", dependencies=[Depends(require_m2_workflow)])
 def reopen_participant(participant_id: str, req: ParticipantLifecycleRequest, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
-    _ensure_manager(user)
+    _ensure_manager(user, workflow=True)
+    if user["role"] != "teacher":
+        raise HTTPException(status_code=403, detail="只有当前指导教师可以重开阶段任务")
+    if not req.reason.strip():
+        raise HTTPException(status_code=422, detail="重开必须填写原因")
     participant, _, cohort, _ = _participant_access(store, user, participant_id)
     if participant.get("state") not in {"approved", "pending_archive", "archived"}:
         raise HTTPException(status_code=409, detail="只有已通过、待归档或已归档任务可以重开")
-    previous_submission_id = participant.get("current_submission_id", "")
-    previous_archive_id = participant.get("archive_id", "")
     with store.workflow_transaction() as conn:
+        participant = _must(store, "participant", participant_id, "阶段任务", conn=conn)
+        _ensure_current_teacher_for_write(store, user, participant, conn=conn)
+        if participant.get("state") not in {"approved", "pending_archive", "archived"}:
+            raise HTTPException(status_code=409, detail="只有已通过、待归档或已归档任务可以重开")
+        supervision = _current_supervision(store, participant["cohort_id"], participant["student_id"], conn=conn)
+        if not supervision or not supervision.get("teacher_id"):
+            raise HTTPException(status_code=409, detail="当前任务没有生效的指导教师，请先分配教师")
+        stage = _must(store, "stage", participant["stage_id"], "阶段", conn=conn)
+        config_id = participant.get("config_version_id") or stage.get("config_version_id", "")
+        config = _must(store, "stage_config", config_id, "阶段配置", conn=conn)
+        deadline = _parse_time(participant.get("effective_deadline_at", ""), "截止时间")
+        now = datetime.now(timezone.utc)
+        revision_deadline = max(deadline, now + timedelta(days=int(config.get("revision_days", 7)))) if deadline else None
+        if revision_deadline and revision_deadline <= now:
+            raise HTTPException(status_code=409, detail="修订期限已过，请先延长任务截止时间再重开")
+        previous_submission_id = participant.get("current_submission_id", "")
+        previous_archive_id = participant.get("archive_id", "")
         _transition(participant, "participant", "in_progress")
+        participant["teacher_id"] = supervision["teacher_id"]
         participant["current_submission_id"] = ""
         participant["last_submission_id"] = previous_submission_id or participant.get("last_submission_id", "")
         participant["previous_archive_id"] = previous_archive_id or participant.get("previous_archive_id", "")
         participant["reopen_count"] = int(participant.get("reopen_count", 0)) + 1
         participant["reopen"] = {"reason": req.reason.strip(), "actor_id": user["id"], "at": _now(), "from_submission_id": previous_submission_id, "from_archive_id": previous_archive_id}
         participant["archive_id"] = ""
-        participant["revision_deadline_at"] = ""
+        participant["revision_deadline_at"] = revision_deadline.isoformat(timespec="seconds") if revision_deadline else ""
         _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
         if previous_archive_id:
             archive = store.get_workflow_record("archive", previous_archive_id)
@@ -1388,7 +1849,7 @@ def reopen_cohort(cohort_id: str, req: CohortLifecycleRequest, store: Store = De
     return _cohort_view(store, user, cohort)
 
 
-@router.post("/submission-candidates", status_code=201)
+@router.post("/submission-candidates", status_code=201, dependencies=[Depends(require_m2_workflow)])
 def create_candidate(req: CandidateCreate, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     participant, stage, cohort, config = _participant_access(store, user, req.participant_id)
     if user["role"] != "student":
@@ -1435,6 +1896,7 @@ def create_candidate(req: CandidateCreate, store: Store = Depends(get_store), us
     gates = []
     hard_failures = int(report.get("summary", {}).get("hard_failures", 0))
     gates.append({"key": "automatic_checks", "label": "自动检查", "passed": check_status == "succeeded" and hard_failures == 0, "blocking": check_status != "succeeded" or hard_failures > 0, "detail": "存在自动硬性问题" if hard_failures else ""})
+    gates.extend(_gate({"check_report": report}))
     snapshot_hash = _requirements_basis_hash(config, project)
     acknowledged = not snapshot_hash or participant.get("acknowledged_snapshot_hash") == snapshot_hash
     gates.append({"key": "requirements_acknowledged", "label": "已确认当前规范", "passed": acknowledged, "blocking": not acknowledged, "detail": "请先确认本阶段写作要求" if not acknowledged else ""})
@@ -1453,7 +1915,7 @@ def create_candidate(req: CandidateCreate, store: Store = Depends(get_store), us
                   "blocking": bool(missing_attachments), "detail": missing_attachments})
     prior_id = participant.get("current_submission_id", "") or participant.get("last_submission_id", "") or participant.get("previous_submission_id", "")
     if prior_id:
-        open_comments = [item for item in _comment_records(store, prior_id) if item.get("severity") == "blocking" and item.get("status") == "open"]
+        open_comments = _open_blocking_feedback(store, participant["id"], prior_id)
         gates.append({"key": "comment_responses", "label": "阻断批注已回应", "passed": not open_comments, "blocking": bool(open_comments), "detail": [item["id"] for item in open_comments]})
     candidate = {
         "id": new_id("candidate"), "participant_id": participant["id"], "project_id": project.id,
@@ -1464,16 +1926,40 @@ def create_candidate(req: CandidateCreate, store: Store = Depends(get_store), us
         "gates": gates, "warning_count": int(report.get("summary", {}).get("warning", 0)),
         "status": "ready" if not _gate({"gates": gates}) else "blocked", "revision": 0, "created_at": _now(),
     }
+    if candidate["status"] == "ready":
+        try:
+            candidate["material_snapshot"] = _freeze_candidate_materials(store, candidate, material_states)
+        except Exception:
+            gates.append({"key": "material_snapshot", "label": "必交材料版本", "passed": False, "blocking": True,
+                          "detail": "必交材料无法冻结，请检查材料后重新预检"})
+            candidate["status"] = "blocked"
+    if candidate["status"] == "ready":
+        try:
+            candidate["artifact"] = _freeze_candidate_artifact(candidate, version)
+            gates.append({"key": "output_artifact", "label": "提交成品检查", "passed": True, "blocking": False, "detail": ""})
+        except Exception as exc:
+            detail = safe_output_check_diagnostics(exc.report) if isinstance(exc, DocxOutputCheckError) else {}
+            gates.append({"key": "output_artifact", "label": "提交成品检查", "passed": False, "blocking": True,
+                          "detail": "成品生成或检查未完成，请稍后重试或联系系统管理员", "diagnostic": detail})
+            candidate["status"] = "blocked"
+            shutil.rmtree(_candidate_material_dir(candidate["id"]).parent, ignore_errors=True)
     if check_status == "failed":
         candidate["check_error_code"] = "CHECK_FAILED"
-    with store.workflow_transaction() as conn:
-        _record(store, "project_version", version, conn=conn)
-        _record(store, "candidate", candidate, conn=conn)
-        _audit(store, conn, actor_id=user["id"], action="submission_candidate.create", resource_type="candidate", resource_id=candidate["id"], organization_id=cohort["organization_id"])
+    try:
+        with store.workflow_transaction() as conn:
+            _record(store, "project_version", version, conn=conn)
+            _record(store, "candidate", candidate, conn=conn)
+            _audit(store, conn, actor_id=user["id"], action="submission_candidate.create", resource_type="candidate", resource_id=candidate["id"], organization_id=cohort["organization_id"])
+    except Exception:
+        if candidate.get("artifact"):
+            _candidate_artifact_path(candidate["id"]).unlink(missing_ok=True)
+        if candidate.get("material_snapshot"):
+            shutil.rmtree(_candidate_material_dir(candidate["id"]).parent, ignore_errors=True)
+        raise
     return candidate
 
 
-@router.get("/submission-candidates/{candidate_id}")
+@router.get("/submission-candidates/{candidate_id}", dependencies=[Depends(require_m2_workflow)])
 def get_candidate(candidate_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     candidate = _must(store, "candidate", candidate_id, "提交候选版本")
     participant, _, _, _ = _participant_access(store, user, candidate["participant_id"])
@@ -1482,7 +1968,7 @@ def get_candidate(candidate_id: str, store: Store = Depends(get_store), user: di
     return candidate
 
 
-@router.post("/submissions")
+@router.post("/submissions", dependencies=[Depends(require_m2_workflow)])
 def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     if user["role"] != "student":
         raise HTTPException(status_code=403, detail="只有学生可以确认提交")
@@ -1494,8 +1980,9 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
         return existing["response"]
     candidate = _must(store, "candidate", req.candidate_id, "提交候选版本")
     participant, stage, cohort, config = _participant_access(store, user, candidate["participant_id"])
-    if candidate.get("status") != "ready":
-        raise HTTPException(status_code=409, detail={"message": "提交门禁未满足", "gates": candidate.get("gates", [])})
+    blocked = _gate(candidate)
+    if candidate.get("status") != "ready" or blocked:
+        raise HTTPException(status_code=409, detail={"message": "提交门禁未满足", "gates": blocked or candidate.get("gates", [])})
     if candidate.get("warning_count", 0) and not req.warning_acknowledged:
         raise HTTPException(status_code=409, detail="存在格式警告，请确认后再提交")
     deadline = _parse_time(participant.get("revision_deadline_at") or participant.get("effective_deadline_at", ""), "截止时间")
@@ -1509,8 +1996,11 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
             return current_idempotency["response"]
         current_candidate = store.get_workflow_record("candidate", candidate["id"])
         current_participant = store.get_workflow_record("participant", participant["id"])
-        if current_candidate.get("status") != "ready" or current_participant.get("revision") != participant.get("revision"):
+        if current_candidate.get("status") != "ready" or _gate(current_candidate) or current_participant.get("revision") != participant.get("revision"):
             raise _conflict("REVISION_CONFLICT", "候选版本或阶段任务已变化，请重新预检")
+        current_cohort = _must(store, "cohort", current_participant["cohort_id"], "批次", conn=conn)
+        if current_cohort.get("status") == "closed":
+            raise _conflict("COHORT_CLOSED", "批次已关闭，不能创建新的提交")
         current_submission_id = current_participant.get("current_submission_id", "")
         if current_submission_id:
             current_submission = store.get_workflow_record("submission", current_submission_id)
@@ -1518,17 +2008,46 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
                 raise _conflict("SUBMISSION_ALREADY_PENDING", "当前已有待审核提交", submission_id=current_submission.get("id"))
         if current_participant.get("state") not in {"in_progress", "needs_revision"}:
             raise HTTPException(status_code=409, detail="当前阶段状态不允许正式提交")
+        current_prior_id = (current_participant.get("current_submission_id")
+                            or current_participant.get("last_submission_id")
+                            or current_participant.get("previous_submission_id") or "")
+        if current_candidate.get("prior_submission_id", "") != current_prior_id:
+            raise _conflict("CHECK_STALE", "提交历史已变化，请重新预检")
+        open_comments = _open_blocking_feedback(
+            store, current_participant["id"], current_candidate.get("prior_submission_id", ""), conn=conn,
+        )
+        if open_comments:
+            raise _conflict("COMMENT_RESPONSE_REQUIRED", "请先回应待处理的历史批注",
+                            comment_ids=[item["id"] for item in open_comments])
         current_project = store.get_project(current_participant.get("project_id", ""))
         if current_project is None or current_project.revision != candidate.get("source_revision") or project_content_hash(current_project) != candidate.get("content_hash"):
             raise _conflict("CHECK_STALE", "论文正文或写作依据已变化，请重新预检")
+        try:
+            _verified_candidate_materials(store, current_candidate, check_live=True, conn=conn)
+        except Exception as exc:
+            raise _conflict("MATERIALS_CHANGED", "必交材料已变化或不可用，请重新预检") from exc
+        try:
+            version = _must(store, "project_version", current_candidate["project_version_id"], "论文版本")
+            _, output_report = _verified_candidate_artifact(store, current_candidate, version)
+            _require_automatic_candidate_check(output_report)
+        except Exception as exc:
+            raise _conflict("SUBMISSION_ARTIFACT_INVALID", "提交成品缺失或检查结果已失效，请重新预检") from exc
+        deadline = _parse_time(
+            current_participant.get("revision_deadline_at") or current_participant.get("effective_deadline_at", ""),
+            "截止时间",
+        )
+        confirmed_at = datetime.now(timezone.utc)
+        if deadline and confirmed_at > deadline:
+            raise _conflict("DEADLINE_PASSED", "已超过服务器确认的有效截止时间")
+        submitted_at = confirmed_at.isoformat(timespec="microseconds")
         submission = {
-            "id": new_id("submission"), "submission_number": f"SUB-{datetime.now(timezone.utc):%Y%m%d}-{new_id('n')[-6:].upper()}",
+            "id": new_id("submission"), "submission_number": f"SUB-{confirmed_at:%Y%m%d}-{new_id('n')[-6:].upper()}",
             "participant_id": participant["id"], "project_version_id": candidate["project_version_id"],
             "candidate_id": candidate["id"], "stage_config_id": candidate["stage_config_id"],
             "stage_config_snapshot": candidate["stage_config_snapshot"], "prior_submission_id": candidate.get("prior_submission_id", ""),
             "state": "submitted", "review_cycle": max(1, participant.get("review_cycle", 0) + 1),
-            "submitted_by": user["id"], "submitted_at": _now(), "warning_acknowledged": req.warning_acknowledged,
-            "revision": 0, "created_at": _now(),
+            "submitted_by": user["id"], "submitted_at": submitted_at, "warning_acknowledged": req.warning_acknowledged,
+            "revision": 0, "created_at": submitted_at,
         }
         _record(store, "submission", submission, conn=conn)
         current_candidate["status"] = "confirmed"
@@ -1552,12 +2071,14 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
         _audit(store, conn, actor_id=user["id"], action="submission.confirm", resource_type="submission", resource_id=submission["id"], organization_id=cohort["organization_id"])
         response = {"submission": submission, "participant": current_participant, "candidate": current_candidate}
         store.save_workflow_idempotency_conn(conn, user_id=user["id"], action="submission.confirm", idem_key=req.idempotency_key, request_hash=request_hash, response=response)
+        if deadline and datetime.now(timezone.utc) > deadline:
+            raise _conflict("DEADLINE_PASSED", "已超过服务器确认的有效截止时间")
     return response
 
 
 def _visible_submissions(store: Store, user: dict) -> list[dict]:
     result = []
-    for submission in store.list_workflow_records("submission"):
+    for submission in store.list_workflow_records("submission", limit=None):
         participant = store.get_workflow_record("participant", submission["participant_id"])
         if not participant:
             continue
@@ -1598,6 +2119,21 @@ def get_submission(submission_id: str, store: Store = Depends(get_store), user: 
     submission, participant, stage, config = _submission_access(store, user, submission)
     version = _must(store, "project_version", submission["project_version_id"], "论文版本")
     candidate = store.get_workflow_record("candidate", submission.get("candidate_id", ""))
+    materials_available = False
+    materials = []
+    try:
+        if candidate is None or candidate.get("participant_id") != participant["id"]:
+            raise ValueError("submission candidate is unavailable")
+        records, _ = _verified_candidate_materials(store, candidate)
+        for record in records:
+            record = {**record, "attachments": [
+                {**attachment, "download_url": f"/api/submissions/{submission_id}/materials/{attachment['id']}/download"}
+                for attachment in record.get("attachments", [])
+            ]}
+            materials.append(record)
+        materials_available = True
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
     return {
         "submission": submission,
         "participant": _task_view(store, participant),
@@ -1605,12 +2141,145 @@ def get_submission(submission_id: str, store: Store = Depends(get_store), user: 
         "config": config,
         "version": version,
         "candidate": candidate,
+        "submitted_materials": materials,
+        "submitted_materials_available": materials_available,
         "comments": _comment_records(store, submission_id),
+        "prior_unresolved_comments": _prior_unresolved_comments(store, submission),
         "review": _latest_review(store, submission),
     }
 
 
-@router.post("/submissions/{submission_id}/withdraw")
+@router.get("/submissions/{submission_id}/materials/{file_id}/download", dependencies=[Depends(require_m2_workflow)])
+def download_submission_material(submission_id: str, file_id: str,
+                                 store: Store = Depends(get_store), user: dict = Depends(current_user)) -> Response:
+    submission = _must(store, "submission", submission_id, "提交")
+    submission, participant, _, _ = _submission_access(store, user, submission)
+    candidate = _must(store, "candidate", submission.get("candidate_id", ""), "提交候选版本")
+    if candidate.get("participant_id") != participant["id"]:
+        raise _conflict("SUBMISSION_MATERIALS_UNAVAILABLE", "提交材料不可用，请联系系统管理员恢复")
+    try:
+        _, files = _verified_candidate_materials(store, candidate)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise _conflict("SUBMISSION_MATERIALS_UNAVAILABLE", "提交材料不可用，请联系系统管理员恢复") from exc
+    if file_id not in files:
+        raise HTTPException(status_code=404, detail="提交中没有该材料附件")
+    return Response(files[file_id], media_type="application/octet-stream", headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Disposition": "attachment",
+    })
+
+
+@router.get("/submissions/{submission_id}/document", dependencies=[Depends(require_m2_workflow)])
+def download_submission_document(submission_id: str, format: Literal["docx", "pdf"] = "docx",
+                                 store: Store = Depends(get_store),
+                                 user: dict = Depends(current_user)) -> Response:
+    """Return the checked Word file belonging to this submission, never a fresh draft."""
+    submission = _must(store, "submission", submission_id, "提交")
+    submission, participant, _, _ = _submission_access(store, user, submission)
+    candidate = _must(store, "candidate", submission.get("candidate_id", ""), "提交候选版本")
+    version = _must(store, "project_version", submission.get("project_version_id", ""), "论文版本")
+    if (candidate.get("participant_id") != participant["id"]
+            or candidate.get("submission_id") != submission_id
+            or candidate.get("status") != "confirmed"):
+        raise _conflict("SUBMISSION_ARTIFACT_INVALID", "提交成品记录不完整，请联系系统管理员恢复")
+    try:
+        data, report = _verified_candidate_artifact(store, candidate, version)
+        _require_automatic_candidate_check(report)
+    except Exception as exc:
+        raise _conflict("SUBMISSION_ARTIFACT_INVALID", "提交成品不可用或核验未完成，请联系系统管理员恢复") from exc
+    pdf, evidence = None, None
+    if format == "pdf":
+        from app.services.source_template_profile import ProfileError
+        from app.services.word_optional_pdf import WordPdfError, create_optional_pdf, word_pdf_available
+        if not word_pdf_available():
+            raise HTTPException(status_code=503, detail="PDF 转换暂不可用，Word 文件仍可下载")
+        try:
+            pdf, evidence = create_optional_pdf(data)
+        except (WordPdfError, ProfileError) as exc:
+            raise HTTPException(status_code=503, detail="PDF 生成或检查失败，Word 文件仍可下载") from exc
+    # Recheck access and identities after the potentially expensive file verification.
+    current = _must(store, "submission", submission_id, "提交")
+    _submission_access(store, user, current)
+    if (current.get("candidate_id") != candidate["id"]
+            or current.get("project_version_id") != version["id"]
+            or current.get("participant_id") != participant["id"]
+            or store.get_workflow_record("candidate", candidate["id"]) != candidate
+            or store.get_workflow_record("project_version", version["id"]) != version):
+        raise _conflict("SUBMISSION_ARTIFACT_INVALID", "提交成品记录已变化，请刷新后重试")
+    if format == "pdf":
+        try:
+            current_data, current_report = _verified_candidate_artifact(store, candidate, version)
+            _require_automatic_candidate_check(current_report)
+            if (current_data != data or evidence.get("source_sha256") != hashlib.sha256(data).hexdigest()
+                    or evidence.get("pdf_sha256") != hashlib.sha256(pdf).hexdigest()):
+                raise ValueError("PDF and submitted Word differ")
+        except Exception as exc:
+            raise _conflict("SUBMISSION_ARTIFACT_INVALID", "提交成品已变化，请刷新后重试") from exc
+        return Response(pdf, media_type="application/pdf", headers={
+            "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": 'attachment; filename="submission.pdf"',
+            "X-PaperGuard-Source-SHA256": evidence["source_sha256"],
+            "X-PaperGuard-PDF-SHA256": evidence["pdf_sha256"],
+        })
+    return Response(
+        data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+                 "Content-Disposition": 'attachment; filename="submission.docx"'},
+    )
+
+
+@router.get("/submissions/{submission_id}/image")
+def get_submission_image(
+    submission_id: str,
+    block_id: str = Query(min_length=1),
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> Response:
+    """Read an image only from the submitted snapshot and its recorded digest."""
+    submission = _must(store, "submission", submission_id, "提交")
+    submission, participant, _, _ = _submission_access(store, user, submission)
+    version = _must(store, "project_version", submission["project_version_id"], "论文版本")
+    snapshot = version.get("content_snapshot") or {}
+    if (version.get("project_id") != participant.get("project_id")
+            or not version.get("content_hash")
+            or project_content_hash(snapshot) != version["content_hash"]):
+        raise _conflict("SUBMISSION_IMAGE_UNAVAILABLE", "提交内容不完整，请联系系统管理员恢复")
+    matches = [
+        block for section in snapshot.get("sections", []) for block in section.get("paragraphs", [])
+        if block.get("id") == block_id
+    ]
+    if len(matches) != 1 or matches[0].get("type") != "image":
+        raise HTTPException(status_code=404, detail="提交中没有该图片")
+    url = (matches[0].get("image") or {}).get("url", "")
+    refs = [ref for ref in version.get("attachment_refs", []) if ref.get("url") == url]
+    if len(refs) != 1:
+        raise _conflict("SUBMISSION_IMAGE_UNAVAILABLE", "该提交的图片记录不完整，请联系系统管理员恢复")
+    ref = refs[0]
+    filename = ref.get("filename", "")
+    image_types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                   ".gif": "image/gif", ".webp": "image/webp"}
+    media_type = image_types.get(Path(filename).suffix.lower())
+    size = ref.get("size_bytes")
+    if (url != f"/media/uploads/{filename}" or not filename.startswith(f"{version['project_id']}-")
+            or not ref.get("present") or not media_type or not isinstance(size, int)
+            or not 0 < size <= IMAGE_MAX_BYTES or not re.fullmatch(r"[0-9a-f]{64}", str(ref.get("sha256", "")))):
+        raise _conflict("SUBMISSION_IMAGE_UNAVAILABLE", "该提交的图片记录不完整，请联系系统管理员恢复")
+    path = resolve_project_attachment(ref)
+    try:
+        if path is None:
+            raise OSError("invalid attachment path")
+        with path.open("rb") as image:
+            data = image.read(IMAGE_MAX_BYTES + 1)
+    except OSError as exc:
+        raise _conflict("SUBMISSION_IMAGE_UNAVAILABLE", "该提交的图片不可用，请联系系统管理员恢复") from exc
+    if len(data) != size or hashlib.sha256(data).hexdigest() != ref["sha256"]:
+        raise _conflict("SUBMISSION_IMAGE_UNAVAILABLE", "该提交的图片已变化，请联系系统管理员恢复")
+    return Response(data, media_type=media_type, headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+    })
+
+
+@router.post("/submissions/{submission_id}/withdraw", dependencies=[Depends(require_m2_workflow)])
 def withdraw_submission(submission_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     submission = _must(store, "submission", submission_id, "提交")
     submission, participant, _, _ = _submission_access(store, user, submission)
@@ -1618,13 +2287,14 @@ def withdraw_submission(submission_id: str, store: Store = Depends(get_store), u
         raise HTTPException(status_code=403, detail="只有提交学生可以撤回")
     if submission.get("state") != "submitted":
         raise _conflict("WITHDRAW_NOT_PENDING", "只有待审核提交可以撤回")
-    deadline = _parse_time(
-        participant.get("revision_deadline_at") or participant.get("effective_deadline_at", ""),
-        "截止时间",
-    )
-    if deadline and datetime.now(timezone.utc) > deadline:
-        raise _conflict("DEADLINE_PASSED", "已超过有效提交窗口，不能撤回")
     with store.workflow_transaction() as conn:
+        submission = _must(store, "submission", submission_id, "提交", conn=conn)
+        participant = _must(store, "participant", submission["participant_id"], "阶段任务", conn=conn)
+        if participant.get("student_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="只有提交学生可以撤回")
+        if (submission.get("state") != "submitted" or participant.get("state") != "submitted"
+                or participant.get("current_submission_id") != submission_id):
+            raise _conflict("WITHDRAW_NOT_PENDING", "只有待审核提交可以撤回")
         _transition(submission, "submission", "withdrawn")
         submission["withdrawn_at"] = _now()
         _record(store, "submission", submission, expected_revision=submission.get("revision", 0), conn=conn)
@@ -1633,11 +2303,14 @@ def withdraw_submission(submission_id: str, store: Store = Depends(get_store), u
         participant["current_submission_id"] = ""
         _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
         cohort = _must(store, "cohort", participant["cohort_id"], "批次")
+        supervision = _current_supervision(store, participant["cohort_id"], participant["student_id"], conn=conn)
+        _notify(store, conn, supervision.get("teacher_id", "") if supervision else "", "submission.withdrawn",
+                "submission", submission_id, "学生已撤回待审核的论文提交")
         _audit(store, conn, actor_id=user["id"], action="submission.withdraw", resource_type="submission", resource_id=submission_id, organization_id=cohort["organization_id"])
     return submission
 
 
-@router.post("/submissions/{submission_id}/reviews")
+@router.post("/submissions/{submission_id}/reviews", dependencies=[Depends(require_m2_workflow)])
 def decide_submission(submission_id: str, req: ReviewDecision, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     submission = _must(store, "submission", submission_id, "提交")
     submission, participant, stage, cohort_config = _submission_access(store, user, submission)
@@ -1651,21 +2324,50 @@ def decide_submission(submission_id: str, req: ReviewDecision, store: Store = De
         raise HTTPException(status_code=409, detail="当前提交已经处理，不能重复审核")
     if req.decision == "returned" and not req.reason.strip():
         raise HTTPException(status_code=422, detail="退回必须填写修改原因")
-    if req.decision == "approved":
-        required = cohort_config.get("required_manual_checks", [])
-        incomplete = [item for item in required if req.manual_confirmations.get(item) is not True]
-        open_blocking = [item["id"] for item in _comment_records(store, submission_id) if item.get("severity") == "blocking" and item.get("status") != "resolved"]
-        candidate = store.get_workflow_record("candidate", submission.get("candidate_id", ""))
-        stale_waivers = _stale_candidate_waiver_ids(store, candidate) if candidate else []
-        if incomplete or open_blocking or not candidate or _gate(candidate) or stale_waivers:
-            raise HTTPException(status_code=409, detail={"message": "通过门禁未满足", "manual_checks": incomplete, "open_blocking_comments": open_blocking, "gates": candidate.get("gates", []) if candidate else [], "recheck_required": bool(stale_waivers), "stale_waiver_ids": stale_waivers})
-    revision_deadline = ""
-    if req.decision == "returned":
-        existing_deadline = _parse_time(participant.get("effective_deadline_at", ""), "截止时间") or datetime.now(timezone.utc)
-        requested_deadline = _parse_time(req.revision_deadline_at, "修订截止时间")
-        configured = datetime.now(timezone.utc) + timedelta(days=int(cohort_config.get("revision_days", 7)))
-        revision_deadline = max(existing_deadline, requested_deadline or configured).isoformat(timespec="seconds")
+    archive = None
     with store.workflow_transaction() as conn:
+        current_submission = _must(store, "submission", submission_id, "提交", conn=conn)
+        current_participant = _must(store, "participant", current_submission["participant_id"], "阶段任务", conn=conn)
+        _ensure_current_teacher_for_write(store, user, current_participant, conn=conn)
+        if (current_submission.get("state") != "submitted"
+                or current_participant.get("current_submission_id") != submission_id):
+            raise _conflict("REVIEW_NOT_PENDING", "当前提交已经处理，不能重复审核")
+        submission, participant = current_submission, current_participant
+        cohort_config = _submission_stage_config(store, submission, stage, cohort_config, conn=conn)
+        revision_deadline = ""
+        if req.decision == "returned":
+            now = datetime.now(timezone.utc)
+            deadlines = [
+                _parse_time(participant.get(key, ""), "截止时间")
+                for key in ("effective_deadline_at", "revision_deadline_at")
+            ]
+            requested_deadline = _parse_time(req.revision_deadline_at, "修订截止时间")
+            configured = now + timedelta(days=int(cohort_config.get("revision_days", 7)))
+            deadline = max(value for value in [*deadlines, requested_deadline or configured] if value)
+            if deadline.replace(microsecond=0) <= now:
+                raise HTTPException(status_code=409, detail="修订期限已过，请先延长任务截止时间再退回")
+            revision_deadline = deadline.isoformat(timespec="seconds")
+        if req.decision == "approved":
+            required = cohort_config.get("required_manual_checks", [])
+            incomplete = [item for item in required if req.manual_confirmations.get(item) is not True]
+            feedback = (_comment_records(store, submission_id, conn=conn)
+                        + _prior_unresolved_comments(store, submission, conn=conn))
+            open_blocking = [item["id"] for item in feedback
+                             if item.get("severity") == "blocking" and item.get("status") != "resolved"]
+            candidate = store.get_workflow_record("candidate", submission.get("candidate_id", ""))
+            stale_waivers = _stale_candidate_waiver_ids(store, candidate) if candidate else []
+            if incomplete or open_blocking or not candidate or _gate(candidate) or stale_waivers:
+                raise HTTPException(status_code=409, detail={"message": "通过门禁未满足", "manual_checks": incomplete, "open_blocking_comments": open_blocking, "gates": candidate.get("gates", []) if candidate else [], "recheck_required": bool(stale_waivers), "stale_waiver_ids": stale_waivers})
+            try:
+                version = _must(store, "project_version", submission["project_version_id"], "论文版本")
+                _, output_report = _verified_candidate_artifact(store, candidate, version)
+                _require_automatic_candidate_check(output_report)
+            except Exception as exc:
+                raise _conflict("SUBMISSION_ARTIFACT_INVALID", "提交成品缺失或检查结果已失效，无法通过审核") from exc
+            try:
+                _verified_candidate_materials(store, candidate)
+            except Exception as exc:
+                raise _conflict("SUBMISSION_MATERIALS_UNAVAILABLE", "提交材料不可用，无法通过审核") from exc
         review = {
             "id": new_id("review"), "submission_id": submission_id, "review_cycle": submission["review_cycle"],
             "reviewer_id": user["id"], "decision": req.decision, "reason": req.reason.strip(),
@@ -1681,27 +2383,62 @@ def decide_submission(submission_id: str, req: ReviewDecision, store: Store = De
         else:
             _transition(participant, "participant", "pending_archive" if cohort_config.get("is_final") else "approved")
             participant["revision_deadline_at"] = ""
+            if cohort_config.get("is_final"):
+                cohort = _must(store, "cohort", participant["cohort_id"], "批次")
+                archive = _queue_archive(store, conn, submission, participant, user["id"], cohort["organization_id"])
+                participant["archive_id"] = archive["id"]
         _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
         title = "论文需要修改" if req.decision == "returned" else "论文审核已通过"
         _notify(store, conn, participant["student_id"], f"submission.{req.decision}", "submission", submission_id, title)
         cohort = _must(store, "cohort", participant["cohort_id"], "批次")
         _audit(store, conn, actor_id=user["id"], action=f"submission.{req.decision}", resource_type="submission", resource_id=submission_id, organization_id=cohort["organization_id"], reason=req.reason)
-    return {"review": review, "submission": submission, "participant": participant}
+    return {"review": review, "submission": submission, "participant": participant,
+            "archive": _archive_view(archive) if archive else None}
 
 
-@router.post("/submissions/{submission_id}/comments", status_code=201)
+@router.post("/submissions/{submission_id}/comments", status_code=201, dependencies=[Depends(require_m2_workflow)])
 def create_comment(submission_id: str, req: CommentCreate, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     submission = _must(store, "submission", submission_id, "提交")
     submission, participant, _, _ = _submission_access(store, user, submission)
     if user["role"] not in {"teacher", "admin", "college_admin"}:
         raise HTTPException(status_code=403, detail="只有审核人员可以新增批注")
+    if not req.body.strip():
+        raise HTTPException(status_code=422, detail="批注内容不能为空")
+    block_id = req.block_id.strip()
+    has_range = req.text_start is not None or req.text_end is not None
+    if (req.quoted_text or has_range) and not block_id:
+        raise HTTPException(status_code=422, detail="引用内容需要绑定提交中的正文块")
+    if has_range and (req.text_start is None or req.text_end is None or not req.quoted_text.strip()):
+        raise HTTPException(status_code=422, detail="批注文字范围不完整")
+    if block_id:
+        version = _must(store, "project_version", submission["project_version_id"], "论文版本")
+        snapshot = version.get("content_snapshot") or {}
+        matches = [block for section in snapshot.get("sections", []) for block in section.get("paragraphs", [])
+                   if block.get("id") == block_id]
+        if len(matches) != 1:
+            raise HTTPException(status_code=422, detail="批注位置不属于该提交或无法唯一定位")
+        text = matches[0].get("text") or ""
+        if has_range:
+            if (req.text_start >= req.text_end or req.text_end > len(text)
+                    or text[req.text_start:req.text_end] != req.quoted_text):
+                raise HTTPException(status_code=422, detail="批注文字范围与该次提交的正文不一致")
+        elif req.quoted_text and req.quoted_text not in text:
+            raise HTTPException(status_code=422, detail="引用内容与该次提交的正文不一致")
     assert_ugc_safe(req.body, field="comment")
     comment = {
         "id": new_id("comment"), "submission_id": submission_id, "author_id": user["id"],
-        "body": req.body.strip(), "severity": req.severity, "block_id": req.block_id.strip(),
+        "body": req.body.strip(), "severity": req.severity, "block_id": block_id,
         "quoted_text": req.quoted_text, "status": "open", "responses": [], "revision": 0, "created_at": _now(),
     }
+    if has_range:
+        comment.update(text_start=req.text_start, text_end=req.text_end)
     with store.workflow_transaction() as conn:
+        current_submission = _must(store, "submission", submission_id, "提交", conn=conn)
+        current_participant = _must(store, "participant", current_submission["participant_id"], "阶段任务", conn=conn)
+        _ensure_current_teacher_for_write(store, user, current_participant, conn=conn)
+        if (current_submission.get("state") != "submitted"
+                or current_participant.get("current_submission_id") != submission_id):
+            raise _conflict("COMMENT_NOT_PENDING", "只有待审核提交可以新增批注")
         _record(store, "comment", comment, conn=conn)
         _notify(store, conn, participant["student_id"], "comment.created", "submission", submission_id, "教师新增了论文批注")
         cohort = _must(store, "cohort", participant["cohort_id"], "批次")
@@ -1709,7 +2446,7 @@ def create_comment(submission_id: str, req: CommentCreate, store: Store = Depend
     return comment
 
 
-@router.post("/comments/{comment_id}/response", status_code=201)
+@router.post("/comments/{comment_id}/response", status_code=201, dependencies=[Depends(require_m2_workflow)])
 def respond_comment(comment_id: str, req: CommentResponse, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     comment = _must(store, "comment", comment_id, "批注")
     submission = _must(store, "submission", comment["submission_id"], "提交")
@@ -1718,12 +2455,18 @@ def respond_comment(comment_id: str, req: CommentResponse, store: Store = Depend
         raise HTTPException(status_code=403, detail="只有提交学生可以回复批注")
     if comment.get("status") == "resolved":
         raise HTTPException(status_code=409, detail="已解决的批注不能追加本轮回复")
+    if not req.body.strip():
+        raise HTTPException(status_code=422, detail="回复内容不能为空")
     assert_ugc_safe(req.body, field="comment_response")
+    response_id = new_id("response")
     with store.workflow_transaction() as conn:
-        comment.setdefault("responses", []).append({"id": new_id("response"), "author_id": user["id"], "body": req.body.strip(), "created_at": _now()})
+        comment.setdefault("responses", []).append({"id": response_id, "author_id": user["id"], "body": req.body.strip(), "created_at": _now()})
         comment["status"] = transition_state("comment", str(comment.get("status") or ""), "addressed")
         _record(store, "comment", comment, expected_revision=comment.get("revision", 0), conn=conn)
-        _notify(store, conn, submission.get("submitted_by", ""), "comment.responded", "comment", comment_id, "学生已回复论文批注")
+        supervision = _current_supervision(store, participant["cohort_id"], participant["student_id"], conn=conn)
+        teacher_id = supervision.get("teacher_id", "") if supervision else ""
+        _notify(store, conn, teacher_id, "comment.responded", "submission", submission["id"], "学生已回复论文批注",
+                dedupe_key=f"comment.responded:{teacher_id}:{response_id}")
         cohort = _must(store, "cohort", participant["cohort_id"], "批次")
         _audit(store, conn, actor_id=user["id"], action="comment.respond", resource_type="comment", resource_id=comment_id, organization_id=cohort["organization_id"])
     return comment
@@ -1738,7 +2481,7 @@ class RestoreVersionRequest(BaseModel):
     base_revision: int | None = None
 
 
-@router.post("/comments/{comment_id}/status")
+@router.post("/comments/{comment_id}/status", dependencies=[Depends(require_m2_workflow)])
 def update_comment_status(comment_id: str, req: CommentStatusRequest, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     comment = _must(store, "comment", comment_id, "批注")
     submission = _must(store, "submission", comment["submission_id"], "提交")
@@ -1752,44 +2495,65 @@ def update_comment_status(comment_id: str, req: CommentStatusRequest, store: Sto
     except ValueError as exc:
         raise HTTPException(status_code=409, detail="当前批注状态不允许此操作") from exc
     with store.workflow_transaction() as conn:
+        current_participant = _must(store, "participant", submission["participant_id"], "阶段任务", conn=conn)
+        _ensure_current_teacher_for_write(store, user, current_participant, conn=conn)
         _record(store, "comment", comment, expected_revision=comment.get("revision", 0), conn=conn)
         cohort = _must(store, "cohort", participant["cohort_id"], "批次")
         _audit(store, conn, actor_id=user["id"], action=f"comment.{req.status}", resource_type="comment", resource_id=comment_id, organization_id=cohort["organization_id"])
     return comment
 
 
-@router.post("/archives", status_code=202)
+def _queue_archive(store: Store, conn, submission: dict, participant: dict,
+                   actor_id: str, organization_id: str) -> dict:
+    existing = conn.execute(
+        "SELECT data FROM workflow_records WHERE kind = 'archive' "
+        "AND json_extract(data, '$.submission_id') = ? "
+        "AND json_extract(data, '$.status') IN ('queued', 'running', 'succeeded', 'failed') "
+        "ORDER BY created_at, id LIMIT 1",
+        (submission["id"],),
+    ).fetchone()
+    if existing:
+        return json.loads(existing["data"])
+    version = _must(store, "project_version", submission["project_version_id"], "论文版本")
+    frozen_project = WritingProject.model_validate(version["content_snapshot"])
+    frozen_template = PaperTemplate.model_validate(frozen_project.template_snapshot or frozen_project.template_source_snapshot)
+    source_path = resolve_template_source(frozen_template.source_docx) if frozen_template.source_docx else None
+    source = source_template_bytes(source_path)
+    archive = {
+        "id": new_id("archive"), "submission_id": submission["id"], "participant_id": participant["id"],
+        "status": "queued", "manifest_hash": "", "file_path": "", "attempt": 0, "error_code": "",
+        "previous_archive_id": participant.get("previous_archive_id", ""),
+        "source_template_sha256": hashlib.sha256(source).hexdigest() if source is not None else "",
+        "revision": 0, "created_at": _now(),
+    }
+    archive["job_id"] = new_id("job")
+    _record(store, "archive", archive, conn=conn)
+    WorkflowRepository(store).create_job_in_transaction(
+        conn, job_id=archive["job_id"], job_type="archive.generate", resource_type="archive",
+        resource_id=archive["id"], max_attempts=5,
+    )
+    _audit(store, conn, actor_id=actor_id, action="archive.create", resource_type="archive", resource_id=archive["id"], organization_id=organization_id)
+    return archive
+
+
+@router.post("/archives", status_code=202, dependencies=[Depends(require_m2_workflow)])
 def create_archive(req: ArchiveCreate,
                    store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
-    _ensure_manager(user)
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或系统管理员可以归档终稿")
     submission = _must(store, "submission", req.submission_id, "提交")
     submission, participant, stage, config = _submission_access(store, user, submission)
     cohort = _must(store, "cohort", participant["cohort_id"], "批次")
     if submission.get("state") != "approved" or not config.get("is_final"):
         raise HTTPException(status_code=409, detail="只有已通过的终稿可以归档")
-    archive = {
-        "id": new_id("archive"), "submission_id": submission["id"], "participant_id": participant["id"],
-        "status": "queued", "manifest_hash": "", "file_path": "", "attempt": 0, "error_code": "",
-        "previous_archive_id": participant.get("previous_archive_id", ""),
-        "revision": 0, "created_at": _now(),
-    }
-    archive["job_id"] = new_id("job")
     with store.workflow_transaction() as conn:
-        # 重新在 IMMEDIATE 事务内检查，避免两个并发请求都先看到“无归档”
-        # 后各自创建一份有效归档。
-        existing = [
-            item for item in store.list_workflow_records("archive")
-            if item.get("submission_id") == submission["id"]
-            and item.get("status") in {"queued", "running", "succeeded"}
-        ]
-        if existing:
-            return _archive_view(existing[0])
-        _record(store, "archive", archive, conn=conn)
-        WorkflowRepository(store).create_job_in_transaction(
-            conn, job_id=archive["job_id"], job_type="archive.generate", resource_type="archive",
-            resource_id=archive["id"], max_attempts=5,
-        )
-        _audit(store, conn, actor_id=user["id"], action="archive.create", resource_type="archive", resource_id=archive["id"], organization_id=cohort["organization_id"])
+        current = _must(store, "participant", participant["id"], "阶段任务")
+        if current.get("current_submission_id") != submission["id"] or current.get("state") not in {"pending_archive", "archived"}:
+            raise HTTPException(status_code=409, detail="当前任务已变化，不能为历史提交创建归档")
+        archive = _queue_archive(store, conn, submission, current, user["id"], cohort["organization_id"])
+        if current.get("archive_id") != archive["id"]:
+            current["archive_id"] = archive["id"]
+            _record(store, "participant", current, expected_revision=current.get("revision", 0), conn=conn)
     return _archive_view(archive)
 
 
@@ -1799,42 +2563,152 @@ def recover_pending_archives(store: Store) -> None:
     The standalone worker performs the export; startup only repairs durable
     state so web processes never own a long-running archive task.
     """
+    if not teacher_student_workflow_enabled():
+        return
     repository = WorkflowRepository(store)
-    for archive in repository.list("archive"):
-        if archive.get("status") == "running":
-            archive["status"] = transition_state("archive", str(archive.get("status") or ""), "queued")
-            archive["recovery_reason"] = "process_restart"
-            saved = repository.save("archive", archive, expected_revision=archive.get("revision", 0))
-            if saved is None:
-                continue
-            archive = saved
-        if archive.get("status") not in {"queued", "failed"}:
-            continue
+    for item in store.list_workflow_records("archive", limit=None):
         with store.workflow_transaction() as conn:
-            job_id = archive.get("job_id") or new_id("job")
-            if not archive.get("job_id"):
+            archive = _must(store, "archive", item["id"], "归档", conn=conn)
+            if archive.get("status") not in {"queued", "running", "failed"}:
+                continue
+            job_id = archive.get("job_id")
+            job = repository.get_job_in_transaction(conn, job_id) if job_id else None
+            if not job_id:
+                job_id = new_id("job")
                 archive["job_id"] = job_id
+                if archive.get("status") == "running":
+                    archive["status"] = transition_state("archive", "running", "queued")
+                    archive["recovery_reason"] = "process_restart"
                 _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
-            repository = WorkflowRepository(store)
-            if repository.get_job_in_transaction(conn, job_id) is None:
                 repository.create_job_in_transaction(
                     conn, job_id=job_id, job_type="archive.generate", resource_type="archive",
                     resource_id=archive["id"], max_attempts=5,
                 )
+            elif (not job or job["job_type"] != "archive.generate" or job["resource_type"] != "archive"
+                  or job["resource_id"] != archive["id"]):
+                if archive["status"] != "failed":
+                    archive["status"] = transition_state("archive", archive["status"], "failed")
+                archive["error_code"] = "ARCHIVE_QUEUE_STATE_MISSING"
+                archive["recovery_reason"] = "queue_state_missing"
+                _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
+            elif archive["status"] == "running":
+                if job["state"] == "running" and job["lease_until"] and job["lease_until"] > _now():
+                    continue
+                archive["status"] = transition_state("archive", "running", "queued")
+                archive["recovery_reason"] = "process_restart"
+                _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
 
 
-def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
-    archive = _must(store, "archive", archive_id, "归档")
-    if archive.get("status") not in {"queued", "failed"}:
-        return archive
+class _ArchiveLeaseLost(Exception):
+    pass
+
+
+def _archive_lease(conn, archive: dict, lease_token: str):
+    job = Store.get_job_conn(conn, archive.get("job_id", ""))
+    if (not job or job["job_type"] != "archive.generate" or job["resource_type"] != "archive"
+            or job["resource_id"] != archive["id"] or job["state"] != "running"
+            or not lease_token or job["lease_token"] != lease_token
+            or not job["lease_until"] or job["lease_until"] <= _now()):
+        raise _ArchiveLeaseLost
+    return job
+
+
+def _finish_archive_job(conn, job, lease_token: str, *, error: str = "", retry_delay_seconds: int = 0) -> str:
+    now = datetime.now(timezone.utc)
+    now_text = now.isoformat(timespec="seconds")
+    if error:
+        state = "failed" if job["attempt_count"] >= job["max_attempts"] else "queued"
+        available_at = (now + timedelta(seconds=max(0, retry_delay_seconds))).isoformat(timespec="seconds")
+        completed_at = None
+    else:
+        state, available_at, completed_at = "succeeded", job["available_at"], now_text
+    updated = conn.execute(
+        "UPDATE jobs SET state = ?, available_at = ?, lease_until = NULL, lease_token = NULL, "
+        "leased_by = NULL, last_error = ?, updated_at = ?, completed_at = ? "
+        "WHERE id = ? AND state = 'running' AND lease_token = ? AND lease_until > ?",
+        (state, available_at, error[:2000] or None, now_text, completed_at, job["id"], lease_token, now_text),
+    )
+    if updated.rowcount != 1:
+        raise _ArchiveLeaseLost
+    return state
+
+
+def _archive_failure_notification(store: Store, conn, archive: dict) -> None:
+    row = conn.execute("SELECT data FROM workflow_records WHERE kind = 'participant' AND id = ?",
+                       (archive.get("participant_id", ""),)).fetchone()
+    participant = json.loads(row["data"]) if row else None
+    if not participant or participant.get("current_submission_id") != archive.get("submission_id"):
+        return
+    relation = _current_supervision(store, participant.get("cohort_id", ""), participant.get("student_id", ""), conn=conn)
+    for recipient, message in (
+        (participant.get("student_id", ""), "终稿归档暂未完成，请联系指导教师或系统管理员。"),
+        ((relation or {}).get("teacher_id", ""), "终稿归档暂未完成，请查看归档状态或联系系统管理员。"),
+    ):
+        _notify(store, conn, recipient, "archive.failed", "archive", archive["id"], message,
+                dedupe_key=f"archive.failed:{recipient}:{archive['id']}:{archive.get('attempt', 0)}")
+
+
+def park_exhausted_archive_jobs(store: Store) -> None:
+    """Make an interrupted final attempt visible and manually retryable."""
+    now = _now()
     with store.workflow_transaction() as conn:
-        current_status = str(archive.get("status") or "")
-        if current_status == "failed":
-            current_status = transition_state("archive", current_status, "queued")
-        archive["status"] = transition_state("archive", current_status, "running")
-        archive["attempt"] = int(archive.get("attempt", 0)) + 1
-        _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
+        jobs = conn.execute(
+            "SELECT * FROM jobs WHERE job_type = 'archive.generate' AND resource_type = 'archive' "
+            "AND attempt_count >= max_attempts AND (state = 'queued' OR "
+            "(state = 'running' AND lease_until IS NOT NULL AND lease_until <= ?) OR "
+            "(state = 'failed' AND EXISTS (SELECT 1 FROM workflow_records r WHERE r.kind = 'archive' "
+            "AND r.id = jobs.resource_id AND json_extract(r.data, '$.status') IN ('queued', 'running'))))", (now,),
+        ).fetchall()
+        for job in jobs:
+            if job["state"] != "failed":
+                conn.execute(
+                    "UPDATE jobs SET state = 'failed', lease_until = NULL, lease_token = NULL, leased_by = NULL, "
+                    "last_error = ?, updated_at = ? WHERE id = ?",
+                    ("ARCHIVE_ATTEMPTS_EXHAUSTED", now, job["id"]),
+                )
+            row = conn.execute("SELECT data FROM workflow_records WHERE kind = 'archive' AND id = ?",
+                               (job["resource_id"],)).fetchone()
+            archive = json.loads(row["data"]) if row else None
+            if not archive or archive.get("job_id") != job["id"] or archive.get("status") not in {"queued", "running"}:
+                continue
+            archive["status"] = transition_state("archive", archive["status"], "failed")
+            archive["error_code"] = "ARCHIVE_ATTEMPTS_EXHAUSTED"
+            archive["failed_at"] = now
+            _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
+            _archive_failure_notification(store, conn, archive)
+
+
+def _run_archive(store: Store, archive_id: str, actor_id: str = "", *, lease_token: str, retry_delay_seconds: int = 0) -> dict:
+    if not teacher_student_workflow_enabled():
+        return {"status": "paused", "error_code": "M1_WORKFLOW_UNAVAILABLE"}
+    try:
+        with store.workflow_transaction() as conn:
+            archive = _must(store, "archive", archive_id, "归档", conn=conn)
+            job = _archive_lease(conn, archive, lease_token)
+            if archive.get("status") == "succeeded":
+                _finish_archive_job(conn, job, lease_token)
+                return archive
+            if archive.get("status") not in {"queued", "failed", "running"}:
+                raise _ArchiveLeaseLost
+            archive.pop("file_path", None)
+            archive.pop("manifest_hash", None)
+            archive.pop("manifest", None)
+            archive.pop("output_check_diagnostic", None)
+            current_status = str(archive.get("status") or "")
+            if current_status == "failed":
+                current_status = transition_state("archive", current_status, "queued")
+            archive["status"] = transition_state("archive", current_status, "running")
+            archive["attempt"] = int(archive.get("attempt", 0)) + 1
+            archive["error_code"] = ""
+            _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
+    except _ArchiveLeaseLost:
+        return {"status": "lease_lost", "error_code": "ARCHIVE_LEASE_LOST"}
+    archive_identity = tuple(archive.get(key) for key in (
+        "job_id", "submission_id", "participant_id", "source_template_sha256",
+    ))
     temp_dir = None
+    output_check_started = False
+    archive_output = _archive_dir() / f"{archive_id}.zip"
     try:
         submission = _must(store, "submission", archive["submission_id"], "提交")
         version = _must(store, "project_version", submission["project_version_id"], "论文版本")
@@ -1847,13 +2721,32 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
         temp_dir = Path(tempfile.mkdtemp(prefix=f"{archive_id}-", dir=str(archive_dir)))
         docx_path = temp_dir / "final.docx"
         source_path = resolve_template_source(template.source_docx) if template.source_docx else None
-        export_project_to_docx(project, template, str(docx_path), template_path=source_path)
-        candidate = store.get_workflow_record("candidate", submission["candidate_id"])
-        reviews = [item for item in store.list_workflow_records("review") if item.get("submission_id") == submission["id"]]
+        source = source_template_bytes(source_path)
+        source_hash = hashlib.sha256(source).hexdigest() if source is not None else ""
+        if source_hash != str(archive.get("source_template_sha256") or "") or (template.source_docx and not source_hash):
+            raise ValueError("source template differs from the frozen archive request")
+        output_check_started = True
+        candidate = _must(store, "candidate", submission.get("candidate_id", ""), "提交候选版本")
+        frozen_docx, output_report = _verified_candidate_artifact(store, candidate, version)
+        _require_automatic_candidate_check(output_report)
+        docx_path.write_bytes(frozen_docx)
+        output_check = require_docx_output_pass(
+            frozen_docx, project, template,
+            source_template_bytes=source,
+            context_kind="workflow-archive",
+        )
+        _require_automatic_candidate_check(output_check)
+        if source_template_bytes(source_path) != source:
+            raise ValueError("source template changed during archive generation")
+        output_check_started = False
+        reviews = [item for item in store.list_workflow_records("review", limit=None) if item.get("submission_id") == submission["id"]]
         comments = _comment_records(store, submission["id"])
-        process_records = [
-            item for item in store.list_workflow_records("process_record")
+        frozen_records, frozen_material_files = _verified_candidate_materials(store, candidate)
+        frozen_ids = {record["id"] for record in frozen_records}
+        process_records = frozen_records + [
+            item for item in store.list_workflow_records("process_record", limit=None)
             if item.get("scope_type") == "participant" and item.get("scope_id") == participant["id"]
+            and item.get("id") not in frozen_ids
         ]
         material_dir = temp_dir / "materials"
         material_dir.mkdir(parents=True, exist_ok=True)
@@ -1863,16 +2756,21 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
             snapshot = {key: value for key, value in record.items() if key != "attachments"}
             attachments = []
             for attachment in record.get("attachments", []):
-                source = Path(attachment.get("storage_path", ""))
-                if not source.is_file():
-                    raise RuntimeError(f"过程材料附件缺失: {attachment.get('id', '')}")
-                expected_hash = str(attachment.get("sha256", ""))
-                actual_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-                if expected_hash and actual_hash != expected_hash:
-                    raise RuntimeError(f"过程材料附件摘要不匹配: {attachment.get('id', '')}")
-                archive_name = f"materials/{attachment['id']}{source.suffix.lower()}"
+                if record["id"] in frozen_ids:
+                    data = frozen_material_files[attachment["id"]]
+                    suffix = Path(attachment.get("name", "")).suffix.lower()
+                else:
+                    source = Path(attachment.get("storage_path", ""))
+                    if not source.is_file():
+                        raise RuntimeError(f"过程材料附件缺失: {attachment.get('id', '')}")
+                    data = source.read_bytes()
+                    expected_hash = str(attachment.get("sha256", ""))
+                    if expected_hash and hashlib.sha256(data).hexdigest() != expected_hash:
+                        raise RuntimeError(f"过程材料附件摘要不匹配: {attachment.get('id', '')}")
+                    suffix = source.suffix.lower()
+                archive_name = f"materials/{attachment['id']}{suffix}"
                 target = temp_dir / archive_name
-                shutil.copyfile(source, target)
+                target.write_bytes(data)
                 attachments.append({
                     key: value for key, value in attachment.items()
                     if key not in {"storage_path", "media_type"}
@@ -1931,35 +2829,78 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
             "material_refs": (candidate or {}).get("materials", []),
             "process_record_ids": [item["id"] for item in process_records],
             "attachment_refs": attachment_refs,
+            "output_check": output_check,
+            "output_check_identity": output_check_identity(output_check),
             "files": file_entries,
         }
         manifest_path = temp_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-        output = archive_dir / f"{archive_id}.zip"
-        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        staged_archive = temp_dir / "archive.zip"
+        with zipfile.ZipFile(staged_archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
             for path, archive_name in (*bundle_entries, (manifest_path, "manifest.json")):
                 bundle.write(path, archive_name)
-        archive["status"] = transition_state("archive", str(archive.get("status") or ""), "succeeded")
-        archive["manifest_hash"] = _hash(manifest)
-        archive["file_path"] = str(output)
-        archive["manifest"] = manifest
-        archive["completed_at"] = _now()
         with store.workflow_transaction() as conn:
+            archive = _must(store, "archive", archive_id, "归档", conn=conn)
+            job = _archive_lease(conn, archive, lease_token)
+            if (archive.get("status") != "running" or tuple(archive.get(key) for key in (
+                    "job_id", "submission_id", "participant_id", "source_template_sha256",
+            )) != archive_identity):
+                raise _ArchiveLeaseLost
+            archive["status"] = transition_state("archive", str(archive.get("status") or ""), "succeeded")
+            archive["manifest_hash"] = _hash(manifest)
+            archive["file_path"] = str(archive_output)
+            archive["manifest"] = manifest
+            archive["completed_at"] = _now()
             _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
-            participant = store.get_workflow_record("participant", archive["participant_id"])
-            cohort = store.get_workflow_record("cohort", participant["cohort_id"])
-            _transition(participant, "participant", "archived")
-            participant["archive_id"] = archive["id"]
-            _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
-            _notify(store, conn, participant["student_id"], "archive.succeeded", "archive", archive_id, "终稿归档已完成")
-            _audit(store, conn, actor_id=actor_id, action="archive.succeeded", resource_type="archive", resource_id=archive_id, organization_id=cohort["organization_id"])
+            participant = _must(store, "participant", archive["participant_id"], "阶段任务")
+            cohort = _must(store, "cohort", participant["cohort_id"], "批次")
+            requires_review = review_required(output_check)
+            current = (participant.get("state") == "pending_archive"
+                       and participant.get("current_submission_id") == submission["id"]
+                       and participant.get("archive_id") in {None, "", archive_id})
+            if current:
+                participant["archive_id"] = archive["id"]
+                if not requires_review:
+                    _transition(participant, "participant", "archived")
+                _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
+                event_type = "archive.review_required" if requires_review else "archive.succeeded"
+                message = "归档文件已生成，等待教师完成 Word/WPS 核查后交付" if requires_review else "终稿归档已完成"
+            else:
+                event_type = "archive.historical_succeeded"
+                message = "历史提交的归档已完成，当前修订不受影响"
+            _notify(store, conn, participant["student_id"], event_type, "archive", archive_id, message)
+            _audit(store, conn, actor_id=actor_id, action=event_type, resource_type="archive", resource_id=archive_id, organization_id=cohort["organization_id"])
+            _finish_archive_job(conn, job, lease_token)
+            staged_archive.replace(archive_output)
         return archive
-    except Exception:
-        archive["status"] = transition_state("archive", str(archive.get("status") or ""), "failed")
-        archive["error_code"] = "ARCHIVE_GENERATION_FAILED"
-        archive["failed_at"] = _now()
-        store.save_workflow_record("archive", archive, expected_revision=archive.get("revision", 0))
-        return archive
+    except _ArchiveLeaseLost:
+        return {"status": "lease_lost", "error_code": "ARCHIVE_LEASE_LOST"}
+    except Exception as exc:
+        try:
+            with store.workflow_transaction() as conn:
+                archive = _must(store, "archive", archive_id, "归档", conn=conn)
+                job = _archive_lease(conn, archive, lease_token)
+                if (archive.get("status") != "running" or tuple(archive.get(key) for key in (
+                        "job_id", "submission_id", "participant_id", "source_template_sha256",
+                )) != archive_identity):
+                    raise _ArchiveLeaseLost
+                archive["status"] = transition_state("archive", "running", "failed")
+                archive["error_code"] = "ARCHIVE_GENERATION_FAILED"
+                if isinstance(exc, DocxOutputCheckError):
+                    archive["output_check_diagnostic"] = safe_output_check_diagnostics(exc.report)
+                    archive["error_code"] = "ARCHIVE_OUTPUT_CHECK_FAILED"
+                elif output_check_started:
+                    archive["output_check_diagnostic"] = safe_output_check_diagnostics(None)
+                    archive["error_code"] = "ARCHIVE_OUTPUT_CHECK_FAILED"
+                archive["failed_at"] = _now()
+                _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
+                queue_state = _finish_archive_job(conn, job, lease_token, error=archive["error_code"],
+                                                  retry_delay_seconds=retry_delay_seconds)
+                if queue_state == "failed":
+                    _archive_failure_notification(store, conn, archive)
+            return {**archive, "_queue_state": queue_state}
+        except _ArchiveLeaseLost:
+            return {"status": "lease_lost", "error_code": "ARCHIVE_LEASE_LOST"}
     finally:
         if temp_dir is not None:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -1968,7 +2909,7 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "") -> dict:
 @router.get("/archives")
 def list_archives(store: Store = Depends(get_store), user: dict = Depends(current_user)) -> list[dict]:
     result = []
-    for archive in store.list_workflow_records("archive"):
+    for archive in store.list_workflow_records("archive", limit=None):
         participant = store.get_workflow_record("participant", archive.get("participant_id", ""))
         if not participant:
             continue
@@ -1986,15 +2927,15 @@ def get_archive(archive_id: str, store: Store = Depends(get_store), user: dict =
     return _archive_view(archive)
 
 
-@router.post("/archives/{archive_id}/retry")
+@router.post("/archives/{archive_id}/retry", dependencies=[Depends(require_m2_workflow)])
 def retry_archive(archive_id: str, req: RetryRequest, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
-    _ensure_manager(user)
+    _ensure_manager(user, workflow=True)
     archive = _must(store, "archive", archive_id, "归档")
-    participant = _must(store, "participant", archive["participant_id"], "阶段任务")
-    cohort = _ensure_cohort_access(store, user, participant["cohort_id"])
+    participant, _, cohort, _ = _participant_access(store, user, archive["participant_id"])
     if archive.get("status") != "failed":
         raise HTTPException(status_code=409, detail="只有失败归档可以重试")
     archive["retry_reason"] = req.reason.strip()
+    archive["retry_requested_by"] = user["id"]
     with store.workflow_transaction() as conn:
         job_id = archive.get("job_id") or new_id("job")
         archive["job_id"] = job_id
@@ -2009,22 +2950,146 @@ def retry_archive(archive_id: str, req: RetryRequest, store: Store = Depends(get
                 resource_id=archive_id, max_attempts=5,
             )
         else:
-            repository.retry_job_in_transaction(conn, job_id, req.reason.strip())
+            if (job["job_type"] != "archive.generate" or job["resource_type"] != "archive"
+                    or job["resource_id"] != archive_id):
+                raise _conflict("ARCHIVE_QUEUE_STATE_MISMATCH", "归档任务关联异常，请联系系统管理员处理")
+            if repository.retry_job_in_transaction(conn, job_id, req.reason.strip()) is None:
+                raise _conflict("ARCHIVE_JOB_NOT_RETRYABLE", "归档任务正在处理或已结束，请刷新后重试")
+        _audit(store, conn, actor_id=user["id"], action="archive.retry", resource_type="archive",
+               resource_id=archive_id, organization_id=cohort["organization_id"], reason=req.reason)
     return _archive_view(archive)
 
 
-@router.get("/archives/{archive_id}/download")
+def _verified_archive_output(store: Store, archive_id: str, archive: dict) -> tuple[bytes, bytes, dict]:
+    """Rebind an archive's final DOCX to its manifest and frozen source snapshot."""
+    if archive.get("status") != "succeeded" or not archive.get("file_path"):
+        raise ValueError("archive is not ready")
+    path = Path(archive["file_path"]).resolve()
+    legacy_root = (Path(__file__).resolve().parent.parent.parent / "data" / "archives").resolve()
+    if path.parent not in {_archive_dir().resolve(), legacy_root} or not path.is_file():
+        raise FileNotFoundError("archive artifact is missing")
+    archive_bytes = path.read_bytes()
+    with zipfile.ZipFile(io.BytesIO(archive_bytes), "r") as bundle:
+        names = bundle.namelist()
+        if len(names) != len(set(names)):
+            raise ValueError("archive contains duplicate member names")
+        manifest = json.loads(bundle.read("manifest.json"))
+        if not isinstance(manifest, dict):
+            raise ValueError("invalid archive manifest")
+        files = {item.get("name"): item for item in manifest.get("files", []) if isinstance(item, dict)}
+        if set(names) != set(files) | {"manifest.json"}:
+            raise ValueError("archive member list differs from the manifest")
+        for name, entry in files.items():
+            payload = bundle.read(name)
+            if entry.get("sha256") != hashlib.sha256(payload).hexdigest() or entry.get("size_bytes") != len(payload):
+                raise ValueError(f"archive member digest mismatch: {name}")
+        final_docx = bundle.read("final.docx")
+    if (
+        manifest.get("archive_id") != archive_id
+        or manifest.get("submission_id") != archive.get("submission_id")
+        or _hash(manifest) != archive.get("manifest_hash")
+    ):
+        raise ValueError("archive manifest digest mismatch")
+    output_check = manifest.get("output_check")
+    if (
+        not verify_report_binding(output_check, final_docx)
+        or not verify_report_identity(output_check, manifest.get("output_check_identity") or {})
+        or str(output_check.get("source_template_sha256") or "") != str(archive.get("source_template_sha256") or "")
+    ):
+        raise ValueError("missing or stale output check")
+    submission = _must(store, "submission", archive["submission_id"], "提交")
+    version = _must(store, "project_version", submission["project_version_id"], "论文版本")
+    candidate = _must(store, "candidate", submission.get("candidate_id", ""), "提交候选版本")
+    candidate_artifact = candidate.get("artifact") or {}
+    candidate_report = candidate_artifact.get("output_check") or {}
+    if (candidate.get("project_version_id") != version.get("id")
+            or candidate.get("content_hash") != version.get("content_hash")
+            or candidate_artifact.get("docx_sha256") != hashlib.sha256(final_docx).hexdigest()
+            or not verify_report_binding(candidate_report, final_docx)
+            or output_check_identity(candidate_report) != output_check_identity(output_check)):
+        raise ValueError("archive differs from the submitted artifact")
+    project = WritingProject.model_validate(version["content_snapshot"])
+    if validate_heading_hierarchy(project.sections):
+        raise ValueError("frozen project has invalid heading hierarchy")
+    template = PaperTemplate.model_validate(project.template_snapshot or project.template_source_snapshot)
+    source_path = resolve_template_source(template.source_docx) if template.source_docx else None
+    source = source_template_bytes(source_path)
+    source_hash = hashlib.sha256(source).hexdigest() if source is not None else ""
+    if source_hash != str(archive.get("source_template_sha256") or "") or (template.source_docx and not source_hash):
+        raise ValueError("source template differs from the frozen archive")
+    fresh_report = require_docx_output_pass(
+        final_docx, project, template, source_template_bytes=source, context_kind="workflow-archive-download",
+    )
+    if output_check_identity(output_check) != output_check_identity(fresh_report):
+        raise ValueError("archive report differs from the frozen output")
+    if review_identity(output_check) != review_identity(fresh_report):
+        raise ValueError("archive manual checklist differs from the independently checked output")
+    return archive_bytes, final_docx, fresh_report
+
+
+@router.get("/archives/{archive_id}/download", dependencies=[Depends(require_m2_workflow)])
 def download_archive(archive_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)):
     archive = _must(store, "archive", archive_id, "归档")
     participant = _must(store, "participant", archive["participant_id"], "阶段任务")
     assert_resource_read(store, user, "archive", archive)
-    if archive.get("status") != "succeeded" or not archive.get("file_path"):
-        raise HTTPException(status_code=409, detail="归档尚未生成完成")
-    path = Path(archive["file_path"]).resolve()
-    legacy_root = (Path(__file__).resolve().parent.parent.parent / "data" / "archives").resolve()
-    if path.parent not in {_archive_dir().resolve(), legacy_root} or not path.is_file():
-        raise HTTPException(status_code=404, detail="归档制品不存在")
-    return FileResponse(path, filename=f"{archive_id}.zip", media_type="application/zip", headers={"X-PaperGuard-Manifest-Hash": archive.get("manifest_hash", "")})
+    try:
+        archive_bytes, _, output_check = _verified_archive_output(store, archive_id, archive)
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="归档成品检查凭据缺失或制品校验失败，请重新归档") from exc
+    if review_required(output_check):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "OUTPUT_CHECK_AUTOMATION_REQUIRED", "message": "该归档的自动版面检查尚未完成，请联系系统团队处理。", "manual_review": review_view(output_check, None)},
+        )
+    return Response(content=archive_bytes, media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="{archive_id}.zip"',
+        "X-PaperGuard-Manifest-Hash": archive.get("manifest_hash", ""),
+    })
+
+
+@router.get("/archives/{archive_id}/review-candidate", dependencies=[Depends(require_m2_workflow)])
+def download_archive_review_candidate(archive_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> Response:
+    archive = _must(store, "archive", archive_id, "归档")
+    participant = _must(store, "participant", archive["participant_id"], "阶段任务")
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或系统管理员可以下载核查候选")
+    _participant_access(store, user, participant["id"])
+    try:
+        _verified_archive_output(store, archive_id, archive)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="归档成品不存在") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="归档核查候选校验失败，请重新归档") from exc
+    raise HTTPException(status_code=409, detail={
+        "code": "OUTPUT_CHECK_AUTOMATION_REQUIRED",
+        "message": "人工确认不能替代自动版面检查，请联系系统团队处理。",
+    })
+
+
+@router.post("/archives/{archive_id}/manual-review", dependencies=[Depends(require_m2_workflow)])
+def confirm_archive_manual_review(
+    archive_id: str,
+    request: ManualOutputReviewRequest,
+    store: Store = Depends(get_store),
+    user: dict = Depends(current_user),
+) -> dict:
+    archive = _must(store, "archive", archive_id, "归档")
+    participant = _must(store, "participant", archive["participant_id"], "阶段任务")
+    if not can_manage(user):
+        raise HTTPException(status_code=403, detail="仅教师或系统管理员可以确认 Word/WPS 成品核查")
+    _participant_access(store, user, participant["id"])
+    try:
+        _verified_archive_output(store, archive_id, archive)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="归档成品不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="归档核查候选校验失败，请重新归档") from exc
+    raise HTTPException(status_code=409, detail={
+        "code": "OUTPUT_CHECK_AUTOMATION_REQUIRED",
+        "message": "人工确认不能替代自动版面检查，请联系系统团队处理。",
+    })
 
 
 def _job_visible(store: Store, user: dict, job: dict) -> bool:

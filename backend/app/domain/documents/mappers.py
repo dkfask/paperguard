@@ -104,7 +104,7 @@ def paper_template_to_domain(
         rule_packs=list(template.rule_packs),
         requirement_set_ids=list(template.requirement_set_ids),
         organization_context=dict(template.organization_context),
-        extensions={"legacy_model": "PaperTemplate"},
+        extensions={"legacy_model": "PaperTemplate", **({"source_execution":template.source_execution} if template.source_execution else {})},
     )
     version_id = _version_id(template.id, template.version)
     source_asset_id = ""
@@ -171,6 +171,7 @@ def domain_to_paper_template(
         rule_packs=list(definition.rule_packs),
         requirement_set_ids=list(definition.requirement_set_ids),
         organization_context=dict(definition.organization_context),
+        source_execution=definition.extensions.get("source_execution",{}),
     )
 
 

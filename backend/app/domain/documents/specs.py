@@ -64,6 +64,43 @@ class SpecSet(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+def source_execution_to_spec_rules(
+    definition: Any,
+    *,
+    template_version_id: str,
+    profile_sha256: str,
+) -> list[SpecRule]:
+    """Convert a verified Word execution profile into generic spec rules.
+
+    The profile is the server-signed, source-bound result of teacher review.
+    Only that frozen result is allowed to become a generic document rule set;
+    the browser's extracted specification is never trusted directly.
+    """
+    raw_definition = definition.model_dump(mode="json") if hasattr(definition, "model_dump") else definition
+    profile = (raw_definition.get("extensions") or {}).get("source_execution") or {}
+    rules: list[SpecRule] = []
+    for item in profile.get("content_requirements") or []:
+        provenance = dict(item.get("provenance") or {})
+        provenance.update({
+            "source": item.get("source") or "Word template instruction",
+            "source_version": item.get("source_version") or template_version_id,
+            "template_version_id": template_version_id,
+            "template_profile_sha256": profile_sha256,
+        })
+        rules.append(SpecRule(
+            id=str(item["id"]),
+            kind=str(item.get("type") or "manual"),
+            target=str(item.get("target") or "document"),
+            checker=str(item.get("checker") or ""),
+            params=dict(item.get("params") or {}),
+            severity=str(item.get("severity") or "info"),
+            enforce=str(item.get("enforce") or "soft"),
+            description=str(item.get("description") or item.get("source_text") or ""),
+            provenance=provenance,
+        ))
+    return rules
+
+
 def _family_id(requirement_set: RequirementSet) -> str:
     return requirement_set.family_id or requirement_set.id
 
@@ -154,4 +191,4 @@ def requirement_set_to_spec(
     return spec_set, spec_version
 
 
-__all__ = ["SpecRule", "SpecSet", "SpecVersion", "requirement_set_to_spec"]
+__all__ = ["SpecRule", "SpecSet", "SpecVersion", "requirement_set_to_spec", "source_execution_to_spec_rules"]

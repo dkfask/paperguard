@@ -31,6 +31,11 @@
       <span class="material-symbols-outlined" style="font-size: 18px" aria-hidden="true">warning</span>
       <span>{{ error }}</span>
     </div>
+    <div v-if="exportCheck" class="notice-banner export-check-status" role="status" aria-live="polite">
+      <strong>{{ t('writer.exportGenerated') }}</strong>
+      <span>{{ t('writer.exportFormatStatus', { status: exportCheckLabel(exportCheck.status), count: exportCheck.count }) }}</span>
+      <span>{{ t('writer.exportVisualScope') }}</span>
+    </div>
 
     <!-- ============ TAB 1: WRITING WORKSPACE ============ -->
     <section v-if="tab === 'projects'" class="writing-projects">
@@ -69,14 +74,16 @@
           <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
           <label for="tpl">{{ t('home.chooseTemplate') }}
         <select id="tpl" v-model="newProjectTemplate" :disabled="creating || initializing">
-          <option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}</option>
+          <option v-for="tpl in templates" :key="tpl.id" :value="tpl.id" :disabled="tpl.admission?.can_use_for_draft === false">{{ tpl.name }}{{ tpl.admission?.can_use_for_draft === false ? ` · ${t('templateAdmission.blocked')}` : '' }}</option>
         </select></label>
+          <p v-if="selectedNewProjectTemplate?.admission?.can_use_for_draft === false" class="error-banner" role="alert">{{ t('templateAdmission.blockedUse') }}</p>
+          <p v-else-if="selectedNewProjectTemplate?.admission" class="hint">{{ t('templateAdmission.draftAllowedOfficeReview') }}</p>
           <label for="new-thesis-title">{{ t('home.thesisTitle') }}
             <input id="new-thesis-title" v-model="newProjectTitle" :disabled="creating" :placeholder="t('thesisTitlePlaceholder')" />
           </label>
           <div class="create-thesis-actions">
             <button type="button" :disabled="creating" @click="newProjectOpen = false">{{ t('common.cancel') }}</button>
-        <button type="submit" class="primary" :disabled="creating || initializing || !newProjectTemplate">
+        <button type="submit" class="primary" :disabled="creating || initializing || !newProjectTemplate || selectedNewProjectTemplate?.admission?.can_use_for_draft === false">
           <span class="material-symbols-outlined" aria-hidden="true">add</span>
           <span>{{ creating ? t('creating') : t('newThesisBtn') }}</span>
         </button>
@@ -320,6 +327,7 @@ const router = useRouter()
 const { t, formatDate } = useI18n()
 
 const tab = ref(route.query.tab === 'check' ? 'check' : 'projects')
+const exportCheck = ref(null)
 watch(() => route.query.tab, (newTab) => {
   tab.value = newTab === 'check' ? 'check' : 'projects'
 })
@@ -353,6 +361,7 @@ const trashProjects = ref([])
 const primaryProject = computed(() => projects.value[0] || null)
 const newProjectTitle = ref("")
 const newProjectTemplate = ref("")
+const selectedNewProjectTemplate = computed(() => templates.value.find(item => item.id === newProjectTemplate.value))
 const creating = ref(false)
 const exporting = reactive(new Set())
 const deleting = reactive(new Set())
@@ -369,7 +378,7 @@ watch(() => workspaceQuery.data.value, (data) => {
   packs.value = data.packs || []
   if (!pack.value && packs.value.length) pack.value = packs.value[0]
   templates.value = data.templates || []
-  if (!newProjectTemplate.value && templates.value.length) newProjectTemplate.value = templates.value[0].id
+  if (!newProjectTemplate.value && templates.value.length) newProjectTemplate.value = templates.value.find(item => item.admission?.can_use_for_draft !== false)?.id || ''
   projects.value = data.projects || []
   trashProjects.value = data.deletedProjects || []
 }, { immediate: true })
@@ -449,7 +458,7 @@ async function runFix() {
 }
 
 async function createProject() {
-  if (!newProjectTemplate.value || creating.value || initializing.value) return
+  if (!newProjectTemplate.value || creating.value || initializing.value || selectedNewProjectTemplate.value?.admission?.can_use_for_draft === false) return
   creating.value = true
   error.value = ""
   try {
@@ -465,9 +474,16 @@ async function createProject() {
 async function exportProject(p) {
   if (exporting.has(p.id)) return
   exporting.add(p.id)
-  try { await projectsApi.export(p.id) }
+  exportCheck.value = null
+  try { exportCheck.value = await projectsApi.export(p.id) }
   catch (e) { error.value = e.message }
   finally { exporting.delete(p.id) }
+}
+
+function exportCheckLabel(status) {
+  if (status === 'pass') return t('writer.exportCheckPassed')
+  if (status === 'fail') return t('writer.exportCheckFailed')
+  return t('writer.exportCheckUnverifiable')
 }
 
 async function deleteProject(p) {

@@ -21,6 +21,7 @@ from pathlib import Path
 
 from lxml import etree
 
+from app.core.extract.heading_semantics import plausible_unstyled_numbered_heading, semantic_heading_level
 from app.core.extract.para_props import para_props
 from app.core.extract.para_samples import (
     ParaSample,
@@ -920,8 +921,15 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
             items.append(("special-appendix", text))
         elif _is_ordinal_heading(text) or re.match(
             r"^第\s*[0-9一二三四五六七八九十百]+\s*[章节]", text, re.I
-        ) or re.match(r"^\d+(?:\.\d+){1,2}\s*\S", text):
-            items.append(("text-heading", text))
+        ) or (re.match(r"^\d+(?:\.\d+){1,2}\s*\S", text)
+              and (_STYLE_KEY_MAP.get(_norm(style_name), "") in {"heading1", "heading2", "heading3"}
+                   or plausible_unstyled_numbered_heading(text))):
+            heading_style = _STYLE_KEY_MAP.get(_norm(style_name), "")
+            if heading_style in {"heading1", "heading2", "heading3"}:
+                level = semantic_heading_level(text, int(heading_style[-1]))
+                items.append((f"heading{level}", text))
+            else:
+                items.append(("text-heading", text))
             seen_ordinal_heading = seen_ordinal_heading or _is_ordinal_heading(text)
         elif style_id in _HEADING_STYLE_IDS or _norm(style_name) in {
                 "heading1", "heading2", "heading3",
@@ -969,10 +977,12 @@ def extract_section_tree(docx_path: str | Path) -> list[dict]:
         elif normalized in {"3", "heading3", "标题3"}:
             level = 3
         elif style_id == "text-heading":
-            level = 1 if (
+            is_chapter = (
                 _is_ordinal_heading(text)
                 or re.match(r"^第\s*[0-9一二三四五六七八九十百]+\s*[章节]", text)
-            ) else 2
+            )
+            number = re.match(r"^\d+(?:\.\d+){1,2}", text)
+            level = 1 if is_chapter else number.group().count(".") + 1 if number else 2
         else:
             continue
 

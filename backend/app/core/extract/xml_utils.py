@@ -58,7 +58,13 @@ def safe_xml_parser() -> etree.XMLParser:
     (可构造实体膨胀耗尽内存/CPU)。预定义实体(&amp; 等)与数字字符引用不受影响。
     每次返回新实例：lxml 解析器不适合跨线程共享。
     """
-    return etree.XMLParser(remove_blank_text=False, resolve_entities=False, no_network=True)
+    return etree.XMLParser(
+        remove_blank_text=False,
+        resolve_entities=False,
+        no_network=True,
+        load_dtd=False,
+        huge_tree=False,
+    )
 
 
 def parse_xml(data: bytes) -> etree._Element:

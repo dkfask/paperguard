@@ -1,5 +1,6 @@
 import { auth, clearAuth } from './auth'
 import { translate } from './i18n'
+import { exportCheckMessage } from './utils/exportCheckMessage'
 
 const API_BASE = '/api'
 
@@ -42,10 +43,12 @@ function detailMessage(payload, fallback) {
 async function responseError(resp, fallback) {
   const payload = await resp.json().catch(() => ({}))
   const requestId = resp.headers.get('x-request-id') || ''
-  const message = detailMessage(payload, `${fallback} (${resp.status})`)
+  const hint = exportCheckMessage(payload?.detail?.output_check)
+  const message = [detailMessage(payload, `${fallback} (${resp.status})`), hint].filter(Boolean).join('。')
   const error = new Error(requestId ? `${message}（请求 ID: ${requestId}）` : message)
   error.status = resp.status
   error.requestId = requestId
+  error.manualReview = payload?.detail?.manual_review || null
   return error
 }
 
@@ -279,6 +282,16 @@ export async function fetchTemplate(id) {
   return resp.json()
 }
 
+export async function assessTemplateAdmission(template) {
+  const resp = await api(`${API_BASE}/templates/admission/assess`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(template),
+  })
+  if (!resp.ok) throw await responseError(resp, '评估模板准入失败')
+  return resp.json()
+}
+
 export async function saveTemplate(tpl, isNew = false) {
   const resp = await api(`${API_BASE}/templates${tpl.id && !isNew ? '/' + tpl.id : ''}`, {
     method: isNew ? 'POST' : 'PUT',
@@ -403,7 +416,12 @@ export async function exportProject(projectId, force = false) {
     err.missing = Array.isArray(detail.detail?.missing) ? detail.detail.missing : []
     throw err
   }
+  const outputCheck = {
+    status: resp.headers.get('x-paperguard-output-check') || 'unverifiable',
+    count: Number(resp.headers.get('x-paperguard-output-check-count') || 0),
+  }
   await downloadBlob(resp, 'paper.docx')
+  return outputCheck
 }
 
 export async function createProjectExportJob(projectId, force = false) {
@@ -435,9 +453,30 @@ export async function downloadProjectExportJob(projectId, exportId, fallbackName
   await downloadBlob(resp, fallbackName)
 }
 
+export async function downloadProjectExportPdf(projectId, exportId, fallbackName = 'paper.pdf') {
+  const resp = await api(`${API_BASE}/projects/${projectId}/export-jobs/${exportId}/download?format=pdf`)
+  if (!resp.ok) throw await responseError(resp, 'PDF 生成失败，Word 文件仍可下载')
+  await downloadBlob(resp, fallbackName)
+}
+
+export async function downloadProjectExportReviewCandidate(projectId, exportId, fallbackName = 'paper.review-candidate.docx') {
+  const resp = await api(`${API_BASE}/projects/${projectId}/export-jobs/${exportId}/review-candidate`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '下载人工核查候选失败'))
+  await downloadBlob(resp, fallbackName)
+  return { outputSha256: resp.headers.get('x-paperguard-output-sha256') || '' }
+}
+
+export async function confirmProjectExportManualReview(projectId, exportId, payload) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/export-jobs/${exportId}/manual-review`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '提交人工核查失败'))
+  return resp.json()
+}
+
 export async function retryProjectExportJob(projectId, exportId) {
   const resp = await api(`${API_BASE}/projects/${projectId}/export-jobs/${exportId}/retry`, { method: 'POST' })
-  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '重试导出任务失败'))
+  if (!resp.ok) throw await responseError(resp, '重试导出任务失败')
   return resp.json()
 }
 
@@ -458,23 +497,51 @@ export async function previewProjectExport(projectId, force = false) {
   return resp.json()
 }
 
-export async function importProjectDocx(projectId, file, apply = false, baseRevision = null) {
-  const params = new URLSearchParams()
-  if (apply) params.set('apply', 'true')
-  if (baseRevision !== null && baseRevision !== undefined) params.set('base_revision', String(baseRevision))
+export async function fetchProjectCapabilities(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/capabilities`)
+  if (!resp.ok) throw await responseError(resp, '获取写作能力失败')
+  return resp.json()
+}
+
+export async function fetchWorkflowCapabilities() {
+  const resp = await api(`${API_BASE}/workflow-capabilities`)
+  if (!resp.ok) throw await responseError(resp, '获取工作流能力失败')
+  return resp.json()
+}
+
+export async function previewProjectDocx(projectId, file) {
   const form = new FormData()
   form.append('file', file)
-  const query = params.toString()
-  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx${query ? `?${query}` : ''}`, {
+  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx`, { method: 'POST', body: form })
+  if (!resp.ok) throw await responseError(resp, '预览 Word 论文失败')
+  return resp.json()
+}
+
+export async function fetchProjectDocxCandidate(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx/candidate`)
+  if (!resp.ok) throw await responseError(resp, '恢复导入预览失败')
+  return resp.json()
+}
+
+export async function reviseProjectDocxCandidate(projectId, candidateId, decisions) {
+  const params = new URLSearchParams()
+  params.set('candidate_id', candidateId)
+  const form = new FormData()
+  form.append('heading_decisions', JSON.stringify(decisions))
+  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx?${params}`, {
     method: 'POST', body: form,
   })
-  if (!resp.ok) {
-    const detail = await resp.json().catch(() => ({}))
-    const err = new Error(detailMessage(detail, '导入 Word 正文失败'))
-    err.status = resp.status
-    err.revision = detail.detail?.revision
-    throw err
-  }
+  if (!resp.ok) throw await responseError(resp, '更新导入预览失败')
+  return resp.json()
+}
+
+export async function applyProjectDocxCandidate(projectId, candidate) {
+  const params = new URLSearchParams({
+    apply: 'true', candidate_id: candidate.candidate_id, candidate_sha256: candidate.candidate_sha256,
+    base_revision: String(candidate.project_revision),
+  })
+  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx?${params}`, { method: 'POST' })
+  if (!resp.ok) throw await responseError(resp, '应用 Word 论文失败')
   return resp.json()
 }
 
@@ -789,6 +856,24 @@ export async function downloadProcessRecordAttachment(fileId) {
   await downloadBlob(resp, fileId)
 }
 
+export async function downloadSubmissionMaterial(submissionId, fileId, name) {
+  const resp = await api(`${API_BASE}/submissions/${encodeURIComponent(submissionId)}/materials/${encodeURIComponent(fileId)}/download`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '下载提交材料失败'))
+  await downloadBlob(resp, name || fileId)
+}
+
+export async function downloadSubmissionDocument(submissionId) {
+  const resp = await api(`${API_BASE}/submissions/${encodeURIComponent(submissionId)}/document`)
+  if (!resp.ok) throw await responseError(resp, '下载提交版 Word 失败')
+  await downloadBlob(resp, 'submission.docx')
+}
+
+export async function downloadSubmissionPdf(submissionId) {
+  const resp = await api(`${API_BASE}/submissions/${encodeURIComponent(submissionId)}/document?format=pdf`)
+  if (!resp.ok) throw await responseError(resp, 'PDF 生成失败，Word 文件仍可下载')
+  await downloadBlob(resp, 'submission.pdf')
+}
+
 export async function fetchTask(participantId) {
   return workflowJson(`${API_BASE}/stage-participants/${participantId}`, {}, '获取任务详情失败')
 }
@@ -829,6 +914,12 @@ export async function fetchSubmissions() {
 
 export async function fetchSubmission(submissionId) {
   return workflowJson(`${API_BASE}/submissions/${submissionId}`, {}, '获取提交详情失败')
+}
+
+export async function withdrawSubmission(submissionId) {
+  return workflowJson(`${API_BASE}/submissions/${submissionId}/withdraw`, {
+    method: 'POST',
+  }, '撤回提交失败')
 }
 
 export async function fetchProjectVersions(projectId) {
@@ -948,6 +1039,19 @@ export async function downloadArchive(archiveId) {
   await downloadBlob(resp, `${archiveId}.zip`)
 }
 
+export async function downloadArchiveReviewCandidate(archiveId, fallbackName = 'archive.review-candidate.docx') {
+  const resp = await api(`${API_BASE}/archives/${archiveId}/review-candidate`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '下载归档核查候选失败'))
+  await downloadBlob(resp, fallbackName)
+  return { outputSha256: resp.headers.get('x-paperguard-output-sha256') || '' }
+}
+
+export async function confirmArchiveManualReview(archiveId, payload) {
+  return workflowJson(`${API_BASE}/archives/${archiveId}/manual-review`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  }, '提交归档人工核查失败')
+}
+
 export async function reopenStageParticipant(participantId, reason) {
   return workflowJson(`${API_BASE}/stage-participants/${participantId}/reopen`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
@@ -1014,11 +1118,33 @@ export async function importDocxTemplate(file) {
   return resp.json()
 }
 
+export async function fetchWritingSpecification(templateId) {
+  return workflowJson(`${API_BASE}/templates/${encodeURIComponent(templateId)}/writing-specification`, {}, '读取撰写规范失败')
+}
+
+export async function proposeWritingProfile(templateId, confirmation) {
+  return workflowJson(`${API_BASE}/templates/${encodeURIComponent(templateId)}/writing-profile/propose`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(confirmation) }, '准备母版执行配置失败')
+}
+
+export async function publishWritingProfile(templateId, confirmation) {
+  return workflowJson(`${API_BASE}/templates/${encodeURIComponent(templateId)}/publish-writing-profile`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(confirmation) }, '确认母版执行配置失败')
+}
+
+export async function prepareCandidateWritingProfile(candidate, confirmation, previewOnly = true) {
+  return workflowJson(`${API_BASE}/templates/parse/writing-profile`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({candidate, confirmation, preview_only: previewOnly}) }, '准备模板候选执行配置失败')
+}
+
 export async function getPrivateImageUrl(path) {
   const resp = await api(path)
   if (!resp.ok) throw new Error('图片加载失败')
   const blob = await resp.blob()
   return URL.createObjectURL(blob)
+}
+
+export async function getSubmissionImageUrl(submissionId, blockId) {
+  const resp = await api(`${API_BASE}/submissions/${encodeURIComponent(submissionId)}/image?block_id=${encodeURIComponent(blockId)}`)
+  if (!resp.ok) throw await responseError(resp, '提交图片加载失败')
+  return URL.createObjectURL(await resp.blob())
 }
 
 
@@ -1231,6 +1357,16 @@ export async function getDocumentTemplateCandidate(candidateId) {
   return resp.json()
 }
 
+export async function assessDocumentTemplateCandidate(candidate) {
+  const resp = await api(`${API_BASE}/templates/parse/assess`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(candidate),
+  })
+  if (!resp.ok) throw await responseError(resp, '重新评估模板失败')
+  return resp.json()
+}
+
 export async function confirmDocumentTemplateCandidate(candidate) {
   const resp = await api(`${API_BASE}/templates/parse/confirm`, {
     method: 'POST',
@@ -1339,5 +1475,51 @@ export async function renderDocumentProject(projectId, force = false) {
     method: 'POST',
   })
   if (!resp.ok) throw await responseError(resp, '导出通用文档失败')
+  const outputCheck = {
+    status: resp.headers.get('x-paperguard-output-check') || 'unverifiable',
+    count: Number(resp.headers.get('x-paperguard-output-check-count') || 0),
+    outputSha256: resp.headers.get('x-paperguard-output-sha256') || '',
+    inspectorVersion: resp.headers.get('x-paperguard-inspector-version') || '',
+    projectContentSha256: resp.headers.get('x-paperguard-project-content-sha256') || '',
+    templateSha256: resp.headers.get('x-paperguard-template-sha256') || '',
+    sourceTemplateSha256: resp.headers.get('x-paperguard-source-template-sha256') || '',
+  }
   await downloadBlob(resp, 'document.docx')
+  return outputCheck
+}
+
+
+export async function createDocumentRenderJob(projectId) {
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/render-jobs`, { method: 'POST' })
+  if (!resp.ok) throw await responseError(resp, '创建文档导出任务失败')
+  return resp.json()
+}
+
+export async function fetchDocumentRenderJob(projectId, jobId) {
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/render-jobs/${encodeURIComponent(jobId)}`)
+  if (!resp.ok) throw await responseError(resp, '读取文档导出任务失败')
+  return resp.json()
+}
+
+export async function downloadDocumentRenderArtifact(projectId, jobId, candidate = false) {
+  const suffix = candidate ? 'review-candidate' : 'artifact'
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/render-jobs/${encodeURIComponent(jobId)}/${suffix}`)
+  if (!resp.ok) throw await responseError(resp, '下载文档成品失败')
+  await downloadBlob(resp, candidate ? 'document.review-candidate.docx' : 'document.docx')
+  return { outputSha256: resp.headers.get('x-paperguard-output-sha256') || '' }
+}
+
+export async function confirmDocumentRenderReview(projectId, jobId, payload) {
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/render-jobs/${encodeURIComponent(jobId)}/manual-review`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  })
+  if (!resp.ok) throw await responseError(resp, '确认文档成品核查失败')
+  return resp.json()
+}
+
+
+export async function fetchDocumentRenderJobs(projectId) {
+  const resp = await api(`${API_BASE}/document-projects/${encodeURIComponent(projectId)}/render-jobs`)
+  if (!resp.ok) throw await responseError(resp, '读取文档导出记录失败')
+  return resp.json()
 }

@@ -19,6 +19,7 @@ from app.models.template import PaperTemplate, SectionType, TextStyle
 from app.services.policy_format import normalize_format_overrides
 from app.services.requirement_check import check_requirements
 from app.services.project_versions import project_content_hash
+from app.services.references import reference_block_text, reference_number_for
 
 # 模板节类型 → 检查引擎 style_id
 _STYLE_ID = {
@@ -100,8 +101,13 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *,
             content_type = stype
 
         # 内容块
+        reference_number = 0
         for par in sec.paragraphs:
-            if par.type.value == "paragraph" and par.text.strip():
+            text = reference_block_text(par)
+            if stype == "references" and par.type.value == "paragraph" and text.strip():
+                reference_number += 1
+                text = reference_block_text(par, reference_number_for(par, reference_number))
+            if par.type.value == "paragraph" and text.strip():
                 paragraph_type = content_type
                 rule_type = "body" if stype in _HEADING_TYPES else stype
                 if stype in {"abstract", "english_abstract"} and _is_keyword_paragraph(par.text):
@@ -109,7 +115,7 @@ def project_to_ir(project: WritingProject, template: PaperTemplate, *,
                     rule_type = paragraph_type
                 body_style = template.styles.get(paragraph_type) or template.styles.get("body")
                 paragraphs.append(_body_par(
-                    par.text, par, template, body_style, _style_id_for(rule_type),
+                    text, par, template, body_style, _style_id_for(rule_type),
                 ))
                 index_to_section.append(sec.key)
                 index_to_block.append(par.id)
@@ -242,6 +248,10 @@ def check_project(project: WritingProject, template: PaperTemplate,
         "version": item.get("version"),
     } for item in policy_sources)
     requirement_findings, not_checked = check_requirements(project, snapshot, template)
+    quality_advisories = [item for item in requirement_findings
+                          if item.get("checker") == "references.recent_language_summary"]
+    requirement_findings = [item for item in requirement_findings
+                            if item.get("checker") != "references.recent_language_summary"]
     applied = []
     format_item_ids = set(snapshot.get("format_item_ids") or [])
     for item in snapshot.get("resolved_items", []):
@@ -316,6 +326,7 @@ def check_project(project: WritingProject, template: PaperTemplate,
             "waived": len(waived),
         },
         "findings": result,
+        "quality_advisories": quality_advisories,
         "not_checked": not_checked,
         "applied": applied,
         "waived": waived,

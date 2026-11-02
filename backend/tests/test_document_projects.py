@@ -8,6 +8,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+from app.db import Store
 from app.domain.documents.schemas import DocumentPackage, TemplateDefinition, TemplateSection
 from app.main import app
 from app.services.document_assets import document_upload_dir
@@ -15,7 +16,7 @@ from app.services.document_project_engine import instantiate_document_project
 from tests._helpers import register_fixture
 
 
-FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "minimal.docx"
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "admissible.docx"
 SPEC = """---
 name: 通用实验报告规范
 version: '1'
@@ -248,12 +249,56 @@ def test_document_project_render_returns_docx_artifact() -> None:
     assert created.status_code == 201, created.text
 
     response = client.post(f"/api/document-projects/{created.json()['id']}/render", headers=headers)
-    assert response.status_code == 200, response.text
-    assert response.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-    assert response.content[:2] == b"PK"
+    assert response.status_code == 409, response.text
+    diagnostics = response.json()["detail"]["output_check"]
+    assert diagnostics["status"] in {"fail", "unverifiable"}
+    assert diagnostics["findings"]
+    assert b"PK" not in response.content
 
 
-def test_document_project_image_upload_is_owned_and_renderable(tmp_path, monkeypatch) -> None:
+def test_m1_generic_document_keeps_drafts_but_blocks_delivery_and_queued_work(monkeypatch) -> None:
+    from app.services.document_render_jobs import run_document_render_job
+    from app.services.workflow_jobs import consume_document_render_jobs
+
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    package = _published_package(client, headers)
+    created = client.post('/api/document-projects', headers=headers,
+        json={'package_id': package['id'], 'title': '试点草稿'})
+    assert created.status_code == 201, created.text
+    project = created.json()
+    base = f"/api/document-projects/{project['id']}"
+    queued = client.post(base + '/render-jobs', headers=headers)
+    assert queued.status_code == 202, queued.text
+    job = queued.json()
+
+    monkeypatch.setenv('PAPERGUARD_DELIVERY_STAGE', 'm1')
+    editor = client.get(base + '/editor', headers=headers)
+    assert editor.status_code == 200
+    assert editor.json()['capabilities']['formal_delivery_enabled'] is False
+    saved = client.put(base, headers=headers, json={'title': '试点草稿已保存', 'base_revision': project['revision']})
+    assert saved.status_code == 200, saved.text
+
+    paths = [
+        ('post', '/render?force=true', None),
+        ('post', '/render-jobs?force=true', None),
+        ('post', f"/render-jobs/{job['id']}/retry", None),
+        ('get', f"/render-jobs/{job['id']}/artifact", None),
+        ('get', f"/render-jobs/{job['id']}/review-candidate", None),
+        ('post', f"/render-jobs/{job['id']}/manual-review", {'output_sha256': 'a' * 64, 'confirmed_check_ids': ['a']}),
+    ]
+    for method, path, payload in paths:
+        response = client.request(method, base + path, headers=headers, json=payload)
+        assert response.status_code == 403, (path, response.text)
+        assert response.json()['detail']['code'] == 'm1_generic_delivery_unavailable'
+    direct = run_document_render_job(Store(), job['id'])
+    assert direct['error_code'] == 'M1_GENERIC_DELIVERY_UNAVAILABLE'
+    consumed = consume_document_render_jobs(Store(), consumer_id='test-m1')
+    assert consumed['claimed'] == 0
+    assert Store().get_workflow_record('document_render_job', job['id'])['status'] == 'queued'
+
+
+def test_document_project_image_upload_is_owned_but_unverified_render_is_blocked(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("PAPERGUARD_DATA_DIR", str(tmp_path))
     client = TestClient(app)
     headers = _admin_headers(client)
@@ -291,8 +336,9 @@ def test_document_project_image_upload_is_owned_and_renderable(tmp_path, monkeyp
     )
     assert updated.status_code == 200, updated.text
     rendered = client.post(f"/api/document-projects/{project_id}/render", headers=headers)
-    assert rendered.status_code == 200, rendered.text
-    assert rendered.content[:2] == b"PK"
+    assert rendered.status_code == 409, rendered.text
+    assert rendered.json()["detail"]["output_check"]["status"] != "pass"
+    assert rendered.json()["detail"]["output_check"]["findings"]
 
     foreign = sections[first_key][0].copy()
     foreign["data"] = {"url": "/media/uploads/docproj-other-figure.png"}
@@ -307,11 +353,7 @@ def test_document_project_image_upload_is_owned_and_renderable(tmp_path, monkeyp
     assert rejected.status_code == 422, rejected.text
 
 
-def test_document_project_render_job_is_durable_idempotent_and_downloadable(tmp_path, monkeypatch) -> None:
-    from app.services.document_render_jobs import artifact_dir
-    from app.worker import run_once
-
-    monkeypatch.setenv("PAPERGUARD_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+def test_document_project_hard_findings_block_force_sync_and_async_render() -> None:
     client = TestClient(app)
     headers = _admin_headers(client)
     package = _published_package(client, headers, HARD_SPEC)
@@ -327,40 +369,13 @@ def test_document_project_render_job_is_durable_idempotent_and_downloadable(tmp_
     assert blocked.status_code == 409, blocked.text
     assert blocked.json()["detail"]["run_id"]
 
-    queued = client.post(f"/api/document-projects/{project_id}/render-jobs?force=true", headers=headers)
-    assert queued.status_code == 202, queued.text
-    task = queued.json()
-    assert task["status"] == "queued"
-    assert "snapshot" not in task and "last_error" not in task
-    duplicate = client.post(f"/api/document-projects/{project_id}/render-jobs?force=true", headers=headers)
-    assert duplicate.status_code == 202, duplicate.text
-    assert duplicate.json()["id"] == task["id"]
+    for endpoint in ("render", "render-jobs"):
+        forced = client.post(f"/api/document-projects/{project_id}/{endpoint}?force=true", headers=headers)
+        assert forced.status_code == 409, forced.text
+        assert "force 不能绕过" in forced.json()["detail"]["message"]
+        assert forced.json()["detail"]["summary"]["hard_failures"] == 1
 
-    result = run_once()
-    assert task["job_id"] in result["document_renders"]["succeeded"]
-    completed = client.get(f"/api/document-projects/{project_id}/render-jobs/{task['id']}", headers=headers)
-    assert completed.status_code == 200, completed.text
-    completed_body = completed.json()
-    assert completed_body["status"] == "succeeded"
-    assert completed_body["artifact"]["filename"] == "异步实验报告.docx"
-    assert "storage_key" not in completed_body["artifact"]
-
-    downloaded = client.get(
-        f"/api/document-projects/{project_id}/render-jobs/{task['id']}/artifact",
-        headers=headers,
-    )
-    assert downloaded.status_code == 200, downloaded.text
-    assert downloaded.content[:2] == b"PK"
-    audit = client.get("/api/audit", headers=headers, params={"resource_type": "document_render_job"})
-    assert audit.status_code == 200, audit.text
-    assert {item["action"] for item in audit.json() if item["resource_id"] == task["id"]} >= {
-        "document.project.render.queued",
-        "document.project.render.succeeded",
-    }
-    artifact = artifact_dir() / completed_body["artifact"]["id"]
-    artifact = artifact.with_suffix(".docx")
-    if artifact.exists():
-        artifact.unlink()
+    assert client.get(f"/api/document-projects/{project_id}/render-jobs", headers=headers).json() == []
 
 
 def test_document_project_render_job_can_be_cancelled_and_force_is_role_scoped() -> None:
