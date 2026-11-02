@@ -219,8 +219,68 @@ def derive_manuscript_template(template, source_path, imported, *, actor):
     profile["content_requirement_source_sha256"] = parent.get("content_requirement_source_sha256", parent["source_sha256"])
     profile["content_requirement_specification_sha256"] = parent.get("content_requirement_specification_sha256", parent["specification_sha256"])
     profile["manuscript_parent"] = {"profile_sha256": parent["profile_sha256"], "source_sha256": parent["source_sha256"]}
+    profile["manuscript_section_key_map"] = mapping
+    profile["manuscript_source_section_keys"] = [
+        h["key"] for h in parent["headings"]
+        if h["kind"] in {"heading1", "heading2", "heading3"}
+    ]
     profile["manuscript_headings_sha256"] = digest([(s["type"], s["title"]) for s in chapters])
     profile["manuscript_sha256"] = imported.get("source_sha256", "")
     candidate.source_execution = sign_profile(profile)
     verify_profile(candidate, payload)
     return candidate, payload
+
+
+def remap_requirement_snapshot(snapshot, section_key_map, source_section_keys=()):
+    """Keep frozen hard/soft requirements attached to the same imported chapters."""
+    from app.services.policy_resolver import content_hash
+
+    result = copy.deepcopy(snapshot or {})
+    key_map = {str(old): str(new) for old, new in (section_key_map or {}).items()}
+    source_keys = {str(key) for key in source_section_keys}
+    if not result or not source_keys:
+        return result
+    previous_mapping = result.get("manuscript_target_mapping") or {}
+    previous_key_map = {
+        str(old): str(new)
+        for old, new in (previous_mapping.get("section_key_map") or {}).items()
+    }
+    previous_target_to_source = {new: old for old, new in previous_key_map.items()}
+    previous_source_keys = {str(key) for key in previous_mapping.get("source_section_keys", [])}
+
+    def remap_value(value, *, hard=False):
+        if isinstance(value, str):
+            # Re-imports receive the already remapped frozen snapshot. Rebase
+            # those targets before applying the new manuscript's key map;
+            # source and destination keys can overlap (for example ch1/ch2).
+            value = previous_target_to_source.get(value, value)
+            if value in key_map:
+                return key_map[value]
+            if value in source_keys or value in previous_source_keys:
+                if hard:
+                    raise ProfileError("已确认的硬性规范缺少对应论文标题，需要教师确认：" + value)
+                return "document"
+            return value
+        if isinstance(value, list):
+            return [remap_value(item, hard=hard) for item in value]
+        return value
+
+    for field in ("resolved_items", "template_instruction_items"):
+        for item in result.get(field, []) or []:
+            hard = item.get("enforce") == "hard"
+            if "target" in item:
+                item["target"] = remap_value(item["target"], hard=hard)
+            params = item.get("params")
+            if not isinstance(params, dict):
+                continue
+            for key in ("section_key", "section_keys"):
+                if key in params:
+                    params[key] = remap_value(params[key], hard=hard)
+
+    result["manuscript_target_mapping"] = {
+        "section_key_map": key_map,
+        "source_section_keys": sorted(source_keys),
+    }
+    unhashed = {key: value for key, value in result.items() if key != "content_hash"}
+    result["content_hash"] = content_hash(unhashed)
+    return result
