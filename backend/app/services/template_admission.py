@@ -17,6 +17,7 @@ from typing import Any
 from lxml import etree
 
 from app.core.extract.xml_utils import safe_xml_parser
+from app.domain.documents.schemas import TemplateDefinition
 from app.models.template import PaperTemplate, TextStyle
 from app.services.docx_output_check import TEXT_STYLE_COVERAGE, style_capability_issues
 from app.services.template_package_inventory import INVENTORY_VERSION, inventory_template_package
@@ -207,6 +208,25 @@ def _collect_style_entries(raw_definition: dict[str, Any]) -> tuple[list[tuple[s
     return entries, findings
 
 
+def _static_anchor_source(source_data: bytes | None) -> bool:
+    """Package comparison covers static content, not active or updating fields."""
+    if source_data is None:
+        return False
+    from app.services.source_template_safety import audit_source_package
+
+    try:
+        audit_source_package(source_data)
+        with zipfile.ZipFile(io.BytesIO(source_data)) as archive:
+            for name in archive.namelist():
+                if name.startswith("word/") and name.endswith(".xml"):
+                    root = _parse_source_xml(archive.read(name))
+                    if root.xpath(".//w:fldSimple | .//w:fldChar | .//w:instrText", namespaces=_NS):
+                        return False
+    except Exception:
+        return False
+    return True
+
+
 def assess_template_definition(
     *,
     template_id: str,
@@ -256,6 +276,13 @@ def assess_template_definition(
                 "path": f"{style_path}.{issue['property']}",
             })
     blockers.extend(_source_findings(source_data, expected_source_sha256))
+    if (isinstance(definition, TemplateDefinition)
+            and definition.export_strategy != "legacy_adapter"
+            and definition.anchors
+            and all(anchor.kind in {"placeholder", "section_placeholder"} for anchor in definition.anchors)
+            and _static_anchor_source(source_data)):
+        covered = {"source_table_not_mapped", "unmapped_header", "unmapped_footer"}
+        blockers = [item for item in blockers if item["code"] not in covered]
     inventory_summary = None
     if source_data is not None:
         try:

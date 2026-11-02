@@ -33,11 +33,15 @@ FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "minimal.
 ANCHORED_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "templates" / "generic-anchored.docx"
 
 
-def _simple_anchor_sample(tmp_path, monkeypatch):
+def _simple_anchor_sample(tmp_path, monkeypatch, *, fixed_objects=False):
     monkeypatch.setenv("PAPERGUARD_TEMPLATE_DIR", str(tmp_path))
     source = tmp_path / "simple-anchor.docx"
     document = Document()
     document.add_paragraph("保留的静态文字")
+    if fixed_objects:
+        document.add_table(rows=1, cols=1).cell(0, 0).text = "固定表格"
+        document.sections[0].header.paragraphs[0].text = "固定页眉"
+        document.sections[0].footer.paragraphs[0].text = "固定页脚"
     document.add_paragraph("姓名：{{name}}")
     document.add_paragraph("{{section:body}}")
     document.save(source)
@@ -425,3 +429,38 @@ def test_anchored_fixture_replaces_dynamic_content_and_preserves_static_package(
     )
     assert bad_report["status"] == "fail"
     assert any(item["rule"] == "content.anchor_field" and item["status"] == "fail" for item in bad_report["checks"])
+
+
+@pytest.mark.parametrize("mutation", [None, "header", "footer", "table"])
+def test_admitted_anchor_static_objects_are_independently_checked(tmp_path, monkeypatch, mutation):
+    from app.services.template_admission import assess_template_definition
+
+    output, project, package, template, version, spec = _simple_anchor_sample(
+        tmp_path, monkeypatch, fixed_objects=True,
+    )
+    admission = assess_template_definition(
+        template_id=template.id, version=version.version,
+        definition=version.definition,
+        source_data=(tmp_path / "simple-anchor.docx").read_bytes(),
+    )
+    assert admission["can_use_for_draft"]
+    assert not admission["can_claim_compliant_delivery"]
+    if mutation:
+        document = Document(output)
+        if mutation == "table":
+            document.tables[0].cell(0, 0).width = Pt(24)
+        else:
+            getattr(document.sections[0], mutation).paragraphs[0].runs[0].font.size = Pt(24)
+        document.save(output)
+    report = inspect_document_project_docx_output(
+        output.read_bytes(), project, package, template, version, spec,
+        context_kind="document-sync",
+    )
+    assert report["status"] == ("fail" if mutation else "pass")
+    if mutation == "table":
+        assert any(item["rule"] == "template.anchor_story_structure" and item["status"] == "fail"
+                   for item in report["checks"])
+    elif mutation:
+        fixed_part = f"word/{mutation}1.xml"
+        assert any(item["rule"] == "template.static_package_preserved" and fixed_part in item["actual"]["changed"]
+                   for item in report["checks"])

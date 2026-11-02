@@ -55,7 +55,33 @@ def _organization_id(store: Store, project: WritingProject) -> str:
     return str((cohort or {}).get("organization_id") or context.get("college_id") or context.get("school_id") or "")
 
 
-def export_job_view(record: dict) -> dict:
+def export_identity(project: WritingProject) -> dict[str, Any] | None:
+    """Describe the live project and frozen template for a delivery decision."""
+    if not project.template_snapshot:
+        return None
+    try:
+        template = PaperTemplate.model_validate(project.template_snapshot)
+        source_path = resolve_template_source(template.source_docx) if template.source_docx else None
+        source = source_template_bytes(source_path)
+    except (OSError, ValueError, TypeError):
+        return None
+    if template.source_docx and source is None:
+        return None
+    return {
+        "project_id": project.id,
+        "project_revision": project.revision,
+        "content_hash": project_content_hash(project),
+        "template_snapshot": template.model_dump(mode="json"),
+        "source_template_sha256": hashlib.sha256(source).hexdigest() if source is not None else "",
+    }
+
+
+def export_job_is_current(record: dict, identity: dict[str, Any] | None) -> bool:
+    return identity is not None and all(record.get(key) == value for key, value in identity.items())
+
+
+def export_job_view(record: dict, *, current_identity: dict[str, Any] | None = None,
+                    check_current: bool = False) -> dict:
     """Return a public task projection without content snapshots or paths."""
     hidden = {"file_path", "project_snapshot", "template_snapshot", "output_check", "requirement_manual_checks"}
     result = {key: value for key, value in record.items() if key not in hidden}
@@ -64,10 +90,12 @@ def export_job_view(record: dict) -> dict:
     result["output_check_status"] = "unverifiable" if requires_automation else report.get("status", "unverified")
     result["output_check_count"] = report.get("check_count", 0)
     result["manual_review"] = review_view(report, None if requires_automation else record.get("manual_review"))
+    if check_current:
+        result["is_current_for_project"] = export_job_is_current(record, current_identity)
     if record.get("output_check_diagnostic"):
         result["output_check_diagnostic"] = record["output_check_diagnostic"]
     if record.get("status") == "succeeded":
-        if not requires_automation:
+        if not requires_automation and result.get("is_current_for_project") is not False:
             result["download_url"] = f"/api/projects/{record['project_id']}/export-jobs/{record['id']}/download"
     return result
 
@@ -136,7 +164,9 @@ def create_export_job(
             (project.id, project.revision),
         ).fetchall()
         same_revision = [item for row in rows if (item := json.loads(row["data"]))
-                         and item.get("content_hash") == record["content_hash"]]
+                         and item.get("content_hash") == record["content_hash"]
+                         and item.get("template_snapshot") == record["template_snapshot"]
+                         and item.get("source_template_sha256", "") == record["source_template_sha256"]]
         existing = []
         for item in same_revision:
             status = item.get("status")

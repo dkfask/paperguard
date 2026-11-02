@@ -1125,13 +1125,33 @@ def import_project_docx(proj_id: str, file: UploadFile | None = File(None), appl
             if source_path is None:
                 raise ProfileError("原版式模板源文件缺失，未应用导入内容")
             derived, payload = derive_manuscript_template(layout, source_path, imported, actor=user["id"])
-            derived_path = template_source_dir() / derived.source_docx
+            requirement_snapshot = proj.requirement_snapshot
+            if not requirement_snapshot:
+                owner = store.get_user(proj.owner_id) if proj.owner_id else None
+                requirement_snapshot = build_requirement_snapshot(
+                    store, layout,
+                    teacher_id=owner.get("teacher_id") if owner else None,
+                    student_id=proj.owner_id,
+                    organization_context=proj.organization_context,
+                    project_id=proj.id,
+                    stage=proj.stage,
+                )
+            from app.services.manuscript_template import remap_requirement_snapshot
+            requirement_snapshot = remap_requirement_snapshot(
+                requirement_snapshot,
+                derived.source_execution.get("manuscript_section_key_map"),
+                derived.source_execution.get("manuscript_source_section_keys", []),
+            )
+            layout_instance = derived
+            derived_path = template_source_dir() / layout_instance.source_docx
             with derived_path.open("xb") as target:
                 created_paths.append(derived_path)
                 target.write(payload)
+            derived = apply_requirement_format_overrides(layout_instance, requirement_snapshot)
             proj.layout_template_snapshot = layout.model_dump(mode="json")
-            proj.template_source_snapshot = derived.model_dump(mode="json")
+            proj.template_source_snapshot = layout_instance.model_dump(mode="json")
             proj.template_snapshot = derived.model_dump(mode="json")
+            proj.requirement_snapshot = requirement_snapshot
         merge = _apply_imported_docx(proj, imported, created_paths)
         if merge.get("unplaced_section_titles"):
             raise HTTPException(status_code=422, detail={
@@ -2206,9 +2226,10 @@ def list_project_export_jobs(proj_id: str, store: Store = Depends(get_store),
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     assert_resource_read(store, user, "project", proj)
-    from app.services.export_jobs import export_job_view
+    from app.services.export_jobs import export_identity, export_job_view
+    current_identity = export_identity(proj)
     return [
-        export_job_view(item)
+        export_job_view(item, current_identity=current_identity, check_current=True)
         for item in store.list_workflow_records("project_export")
         if item.get("project_id") == proj_id
     ]
@@ -2224,8 +2245,8 @@ def get_project_export_job(proj_id: str, export_id: str, store: Store = Depends(
     record = store.get_workflow_record("project_export", export_id)
     if not record or record.get("project_id") != proj_id:
         raise HTTPException(status_code=404, detail="导出任务不存在")
-    from app.services.export_jobs import export_job_view
-    return export_job_view(record)
+    from app.services.export_jobs import export_identity, export_job_view
+    return export_job_view(record, current_identity=export_identity(proj), check_current=True)
 
 
 @router.post("/{proj_id}/export-jobs/{export_id}/retry")
@@ -2305,10 +2326,10 @@ def retry_project_export_job(proj_id: str, export_id: str, store: Store = Depend
 
 
 def _assert_current_export_project(record: dict, project: WritingProject | None) -> None:
-    if (project is None or record.get("project_id") != project.id
-            or record.get("project_revision") != project.revision
-            or record.get("content_hash") != project_content_hash(project)):
-        raise HTTPException(status_code=409, detail="论文内容已变化，该导出文件已失效，请重新导出并核查")
+    from app.services.export_jobs import export_identity, export_job_is_current
+
+    if project is None or not export_job_is_current(record, export_identity(project)):
+        raise HTTPException(status_code=409, detail="论文内容已变化或模板已变化，该导出文件已失效，请重新导出并核查")
 
 
 def _verified_project_export_output(record: dict, proj_id: str, project: WritingProject) -> tuple[bytes, dict]:

@@ -685,7 +685,9 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
 
 def freeze_protected_structure(root, profile):
     """Freeze fixed structure independently of all later student content."""
-    from app.services.master_docx_renderer import prepare_source, page_box
+    from app.services.master_docx_renderer import apply_page_layout, prepare_source, page_box
+    root = copy.deepcopy(root)
+    apply_page_layout(root, profile.get("policy_layout_overrides"))
     for heading in profile["headings"]:
         heading["page_box_cm"] = list(page_box(root,heading["index"]))
     prepared = prepare_source(copy.deepcopy(root),profile)

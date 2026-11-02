@@ -1682,6 +1682,21 @@ def inspect_master_output(data, project, template, source, report):
                                     "旧版排版回执不含表格逐行定位证据：" + block.id)
                         if len(nodes)==2:
                             style(nodes[0],{**{k:v for k,v in profile["object_properties"]["table_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_next":True,"paragraph.keep_lines":True},block.id+":caption")
+                    elif block.type==BlockType.EQUATION and block.equation:
+                        from app.domain.documents.schemas import ContentBlock
+                        from app.services.docx_anchors import _safe_omml
+                        expected_math = _safe_omml(ContentBlock(
+                            id=block.id, kind="equation", data={"omml": block.equation.omml},
+                        ))
+                        actual_math = content.findall(".//"+qn("m:oMath"))
+                        good = (expected_math is not None and len(actual_math)==1
+                                and semantic(expected_math)==semantic(actual_math[0]))
+                        check("equation_omml",good,block.id,
+                              expected=semantic(expected_math) if expected_math is not None else None,
+                              actual=[semantic(item) for item in actual_math])
+                        check("equation_structure",len(nodes)==1 and nodes[0].tag==qn("w:p") and len(actual_math)==1,block.id)
+                        if len(nodes)==1 and nodes[0].tag==qn("w:p"):
+                            style(nodes[0],props,block.id)
                     else:
                         check("unsupported_dynamic_block",False,block.id)
             report["source_profile_sha256"]=profile["profile_sha256"]

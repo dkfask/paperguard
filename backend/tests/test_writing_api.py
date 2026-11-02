@@ -559,6 +559,8 @@ def test_durable_project_export_job_roundtrip(monkeypatch):
     assert completed.json()["status"] == "succeeded"
     assert completed.json()["output_check_status"] == "pass"
     assert completed.json()["output_check_count"] > 0
+    assert completed.json()["is_current_for_project"] is True
+    assert "download_url" in completed.json()
     saved_export = Store().get_workflow_record("project_export", task["id"])
     assert saved_export["output_check"]["output_sha256"]
     assert saved_export["output_check"]["project_content_hash"] == saved_export["content_hash"]
@@ -641,6 +643,9 @@ def test_durable_project_export_job_roundtrip(monkeypatch):
     saved_export = Store().save_workflow_record("project_export", saved_export, expected_revision=saved_export["revision"])
     changed_snapshot = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
     assert changed_snapshot.status_code == 409
+    changed_view = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}").json()
+    assert changed_view["is_current_for_project"] is False
+    assert "download_url" not in changed_view
 
     saved_export["template_snapshot"] = original_template_snapshot
     saved_export["output_check"] = original_report
@@ -661,6 +666,12 @@ def test_durable_project_export_job_roundtrip(monkeypatch):
     assert historical.status_code == 409
     assert client.get(pdf_url).status_code == 409
     assert "论文内容已变化" in historical.text
+    stale_views = [client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}").json(),
+                   next(item for item in client.get(f"/api/projects/{project_id}/export-jobs").json()
+                        if item["id"] == task["id"])]
+    for stale_view in stale_views:
+        assert stale_view["is_current_for_project"] is False
+        assert "download_url" not in stale_view and "review_candidate_url" not in stale_view
     audit = client.get("/api/audit", params={"resource_type": "project_export"})
     assert audit.status_code == 200
     assert {item["action"] for item in audit.json() if item["resource_id"] == task["id"]} >= {
@@ -996,6 +1007,33 @@ def test_durable_project_export_unknown_capability_fails_without_publishing():
     assert retried["output_check_diagnostic"]["findings"]
     assert not retried.get("file_path")
     assert not (EXPORT_DIR / f"{task['id']}.docx").exists()
+
+
+def test_export_identity_detects_changed_or_missing_template_source(tmp_path, monkeypatch):
+    from app.models.project import WritingProject
+    from app.services.export_jobs import export_identity, export_job_is_current, export_job_view
+
+    source = tmp_path / "identity-source.docx"
+    Document().save(source)
+    monkeypatch.setenv("PAPERGUARD_TEMPLATE_DIR", str(tmp_path))
+    template = PaperTemplate(id="identity-template", name="身份测试", source_docx=source.name)
+    project = WritingProject(id="identity-project", template_id=template.id,
+                             template_snapshot=template.model_dump(mode="json"))
+    identity = export_identity(project)
+    assert identity is not None
+    record = {**identity, "id": "export-identity", "status": "succeeded",
+              "output_check": {"status": "pass"}}
+    assert export_job_is_current(record, identity)
+    modified = Document(source)
+    modified.core_properties.author = "source changed"
+    modified.save(source)
+    changed_identity = export_identity(project)
+    assert not export_job_is_current(record, changed_identity)
+    view = export_job_view(record, current_identity=changed_identity, check_current=True)
+    assert view["is_current_for_project"] is False and "download_url" not in view
+    source.unlink()
+    assert export_identity(project) is None
+    assert not export_job_is_current(record, export_identity(project))
 
 
 def test_paper_job_freezes_source_bytes_before_worker_starts(tmp_path, monkeypatch):
@@ -2559,3 +2597,307 @@ def test_queued_and_legacy_exports_recheck_the_frozen_heading_hierarchy(tmp_path
     result = run_project_export(store, queued['id'])
     assert result['status'] == 'failed'
     assert not result.get('file_path') and not invoked
+
+
+def test_stale_failed_export_cannot_be_retried(monkeypatch):
+    from app.services import export_jobs
+    from app.worker import run_once
+
+    project_id = _create_full_default_gb7713_project()
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+
+    def fail_export(*_args, **_kwargs):
+        raise RuntimeError("synthetic stale export failure")
+
+    monkeypatch.setattr(export_jobs, "export_project_to_docx", fail_export)
+    failed_run = run_once()
+    assert task["job_id"] in {item["job_id"] for item in failed_run["exports"]["failed"]}
+
+    project = client.get(f"/api/projects/{project_id}").json()
+    section = next(item for item in project["sections"] if item["required"])
+    edited = client.put(f"/api/projects/{project_id}/section/{section['key']}", json={
+        "paragraphs": [{"id": f"{section['key']}-changed", "text": "已更新论文正文，旧快照不得重试。"}],
+    })
+    assert edited.status_code == 200, edited.text
+
+    retried = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry")
+    assert retried.status_code == 409
+    assert "论文内容已变化" in retried.json()["detail"]
+
+
+def test_unverified_completed_artifact_is_not_reused_and_active_job_binds_template(tmp_path, monkeypatch):
+    from app.models.project import WritingProject
+    from app.services import export_jobs
+    from app.services.export_jobs import create_export_job
+
+    store = Store(tmp_path / "export-reuse.db")
+    output_dir = tmp_path / "exports"
+    monkeypatch.setattr(export_jobs, "EXPORT_DIR", output_dir)
+    template = PaperTemplate(id="reusable-export-template", name="复用测试模板", version="2")
+    project = WritingProject(id="reusable-export-project", template_id=template.id, title="版本一")
+    queued = create_export_job(store, project, template, force=True, actor_id="teacher")
+    output_dir.mkdir()
+    data = b"unverified-docx-bytes"
+    output = output_dir / f"{queued['id']}.docx"
+    output.write_bytes(data)
+    queued.update({"status": "succeeded", "file_path": str(output), "output_check": {
+        "status": "pass", "office_review_required": True,
+        "output_sha256": hashlib.sha256(data).hexdigest(),
+    }, "manual_review": {"status": "confirmed"}})
+    queued = store.save_workflow_record("project_export", queued, expected_revision=queued["revision"])
+
+    # Legacy manual confirmation cannot make an unverifiable artifact reusable.
+    next_job = create_export_job(store, project, template, force=True, actor_id="teacher")
+    assert next_job["id"] != queued["id"] and next_job["status"] == "queued"
+    output.write_bytes(data + b"tampered")
+    assert create_export_job(store, project, template, force=True, actor_id="teacher")["id"] == next_job["id"]
+
+    changed_template = template.model_copy(update={"name": "不同版本的模板"})
+    after_template_change = create_export_job(store, project, changed_template, force=True, actor_id="teacher")
+    assert after_template_change["id"] not in {queued["id"], next_job["id"]}
+    project.title = "版本二"
+    after_content_change = create_export_job(store, project, template, force=True, actor_id="teacher")
+    assert after_content_change["id"] not in {queued["id"], next_job["id"], after_template_change["id"]}
+    assert after_content_change["content_hash"] != queued["content_hash"]
+
+
+def test_signed_master_policy_overrides_roundtrip_project_export_and_archive(tmp_path, monkeypatch):
+    import json
+    import zipfile
+    from lxml import etree
+
+    from app.api import workflow as workflow_api
+    from app.core.extract.xml_utils import qn
+    from app.core.extract.specification import extract_writing_specification
+    from app.services.import_template import extract_section_tree, import_template_styles
+    from app.services.project_versions import project_content_hash
+    from app.services.source_template_profile import ConfirmWritingProfile
+
+    suffix = uuid.uuid4().hex[:10]
+    policy_id = f"master-policy-{suffix}"
+    template_id = f"master-policy-template-{suffix}"
+    source_name = ""
+    policy_created = False
+    source = Document()
+    source.add_heading("第1章 正文", 1)
+    source.add_paragraph("母版中的正文样例用于确认可写区域和格式。" * 12)
+    source_buffer = BytesIO()
+    source.save(source_buffer)
+
+    try:
+        from app.services.template_source import delete_template_source
+
+        source_name = save_template_source(source_buffer.getvalue(), preserve_original=True)
+        source_path = resolve_template_source(source_name)
+        assert source_path is not None
+        template = PaperTemplate(
+            id=template_id,
+            name="规范覆盖签名母版",
+            source_docx=source_name,
+            sections=extract_section_tree(source_path),
+            styles=import_template_styles(source_path)["styles"],
+        )
+        specification = extract_writing_specification(source_path)
+        confirmation = ConfirmWritingProfile(
+            expected_specification_sha256=specification.specification_sha256,
+            accept_recommended=True,
+            accept_new_object_defaults=True,
+            remove_template_instructions=True,
+            preserve_manuscript_structure=True,
+        )
+
+        policy = client.post("/api/policies", json={
+            "id": policy_id,
+            "family_id": policy_id,
+            "name": "母版成品格式覆盖测试",
+            "level": "school",
+            "scope": "global",
+            "status": "draft",
+            "version": "1",
+            "format_overrides": {
+                "body": {"size_pt": 14.0},
+                "heading1": {"size_pt": 18.0},
+            },
+            "layout_overrides": {"left_margin_cm": 2.0},
+            "items": [],
+        })
+        assert policy.status_code == 201, policy.text
+        policy_created = True
+        published = client.post(f"/api/policies/{policy_id}/publish")
+        assert published.status_code == 200, published.text
+
+        template.requirement_set_ids = [policy_id]
+        created_template = client.post("/api/templates", json=template.model_dump(mode="json"))
+        assert created_template.status_code == 201, created_template.text
+        proposal = client.post(
+            f"/api/templates/{template_id}/writing-profile/propose",
+            json=confirmation.model_dump(mode="json"),
+        )
+        assert proposal.status_code == 200, proposal.text
+        confirmation = confirmation.model_copy(update={"proposal_id": proposal.json()["proposal_id"]})
+        published = client.post(
+            f"/api/templates/{template_id}/publish-writing-profile",
+            json=confirmation.model_dump(mode="json"),
+        )
+        assert published.status_code == 200, published.text
+        created = client.post("/api/projects", json={"template_id": template_id, "title": "冻结规范往返样稿"})
+        assert created.status_code == 201, created.text
+        project_id = created.json()["id"]
+
+        loaded = client.get(f"/api/projects/{project_id}")
+        assert loaded.status_code == 200, loaded.text
+        project = loaded.json()
+        assert project["template_snapshot"]["styles"]["body"]["size_pt"] == 14.0
+        assert project["template_source_snapshot"]["styles"]["body"]["size_pt"] != 14.0
+        assert project["template_snapshot"]["page_layout"]["left_margin_cm"] == 2.0
+        assert project["template_snapshot"]["source_execution"]["signature"]
+        section_layout = source.sections[0]
+        expected_width = (section_layout.page_width.twips - round(2.0 * 567)
+                          - section_layout.right_margin.twips) / 567
+        for heading in project["template_snapshot"]["source_execution"]["headings"]:
+            assert heading["page_box_cm"][0] == pytest.approx(expected_width)
+
+        section = next(item for item in project["sections"] if item["type"] == "heading1")
+        saved = client.put(f"/api/projects/{project_id}/section/{section['key']}", json={
+            "base_revision": project["revision"],
+            "title": section["title"],
+            "paragraphs": [{"id": "policy-body", "text": "学生正文用于核对冻结规范样式。"}],
+        })
+        assert saved.status_code == 200, saved.text
+
+        queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+        assert queued.status_code == 202, queued.text
+        task = queued.json()
+        from app.worker import run_once
+
+        worker_result = run_once()
+        completed = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+        assert completed.status_code == 200, completed.text
+        assert task["job_id"] in worker_result["exports"]["succeeded"], completed.json().get("output_check_diagnostic")
+        assert completed.json()["output_check_status"] == "unverifiable"
+        assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+
+        # The remaining assertions isolate policy formatting and archive plumbing.
+        # Pagination approval is mocked here and separately tested by the actual gate.
+        from app.services import master_docx_check
+        monkeypatch.setattr(master_docx_check, "_apply_master_layout_review_policy",
+                            lambda report, _receipt: report.update(office_review_required=False, manual_checks=[]))
+        queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+        assert queued.status_code == 202, queued.text
+        task = queued.json()
+        worker_result = run_once()
+        completed = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+        assert task["job_id"] in worker_result["exports"]["succeeded"], completed.json().get("output_check_diagnostic")
+        assert completed.json()["output_check_status"] == "pass"
+        downloaded = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+        assert downloaded.status_code == 200, downloaded.text
+
+        def assert_policy_format(data: bytes) -> None:
+            with zipfile.ZipFile(BytesIO(data)) as package:
+                root = etree.fromstring(package.read("word/document.xml"))
+            paragraphs = root.findall(".//" + qn("w:p"))
+            body_paragraph = next(
+                paragraph for paragraph in paragraphs
+                if "学生正文用于核对冻结规范样式。" in "".join(
+                    text.text or "" for text in paragraph.findall(".//" + qn("w:t"))
+                )
+            )
+            body_sizes = [run.find(qn("w:rPr")).find(qn("w:sz")).get(qn("w:val"))
+                          for run in body_paragraph.findall(".//" + qn("w:r"))
+                          if run.find(qn("w:rPr")) is not None and run.find(qn("w:rPr")).find(qn("w:sz")) is not None]
+            assert body_sizes and set(body_sizes) == {"28"}
+            heading_paragraph = next(
+                paragraph for paragraph in paragraphs
+                if "第1章 正文" in "".join(
+                    text.text or "" for text in paragraph.findall(".//" + qn("w:t"))
+                )
+            )
+            heading_sizes = [run.find(qn("w:rPr")).find(qn("w:sz")).get(qn("w:val"))
+                             for run in heading_paragraph.findall(".//" + qn("w:r"))
+                             if run.find(qn("w:rPr")) is not None and run.find(qn("w:rPr")).find(qn("w:sz")) is not None]
+            assert heading_sizes and set(heading_sizes) == {"36"}
+            section_properties = root.findall(".//" + qn("w:sectPr"))
+            assert section_properties
+            assert all(
+                int(section.find(qn("w:pgMar")).get(qn("w:left"))) == round(2.0 * 567)
+                for section in section_properties
+            )
+
+        assert_policy_format(downloaded.content)
+
+        store = Store()
+        project = store.get_project(project_id)
+        version_id = f"master-policy-version-{suffix}"
+        submission_id = f"master-policy-submission-{suffix}"
+        participant_id = f"master-policy-participant-{suffix}"
+        cohort_id = f"master-policy-cohort-{suffix}"
+        archive_id = f"master-policy-archive-{suffix}"
+        from app.services.project_versions import project_attachment_refs
+        candidate_id = f"candidate-{uuid.uuid4().hex[:12]}"
+        candidate_path = tmp_path / "candidate.docx"
+        monkeypatch.setattr(workflow_api, "_candidate_artifact_path", lambda _candidate_id: candidate_path)
+        candidate_path.write_bytes(downloaded.content)
+        version = {
+            "id": version_id, "project_id": project.id,
+            "content_hash": project_content_hash(project),
+            "content_snapshot": project.model_dump(mode="json"),
+            "attachment_refs": project_attachment_refs(project),
+        }
+        store.save_workflow_record("project_version", version)
+        stored_export = store.get_workflow_record("project_export", task["id"])
+        store.save_workflow_record("candidate", {
+            "id": candidate_id, "project_version_id": version_id, "project_id": project.id,
+            "content_hash": version["content_hash"], "participant_id": participant_id,
+            "artifact": {"docx_sha256": hashlib.sha256(downloaded.content).hexdigest(),
+                         "output_check": stored_export["output_check"]},
+        })
+        store.save_workflow_record("submission", {
+            "id": submission_id,
+            "project_version_id": version_id,
+            "participant_id": participant_id,
+            "candidate_id": candidate_id,
+            "submission_number": 1,
+            "stage_config_id": "test-stage",
+            "stage_config_snapshot": {},
+        })
+        admin_id = project.owner_id
+        store.save_workflow_record("cohort", {"id": cohort_id, "organization_id": ""})
+        store.save_workflow_record("participant", {
+            "id": participant_id,
+            "cohort_id": cohort_id,
+            "student_id": admin_id,
+            "state": "pending_archive",
+        })
+        monkeypatch.setattr(workflow_api, "_archive_dir", lambda: tmp_path / "archives")
+        archive_job_id = f"archive-job-{suffix}"
+        store.save_workflow_record("archive", {
+            "id": archive_id,
+            "job_id": archive_job_id,
+            "submission_id": submission_id,
+            "participant_id": participant_id,
+            "source_template_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "status": "queued",
+        })
+        with store.workflow_transaction() as conn:
+            store.create_job_conn(conn, job_id=archive_job_id, job_type="archive.generate",
+                                  resource_type="archive", resource_id=archive_id)
+        job = next(item for item in store.claim_jobs(job_type="archive.generate", consumer_id="policy-test", limit=50)
+                   if item["id"] == archive_job_id)
+        archived = workflow_api._run_archive(store, archive_id, actor_id=admin_id, lease_token=job["lease_token"])
+        assert archived["status"] == "succeeded", archived
+        with zipfile.ZipFile(archived["file_path"]) as bundle:
+            manifest = json.loads(bundle.read("manifest.json"))
+            requirements = json.loads(bundle.read("requirements.json"))
+            archived_template = json.loads(bundle.read("template.json"))
+            final_docx = bundle.read("final.docx")
+        assert requirements["format_overrides"]["body"]["size_pt"] == 14.0
+        assert manifest["requirements_hash"] == workflow_api._hash(requirements)
+        assert archived_template["source_execution"]["policy_snapshot_sha256"]
+        assert_policy_format(final_docx)
+    finally:
+        if policy_created:
+            client.post(f"/api/policies/{policy_id}/archive")
+        if source_name:
+            delete_template_source(source_name)

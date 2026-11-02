@@ -1323,3 +1323,10 @@ def test_directory_source_appearance_rejects_conflicting_or_unresolved_samples(t
     doc.save(path)
     with pytest.raises(ProfileError, match='无法可靠解析'):
         source_toc_appearance(path.read_bytes(), profile)
+
+
+def test_office_pdf_font_names_normalize_known_macos_cjk_fallbacks():
+    # A substituted font must not be accepted as the required original font.
+    assert _font_name('/ABCDEF+STSongti-SC-Regular') == 'stsongtisc'
+    assert _font_name('STHeitiSC-Medium') == 'stheitiscmedium'
+    assert _font_name('TimesNewRomanPSMT') == 'timesnewroman'

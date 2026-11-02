@@ -44,6 +44,61 @@ def child(parent, tag, **attrs):
     return node
 
 
+_SECTPR_ORDER = (
+    "w:headerReference", "w:footerReference", "w:footnotePr", "w:endnotePr", "w:type",
+    "w:pgSz", "w:pgMar", "w:paperSrc", "w:pgBorders", "w:lnNumType", "w:pgNumType",
+    "w:cols", "w:formProt", "w:vAlign", "w:noEndnote", "w:titlePg", "w:textDirection",
+    "w:bidi", "w:rtlGutter", "w:docGrid", "w:printerSettings", "w:sectPrChange",
+)
+
+
+def _section_property(section, tag):
+    target = qn(tag)
+    existing = section.find(target)
+    if existing is not None:
+        return existing
+    node = OxmlElement(tag)
+    order = {qn(name): index for index, name in enumerate(_SECTPR_ORDER)}
+    target_order = order[target]
+    for index, current in enumerate(section):
+        if order.get(current.tag, -1) > target_order:
+            section.insert(index, node)
+            break
+    else:
+        section.append(node)
+    return node
+
+
+def apply_page_layout(root, page_layout: dict[str, float] | None):
+    """Apply signed template page settings to every section in the emitted document."""
+    layout = page_layout or {}
+    attributes = {
+        "page_width_cm": ("w:pgSz", "w:w"),
+        "page_height_cm": ("w:pgSz", "w:h"),
+        "left_margin_cm": ("w:pgMar", "w:left"),
+        "right_margin_cm": ("w:pgMar", "w:right"),
+        "top_margin_cm": ("w:pgMar", "w:top"),
+        "bottom_margin_cm": ("w:pgMar", "w:bottom"),
+        "header_distance_cm": ("w:pgMar", "w:header"),
+        "footer_distance_cm": ("w:pgMar", "w:footer"),
+    }
+    active = [(key, *attributes[key]) for key in attributes if key in layout]
+    if not active:
+        return
+    section_properties = root.xpath(".//w:sectPr", namespaces=NS)
+    if not section_properties:
+        body = root.find(qn("w:body"))
+        if body is None:
+            raise ProfileError("母版缺少页面布局")
+        section = OxmlElement("w:sectPr")
+        body.append(section)
+        section_properties = [section]
+    for section in section_properties:
+        for key, tag, attribute in active:
+            node = _section_property(section, tag)
+            node.set(qn(attribute), str(round(float(layout[key]) * 567)))
+
+
 def apply_properties(paragraph, properties: dict):
     """Write normalized properties with their original units; no point/line mixing."""
     ppr = paragraph.find(qn("w:pPr"))
@@ -274,6 +329,7 @@ def add_block_bookmarks(root, project, profile):
 
 def prepare_source(root, profile, meta=None):
     """Apply the approved editable boundaries; all other source nodes stay in order."""
+    apply_page_layout(root, profile.get("policy_layout_overrides"))
     body = root.find(qn("w:body"))
     original = list(body)
     ns = {k: v for element in root.iter() for k, v in element.nsmap.items() if k}
