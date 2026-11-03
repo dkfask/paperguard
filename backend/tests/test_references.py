@@ -227,6 +227,56 @@ def test_docx_export_preserves_structured_and_legacy_citation_numbers(tmp_path):
     assert "[8] 李四. 论文乙. 2025." in paragraphs
 
 
+def test_numbering_does_not_remove_bracketed_numbers_inside_reference_text():
+    text = "作者. 文献引用 [8] 相关研究."
+    block = ParagraphBlock(id="legacy", text=text)
+    assert reference_block_text(block, 1) == f"[1] {text}"
+
+
+@pytest.mark.parametrize("prefix", ["[8]", "[ 8 ]", "［8］", " ［ 8 ］ "])
+@pytest.mark.parametrize("reference_entry", [False, True])
+def test_legacy_number_survives_export_save_and_reload(tmp_path, prefix, reference_entry):
+    from app.services.references import reconcile_reference_numbers
+
+    text = f"{prefix} 李四. 论文乙. 2025."
+    block = ParagraphBlock(id="legacy", text=text)
+    if reference_entry:
+        block.reference = ReferenceEntry(kind="unparsed", unformatted_text=text)
+    project = WritingProject(id="legacy-project", template_id="tpl", sections=[
+        ProjectSection(key="references", type="references", title="参考文献", paragraphs=[block]),
+    ])
+    template = PaperTemplate(id="tpl", name="模板", styles=DEFAULT_STYLES,
+        sections=[{"key": "references", "type": SectionType.REFERENCES, "title": "参考文献"}])
+
+    def assert_export_has_original_number(snapshot, name):
+        output = tmp_path / name
+        export_project_to_docx(snapshot, template, str(output))
+        assert "[8] 李四. 论文乙. 2025." in [paragraph.text for paragraph in Document(output).paragraphs]
+
+    assert_export_has_original_number(project, "before.docx")
+    saved = project.model_copy(deep=True)
+    reconcile_reference_numbers(project, saved)
+    reloaded = WritingProject.model_validate_json(saved.model_dump_json())
+    assert reloaded.sections[0].paragraphs[0].reference_number == 8
+    assert reloaded.reference_number_owners == {"8": "legacy"}
+    assert_export_has_original_number(reloaded, "after.docx")
+
+
+@pytest.mark.parametrize("prefix", ["[ 8 ]", "［8］"])
+def test_normalized_legacy_number_conflicts_are_rejected(prefix):
+    from app.services.references import ReferenceNumberError, validate_reference_numbers
+
+    for paragraphs in (
+        [ParagraphBlock(id="a", text=f"{prefix} 甲"), ParagraphBlock(id="b", text="[8] 乙")],
+        [ParagraphBlock(id="a", reference_number=7, text=f"{prefix} 甲")],
+    ):
+        project = WritingProject(id="conflict", template_id="tpl", sections=[
+            ProjectSection(key="references", type="references", title="参考文献", paragraphs=paragraphs),
+        ])
+        with pytest.raises(ReferenceNumberError):
+            validate_reference_numbers(project)
+
+
 def test_legacy_positional_numbers_stay_with_their_owners_when_first_saved():
     from app.services.references import reconcile_reference_numbers
     old = WritingProject(id="legacy", template_id="tpl", sections=[ProjectSection(

@@ -9,6 +9,8 @@ from typing import Any
 from app.models.project import InlineTextRun, ReferenceLanguageFact, ReferenceYearFact
 
 
+_REFERENCE_NUMBER_PREFIX = re.compile(r"^\s*(?:\[\s*(\d+)\s*\]|［\s*(\d+)\s*］)")
+
 _TYPE_MARKERS = {
     "journal": "J",
     "book": "M",
@@ -182,7 +184,7 @@ def format_reference(entry: Any, number: int | None = None) -> str:
 
 
 def _strip_reference_number(text: str) -> str:
-    return re.sub(r"^\s*(?:\[\s*\d+\s*\]|［\s*\d+\s*］)\s*", "", str(text or "").strip())
+    return _REFERENCE_NUMBER_PREFIX.sub("", str(text or "").strip(), count=1).lstrip()
 
 
 def _number_legacy_reference(text: str, number: int | None) -> str:
@@ -225,7 +227,7 @@ def reference_inline_runs(block: Any, number: int | None) -> list[InlineTextRun]
         raise ReferenceInlineMappingError("参考文献的结构化内容与原文行内格式无法对应，请重新编辑该条目")
 
     source_start = len(source) - len(source.lstrip())
-    marker = re.match(r"(?:\[\s*\d+\s*\]|［\s*\d+\s*］)", source[source_start:])
+    marker = _REFERENCE_NUMBER_PREFIX.match(source[source_start:])
     body_start = source_start + (marker.end() if marker else 0)
     while body_start < len(source) and source[body_start].isspace():
         body_start += 1
@@ -299,8 +301,8 @@ def _legacy_number(block: Any) -> int | None:
     if reference is not None and getattr(reference, "original_pasted_text", None) is not None:
         return None
     text = getattr(reference, "unformatted_text", "") if reference is not None else getattr(block, "text", "")
-    match = re.match(r"^\s*\[(\d+)\]", str(text or ""))
-    number = int(match.group(1)) if match else None
+    match = _REFERENCE_NUMBER_PREFIX.match(str(text or ""))
+    number = int(match.group(1) or match.group(2)) if match else None
     if number is not None and number < 1:
         raise ReferenceNumberError("参考文献编号必须从 [1] 开始，请核对后再保存或导出")
     return number

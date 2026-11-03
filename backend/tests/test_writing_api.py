@@ -955,6 +955,31 @@ def test_reference_year_confirmation_survives_old_clients_and_rejects_forged_rec
     assert restored_fact["confirmed_by"] == ""
 
 
+@pytest.mark.parametrize("prefix", ["[8]", "[ 8 ]", "［8］"])
+def test_legacy_reference_number_survives_api_save_and_reload(prefix, tmp_path):
+    from app.models.project import ParagraphBlock
+
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    project.reference_number_owners = {}
+    refs = next(section for section in project.sections if section.key == "references")
+    refs.paragraphs = [ParagraphBlock(id="legacy-ref", text=f"{prefix} 李四. 论文乙. 2025.")]
+    store.save_project(project)
+    response = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project.revision,
+        "paragraphs": [block.model_dump(mode="json") for block in refs.paragraphs],
+    })
+    assert response.status_code == 200, response.text
+    reloaded = client.get(f"/api/projects/{project_id}")
+    assert reloaded.status_code == 200, reloaded.text
+    saved = next(section for section in reloaded.json()["sections"] if section["key"] == "references")
+    assert saved["paragraphs"][0]["reference_number"] == 8
+    assert reloaded.json()["reference_number_owners"] == {"8": "legacy-ref"}
+    document = _render_project_directly_for_renderer_assertion(project_id, tmp_path / "legacy.docx")
+    assert "[8] 李四. 论文乙. 2025." in [paragraph.text for paragraph in document.paragraphs]
+
+
 def test_ambiguous_legacy_references_block_saving_and_both_export_endpoints():
     from app.models.project import ParagraphBlock
     project_id = _create_full_default_gb7713_project()

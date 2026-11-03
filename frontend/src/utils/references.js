@@ -1,3 +1,5 @@
+const REFERENCE_PREFIX = /^\s*(?:\[\s*(\d+)\s*\]|［\s*(\d+)\s*］)/
+
 const MARKERS = {
   journal: 'J', book: 'M', thesis: 'D', conference: 'C', online: 'EB/OL', standard: 'S',
 }
@@ -24,8 +26,8 @@ export function referenceNumber(block) {
   if (Number.isInteger(stored) && stored > 0) return stored
   if (block?.reference?.original_pasted_text != null) return null
   const raw = block?.reference?.unformatted_text || block?.text || ''
-  const match = String(raw).match(/^\s*\[(\d+)\]/)
-  const number = match ? Number(match[1]) : 0
+  const match = String(raw).match(REFERENCE_PREFIX)
+  const number = match ? Number(match[1] || match[2]) : 0
   return Number.isSafeInteger(number) && number > 0 ? number : null
 }
 
@@ -88,7 +90,7 @@ export function formatReference(reference, number) {
   if (!reference) return ''
   const value = key => String(reference[key] || '').trim()
   const raw = value('unformatted_text')
-  const stripNumber = text => String(text || '').trim().replace(/^(?:\[\s*\d+\s*\]|［\s*\d+\s*］)\s*/, '')
+  const stripNumber = text => String(text || '').trim().replace(REFERENCE_PREFIX, '').trimStart()
   const numberText = text => number == null || !text ? text : `[${number}] ${stripNumber(text)}`
   if (reference.kind === 'unparsed') return numberText(raw)
   if (!['authors', 'title', 'source', 'collection', 'publisher', 'institution', 'organization'].some(key => value(key))) {
@@ -139,8 +141,6 @@ export function createReference(kind = 'journal', unformattedText = '') {
     unformatted_text: String(unformattedText || ''),
   }
 }
-
-const REFERENCE_PREFIX = /^\s*(?:\[\s*\d+\s*\]|［\s*\d+\s*］)/
 
 function extractPastedReference(value) {
   const text = String(value || '').replace(REFERENCE_PREFIX, '').replace(/\r\n?/g, '\n').replace(/\s*\n\s*/g, ' ').trim()

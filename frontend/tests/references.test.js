@@ -27,6 +27,14 @@ describe('reference formatting', () => {
     expect(referenceNumber({ text: '未编号文献' })).toBeNull()
   })
 
+  it.each(['[8]', '[ 8 ]', '［8］', ' ［ 8 ］ '])('reads and normalizes legacy number %s', prefix => {
+    const text = `${prefix} 李四. 论文乙. 2025.`
+    expect(referenceNumber({ text })).toBe(8)
+    const reference = { kind: 'unparsed', unformatted_text: text }
+    expect(referenceNumber({ reference })).toBe(8)
+    expect(formatReference(reference, referenceNumber({ reference }))).toBe('[8] 李四. 论文乙. 2025.')
+  })
+
   it('merges server numbering by identity without replacing newer edits or reusing deleted numbers', () => {
     const target = [{ id: 'two', text: '保存期间新编辑' }, { id: 'new', text: '新增' }]
     mergeReferenceNumbers(target, [{ id: 'one', reference_number: 1 }, { id: 'two', reference_number: 2 }])
