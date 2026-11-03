@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 const api = vi.hoisted(() => ({
-  fetchProject: vi.fn(), fetchProjectCapabilities: vi.fn(), fetchProjectExportJobs: vi.fn(), fetchProjectExportJob: vi.fn(),
+  fetchProject: vi.fn(), fetchProjectCapabilities: vi.fn(), fetchProjectExportJobs: vi.fn(), fetchProjectExportJob: vi.fn(), updateProjectSection: vi.fn(),
   createProjectExportJob: vi.fn(), retryProjectExportJob: vi.fn(), downloadProjectExportJob: vi.fn(),
 }))
 vi.mock('../src/api.js', async () => {
@@ -35,6 +35,46 @@ async function openAndExport() {
 }
 
 describe('Writer export recovery', () => {
+  it('saves an edited legacy reference with its inline runs through Writer', async () => {
+    const paragraph = { id: 'ref', type: 'paragraph', text: '作者. 学报[J]', inline_runs: [
+      { text: '作者. ' }, { text: '学报', italic: true }, { text: '[J]' },
+    ] }
+    api.fetchProject.mockResolvedValue({ id: 'p1', title: '论文', revision: 3, meta: {},
+      sections: [{ key: 'references', type: 'references', title: '参考文献', paragraphs: [paragraph] }],
+      template_snapshot: { id: 't1', name: '模板', styles: {}, meta_fields: [], sections: [{ key: 'references', type: 'references', title: '参考文献' }] } })
+    api.updateProjectSection.mockImplementation(async (_id, _key, payload) => ({ revision: 4,
+      sections: [{ key: 'references', type: 'references', paragraphs: payload.paragraphs }] }))
+    wrapper = mount(Writer, { global: { stubs: { BaseModal: true, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } })
+    await flushPromises()
+    await wrapper.findAll('.nav-row').find(row => row.text().includes('参考文献')).trigger('click')
+    await flushPromises()
+    vi.useFakeTimers()
+    await wrapper.get('.reference-card textarea').setValue('作者甲. 学报[J]')
+    await vi.advanceTimersByTimeAsync(800)
+    await flushPromises()
+    expect(api.updateProjectSection).toHaveBeenCalledOnce()
+    const [projectId, sectionKey, payload, revision] = api.updateProjectSection.mock.calls[0]
+    expect([projectId, sectionKey, revision]).toEqual(['p1', 'references', 3])
+    expect(payload.paragraphs[0].text).toBe('作者甲. 学报[J]')
+    expect(payload.paragraphs[0].inline_runs.map(run => run.text).join('')).toBe(payload.paragraphs[0].text)
+    expect(payload.paragraphs[0].inline_runs[1]).toMatchObject({ text: '学报', italic: true })
+  })
+
+  it('restores and downloads an existing checked export after loading a read-only project', async () => {
+    api.fetchProjectCapabilities.mockResolvedValue({ formal_delivery_enabled: true,
+      manuscript_import_enabled: false, template_migration_enabled: false })
+    api.fetchProjectExportJobs.mockResolvedValue([{ id: 'saved-task', project_revision: 3,
+      status: 'succeeded', filename: '论文.docx', output_check_status: 'pass',
+      manual_review: { status: 'not_required' } }])
+    wrapper = mount(Writer, { global: { stubs: { BaseModal: true, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } })
+    await flushPromises()
+    expect(api.fetchProjectExportJobs).toHaveBeenCalledWith('p1')
+    expect(wrapper.find('.writer-import-action').exists()).toBe(false)
+    await wrapper.get('[data-test="writer-download-ready"]').trigger('click')
+    await flushPromises()
+    expect(api.downloadProjectExportJob).toHaveBeenCalledWith('p1', 'saved-task', '论文.docx')
+  })
+
   it('keeps waiting beyond one minute and downloads the completed task', async () => {
     wrapper = mount(Writer, { global: { stubs: { BaseModal: true, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } })
     await flushPromises()

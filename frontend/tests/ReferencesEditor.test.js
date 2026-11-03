@@ -8,6 +8,56 @@ vi.mock('../src/i18n', () => ({
 import ReferencesEditor from '../src/components/writer/ReferencesEditor.vue'
 
 describe('ReferencesEditor', () => {
+  it('reconciles legacy reference text edits while retaining unaffected inline formatting', async () => {
+    const paragraphs = [{ id: 'legacy', type: 'paragraph', text: '作者. 学报[J]', inline_runs: [
+      { text: '作者. ' }, { text: '学报', italic: true }, { text: '[J]' },
+    ] }]
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    await wrapper.get('.reference-card textarea').setValue('作者甲. 学报[J]')
+    expect(paragraphs[0].text).toBe('作者甲. 学报[J]')
+    expect(paragraphs[0].inline_runs).toMatchObject([
+      { text: '作者甲. ', italic: false }, { text: '学报', italic: true }, { text: '[J]', italic: false },
+    ])
+    expect(paragraphs[0].inline_runs.map(run => run.text).join('')).toBe(paragraphs[0].text)
+    expect(wrapper.emitted('change')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('does not schedule an edit when stored inline formatting is inconsistent', async () => {
+    const paragraphs = [{ id: 'legacy', type: 'paragraph', text: '原文', inline_runs: [{ text: '不匹配', italic: true }] }]
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    await wrapper.get('.reference-card textarea').setValue('修改')
+    expect(paragraphs[0].text).toBe('原文')
+    expect(wrapper.get('.reference-card textarea').element.value).toBe('原文')
+    expect(wrapper.emitted('change')).toBeUndefined()
+    expect(wrapper.get('[role="alert"]').text()).toContain('blockList.inlineFormatInvalid')
+    wrapper.unmount()
+  })
+
+  it('keeps legacy inline text and formatting when choosing a structured reference type', async () => {
+    const paragraphs = [{ id: 'legacy', type: 'paragraph', text: '作者. 学报[J]', inline_runs: [
+      { text: '作者. ' }, { text: '学报', italic: true }, { text: '[J]' },
+    ] }]
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    await wrapper.get('.reference-card select').setValue('journal')
+    expect(paragraphs[0].reference.unformatted_text).toBe('作者. 学报[J]')
+    expect(paragraphs[0].text).toBe('作者. 学报[J]')
+    expect(paragraphs[0].inline_runs.map(run => run.text).join('')).toBe(paragraphs[0].text)
+    expect(paragraphs[0].inline_runs[1].italic).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('does not convert a legacy entry whose inline text cannot be reconciled', async () => {
+    const paragraphs = [{ id: 'legacy', type: 'paragraph', text: '原文', inline_runs: [{ text: '不匹配', italic: true }] }]
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    await wrapper.get('.reference-card select').setValue('journal')
+    expect(paragraphs[0].reference).toBeUndefined()
+    expect(wrapper.get('.reference-card select').element.value).toBe('legacy')
+    expect(wrapper.emitted('change')).toBeUndefined()
+    expect(wrapper.get('[role="alert"]').text()).toContain('blockList.inlineFormatInvalid')
+    wrapper.unmount()
+  })
+
   it('converts legacy text to a structured entry and regenerates its preview', async () => {
     const paragraphs = [{ id: 'legacy-1', type: 'paragraph', text: '[7] 张三. 旧题名. 2020.', reference_number: 7 }]
     const wrapper = mount(ReferencesEditor, { props: { paragraphs } })

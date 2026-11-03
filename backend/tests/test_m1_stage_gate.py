@@ -9,7 +9,7 @@ from app.api.templates import get_store
 from app.auth import current_user
 from app.db import Store
 from app.main import app
-from app.models.project import WritingProject
+from app.models.project import InlineTextRun, ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import PaperTemplate
 from app.services.export_jobs import create_export_job, run_project_export
 from app.services.workflow_jobs import consume_archive_jobs, consume_project_export_jobs
@@ -116,6 +116,53 @@ def test_m1_student_draft_remains_editable_but_staff_delivery_is_closed(pilot_st
     assert client.get(student_path + "/capabilities").json()["formal_delivery_enabled"] is True
     saved = client.put(student_path + "/meta", json={"base_revision": projects["student"].revision, "meta": {"title": "草稿"}})
     assert saved.status_code == 200, saved.text
+
+
+@pytest.mark.parametrize(("state", "cohort_status"), [
+    ("approved", "open"), ("pending_archive", "open"), ("archived", "open"), ("in_progress", "closed"),
+])
+def test_read_only_student_can_resolve_delivery_capabilities_but_not_write(pilot_store, monkeypatch, state, cohort_status):
+    store, _, projects = pilot_store
+    monkeypatch.setattr("app.core.feature_flags.manuscript_import_enabled", lambda: True)
+    project = projects["student"]
+    store.save_workflow_record("cohort", {"id": "cohort", "status": cohort_status})
+    store.save_workflow_record("participant", {"id": "participant", "project_id": project.id,
+        "student_id": "student", "cohort_id": "cohort", "state": state})
+    app.dependency_overrides[current_user] = lambda: store.get_user("student")
+    client = TestClient(app)
+    path = f"/api/projects/{project.id}"
+    capabilities = client.get(path + "/capabilities")
+    assert capabilities.status_code == 200, capabilities.text
+    assert capabilities.json()["formal_delivery_enabled"] is True
+    assert capabilities.json()["manuscript_import_enabled"] is False
+    assert capabilities.json()["template_migration_enabled"] is False
+    assert client.put(path + "/meta", json={"base_revision": project.revision, "meta": {"title": "禁止修改"}}).status_code == 409
+    assert client.get(path + "/export-jobs").status_code == 200
+    app.dependency_overrides[current_user] = lambda: store.get_user("teacher")
+    assert client.get(path + "/capabilities").status_code == 403
+    assert client.get(path + "/export-jobs").status_code == 404
+
+
+def test_reference_inline_edit_saves_and_reloads_with_formatting(pilot_store):
+    store, _, projects = pilot_store
+    project = projects["student"]
+    project.sections = [ProjectSection(key="references", type="references", title="参考文献", paragraphs=[
+        ParagraphBlock(id="ref", text="作者. 学报[J]", inline_runs=[InlineTextRun(text="作者. "),
+            InlineTextRun(text="学报", italic=True), InlineTextRun(text="[J]")]),
+    ])]
+    store.save_project(project)
+    app.dependency_overrides[current_user] = lambda: store.get_user("student")
+    client = TestClient(app)
+    block = project.sections[0].paragraphs[0].model_dump(mode="json")
+    block["text"] = "作者甲. 学报[J]"
+    block["inline_runs"][0]["text"] = "作者甲. "
+    saved = client.put(f"/api/projects/{project.id}/section/references", json={
+        "base_revision": project.revision, "paragraphs": [block]})
+    assert saved.status_code == 200, saved.text
+    current = store.get_project(project.id).sections[0].paragraphs[0]
+    assert current.text == "作者甲. 学报[J]"
+    assert "".join(run.text for run in current.inline_runs) == current.text
+    assert current.inline_runs[1].text == "学报" and current.inline_runs[1].italic is True
 
 
 def test_m1_pauses_old_staff_jobs_without_spending_attempt_or_starving_students(pilot_store, monkeypatch, tmp_path):

@@ -2949,3 +2949,42 @@ def test_legacy_table_export_snapshot_remains_downloadable():
     downloaded = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.content.startswith(b"PK")
+
+
+def test_approved_student_can_download_existing_export_but_not_edit():
+    from app.api.templates import get_store
+    from app.auth import current_user
+    from app.worker import run_once
+
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    student = {"id": "readonly-export-student", "role": "student", "status": "active"}
+    project.owner_id = student["id"]
+    store.save_project(project)
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+    assert task["job_id"] in run_once()["exports"]["succeeded"]
+    store.save_workflow_record("cohort", {"id": "readonly-export-cohort", "status": "open"})
+    store.save_workflow_record("participant", {"id": "readonly-export-participant", "project_id": project_id,
+        "student_id": student["id"], "cohort_id": "readonly-export-cohort", "state": "approved"})
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[current_user] = lambda: student
+    try:
+        path = f"/api/projects/{project_id}"
+        capabilities = client.get(path + "/capabilities")
+        assert capabilities.status_code == 200, capabilities.text
+        assert capabilities.json()["formal_delivery_enabled"] is True
+        jobs = client.get(path + "/export-jobs")
+        assert jobs.status_code == 200 and any(job["id"] == task["id"] for job in jobs.json())
+        downloaded = client.get(path + f"/export-jobs/{task['id']}/download")
+        assert downloaded.status_code == 200, downloaded.text
+        assert downloaded.content.startswith(b"PK")
+        assert client.put(path + "/meta", json={"base_revision": project.revision, "meta": {}}).status_code == 409
+        app.dependency_overrides[current_user] = lambda: {**student, "id": "another-student"}
+        assert client.get(path + "/capabilities").status_code == 403
+        assert client.get(path + f"/export-jobs/{task['id']}/download").status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_store, None)
+        app.dependency_overrides.pop(current_user, None)

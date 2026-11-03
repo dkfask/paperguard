@@ -39,11 +39,12 @@
         {{ t('writer.referencePasteAdd', { count: pasteEntries.length }) }}
       </button>
     </div>
+    <p v-if="inlineError" class="paste-error" role="alert">{{ inlineError }}</p>
     <div v-if="!paragraphBlocks.length" class="hint">{{ t('writer.referencesEmpty') }}</div>
     <article v-for="(block, index) in paragraphBlocks" :key="block.id" class="reference-card" :data-review-block-id="block.id">
       <header class="reference-card-head">
         <strong>{{ referenceNumber(block) ? `[${referenceNumber(block)}]` : t('writer.refNumberPending') }}</strong>
-        <select :value="block.reference?.kind || 'legacy'" @change="setKind(block, $event.target.value)">
+        <select :value="block.reference?.kind || 'legacy'" @change="setKind(block, $event)">
           <option v-if="!block.reference" value="legacy">{{ t('writer.refLegacy') }}</option>
           <option v-if="block.reference?.kind === 'unparsed'" value="unparsed">{{ t('writer.refUnparsed') }}</option>
           <option value="journal">{{ t('writer.refJournal') }}</option>
@@ -61,7 +62,7 @@
         </button>
         <button class="tiny danger" type="button" @click="removeReference(index)">{{ t('common.remove') }}</button>
       </header>
-      <textarea v-if="!block.reference" v-model="block.text" rows="3" :placeholder="t('writer.referencePlaceholder')" @input="changed"></textarea>
+      <textarea v-if="!block.reference" :value="block.text" rows="3" :placeholder="t('writer.referencePlaceholder')" @input="onLegacyInput(block, $event)"></textarea>
       <template v-else>
       <p v-if="block.reference.kind === 'unparsed'" class="hint">{{ t('writer.refNeedsFacts') }}</p>
       <div v-if="suggestionFor(block)" class="reference-suggestion">
@@ -127,6 +128,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useI18n } from '../../i18n'
+import { reconcileInlineRuns } from '../../utils/inlineRuns.js'
 import { createPastedReference, createReference, formatReference, referenceNumber, splitPastedReferences, suggestPastedReference, REFERENCE_FIELDS, REFERENCE_FIELD_LABELS } from '../../utils/references.js'
 
 const props = defineProps({ paragraphs: { type: Array, default: () => [] } })
@@ -142,6 +144,7 @@ const languageIdentityFields = new Set(['authors', 'title', 'source', 'collectio
 const yearIdentityFields = new Set([...languageIdentityFields, 'place', 'volume', 'issue', 'pages', 'publish_date', 'access_date'])
 const paragraphBlocks = computed(() => (props.paragraphs || []).filter((block) => block.type === 'paragraph'))
 const pasteOpen = ref(false)
+const inlineError = ref('')
 const pasteText = ref('')
 const pasteMode = ref('auto')
 const pasteResult = computed(() => {
@@ -174,6 +177,19 @@ function applySuggestion(block) {
 }
 function placeholder(field) { return ({ authors: '张三；李四', title: '题名', source: '期刊 / 来源', year: '2026', pages: '1-8', url: 'https://…' })[field] || '' }
 function changed() { emit('change') }
+function onLegacyInput(block, event) {
+  const nextText = event.target.value
+  try {
+    const runs = reconcileInlineRuns(block.inline_runs, block.text || '', nextText)
+    if (block.inline_runs?.length) block.inline_runs = runs
+    block.text = nextText
+    inlineError.value = ''
+    changed()
+  } catch {
+    event.target.value = block.text || ''
+    inlineError.value = t('blockList.inlineFormatInvalid')
+  }
+}
 function invalidateLanguage(block) {
   if (block.reference) delete block.reference.language_confirmation_requested
   const fact = block.reference?.language_fact
@@ -240,8 +256,18 @@ function removeReference(index) {
   if (actualIndex >= 0) props.paragraphs.splice(actualIndex, 1)
   changed()
 }
-function setKind(block, kind) {
+function setKind(block, event) {
+  const kind = event.target.value
   if (kind !== 'legacy') {
+    if (!block.reference && block.inline_runs?.length) {
+      try {
+        reconcileInlineRuns(block.inline_runs, block.text || '', block.text || '')
+      } catch {
+        event.target.value = 'legacy'
+        inlineError.value = t('blockList.inlineFormatInvalid')
+        return
+      }
+    }
     if (block.reference?.kind !== kind) { invalidateLanguage(block); invalidateYear(block) }
     block.reference = block.reference
       ? { ...block.reference, kind }
@@ -249,8 +275,9 @@ function setKind(block, kind) {
           ...createReference(kind, block.text),
           ...(String(block.text || '').trim() ? { original_pasted_text: block.text } : {}),
         }
-    block.text = ''
+    if (!block.inline_runs?.length) block.text = ''
   }
+  inlineError.value = ''
   changed()
 }
 function moveReference(index, offset) {

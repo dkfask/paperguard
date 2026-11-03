@@ -273,10 +273,17 @@ def project_capabilities(proj_id: str, store: Store = Depends(get_store),
     proj = store.get_project(proj_id)
     if proj is None or proj.deleted_at:
         raise HTTPException(status_code=404, detail="项目不存在")
-    _ensure_access(proj, user, store, write=True)
+    _ensure_access(proj, user, store)
+    try:
+        _ensure_student_can_write(proj, user, store)
+        can_write = True
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        can_write = False
     return {
-        "manuscript_import_enabled": feature_flags.manuscript_import_enabled(),
-        "template_migration_enabled": not feature_flags.m1_pilot_active(),
+        "manuscript_import_enabled": can_write and feature_flags.manuscript_import_enabled(),
+        "template_migration_enabled": can_write and not feature_flags.m1_pilot_active(),
         "formal_delivery_enabled": feature_flags.project_delivery_enabled(store, proj.owner_id),
         "optional_pdf_enabled": word_pdf_available(),
     }
