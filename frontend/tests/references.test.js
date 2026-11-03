@@ -18,7 +18,14 @@ describe('reference formatting', () => {
     expect(formatReference({
       kind: 'online', authors: '张三', title: '网页标题', url: 'https://example.test/article',
       organization: '旧标准发布机构', year: '2024',
-    }, 1)).toBe('[1] 张三. 网页标题[EB/OL]. https://example.test/article')
+    }, 1)).toBe('[1] 张三. 网页标题[EB/OL]. 2024. https://example.test/article')
+  })
+
+  it('renders online year and standard publication facts', () => {
+    expect(formatReference({ kind: 'online', authors: '张三', title: '网页', url: 'https://example.test', year: '2024' }, 1))
+      .toBe('[1] 张三. 网页[EB/OL]. 2024. https://example.test')
+    expect(formatReference({ kind: 'standard', title: '标准', number: 'S1', place: '北京', publisher: '出版社', year: '2024' }, 2))
+      .toBe('[2] 标准[S]. S1，北京: 出版社，2024')
   })
 
   it('uses stored and historical numbers, without guessing new ones from position', () => {
@@ -100,10 +107,12 @@ describe('reference formatting', () => {
     expect(referenceNumber({ reference })).toBeNull()
   })
 
-  it('extracts an issue without inventing a volume', () => {
-    expect(createPastedReference('[2] 李四. 另一项研究[J]. 示例期刊, 2025,(17):1-4.')).toMatchObject({
+  it('extracts and displays an issue without inventing a volume', () => {
+    const reference = createPastedReference('[2] 李四. 另一项研究[J]. 示例期刊, 2025,(17):1-4.')
+    expect(reference).toMatchObject({
       kind: 'journal', year: '2025', volume: '', issue: '17', pages: '1-4',
     })
+    expect(formatReference(reference, 2)).toBe('[2] 李四. 另一项研究[J]. 示例期刊, 2025, (17): 1-4')
   })
 
   it('handles commas in a journal name and a DOI without adding missing pages', () => {
@@ -114,14 +123,52 @@ describe('reference formatting', () => {
     })
   })
 
+  it('extracts 1101 book samples without inventing a publication place', () => {
+    const raw = '[1] 张炯.Unix网络编程实用技术与实例分析[M].清华大学出版社，2002.'
+    expect(createPastedReference(raw)).toMatchObject({
+      kind: 'book', authors: '张炯', title: 'Unix网络编程实用技术与实例分析',
+      place: '', publisher: '清华大学出版社', year: '2002', pages: '',
+      original_pasted_text: raw, unformatted_text: raw,
+    })
+    const withPlaceAndPages = '[2] 赵克佳，赵慧.UNIX程序设计教程[M].北京:清华大学出版社，2001:12-18.'
+    expect(createPastedReference(withPlaceAndPages)).toMatchObject({
+      kind: 'book', authors: '赵克佳，赵慧', title: 'UNIX程序设计教程',
+      place: '北京', publisher: '清华大学出版社', year: '2001', pages: '12-18',
+      original_pasted_text: withPlaceAndPages, unformatted_text: withPlaceAndPages,
+    })
+  })
+
+  it('extracts a thesis institution and year without inventing the place', () => {
+    const raw = '[1] 王某. 信息系统研究[D]. 示例大学，2004.'
+    expect(createPastedReference(raw)).toMatchObject({
+      kind: 'thesis', authors: '王某', title: '信息系统研究', institution: '示例大学',
+      place: '', year: '2004', original_pasted_text: raw, unformatted_text: raw,
+    })
+  })
+
+  it('extracts an explicit DOI after an empty page field or an undelimited volume', () => {
+    const withColon = '[1] 李某. 研究甲[J]. Example Journal, 2021, 1972(1):DOI:10.1234/example.2021.'
+    const withVolume = '[2] 王某. 研究乙[J]. Example Proceedings, 2020, 11432DOI:10.1234/example.2020.'
+    expect(createPastedReference(withColon)).toMatchObject({
+      kind: 'journal', volume: '1972', issue: '1', pages: '', doi: '10.1234/example.2021', original_pasted_text: withColon,
+    })
+    expect(createPastedReference(withVolume)).toMatchObject({
+      kind: 'journal', volume: '11432', pages: '', doi: '10.1234/example.2020', original_pasted_text: withVolume,
+    })
+  })
+
   it('does not automatically convert ambiguous, partial, or unsupported entries', () => {
     const values = [
       '[1] Smith J. A. A title[J]. Journal, 2024.',
       '[2] 作者. 题名[J]. 示例期刊, 2024, 12(3):1-9. 未知附注',
       '[3] 作者. 题名[J]. 示例期刊, 2024,',
       '[4] 作者. 题名[J]. 示例期刊, 2024. DOI:未知',
-      '[5] 作者. 书名[M]. 出版社, 2024.',
+      '[5] 作者. 书名[M]. 出版社, 2024. 未知附注',
+      '[7] 作者. 书名[M]. 北京::出版社, 2024.',
+      '[8] 作者. 书名[M]. 出版社, 2023, 2024.',
       '[6] 作者. 题名[J]. 示例期刊, 2023, 2024.',
+      '[9] 作者. 论文[D]. 大学, 2023, 2024.',
+      '[10] 作者. 题名[J]. 示例期刊, 2024, 10. 未知附注DOI:10.1234/example.',
     ]
     for (const raw of values) {
       expect(createPastedReference(raw)).toMatchObject({ kind: 'unparsed', original_pasted_text: raw, unformatted_text: raw })

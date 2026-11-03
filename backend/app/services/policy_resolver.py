@@ -604,7 +604,13 @@ def build_requirement_snapshot(
             "content_hash": content_hash(template.model_dump(mode="json")),
         },
         "context": context,
-        "rule_packs": list(dict.fromkeys(template.rule_packs or ["GB-T-7713-1-2006"])),
+        # A confirmed source master owns its formatting; do not silently
+        # impose the unrelated built-in layout pack. Legacy/generic templates
+        # retain their existing default when no pack is selected.
+        "rule_packs": list(dict.fromkeys(
+            template.rule_packs or ([] if template.source_execution else ["GB-T-7713-1-2006"])
+        )),
+        "rule_pack_selection_version": 1,
         "rule_pack_refs": list(dict.fromkeys(rule_pack_refs)),
         "rule_pack_overrides": rule_pack_overrides,
         "policy_sets": policy_snapshots,

@@ -289,6 +289,25 @@ def test_export_preview_reports_revision_hash_and_content_counts():
     assert forced.json()["missing"] == preview["missing"]
 
 
+def test_export_preview_blocks_unverified_hard_rules_even_with_force(monkeypatch):
+    from app.services import project_check
+
+    project_id = _create_full_default_gb7713_project()
+    monkeypatch.setattr(project_check, "check_project", lambda *args, **kwargs: {
+        "findings": [], "not_checked": [{
+            "description": "参考文献顺序尚未自动核验", "enforce": "hard", "source": "试点规范",
+        }], "summary": {"not_checked": 1},
+    })
+    for force in ("false", "true"):
+        preview = client.post(f"/api/projects/{project_id}/export-preview?force={force}")
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["can_export"] is False
+        assert any("参考文献顺序尚未自动核验" in item for item in preview.json()["missing"])
+        export = client.post(f"/api/projects/{project_id}/export?force={force}")
+        assert export.status_code == 409
+        assert export.json()["detail"]["code"] == "OUTPUT_CHECK_AUTOMATION_REQUIRED"
+
+
 def test_update_section_content():
     proj_id = _create_project_instantiates_sections()
     # 给摘要节写内容
@@ -2946,6 +2965,9 @@ def test_export_preflight_reports_unmappable_reference_format_even_with_force(en
     assert result.status_code == 409, result.text
     assert any("参考文献第 1 条" in item and "行内格式" in item
                for item in result.json()["detail"]["missing"])
+    preview = client.post(f"/api/projects/{project_id}/export-preview?force=true")
+    assert preview.status_code == 200 and not preview.json()["can_export"]
+    assert any("参考文献第 1 条" in item and "行内格式" in item for item in preview.json()["missing"])
 
 
 def test_legacy_table_export_snapshot_remains_downloadable():

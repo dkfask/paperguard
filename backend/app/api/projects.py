@@ -2172,15 +2172,16 @@ def compliance_report(proj_id: str, store: Store = Depends(get_store),
 
 
 def _export_preflight(
-    proj: WritingProject, tpl: PaperTemplate, store: Store, actor_id: str,
+    proj: WritingProject, tpl: PaperTemplate, store: Store, actor_id: str, *, report: dict | None = None,
 ) -> tuple[list[str], list[str]]:
     """Separate actionable blockers from hard rules that require artifact review."""
     from app.services.references import validate_reference_inline_formats, validate_reference_numbers
     validate_reference_numbers(proj)
     blocking = validate_project_completeness(proj, tpl)
     blocking.extend(validate_reference_inline_formats(proj))
-    from app.services.project_check import check_project as run_check
-    report = run_check(proj, tpl, pack=None, store=store, performed_by=actor_id)
+    if report is None:
+        from app.services.project_check import check_project as run_check
+        report = run_check(proj, tpl, pack=None, store=store, performed_by=actor_id)
     blocking.extend(
         f"{finding.get('source', '规范要求')}: {finding['message']}"
         for finding in report.get("findings", [])
@@ -2615,18 +2616,10 @@ def export_preview(proj_id: str, force: bool = False,
     _ensure_requirement_snapshot(proj, tpl, store)
     tpl = _project_template(proj, store)
     force = force and can_manage(user)
-    missing = validate_project_completeness(proj, tpl)
-    requirement_findings: list[str] = []
     from app.services.project_check import check_project as run_check
     report = run_check(proj, tpl, pack=None, store=store, performed_by=user["id"])
-    requirement_findings.extend(
-        f"{finding.get('source', '规范要求')}: {finding['message']}"
-        for finding in report.get("findings", [])
-        if finding.get("source_type") == "requirement"
-        and finding.get("enforce") == "hard"
-        and finding.get("severity") == "error"
-    )
-    missing.extend(requirement_findings)
+    missing, unverified = _export_preflight(proj, tpl, store, user["id"], report=report)
+    missing.extend(unverified)
     blocks = [block for section in proj.sections for block in section.paragraphs]
     block_types = {getattr(block.type, "value", block.type) for block in blocks}
     return {

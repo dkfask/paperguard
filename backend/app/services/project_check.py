@@ -184,9 +184,14 @@ def check_project(project: WritingProject, template: PaperTemplate,
         project, template, include_block_ids=True, include_style_keys=True,
     )
     snapshot = project.requirement_snapshot or {}
+    # New snapshots freeze an empty selection; historical snapshots retain
+    # their previous fallback even if they contain an empty pack list.
+    if snapshot.get("rule_pack_selection_version") == 1:
+        selected_packs = snapshot.get("rule_packs") or []
+    else:
+        selected_packs = snapshot.get("rule_packs") or template.rule_packs or ["GB-T-7713-1-2006"]
     pack_ids = [pack] if pack else list(dict.fromkeys(
-        (snapshot.get("rule_packs") or template.rule_packs or ["GB-T-7713-1-2006"])
-        + list(snapshot.get("rule_pack_refs") or [])
+        selected_packs + list(snapshot.get("rule_pack_refs") or [])
     ))
 
     result = []

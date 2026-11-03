@@ -281,7 +281,10 @@
           <h3>{{ t('writer.exportPreviewTitle') }}</h3>
           <p class="hint">{{ exportPreview.title || t('home.untitledThesis') }} · revision {{ exportPreview.revision }} · {{ exportPreview.content_hash.slice(0, 18) }}…</p>
           <div class="export-preview-stats">{{ t('writer.exportStats', { sections: exportPreview.counts.sections, paragraphs: exportPreview.counts.paragraphs, tables: exportPreview.counts.tables, images: exportPreview.counts.images, equations: exportPreview.counts.equations }) }}</div>
-          <div v-if="exportPreview.missing?.length" class="notice-banner">{{ t('writer.exportGate', { count: exportPreview.missing.length }) }}</div>
+          <div v-if="exportPreview.missing?.length" class="notice-banner">
+            {{ t('writer.exportGate', { count: exportPreview.missing.length }) }}
+            <ul><li v-for="(issue, index) in exportPreview.missing" :key="index">{{ issue }}</li></ul>
+          </div>
           <div class="import-section-list"><div v-for="section in exportPreview.sections_preview" :key="section.key" class="import-section-item"><strong>{{ section.title }}</strong><span>{{ t('writer.blockStats', { blocks: section.blocks, characters: section.characters }) }}</span></div></div>
           <div class="form-row"><button class="primary" :disabled="!exportPreview.can_export" @click="exportDocx(false); exportPreview = null">{{ t('writer.downloadDocx') }}</button><button @click="exportPreview = null">{{ t('common.close') }}</button></div>
         </div>

@@ -57,13 +57,6 @@ def _sample(tmp_path, style=None):
     )
     output = tmp_path / "sample.docx"
     export_project_to_docx(project, template, str(output))
-    doc = Document(output)
-    for section in doc.sections:
-        for paragraph in section.footer.paragraphs:
-            paragraph.clear()
-    normalized = BytesIO()
-    doc.save(normalized)
-    output.write_bytes(normalized.getvalue())
     return output.read_bytes(), project, template
 
 
@@ -133,7 +126,7 @@ def test_generated_docx_passes_and_report_binds_output_bytes(tmp_path):
     report = require_docx_output_pass(data, project, template)
 
     assert report["status"] == "pass"
-    assert report["inspector_version"] == "docx-output-check/4"
+    assert report["inspector_version"] == "docx-output-check/5"
     assert report["check_count"] > 0
     assert report["passed_count"] == report["check_count"]
     assert report["project_revision"] == 7
@@ -229,6 +222,37 @@ def test_supported_template_sample_uses_real_exporter_and_passes_without_postpro
     assert report["check_count"] == len(report["checks"]) > 0
     assert not report["unsupported"]
     assert report["source_template_sha256"]
+
+
+def test_non_default_template_with_cover_keeps_generated_page_fields(tmp_path):
+    data, project, template = _full_default_gb7713_sample(tmp_path)
+    template.id = "school-template-without-source"
+    project.template_id = template.id
+    report = inspect_docx_output(data, project, template)
+    fields = [check for check in report["checks"] if check["rule"] == "section.page_field"]
+    assert [check["status"] for check in fields] == ["pass", "pass", "pass"]
+    assert [check["expected"] for check in fields] == [
+        "no PAGE field", "one complete PAGE field", "one complete PAGE field",
+    ]
+
+
+@pytest.mark.parametrize("mutation", ["remove", "wrong_instruction", "empty_result"])
+def test_non_default_template_rejects_damaged_generated_page_field(tmp_path, mutation):
+    data, project, template = _sample(tmp_path)
+    doc = Document(BytesIO(data))
+    field = next(item for item in doc.sections[0].footer._element.iter() if item.tag == qn("w:fldSimple"))
+    if mutation == "remove":
+        field.getparent().remove(field)
+    elif mutation == "wrong_instruction":
+        field.set(qn("w:instr"), "NUMPAGES")
+    else:
+        for text in field.iter(qn("w:t")):
+            text.text = ""
+    changed = BytesIO()
+    doc.save(changed)
+    report = inspect_docx_output(changed.getvalue(), project, template)
+    assert report["status"] == "fail"
+    assert any(check["rule"] == "section.page_field" and check["status"] == "fail" for check in report["checks"])
 
 
 def test_complete_default_gb7713_structure_passes_static_output_checks(tmp_path):
@@ -736,9 +760,6 @@ def test_duplicate_inline_text_runs_are_checked_by_position(tmp_path):
     output = tmp_path / "duplicate-runs.docx"
     export_project_to_docx(project, template, str(output))
     doc = Document(output)
-    for section in doc.sections:
-        for footer_paragraph in section.footer.paragraphs:
-            footer_paragraph.clear()
     normalized = BytesIO()
     doc.save(normalized)
     data = normalized.getvalue()
@@ -763,9 +784,6 @@ def test_inline_format_moved_to_adjacent_text_fails_output_check(tmp_path):
     output = tmp_path / "shifted-runs.docx"
     export_project_to_docx(project, template, str(output))
     doc = Document(output)
-    for section in doc.sections:
-        for footer_paragraph in section.footer.paragraphs:
-            footer_paragraph.clear()
     baseline = BytesIO()
     doc.save(baseline)
     assert inspect_docx_output(baseline.getvalue(), project, template)["status"] == "pass"
@@ -788,9 +806,6 @@ def test_split_output_run_with_unchanged_format_passes_output_check(tmp_path):
     output = tmp_path / "split-runs.docx"
     export_project_to_docx(project, template, str(output))
     doc = Document(output)
-    for section in doc.sections:
-        for footer_paragraph in section.footer.paragraphs:
-            footer_paragraph.clear()
     paragraph = next(item for item in doc.paragraphs if item.text == block.text)
     first = paragraph.runs[0]
     first.text = "甲"
@@ -814,9 +829,6 @@ def test_merged_output_runs_with_identical_format_pass_output_check(tmp_path):
     output = tmp_path / "merged-runs.docx"
     export_project_to_docx(project, template, str(output))
     doc = Document(output)
-    for section in doc.sections:
-        for footer_paragraph in section.footer.paragraphs:
-            footer_paragraph.clear()
     paragraph = next(item for item in doc.paragraphs if item.text == block.text)
     first, second = paragraph.runs[:2]
     first.text += second.text

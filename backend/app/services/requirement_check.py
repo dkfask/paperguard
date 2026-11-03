@@ -8,7 +8,7 @@ from typing import Any
 
 from app.models.template import PaperTemplate
 from app.models.project import ProjectSection, WritingProject
-from app.services.references import reference_block_text, reference_number_for
+from app.services.references import reference_block_text, reference_number_for, validate_reference_facts
 
 
 _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
@@ -276,6 +276,42 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
             actual = bool(str(project.meta.get(field_key, "")).strip())
             if not actual:
                 findings.append(_finding(descriptor, descriptor["description"] or f"封面字段 {field_key} 未填写", False, True, "cover"))
+            continue
+        if checker == "cover.fields_present":
+            keys = params.get("field_keys")
+            declared = {field.key: field.label for field in template.meta_fields} if template else {}
+            if (not isinstance(keys, list) or not keys or any(not isinstance(key, str) or not key for key in keys)
+                    or len(keys) != len(set(keys)) or any(key not in declared for key in keys)):
+                not_checked.append({
+                    **{key: descriptor[key] for key in ("id", "description", "type", "severity", "enforce", "source", "source_version", "sources")},
+                    "reason": "cover_field_mapping_missing", "checker": checker, "fixable": False,
+                })
+                continue
+            absent = [declared[key] for key in keys if not str(project.meta.get(key, "")).strip()]
+            if absent:
+                findings.append(_finding(descriptor, "封面缺少：" + "、".join(absent), absent, "所列封面字段均已填写", "cover"))
+            continue
+        if checker == "references.list_facts":
+            section = section or _section_for(project, "references", params)
+            if section is None:
+                if params.get("required"):
+                    findings.append(_finding(descriptor, "缺少参考文献章节", False, True, "references"))
+                continue
+            position = 0
+            for block in section.paragraphs:
+                if block.type.value != "paragraph":
+                    findings.append(_finding(descriptor, "参考文献列表包含非文献内容", block.id, "参考文献条目", section.key))
+                    continue
+                reference = block.reference
+                if not reference_block_text(block).strip() and not (reference and reference.original_pasted_text is not None):
+                    continue
+                position += 1
+                issues = validate_reference_facts(reference) if reference else ["尚未录入结构化文献事实"]
+                for issue in issues:
+                    findings.append(_finding(descriptor, f"参考文献第 {position} 条：{issue}",
+                                             {"block_id": block.id}, "事实完整并保留原文", section.key))
+            if not position and params.get("required"):
+                findings.append(_finding(descriptor, "参考文献列表为空", 0, ">= 1", section.key))
             continue
         if checker == "references.count":
             section = section or _section_for(project, "references", params)

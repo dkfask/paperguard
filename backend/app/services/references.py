@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,6 +20,173 @@ _TYPE_MARKERS = {
     "online": "EB/OL",
     "standard": "S",
 }
+
+_PASTED_HEADER = re.compile(
+    r"^([^。.]+)[.。]\s*([^。.]+?)\s*\[(J|M|D)\](?:\s*[.。]\s*|\s*$)(.*)$",
+    re.IGNORECASE,
+)
+_PASTED_PAGES = r"[a-z]?\d+(?:[-–—][a-z]?\d+)?(?:\s*\+\s*[a-z]?\d+(?:[-–—][a-z]?\d+)?)*"
+_FACT_LABELS = {
+    "authors": "作者", "title": "题名", "source": "来源", "collection": "文集",
+    "place": "出版地", "publisher": "出版社", "institution": "授予单位",
+    "organization": "发布机构", "number": "标准编号", "year": "年份", "volume": "卷号",
+    "issue": "期号", "pages": "页码", "url": "网址", "publish_date": "发布日期",
+    "access_date": "引用日期", "doi": "DOI",
+}
+_REQUIRED_FACTS = {
+    "journal": (("authors",), ("title",), ("source", "collection"), ("year",)),
+    "book": (("authors",), ("title",), ("publisher",), ("year",)),
+    "thesis": (("authors",), ("title",), ("institution", "source"), ("year",)),
+    "conference": (("authors",), ("title",), ("collection", "source"), ("year",)),
+    "online": (("authors",), ("title",), ("url",)),
+    "standard": (("title",), ("number",)),
+}
+_RENDERED_FACTS = {
+    "journal": {"authors", "title", "source", "collection", "year", "volume", "issue", "pages", "doi"},
+    "book": {"authors", "title", "source", "collection", "place", "publisher", "year", "pages", "doi"},
+    "thesis": {"authors", "title", "source", "place", "institution", "year", "pages", "doi"},
+    "conference": {"authors", "title", "source", "collection", "place", "publisher", "year", "pages", "doi"},
+    "online": {"authors", "title", "source", "publish_date", "year", "url", "access_date", "doi"},
+    "standard": {"authors", "title", "source", "organization", "number", "place", "publisher", "year", "doi"},
+}
+
+
+def _parse_pasted_reference(text: str) -> tuple[str, dict[str, str]] | None:
+    """Independently parse only complete, unambiguous source forms we support.
+
+    A failed parse is unknown, not evidence that all source facts were copied.
+    """
+    source_text = _REFERENCE_NUMBER_PREFIX.sub("", text or "", count=1)
+    source_text = re.sub(r"\s*\n\s*", " ", source_text.replace("\r\n", "\n").replace("\r", "\n")).strip()
+    header = _PASTED_HEADER.fullmatch(source_text)
+    if not header:
+        return None
+    authors, title, marker, tail = header.groups()
+    fields = {"authors": authors.strip(), "title": title.strip()}
+    if not all(fields.values()):
+        return None
+    kind = {"J": "journal", "M": "book", "D": "thesis"}[marker.upper()]
+    tail = tail.strip()
+    # A source may omit publication facts altogether. Those facts can then be
+    # supplied by the student without changing or discarding the pasted text.
+    if not tail:
+        return kind, fields
+    if kind == "journal":
+        doi = re.search(r"(?:[.。:：]\s*|\s+|(?<=\d))DOI\s*[:：]\s*(10\.\d{4,9}/\S+?)\s*[.。]?\s*$", tail, re.I)
+        if doi:
+            fields["doi"] = doi.group(1)
+            tail = tail[:doi.start()].strip()
+        separators = list(re.finditer(r"[,，]\s*(?=(?:19|20)\d{2}(?=\s*(?:[,，.:：]|$)))", tail))
+        if not separators and not doi and not re.search(r"\d|[:：\[\]]", tail):
+            fields["source"] = tail.rstrip(" .。").strip()
+            return (kind, fields) if fields["source"] else None
+        if len(separators) != 1:
+            return None
+        separator = separators[0]
+        journal = re.fullmatch(
+            rf"((?:19|20)\d{{2}})(?:\s*[,，]\s*(?:(\d+)(?:\(([^()]+)\))?|\(([^()]+)\)))?"
+            rf"(?:\s*[:：]\s*({_PASTED_PAGES})\s*)?\s*[.。]?", tail[separator.end():], re.I,
+        )
+        fields["source"] = tail[:separator.start()].strip()
+        if not journal or not fields["source"]:
+            return None
+        fields["year"] = journal.group(1)
+        for key, value in (("volume", journal.group(2)), ("issue", journal.group(3) or journal.group(4)),
+                           ("pages", journal.group(5))):
+            if value:
+                fields[key] = value.strip()
+    else:
+        separators = list(re.finditer(r"[,，]\s*(?=(?:19|20)\d{2})", tail))
+        if not separators and not re.search(r"\d|[,，\[\]]", tail):
+            publication = [part.strip(" .。") for part in re.split(r"[:：]", tail)]
+            if 0 < len(publication) <= 2 and all(publication):
+                if len(publication) == 2:
+                    fields["place"] = publication[0]
+                fields["publisher" if kind == "book" else "institution"] = publication[-1]
+                return kind, fields
+        if len(separators) != 1:
+            return None
+        separator = separators[0]
+        publication = [part.strip() for part in re.split(r"[:：]", tail[:separator.start()].strip())]
+        remainder = re.fullmatch(rf"((?:19|20)\d{{2}})(?:\s*[:：]\s*({_PASTED_PAGES})\s*)?\s*[.。]?",
+                                 tail[separator.end():], re.I)
+        if not remainder or len(publication) > 2 or not all(publication):
+            return None
+        if len(publication) == 2:
+            fields["place"] = publication[0]
+        fields["publisher" if kind == "book" else "institution"] = publication[-1]
+        fields["year"] = remainder.group(1)
+        if remainder.group(2):
+            fields["pages"] = remainder.group(2).strip()
+    return kind, fields
+
+
+def _pasted_facts_preserved(entry: Any, original: str) -> bool:
+    """Match the supplied header, then parse remaining source facts by position."""
+    kind = getattr(entry, "kind", "")
+    if kind not in {"journal", "book", "thesis"}:
+        return False
+
+    def normalized(value: str) -> str:
+        return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value).casefold()).strip(" .。")
+
+    text = normalized(_REFERENCE_NUMBER_PREFIX.sub("", original, count=1))
+    authors = normalized(str(getattr(entry, "authors", "") or ""))
+    title = normalized(str(getattr(entry, "title", "") or ""))
+    if not authors or not title:
+        return False
+    marker = _TYPE_MARKERS[kind]
+    header = re.match(re.escape(authors) + r"\s*[.。]\s*" + re.escape(title)
+                      + r"\s*\[\s*" + re.escape(marker.casefold()) + r"\s*\]", text)
+    if not header:
+        return False
+    parsed = _parse_pasted_reference(f"author. title[{marker}]{text[header.end():]}")
+    if parsed is None or parsed[0] != kind or parsed[1].get("authors") != "author" or parsed[1].get("title") != "title":
+        return False
+    return all(normalized(str(getattr(entry, field, "") or "")) == normalized(value)
+               for field, value in parsed[1].items() if field not in {"authors", "title"})
+
+
+def validate_reference_facts(entry: Any) -> list[str]:
+    """Check supported facts and source preservation without claiming a standard version."""
+    kind = getattr(entry, "kind", "")
+    if kind == "unparsed":
+        return ["尚未识别文献类型及事实字段，原文已保留，请补录"]
+    problems = []
+    for choices in _REQUIRED_FACTS.get(kind, ()):
+        if not any(str(getattr(entry, field, "") or "").strip().rstrip(" .。") for field in choices):
+            problems.append("缺少" + "或".join(_FACT_LABELS[field] for field in choices))
+    year = str(getattr(entry, "year", "") or "").strip()
+    if year and not re.fullmatch(r"\d{4}", year):
+        problems.append("年份无法识别，请填写四位年份")
+
+    original = getattr(entry, "original_pasted_text", None)
+    if original is None:
+        original = str(getattr(entry, "unformatted_text", "") or "").strip() or None
+    if original is not None:
+        parsed = _parse_pasted_reference(original)
+        if parsed is None and not _pasted_facts_preserved(entry, original):
+            problems.append("原文含尚不能完成自动核验的内容，已保留原文，请联系系统适配")
+        elif parsed is not None and parsed[0] != kind:
+            problems.append("文献类型与粘贴原文不一致，请核对")
+        elif parsed is not None:
+            for field, source_value in parsed[1].items():
+                value = str(getattr(entry, field, "") or "").strip()
+                if value != source_value:
+                    problems.append(f"{_FACT_LABELS[field]}与粘贴原文不一致，请核对")
+
+    rendered = format_reference(entry)
+    rendered_fields = set(_RENDERED_FACTS.get(kind, ()))
+    preferred = {"journal": ("source", "collection"), "book": ("collection", "source"),
+                 "conference": ("collection", "source"), "thesis": ("institution", "source"),
+                 "standard": ("organization", "source")}.get(kind)
+    if preferred and all(str(getattr(entry, field, "") or "").strip() for field in preferred):
+        rendered_fields.discard(preferred[1])
+    for field, label in _FACT_LABELS.items():
+        value = str(getattr(entry, field, "") or "").strip()
+        if value and (field not in rendered_fields or value.rstrip(" .。") not in rendered):
+            problems.append(f"{label}未能保留在生成的著录中，请核对")
+    return problems
 
 _LANGUAGE_IDENTITY_FIELDS = (
     "kind", "authors", "title", "source", "collection", "publisher", "institution",
@@ -142,7 +310,7 @@ def format_reference(entry: Any, number: int | None = None) -> str:
         tail = journal
         if year:
             tail += f", {year}" if tail else year
-        if volume:
+        if volume or issue:
             tail += f", {volume}"
             if issue:
                 tail += f"({issue})"
@@ -164,11 +332,13 @@ def format_reference(entry: Any, number: int | None = None) -> str:
         if tail:
             parts.append(tail)
     elif marker == "S":
-        tail = "，".join(item for item in (organization or source, str(data.get("number") or "").strip(), year) if item)
+        publication = ": ".join(item for item in (place, publisher) if item)
+        tail = "，".join(item for item in (organization or source, str(data.get("number") or "").strip(), publication, year) if item)
         if tail:
             parts.append(tail)
     else:
-        tail = "，".join(item for item in (source, publish_date) if item)
+        display_year = year if year and not publish_date.startswith(year) else ""
+        tail = "，".join(item for item in (source, publish_date, display_year) if item)
         if url:
             tail += f"{'. ' if tail else ''}{url}"
         if access_date:

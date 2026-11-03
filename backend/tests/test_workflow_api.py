@@ -3475,3 +3475,19 @@ def test_old_submission_and_archive_recheck_heading_hierarchy(ready_submission_c
         assert client.get(f'/api/archives/{archive_id}/download', headers=fixture['student']).status_code == 200
     assert client.get(f'/api/submissions/{submission_id}/document', headers=fixture['student']).status_code == 409
     assert client.get(f'/api/archives/{archive_id}/download', headers=fixture['student']).status_code == 409
+
+
+def test_submission_candidate_checks_stage_and_frozen_template_rule_packs(ready_submission_candidate):
+    fixture = ready_submission_candidate
+    store = Store()
+    participant = store.get_workflow_record('participant', fixture['participant_id'])
+    config = store.get_workflow_record('stage_config', participant['config_version_id'])
+    config['rule_packs'] = ['SIM-UNIV-generic']
+    store.save_workflow_record('stage_config', config, expected_revision=config['revision'])
+
+    response = client.post('/api/submission-candidates', headers=fixture['student'],
+                           json={'participant_id': fixture['participant_id']})
+    assert response.status_code == 201, response.text
+    report = response.json()['check_report']
+    packs = {source['id'] for source in report['sources'] if source['source_type'] == 'rule_pack'}
+    assert {'GB-T-7713-1-2006', 'SIM-UNIV-generic'} <= packs

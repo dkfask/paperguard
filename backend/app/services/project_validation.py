@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from app.models.project import WritingProject
 from app.models.template import PaperTemplate, SectionType
-from app.services.references import reference_block_text
+from app.services.references import reference_block_text, validate_reference_facts
 
 
 def _section_complete(proj_sec) -> bool:
@@ -133,14 +133,9 @@ def validate_project_completeness(
             reference = block.reference
             if not reference:
                 continue
-            has_fact = any(str(getattr(reference, field) or "").strip() for field in (
-                "authors", "title", "source", "collection", "publisher", "institution", "organization",
-            ))
-            if reference.kind == "unparsed" or (reference.original_pasted_text is not None and not has_fact):
-                label = f"[{block.reference_number}]" if block.reference_number else f"第 {index} 条"
-                missing.append(f"参考文献 {label} 尚未确认类型和补录事实字段")
-            elif reference.original_pasted_text is not None:
-                label = f"[{block.reference_number}]" if block.reference_number else f"第 {index} 条"
-                missing.append(f"参考文献 {label} 的标准著录尚未完成自动核验，原文已保留，请等待系统适配")
+            if not reference_block_text(block).strip() and reference.original_pasted_text is None:
+                continue
+            label = f"[{block.reference_number}]" if block.reference_number else f"第 {index} 条"
+            missing.extend(f"参考文献 {label} {problem}" for problem in validate_reference_facts(reference))
 
     return missing

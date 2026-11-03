@@ -604,11 +604,13 @@ def _project_for_stage_check(project: WritingProject, config: dict) -> WritingPr
     """Run checks against the stage policy basis without mutating the live draft."""
     stage_basis = config.get("requirement_snapshot") or {}
     stage_ids = list(stage_basis.get("requirement_set_ids", []) or [])
-    if not stage_ids:
+    stage_packs = list(config.get("rule_packs") or [])
+    if not stage_ids and not stage_packs:
         return project
     checked = project.model_copy(deep=True)
     snapshot = dict(checked.requirement_snapshot or {})
     previous_stage_ids = set(snapshot.get("stage_requirement_set_ids", []) or [])
+    stage_items = list(stage_basis.get("resolved_items", [])) if stage_ids else []
     snapshot["policy_sets"] = [
         item for item in snapshot.get("policy_sets", [])
         if item.get("id") not in previous_stage_ids
@@ -616,7 +618,15 @@ def _project_for_stage_check(project: WritingProject, config: dict) -> WritingPr
     snapshot["resolved_items"] = [
         item for item in snapshot.get("resolved_items", [])
         if (item.get("source_detail") or {}).get("id") not in previous_stage_ids
-    ] + list(stage_basis.get("resolved_items", []))
+    ] + stage_items
+    pack_refs = list(snapshot.get("rule_pack_refs") or []) + stage_packs
+    overrides = snapshot.setdefault("rule_pack_overrides", {})
+    for item in stage_items:
+        pack_id = item.get("rule_pack_id")
+        if pack_id:
+            pack_refs.append(pack_id)
+            overrides.setdefault(pack_id, {}).update(item.get("rule_pack_params") or {})
+    snapshot["rule_pack_refs"] = list(dict.fromkeys(pack_refs))
     snapshot["stage_requirement_set_ids"] = stage_ids
     snapshot["stage_config_id"] = config.get("id", "")
     snapshot.pop("content_hash", None)
@@ -1885,8 +1895,7 @@ def create_candidate(req: CandidateCreate, store: Store = Depends(get_store), us
         template_payload = project.template_snapshot or project.template_source_snapshot
         template = PaperTemplate.model_validate(template_payload)
         checked_project = _project_for_stage_check(project, config)
-        pack = (config.get("rule_packs") or template.rule_packs or [None])[0]
-        report = check_project(checked_project, template, pack=pack, store=store, performed_by=user["id"])
+        report = check_project(checked_project, template, store=store, performed_by=user["id"])
         check_status = "succeeded"
     except Exception as exc:
         report = {"summary": {"total": 0, "error": 0, "warning": 0, "hard_failures": 1}, "findings": [], "not_checked": [], "error_code": "CHECK_FAILED"}

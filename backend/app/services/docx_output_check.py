@@ -29,7 +29,7 @@ from app.services.references import ReferenceInlineMappingError, reference_block
 from app.services.upload_security import validate_docx_bytes
 
 
-INSPECTOR_VERSION = "docx-output-check/4"
+INSPECTOR_VERSION = "docx-output-check/5"
 MASTER_INSPECTOR_VERSION = "docx-output-check/6-master"
 _CHART_NS = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
@@ -452,7 +452,7 @@ def _check_sections_and_page_fields(doc, template: PaperTemplate, project: Writi
                 footer_fields = _field_records(section.footer._element)
                 page_fields = [field for field in footer_fields if field["instruction"].split()[0:1] == ["PAGE"]]
                 expected_page_field = expected_formats[index] is not None and (
-                    source_has_page_field or template.id == "default-gb7713"
+                    source_template_bytes is None or source_has_page_field
                 )
                 field_ok = (len(page_fields) == 1 and page_fields[0]["complete"] and page_fields[0]["has_result"]) if expected_page_field else not page_fields
                 check("section.page_field", "pass" if field_ok else "fail", obj=f"section:{index}/footer", expected="one complete PAGE field" if expected_page_field else "no PAGE field", actual=[field["instruction"] for field in footer_fields], evidence="read page-number field instructions from the section footer part")
