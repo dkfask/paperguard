@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from app.models.project import ReferenceLanguageFact, ReferenceYearFact
+from app.models.project import InlineTextRun, ReferenceLanguageFact, ReferenceYearFact
 
 
 _TYPE_MARKERS = {
@@ -200,6 +200,85 @@ def reference_block_text(block: Any, number: int | None = None) -> str:
     if number is None:
         return text
     return _number_legacy_reference(text, number)
+
+
+class ReferenceInlineMappingError(ValueError):
+    """Reference text was reformatted in a way that cannot retain inline styling."""
+
+
+def reference_inline_runs(block: Any, number: int | None) -> list[InlineTextRun]:
+    """Map source spans to the exact numbered reference without inventing formatting.
+
+    Only the generated number and surrounding whitespace may be normalized.
+    A structured entry that rewrites the body must be reconciled before export.
+    """
+    runs = block.inline_runs
+    if not runs:
+        return []
+    source = str(block.text or "")
+    if "".join(run.text for run in runs) != source:
+        raise ReferenceInlineMappingError("参考文献的行内格式与原文不一致，请重新编辑该条目")
+    rendered = reference_block_text(block, number)
+    if source == rendered:
+        return [run.model_copy(deep=True) for run in runs if run.text]
+    if number is None:
+        raise ReferenceInlineMappingError("参考文献的结构化内容与原文行内格式无法对应，请重新编辑该条目")
+
+    source_start = len(source) - len(source.lstrip())
+    marker = re.match(r"(?:\[\s*\d+\s*\]|［\s*\d+\s*］)", source[source_start:])
+    body_start = source_start + (marker.end() if marker else 0)
+    while body_start < len(source) and source[body_start].isspace():
+        body_start += 1
+    body_end = len(source.rstrip())
+    prefix = f"[{number}] "
+    if not rendered.startswith(prefix) or rendered[len(prefix):] != source[body_start:body_end]:
+        raise ReferenceInlineMappingError("参考文献的结构化内容与原文行内格式无法对应，请重新编辑该条目")
+
+    def slice_runs(start: int, end: int) -> list[InlineTextRun]:
+        result = []
+        offset = 0
+        for run in runs:
+            right = offset + len(run.text)
+            part = run.text[max(0, start - offset):min(len(run.text), end - offset)]
+            if right > start and offset < end and part:
+                result.append(run.model_copy(update={"text": part}, deep=True))
+            offset = right
+        return result
+
+    # Keep formatting on an existing number if it has one unambiguous style.
+    marker_runs = slice_runs(source_start, source_start + marker.end()) if marker else []
+    marker_styles = {
+        (run.bold, run.italic, run.underline, run.highlight, run.vert_align)
+        for run in marker_runs if run.text.strip()
+    }
+    if len(marker_styles) > 1:
+        raise ReferenceInlineMappingError("参考文献编号的行内格式无法安全规范化，请重新编辑该条目")
+    if marker_styles:
+        bold, italic, underline, highlight, vert_align = next(iter(marker_styles))
+        number_run = InlineTextRun(text=prefix[:-1], bold=bold, italic=italic,
+                                   underline=underline, highlight=highlight, vert_align=vert_align)
+    else:
+        number_run = InlineTextRun(text=prefix[:-1])
+    return [number_run, InlineTextRun(text=" "), *slice_runs(body_start, body_end)]
+
+
+def validate_reference_inline_formats(project: Any) -> list[str]:
+    """Report references that cannot preserve their formatting during export."""
+    problems = []
+    for section in project.sections:
+        if str(getattr(section.type, "value", section.type)) != "references":
+            continue
+        number = 0
+        for block in section.paragraphs:
+            if str(getattr(block.type, "value", block.type)) != "paragraph" or not reference_block_text(block).strip():
+                continue
+            number += 1
+            if block.inline_runs:
+                try:
+                    reference_inline_runs(block, reference_number_for(block, number))
+                except ReferenceInlineMappingError as exc:
+                    problems.append(f"参考文献第 {number} 条：{exc}")
+    return problems
 
 
 class ReferenceNumberError(ValueError):

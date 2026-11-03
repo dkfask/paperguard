@@ -17,7 +17,7 @@ from app.models.project import BlockType
 from app.services.document_assets import resolve_document_image_path
 from app.services.digit_font_rules import BODY_KINDS, HEADING_KINDS, numbering_font_error
 from app.services.master_layout_anchors import block_bookmark_name
-from app.services.references import reference_block_text, reference_number_for
+from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
 from app.services.source_template_profile import verify_profile, digest, commentless_source, package_manifest
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -1533,8 +1533,17 @@ def inspect_master_output(data, project, template, source, report):
                         is_reference=heading["kind"]=="references" and bool(reference_block_text(block).strip())
                         if is_reference: reference_number+=1
                         text=reference_block_text(block,reference_number_for(block,reference_number) if is_reference else None)
+                        inline_runs = block.inline_runs
                         if block.inline_runs:
-                            check("inline_text_consistency", not is_reference and "".join(run.text for run in block.inline_runs)==block.text, block.id)
+                            try:
+                                if is_reference:
+                                    inline_runs = reference_inline_runs(block, reference_number_for(block, reference_number))
+                                consistent = ("".join(run.text for run in block.inline_runs) == block.text
+                                              and "".join(run.text for run in inline_runs) == text)
+                            except ReferenceInlineMappingError:
+                                consistent = False
+                                inline_runs = []
+                            check("inline_text_consistency", consistent, block.id)
                         if heading.get("inline"):
                             nodes = [node for node in nodes if node.tag not in {qn("w:bookmarkStart"), qn("w:bookmarkEnd")}]
                             actual_p=next((n for n in content.iterancestors() if n.tag==qn("w:p")),None)
@@ -1569,7 +1578,7 @@ def inspect_master_output(data, project, template, source, report):
                             style(nodes[0],props,block.id,content_decoration=True,digit_font=apply_digits)
                             if apply_digits:
                                 digit_style(nodes[0],block.id,digit_rule["font"])
-                            content_style(nodes[0],props,block,text,block.inline_runs if not is_reference else None)
+                            content_style(nodes[0],props,block,text,inline_runs)
                             check("text_only",not nodes[0].xpath(".//w:drawing | .//w:object | .//w:instrText | .//w:fldSimple | .//w:fldChar",namespaces=NS),block.id)
                     elif block.type==BlockType.IMAGE and block.image:
                         path=resolve_document_image_path(project.id,block.image.url)

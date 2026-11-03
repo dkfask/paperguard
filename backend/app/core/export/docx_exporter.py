@@ -31,7 +31,7 @@ from lxml import etree
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import Align, PaperTemplate, SectionType, TextStyle
 from app.services.document_assets import document_upload_dir
-from app.services.references import reference_block_text, reference_number_for, validate_reference_numbers
+from app.services.references import reference_block_text, reference_inline_runs, reference_number_for, validate_reference_numbers
 
 _IMAGE_WIDTH_CM = 14.0
 _IMAGE_MAX_HEIGHT_CM = 13.5
@@ -1151,7 +1151,7 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
             style = _style_for(template, "table_caption", None)
     p = doc.add_paragraph()
     _apply_paragraph_format(p, style)
-    inline_runs = par.inline_runs
+    inline_runs = reference_inline_runs(par, reference_number) if reference_number is not None and par.inline_runs else par.inline_runs
     if not inline_runs or "".join(run.text for run in inline_runs) != text:
         inline_runs = [None]
     for inline in inline_runs:

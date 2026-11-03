@@ -114,6 +114,14 @@ def verify_profile(template: PaperTemplate, source: bytes | None) -> dict:
         raise ProfileError("母版文件摘要变化，请重新导入并确认")
     if digest(execution_basis(template)) != profile.get("template_basis_sha256"):
         raise ProfileError("模板格式或章节已变化，请重新确认此版本")
+    # Older signed profiles may have omitted logical table borders. Re-read
+    # the digest-bound source so they cannot certify an unverified layout.
+    from docx import Document
+    from app.services.table_borders import template_table_borders
+    try:
+        template_table_borders(Document(io.BytesIO(source)))
+    except ValueError as exc:
+        raise ProfileError(str(exc)) from exc
     from app.services.digit_font_rules import is_digit_font_instruction
     digit_candidates = (profile.get("digit_font_review") or {}).get("candidates", [])
     legacy_candidates = [item for item in (profile.get("content_rule_review") or {}).get("manual_items", [])

@@ -71,3 +71,33 @@ def test_snapshot_hydration_preserves_check_metadata_and_changes_content_binding
     assert final.template_snapshot == saved.template_snapshot
     assert final.requirement_snapshot == saved.requirement_snapshot
     assert project_content_hash(final) == project_content_hash(saved)
+
+
+def test_legacy_table_without_borders_retains_hash_after_model_hydration():
+    from app.models.project import BlockType, TableBlock, TableBorders
+    from app.services.table_borders import default_table_borders
+
+    project = WritingProject(id="legacy-table", template_id="tpl", sections=[
+        ProjectSection(key="body", type="body", title="正文", paragraphs=[
+            ParagraphBlock(id="table", type=BlockType.TABLE,
+                           table=TableBlock(rows=1, cols=1, cells=[["数据"]])),
+        ]),
+    ])
+    legacy = project.model_dump(mode="json")
+    del legacy["sections"][0]["paragraphs"][0]["table"]["borders"]
+    assert project_content_hash(WritingProject.model_validate(legacy)) == project_content_hash(legacy)
+    current_snapshot = project.model_dump(mode="json")
+    assert project_content_hash(current_snapshot) == project_content_hash(legacy)
+    assert "borders" in current_snapshot["sections"][0]["paragraphs"][0]["table"]
+    bordered = project.model_copy(deep=True)
+    bordered.sections[0].paragraphs[0].table.borders = TableBorders.model_validate(default_table_borders())
+    assert project_content_hash(bordered) != project_content_hash(legacy)
+
+
+def test_table_default_hash_normalization_does_not_remove_template_content():
+    project = WritingProject(id="template-hash", template_id="tpl", template_snapshot={
+        "template_table_metadata": {"rows": 1, "cols": 1, "cells": [["x"]], "borders": None},
+    })
+    changed = project.model_copy(deep=True)
+    del changed.template_snapshot["template_table_metadata"]["borders"]
+    assert project_content_hash(project) != project_content_hash(changed)

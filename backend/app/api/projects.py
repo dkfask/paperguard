@@ -2168,9 +2168,10 @@ def _export_preflight(
     proj: WritingProject, tpl: PaperTemplate, store: Store, actor_id: str,
 ) -> tuple[list[str], list[str]]:
     """Separate actionable blockers from hard rules that require artifact review."""
-    from app.services.references import validate_reference_numbers
+    from app.services.references import validate_reference_inline_formats, validate_reference_numbers
     validate_reference_numbers(proj)
     blocking = validate_project_completeness(proj, tpl)
+    blocking.extend(validate_reference_inline_formats(proj))
     from app.services.project_check import check_project as run_check
     report = run_check(proj, tpl, pack=None, store=store, performed_by=actor_id)
     blocking.extend(

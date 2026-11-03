@@ -20,7 +20,7 @@ from app.models.project import BlockType
 from app.services.document_assets import resolve_document_image_path
 from app.services.digit_font_rules import BODY_KINDS, HEADING_KINDS, apply_digit_font
 from app.services.master_layout_anchors import block_bookmark_name
-from app.services.references import reference_block_text, reference_number_for
+from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
 from app.services.source_template_profile import ProfileError, verify_profile, commentless_source, package_manifest, digest
 
 REL = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -557,11 +557,15 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                 if is_reference:
                     reference_number += 1
                 text = reference_block_text(block, reference_number_for(block, reference_number) if is_reference else None)
-                if block.inline_runs and (is_reference or "".join(run.text for run in block.inline_runs) != block.text):
+                if block.inline_runs and "".join(run.text for run in block.inline_runs) != block.text:
                     raise ProfileError("行内格式与段落文字不一致，无法保留原文")
-                if block.inline_runs and not is_reference:
+                try:
+                    inline_runs = reference_inline_runs(block, reference_number_for(block, reference_number)) if is_reference and block.inline_runs else block.inline_runs
+                except ReferenceInlineMappingError as exc:
+                    raise ProfileError(str(exc)) from exc
+                if inline_runs:
                     p = OxmlElement("w:p")
-                    for inline in block.inline_runs:
+                    for inline in inline_runs:
                         fragment = text_paragraph(inline.text, props)
                         for run in fragment.findall(qn("w:r")):
                             p.append(run)

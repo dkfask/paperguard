@@ -25,7 +25,7 @@ from app.models.project import WritingProject
 from app.models.template import PaperTemplate, SectionType, TextStyle
 from app.services.document_assets import resolve_document_image_path
 from app.services.project_versions import project_content_hash
-from app.services.references import reference_block_text, reference_number_for
+from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
 from app.services.upload_security import validate_docx_bytes
 
 
@@ -1108,8 +1108,15 @@ def inspect_docx_output(
                 unsupported.append(f"行内 run 文本与段落文本不一致，无法核验: {section_key}/{block_index}")
                 check("capability.inline_run_mapping", "unverifiable", obj=f"paragraph:{par_index}", expected=source_block.text, actual="".join(item.text for item in source_block.inline_runs), evidence="exporter would discard inline formatting when source run text does not match the paragraph")
             else:
-                inline_specs = [item for item in source_block.inline_runs if item.text]
-            if inline_specs and "".join(run.text for run in runs) != source_block.text:
+                try:
+                    is_reference = str(getattr(section.type, "value", section.type)) == "references"
+                    marker = re.match(r"^\[(\d+)\] ", paragraph.text) if is_reference else None
+                    inline_specs = reference_inline_runs(source_block, int(marker.group(1))) if marker else [item for item in source_block.inline_runs if item.text]
+                except ReferenceInlineMappingError:
+                    unsupported.append(f"参考文献行内格式无法与输出文字关联: {section_key}/{block_index}")
+                    check("capability.inline_run_mapping", "unverifiable", obj=f"paragraph:{par_index}", expected="reference text mapped to formatting", actual="unmappable reference", evidence="structured reference body differs from source text")
+                    inline_specs = []
+            if inline_specs and "".join(run.text for run in runs) != "".join(item.text for item in inline_specs):
                 unsupported.append(f"输出文字无法与行内格式逐字关联: {section_key}/{block_index}")
                 check("capability.inline_run_mapping", "unverifiable", obj=f"paragraph:{par_index}", expected="all paragraph text mapped to runs", actual="run text differs", evidence="text outside readable runs cannot be matched to source formatting")
                 inline_specs = []

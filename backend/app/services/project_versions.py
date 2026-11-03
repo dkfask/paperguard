@@ -45,6 +45,19 @@ def project_content_hash(project_or_snapshot: WritingProject | dict[str, Any]) -
     else:
         payload = dict(project_or_snapshot)
     payload = _omit_empty_project_defaults(payload)
+    # Restrict this compatibility rule to real project table blocks. Arbitrary
+    # template/requirement dictionaries may also contain a meaningful key.
+    sections = payload.get("sections")
+    for section in sections if isinstance(sections, list) else []:
+        if not isinstance(section, dict):
+            continue
+        paragraphs = section.get("paragraphs")
+        for block in paragraphs if isinstance(paragraphs, list) else []:
+            if not isinstance(block, dict):
+                continue
+            table = block.get("table")
+            if isinstance(table, dict) and table.get("borders") is None:
+                table.pop("borders", None)
     for key in _NON_CONTENT_FIELDS:
         payload.pop(key, None)
     return hashlib.sha256(

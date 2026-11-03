@@ -25,6 +25,8 @@ def _read_border_set(node):
     result = {}
     if node is None:
         return result
+    if any(node.find(qn("w:" + edge)) is not None for edge in ("start", "end")):
+        raise ValueError("表格使用逻辑方向边框（start/end），当前无法可靠保留，请联系系统团队适配")
     for edge in EDGES:
         values = node.findall(qn('w:' + edge))
         if len(values) > 1:

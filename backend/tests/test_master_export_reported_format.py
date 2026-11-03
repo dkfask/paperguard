@@ -252,3 +252,63 @@ def test_table_border_inspection_rejects_unmodeled_overrides(master, tmp_path, d
     report = inspect(master, rewrite(data, 'word/document.xml', corrupt))
     assert any(c['rule'] == 'master.table_borders' and c['object'] == 'visibility-table'
                and c['status'] == 'fail' for c in report['checks'])
+
+
+@pytest.mark.parametrize('edge', ['start', 'end'])
+@pytest.mark.parametrize('layer', ['table', 'style'])
+def test_logical_side_borders_block_unverified_master_profile(master, tmp_path, edge, layer):
+    from docx.oxml import OxmlElement
+    from tests.test_master_cover_label_visibility import _recompile
+    from app.services.source_template_profile import ProfileError, sign_profile
+
+    source, previous, _, _ = master
+    doc = Document(source)
+    doc.add_paragraph('表1.1 正文表示例')
+    table = doc.add_table(rows=1, cols=1)
+    if layer == 'table':
+        pr = table._tbl.tblPr
+    else:
+        from docx.enum.style import WD_STYLE_TYPE
+        style = doc.styles.add_style('LogicalBorderStyle', WD_STYLE_TYPE.TABLE)
+        table.style = style
+        pr = OxmlElement('w:tblPr')
+        style.element.append(pr)
+    borders = OxmlElement('w:tblBorders')
+    logical = OxmlElement('w:' + edge)
+    logical.set(qn('w:val'), 'single')
+    borders.append(logical)
+    pr.append(borders)
+    doc.save(source)
+
+    with pytest.raises(ProfileError, match='逻辑方向'):
+        _recompile(master)
+
+    # A profile approved with an older parser must also be rechecked against
+    # its digest-bound source before rendering or artifact verification.
+    import hashlib
+    from app.services.source_template_profile import verify_profile
+    legacy = previous.model_copy(deep=True)
+    profile = dict(legacy.source_execution)
+    profile['source_sha256'] = hashlib.sha256(source.read_bytes()).hexdigest()
+    legacy.source_execution = sign_profile(profile)
+    with pytest.raises(ProfileError, match='逻辑方向'):
+        verify_profile(legacy, source.read_bytes())
+
+
+def test_import_reports_logical_table_border_as_unsupported(tmp_path):
+    from docx.oxml import OxmlElement
+    document = Document()
+    document.add_heading('第1章 正文', 1)
+    table = document.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = '数据'
+    borders = OxmlElement('w:tblBorders')
+    start = OxmlElement('w:start')
+    start.set(qn('w:val'), 'single')
+    borders.append(start)
+    table._tbl.tblPr.append(borders)
+    source = tmp_path / 'logical.docx'
+    document.save(source)
+    blocks = import_docx_project(source.read_bytes())['sections'][0]['paragraphs']
+    imported = next(block for block in blocks if block.get('type') == 'table')
+    assert '逻辑方向' in imported['_border_error']
+    assert imported['table']['source_xml']

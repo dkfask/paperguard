@@ -2901,3 +2901,51 @@ def test_signed_master_policy_overrides_roundtrip_project_export_and_archive(tmp
             client.post(f"/api/policies/{policy_id}/archive")
         if source_name:
             delete_template_source(source_name)
+
+
+@pytest.mark.parametrize("endpoint", ["export", "export-jobs"])
+def test_export_preflight_reports_unmappable_reference_format_even_with_force(endpoint):
+    project_id = _create_full_default_gb7713_project()
+    current = client.get(f"/api/projects/{project_id}").json()
+    response = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": current["revision"], "title": "参考文献",
+        "paragraphs": [{
+            "id": "references-sample", "text": "[1] 旧作者. 旧题名",
+            "inline_runs": [{"text": "[1] 旧作者. "}, {"text": "旧题名", "italic": True}],
+            "reference": {"kind": "journal", "authors": "新作者", "title": "新题名",
+                          "source": "期刊", "year": "2025"},
+        }],
+    })
+    assert response.status_code == 200, response.text
+    result = client.post(f"/api/projects/{project_id}/{endpoint}?force=true")
+    assert result.status_code == 409, result.text
+    assert any("参考文献第 1 条" in item and "行内格式" in item
+               for item in result.json()["detail"]["missing"])
+
+
+def test_legacy_table_export_snapshot_remains_downloadable():
+    from app.worker import run_once
+
+    project_id = _create_full_default_gb7713_project()
+    current = client.get(f"/api/projects/{project_id}").json()
+    chapter = next(section for section in current["sections"] if section["key"] == "ch1")
+    response = client.put(f"/api/projects/{project_id}/section/ch1", json={
+        "base_revision": current["revision"], "title": chapter["title"],
+        "paragraphs": [*chapter["paragraphs"], {"id": "old-table", "type": "table", "table": {
+            "rows": 1, "cols": 1, "cells": [["样例数据"]], "caption": "样例表",
+        }}],
+    })
+    assert response.status_code == 200, response.text
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+    result = run_once()
+    assert task["job_id"] in result["exports"]["succeeded"]
+    record = Store().get_workflow_record("project_export", task["id"])
+    snapshot_chapter = next(section for section in record["project_snapshot"]["sections"] if section["key"] == "ch1")
+    table = next(block["table"] for block in snapshot_chapter["paragraphs"] if block.get("type") == "table")
+    assert table.pop("borders") is None
+    Store().save_workflow_record("project_export", record)
+    downloaded = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content.startswith(b"PK")
