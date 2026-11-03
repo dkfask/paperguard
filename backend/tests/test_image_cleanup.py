@@ -3,6 +3,9 @@
 import os
 import time
 
+import pytest
+from fastapi.testclient import TestClient
+
 from app.db import Store
 from app.domain.documents.schemas import ContentBlock, DocumentProject
 from app.models.project import WritingProject
@@ -69,3 +72,28 @@ def test_cleanup_preserves_recent_uploads_during_grace_period(tmp_path, monkeypa
     assert cleanup_orphan_images(store, grace_seconds=24 * 60 * 60) == 1
     assert recent.is_file()
     assert not old.exists()
+
+
+@pytest.mark.parametrize(
+    ("setting", "should_delete"),
+    [(None, False), ("", False), ("false", False), ("unknown", False), ("true", True), ("1", True)],
+)
+def test_startup_image_cleanup_requires_explicit_opt_in(tmp_path, monkeypatch, caplog, setting, should_delete):
+    from app.main import app
+
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("PAPERGUARD_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("PAPERGUARD_DB_PATH", str(data_dir / "test.db"))
+    if setting is None:
+        monkeypatch.delenv("PAPERGUARD_STARTUP_IMAGE_CLEANUP", raising=False)
+    else:
+        monkeypatch.setenv("PAPERGUARD_STARTUP_IMAGE_CLEANUP", setting)
+    old = _upload("old-unreferenced.png")
+    past = time.time() - 2 * 24 * 60 * 60
+    os.utime(old, (past, past))
+
+    with TestClient(app) as client:
+        assert client.get("/api/health/live").status_code == 200
+        assert old.is_file() is not should_delete
+
+    assert "启动初始化失败" not in caplog.text
