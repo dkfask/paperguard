@@ -46,8 +46,8 @@ _RENDERED_FACTS = {
     "book": {"authors", "title", "source", "collection", "place", "publisher", "year", "pages", "doi"},
     "thesis": {"authors", "title", "source", "place", "institution", "year", "pages", "doi"},
     "conference": {"authors", "title", "source", "collection", "place", "publisher", "year", "pages", "doi"},
-    "online": {"authors", "title", "source", "publish_date", "url", "access_date", "doi"},
-    "standard": {"authors", "title", "source", "organization", "number", "year", "doi"},
+    "online": {"authors", "title", "source", "publish_date", "year", "url", "access_date", "doi"},
+    "standard": {"authors", "title", "source", "organization", "number", "place", "publisher", "year", "doi"},
 }
 
 
@@ -122,35 +122,29 @@ def _parse_pasted_reference(text: str) -> tuple[str, dict[str, str]] | None:
 
 
 def _pasted_facts_preserved(entry: Any, original: str) -> bool:
-    """Verify that manually supplied fields account for the complete pasted text."""
+    """Match the supplied header, then parse remaining source facts by position."""
     kind = getattr(entry, "kind", "")
     if kind not in {"journal", "book", "thesis"}:
         return False
-    text = unicodedata.normalize("NFKC", _REFERENCE_NUMBER_PREFIX.sub("", original, count=1)).casefold()
-    text = re.sub(r"\s+", " ", text).strip()
-    authors = unicodedata.normalize("NFKC", str(getattr(entry, "authors", "") or "")).casefold().strip(" .。")
-    title = unicodedata.normalize("NFKC", str(getattr(entry, "title", "") or "")).casefold().strip(" .。")
-    authors, title = re.sub(r"\s+", " ", authors), re.sub(r"\s+", " ", title)
+
+    def normalized(value: str) -> str:
+        return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value).casefold()).strip(" .。")
+
+    text = normalized(_REFERENCE_NUMBER_PREFIX.sub("", original, count=1))
+    authors = normalized(str(getattr(entry, "authors", "") or ""))
+    title = normalized(str(getattr(entry, "title", "") or ""))
     if not authors or not title:
         return False
-    header = re.match(re.escape(authors) + r"\s*[.。]\s*" + re.escape(title), text)
+    marker = _TYPE_MARKERS[kind]
+    header = re.match(re.escape(authors) + r"\s*[.。]\s*" + re.escape(title)
+                      + r"\s*\[\s*" + re.escape(marker.casefold()) + r"\s*\]", text)
     if not header:
         return False
-    text = text[header.end():]
-    marker = _TYPE_MARKERS.get(kind, "").casefold()
-    if marker:
-        text = re.sub(r"^\s*\[\s*" + re.escape(marker) + r"\s*\]", " ", text, count=1)
-    if getattr(entry, "doi", ""):
-        text = re.sub(r"\bdoi\s*[:：]\s*(?=10\.)", " ", text, count=1)
-    values = []
-    for field in _RENDERED_FACTS.get(kind, ()) - {"authors", "title"}:
-        value = unicodedata.normalize("NFKC", str(getattr(entry, field, "") or "")).casefold()
-        value = re.sub(r"\s+", " ", value).strip(" .。")
-        if value:
-            values.append(value)
-    for value in sorted(values, key=len, reverse=True):
-        text = text.replace(value, " ", 1)
-    return not re.search(r"[^\s.,，。;；:：()（）\[\]［］\"'“”‘’]", text)
+    parsed = _parse_pasted_reference(f"author. title[{marker}]{text[header.end():]}")
+    if parsed is None or parsed[0] != kind or parsed[1].get("authors") != "author" or parsed[1].get("title") != "title":
+        return False
+    return all(normalized(str(getattr(entry, field, "") or "")) == normalized(value)
+               for field, value in parsed[1].items() if field not in {"authors", "title"})
 
 
 def validate_reference_facts(entry: Any) -> list[str]:
@@ -160,7 +154,7 @@ def validate_reference_facts(entry: Any) -> list[str]:
         return ["尚未识别文献类型及事实字段，原文已保留，请补录"]
     problems = []
     for choices in _REQUIRED_FACTS.get(kind, ()):
-        if not any(str(getattr(entry, field, "") or "").strip() for field in choices):
+        if not any(str(getattr(entry, field, "") or "").strip().rstrip(" .。") for field in choices):
             problems.append("缺少" + "或".join(_FACT_LABELS[field] for field in choices))
     year = str(getattr(entry, "year", "") or "").strip()
     if year and not re.fullmatch(r"\d{4}", year):
@@ -338,11 +332,13 @@ def format_reference(entry: Any, number: int | None = None) -> str:
         if tail:
             parts.append(tail)
     elif marker == "S":
-        tail = "，".join(item for item in (organization or source, str(data.get("number") or "").strip(), year) if item)
+        publication = ": ".join(item for item in (place, publisher) if item)
+        tail = "，".join(item for item in (organization or source, str(data.get("number") or "").strip(), publication, year) if item)
         if tail:
             parts.append(tail)
     else:
-        tail = "，".join(item for item in (source, publish_date) if item)
+        display_year = year if year and not publish_date.startswith(year) else ""
+        tail = "，".join(item for item in (source, publish_date, display_year) if item)
         if url:
             tail += f"{'. ' if tail else ''}{url}"
         if access_date:

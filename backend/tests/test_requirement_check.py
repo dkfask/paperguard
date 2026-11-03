@@ -148,7 +148,7 @@ def test_cover_fields_checker_uses_declared_template_keys_and_reports_each_missi
     assert check_requirements(project, {"resolved_items": [item]}, None)[1][0]["reason"] == "cover_field_mapping_missing"
 
 
-def test_reference_list_checker_validates_facts_and_contiguous_list_order():
+def test_reference_list_checker_validates_facts_and_stable_numbers():
     project = _project()
     section = project.sections[-1]
     section.paragraphs = [
@@ -166,7 +166,7 @@ def test_reference_list_checker_validates_facts_and_contiguous_list_order():
     findings, not_checked = check_requirements(project, {"resolved_items": [item]})
     assert not not_checked
     assert any("缺少年份" in result["message"] for result in findings)
-    assert any("编号为 [3]" in result["message"] for result in findings)
+    assert not any("编号为 [3]" in result["message"] for result in findings)
     section.paragraphs[1] = ParagraphBlock(id="legacy", text="未结构化的旧文献")
     findings, _ = check_requirements(project, {"resolved_items": [item]})
     assert any("尚未录入结构化文献事实" in result["message"] for result in findings)
@@ -287,3 +287,23 @@ def test_reference_quality_does_not_treat_an_unconfirmed_year_as_known():
     assert result["english_confirmed"] == 0
     assert result["unknown_year"] == 15
     assert result["status"] == "incomplete"
+
+
+def test_reference_facts_check_preserves_stable_numbers_after_deletion():
+    from app.services.references import reconcile_reference_numbers
+
+    project = _project()
+    section = project.sections[-1]
+    section.paragraphs = [
+        ParagraphBlock(id="ref-one", reference_number=1, reference=ReferenceEntry(
+            kind="journal", authors="甲", title="题名甲", source="期刊", year="2024")),
+        ParagraphBlock(id="ref-two", reference_number=2, reference=ReferenceEntry(
+            kind="journal", authors="乙", title="题名乙", source="期刊", year="2024")),
+    ]
+    updated = project.model_copy(deep=True)
+    updated.sections[-1].paragraphs.pop(0)
+    reconcile_reference_numbers(project, updated)
+    assert updated.sections[-1].paragraphs[0].reference_number == 2
+    item = {"id": "reference-facts", "type": "auto", "target": "references", "checker": "references.list_facts",
+            "params": {"required": True}, "severity": "error", "enforce": "hard"}
+    assert check_requirements(updated, {"resolved_items": [item]}) == ([], [])

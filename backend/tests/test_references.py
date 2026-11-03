@@ -33,7 +33,7 @@ def test_online_reference_does_not_render_hidden_fields_from_a_previous_type():
         kind="online", authors="张三", title="网页标题", url="https://example.test/article",
         organization="旧标准发布机构", year="2024",
     )
-    assert format_reference(entry, 1) == "[1] 张三. 网页标题[EB/OL]. https://example.test/article"
+    assert format_reference(entry, 1) == "[1] 张三. 网页标题[EB/OL]. 2024. https://example.test/article"
 
 
 def test_save_paragraph_keeps_structured_reference_fields():
@@ -437,3 +437,40 @@ def test_ambiguous_legacy_numbering_blocks_every_renderer_before_producing_a_fil
         export_project_to_docx(project, template, str(tmp_path / "bad.docx"))
     assert not (tmp_path / "bad.docx").exists()
     assert project.model_dump(mode="json") == before
+
+
+def test_pasted_abbreviated_author_does_not_allow_swapped_volume_and_pages():
+    from app.services.references import validate_reference_facts
+
+    original = "A. Smith. Example[J]. Journal, 2024, 12: 34."
+    correct = ReferenceEntry(kind="journal", authors="A. Smith", title="Example", source="Journal",
+                             year="2024", volume="12", pages="34", original_pasted_text=original)
+    assert validate_reference_facts(correct) == []
+    swapped = correct.model_copy(update={"volume": "34", "pages": "12"})
+    assert validate_reference_facts(swapped)
+
+
+def test_reference_required_fields_reject_punctuation_only():
+    from app.services.references import validate_reference_facts
+
+    entry = ReferenceEntry(kind="journal", authors=".", title="。", source="Journal", year="2024")
+    issues = validate_reference_facts(entry)
+    assert "缺少作者" in issues
+    assert "缺少题名" in issues
+
+
+def test_online_and_standard_editor_fields_are_rendered_and_verified():
+    from app.services.references import validate_reference_facts
+
+    online = ReferenceEntry(kind="online", authors="张三", title="网页", url="https://example.test",
+                            year="2024")
+    standard = ReferenceEntry(kind="standard", title="标准", number="S1", place="北京",
+                              publisher="出版社", year="2024")
+    assert "2024" in format_reference(online)
+    assert "北京: 出版社" in format_reference(standard)
+    assert validate_reference_facts(online) == []
+    assert validate_reference_facts(standard) == []
+
+    online.publish_date = "2024-03-01"
+    assert format_reference(online).count("2024") == 1
+    assert validate_reference_facts(online) == []

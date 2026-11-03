@@ -119,10 +119,12 @@ export function formatReference(reference, number) {
     const final = tail && value('pages') ? `${tail}: ${value('pages')}` : tail || value('pages')
     if (final) parts.push(final)
   } else if (marker === 'S') {
-    const tail = [value('organization') || value('source'), value('number'), value('year')].filter(Boolean).join('，')
+    const publication = [value('place'), value('publisher')].filter(Boolean).join(': ')
+    const tail = [value('organization') || value('source'), value('number'), publication, value('year')].filter(Boolean).join('，')
     if (tail) parts.push(tail)
   } else {
-    let tail = [value('source'), value('publish_date')].filter(Boolean).join('，')
+    const year = value('year') && !value('publish_date').startsWith(value('year')) ? value('year') : ''
+    let tail = [value('source'), value('publish_date'), year].filter(Boolean).join('，')
     if (value('url')) tail += `${tail ? '. ' : ''}${value('url')}`
     if (value('access_date')) tail += `${tail ? ' ' : ''}（引用日期：${value('access_date')}）`
     if (tail) parts.push(tail)

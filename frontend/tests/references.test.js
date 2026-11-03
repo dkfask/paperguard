@@ -18,7 +18,14 @@ describe('reference formatting', () => {
     expect(formatReference({
       kind: 'online', authors: '张三', title: '网页标题', url: 'https://example.test/article',
       organization: '旧标准发布机构', year: '2024',
-    }, 1)).toBe('[1] 张三. 网页标题[EB/OL]. https://example.test/article')
+    }, 1)).toBe('[1] 张三. 网页标题[EB/OL]. 2024. https://example.test/article')
+  })
+
+  it('renders online year and standard publication facts', () => {
+    expect(formatReference({ kind: 'online', authors: '张三', title: '网页', url: 'https://example.test', year: '2024' }, 1))
+      .toBe('[1] 张三. 网页[EB/OL]. 2024. https://example.test')
+    expect(formatReference({ kind: 'standard', title: '标准', number: 'S1', place: '北京', publisher: '出版社', year: '2024' }, 2))
+      .toBe('[2] 标准[S]. S1，北京: 出版社，2024')
   })
 
   it('uses stored and historical numbers, without guessing new ones from position', () => {

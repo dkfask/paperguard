@@ -307,12 +307,9 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
                     continue
                 position += 1
                 issues = validate_reference_facts(reference) if reference else ["尚未录入结构化文献事实"]
-                number = reference_number_for(block, position)
-                if number != position:
-                    issues.append(f"当前编号为 [{number}]，列表位置应为 [{position}]")
                 for issue in issues:
                     findings.append(_finding(descriptor, f"参考文献第 {position} 条：{issue}",
-                                             {"block_id": block.id}, "事实完整且按列表连续编号", section.key))
+                                             {"block_id": block.id}, "事实完整并保留原文", section.key))
             if not position and params.get("required"):
                 findings.append(_finding(descriptor, "参考文献列表为空", 0, ">= 1", section.key))
             continue
