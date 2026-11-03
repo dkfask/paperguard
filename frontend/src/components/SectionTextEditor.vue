@@ -5,11 +5,13 @@
         <strong>{{ t('sectionTextEditor.title') }}</strong>
         <span class="hint">{{ t('sectionTextEditor.help') }}</span>
       </div>
-      <button class="primary small" :disabled="!text.trim()" @click="apply">{{ t('sectionTextEditor.apply') }}</button>
+      <button class="primary small" @click="apply">{{ t('sectionTextEditor.apply') }}</button>
     </div>
     <TiptapSectionEditor
       v-model="text"
+      :document="document"
       :style-vars="styleVars"
+      @update:document="emit('update:document', $event)"
     />
     <div class="section-text-editor-foot">{{ t('sectionTextEditor.detail') }}</div>
   </div>
@@ -24,10 +26,11 @@ const { t } = useI18n()
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
+  document: { type: Object, required: true },
   resetKey: { type: String, default: '' },
   styleVars: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['update:modelValue', 'apply'])
+const emit = defineEmits(['update:modelValue', 'update:document', 'apply'])
 const text = ref(props.modelValue)
 
 watch(() => props.modelValue, (value) => {
@@ -37,7 +40,7 @@ watch(() => props.resetKey, () => { text.value = props.modelValue })
 watch(text, (value) => emit('update:modelValue', value))
 
 function apply() {
-  emit('apply', text.value)
+  emit('apply', props.document)
 }
 </script>
 

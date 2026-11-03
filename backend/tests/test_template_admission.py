@@ -73,6 +73,10 @@ def test_assessment_hash_binds_template_definition_version_and_source_bytes():
     assert first["source_docx_sha256"] != assess_paper_template(template, source_b)["source_docx_sha256"]
     assert first["assessment_hash"] != assess_paper_template(changed_definition, source_a)["assessment_hash"]
     assert first["assessment_hash"] != assess_paper_template(changed_version, source_a)["assessment_hash"]
+    assert first["structure_inventory"]["source_sha256"] == first["source_docx_sha256"]
+    assert first["structure_inventory"]["status"] == "inventory_only"
+    assert first["structure_inventory"]["formal_admission"] is False
+    assert first["structure_inventory"]["part_count"] > 0
 
 
 def test_cover_table_and_source_docx_table_block_template_use():
@@ -83,63 +87,6 @@ def test_cover_table_and_source_docx_table_block_template_use():
     assert any(item["code"] == "cover_table" for item in cover_report["blockers"])
     assert source_report["status"] == "blocked"
     assert any(item["code"] == "source_table_not_mapped" for item in source_report["blockers"])
-
-
-@pytest.mark.parametrize("unsupported", ["no_anchors", "legacy_adapter", "bookmark"])
-def test_static_objects_stay_blocked_without_supported_placeholder_checker(unsupported):
-    from app.services.template_engine import parse_docx_template
-
-    source = Path(__file__).parent / "fixtures" / "templates" / "generic-anchored.docx"
-    candidate = parse_docx_template(
-        source, candidate_id="anchor-admission", template_id="anchor-admission", filename=source.name,
-    )
-    definition = candidate.definition.model_copy(deep=True)
-    if unsupported == "no_anchors":
-        definition.anchors = []
-    elif unsupported == "legacy_adapter":
-        definition.export_strategy = "legacy_adapter"
-    else:
-        definition.anchors[0].kind = "bookmark"
-    report = assess_template_definition(
-        template_id=candidate.template_id, version=candidate.version,
-        definition=definition, source_data=source.read_bytes(),
-    )
-    assert not report["can_use_for_draft"]
-    assert {"source_table_not_mapped", "unmapped_header", "unmapped_footer"}.issubset(
-        {item["code"] for item in report["blockers"]},
-    )
-
-
-def test_placeholder_mapping_does_not_clear_unsupported_equations():
-    from app.domain.documents.schemas import TemplateAnchor, TemplateDefinition
-
-    definition = TemplateDefinition(anchors=[TemplateAnchor(key="name", selector="{{name}}", kind="placeholder")])
-    report = assess_template_definition(
-        template_id="unsupported-equation", version="1", definition=definition,
-        source_data=_docx_bytes(table=True, header="页眉", equation=True),
-    )
-    assert not report["can_use_for_draft"]
-    assert any(item["code"] == "source_equation_omml" for item in report["blockers"])
-
-
-def test_placeholder_preservation_does_not_approve_dynamic_footer_fields():
-    from app.services.template_engine import parse_docx_template
-
-    path = Path(__file__).parent / "fixtures" / "templates" / "generic-anchored.docx"
-    candidate = parse_docx_template(path, candidate_id="dynamic-field", template_id="dynamic-field", filename=path.name)
-    data = path.read_bytes()
-    with zipfile.ZipFile(BytesIO(data)) as archive:
-        root = etree.fromstring(archive.read("word/footer1.xml"))
-    paragraph = root.find("{%s}p" % "http://schemas.openxmlformats.org/wordprocessingml/2006/main")
-    etree.SubElement(paragraph, "{%s}fldSimple" % "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
-                     {"{%s}instr" % "http://schemas.openxmlformats.org/wordprocessingml/2006/main": "PAGE"})
-    changed = _replace_docx_part(data, "word/footer1.xml", etree.tostring(root))
-    report = assess_template_definition(
-        template_id=candidate.template_id, version=candidate.version,
-        definition=candidate.definition, source_data=changed,
-    )
-    assert not report["can_use_for_draft"]
-    assert any(item["code"] == "unmapped_footer" for item in report["blockers"])
 
 
 def test_source_xml_equations_and_unmapped_headers_are_blocked():
@@ -235,6 +182,15 @@ def test_source_docx_dtd_and_external_entity_are_rejected_without_expansion():
     report = assess_paper_template(default_template(), malicious)
     assert report["status"] == "blocked"
     assert any(item["code"] == "source_unreadable" for item in report["blockers"])
+
+
+def test_inventory_checks_xml_parts_outside_word_directory():
+    source = _docx_bytes()
+    malicious = _replace_docx_part(source, "docProps/core.xml", b'''<!DOCTYPE core [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><core>&xxe;</core>''')
+    report = assess_paper_template(default_template(), malicious)
+    assert report["can_use_for_draft"] is False
+    assert any(item["code"] == "source_inventory_unreadable" for item in report["blockers"])
+    assert report["structure_inventory"] is None
     assert "root:" not in str(report)
 
 
@@ -268,3 +224,60 @@ def test_office_chart_templates_are_rejected_before_writing(kind):
     assert report["status"] == "blocked"
     assert report["can_use_for_draft"] is False
     assert any(item["code"] == "source_chart_not_mapped" for item in report["blockers"])
+
+
+@pytest.mark.parametrize("unsupported", ["no_anchors", "legacy_adapter", "bookmark"])
+def test_static_objects_stay_blocked_without_supported_placeholder_checker(unsupported):
+    from app.services.template_engine import parse_docx_template
+
+    source = Path(__file__).parent / "fixtures" / "templates" / "generic-anchored.docx"
+    candidate = parse_docx_template(
+        source, candidate_id="anchor-admission", template_id="anchor-admission", filename=source.name,
+    )
+    definition = candidate.definition.model_copy(deep=True)
+    if unsupported == "no_anchors":
+        definition.anchors = []
+    elif unsupported == "legacy_adapter":
+        definition.export_strategy = "legacy_adapter"
+    else:
+        definition.anchors[0].kind = "bookmark"
+    report = assess_template_definition(
+        template_id=candidate.template_id, version=candidate.version,
+        definition=definition, source_data=source.read_bytes(),
+    )
+    assert not report["can_use_for_draft"]
+    assert {"source_table_not_mapped", "unmapped_header", "unmapped_footer"}.issubset(
+        {item["code"] for item in report["blockers"]},
+    )
+
+
+def test_placeholder_mapping_does_not_clear_unsupported_equations():
+    from app.domain.documents.schemas import TemplateAnchor, TemplateDefinition
+
+    definition = TemplateDefinition(anchors=[TemplateAnchor(key="name", selector="{{name}}", kind="placeholder")])
+    report = assess_template_definition(
+        template_id="unsupported-equation", version="1", definition=definition,
+        source_data=_docx_bytes(table=True, header="页眉", equation=True),
+    )
+    assert not report["can_use_for_draft"]
+    assert any(item["code"] == "source_equation_omml" for item in report["blockers"])
+
+
+def test_placeholder_preservation_does_not_approve_dynamic_footer_fields():
+    from app.services.template_engine import parse_docx_template
+
+    path = Path(__file__).parent / "fixtures" / "templates" / "generic-anchored.docx"
+    candidate = parse_docx_template(path, candidate_id="dynamic-field", template_id="dynamic-field", filename=path.name)
+    data = path.read_bytes()
+    with zipfile.ZipFile(BytesIO(data)) as archive:
+        root = etree.fromstring(archive.read("word/footer1.xml"))
+    paragraph = root.find("{%s}p" % "http://schemas.openxmlformats.org/wordprocessingml/2006/main")
+    etree.SubElement(paragraph, "{%s}fldSimple" % "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+                     {"{%s}instr" % "http://schemas.openxmlformats.org/wordprocessingml/2006/main": "PAGE"})
+    changed = _replace_docx_part(data, "word/footer1.xml", etree.tostring(root))
+    report = assess_template_definition(
+        template_id=candidate.template_id, version=candidate.version,
+        definition=candidate.definition, source_data=changed,
+    )
+    assert not report["can_use_for_draft"]
+    assert any(item["code"] == "unmapped_footer" for item in report["blockers"])

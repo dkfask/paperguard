@@ -20,6 +20,7 @@ from app.core.extract.xml_utils import safe_xml_parser
 from app.domain.documents.schemas import TemplateDefinition
 from app.models.template import PaperTemplate, TextStyle
 from app.services.docx_output_check import TEXT_STYLE_COVERAGE, style_capability_issues
+from app.services.template_package_inventory import INVENTORY_VERSION, inventory_template_package
 from app.services.template_source import resolve_template_source
 from app.services.upload_security import validate_docx_bytes
 
@@ -33,6 +34,25 @@ _NS = {
     "cx": "http://schemas.microsoft.com/office/drawing/2014/chartex",
 }
 _PAGE_FOOTER_TEXT = set("第页 0123456789")
+
+# A signed master profile allows these structures to be exercised in a draft,
+# but does not prove their final layout or formal admission on its own.
+_PROFILE_DRAFT_FINDINGS = {
+    "cover_table", "compound_cover_field", "source_table_not_mapped",
+    "unmapped_header", "unmapped_footer", "source_section_layouts",
+}
+
+
+def _apply_verified_profile(report: dict[str, Any], profile: dict[str, Any]) -> None:
+    findings = report["blockers"]
+    report["unverified_findings"] = [item for item in findings if item["code"] in _PROFILE_DRAFT_FINDINGS]
+    report["blockers"] = [item for item in findings if item["code"] not in _PROFILE_DRAFT_FINDINGS]
+    blocked = bool(report["blockers"])
+    report.update(
+        status="blocked" if blocked else "office_review_required",
+        can_use_for_draft=not blocked,
+        source_profile_sha256=profile["profile_sha256"],
+    )
 
 
 def _canonical_hash(value: Any) -> str:
@@ -256,27 +276,43 @@ def assess_template_definition(
                 "path": f"{style_path}.{issue['property']}",
             })
     blockers.extend(_source_findings(source_data, expected_source_sha256))
-    # The explicit-placeholder checker compares complete story trees and every
-    # non-anchor package part. Its fixed tables/headers/footers are covered even
-    # though the legacy paragraph renderer cannot verify those same constructs.
-    # Keep all other capability, source-integrity and style blockers in place.
     if (isinstance(definition, TemplateDefinition)
             and definition.export_strategy != "legacy_adapter"
             and definition.anchors
-            and all(anchor.kind in {"placeholder", "section_placeholder"}
-                    for anchor in definition.anchors)
+            and all(anchor.kind in {"placeholder", "section_placeholder"} for anchor in definition.anchors)
             and _static_anchor_source(source_data)):
         covered = {"source_table_not_mapped", "unmapped_header", "unmapped_footer"}
         blockers = [item for item in blockers if item["code"] not in covered]
+    inventory_summary = None
+    if source_data is not None:
+        try:
+            inventory = inventory_template_package(source_data)
+            inventory_summary = {
+                "version": inventory["inventory_version"],
+                "source_sha256": inventory["source_sha256"],
+                "status": inventory["status"],
+                "formal_admission": False,
+                "part_count": len(inventory["parts"]),
+                "element_context_count": len(inventory["elements"]),
+                "attribute_context_count": len(inventory["attributes"]),
+                "field_count": len(inventory["fields"]),
+                "finding_count": inventory["finding_count"],
+            }
+            if inventory["finding_count"]:
+                blockers.append({"code": "source_inventory_incomplete", "message": "母版包含无法完整对账的域或包结构，需由系统团队修复后重新评估。", "path": "source_docx"})
+        except Exception:
+            blockers.append({"code": "source_inventory_unreadable", "message": "无法完整盘点 Word 母版的全部包部件，请检查源文件后重试。", "path": "source_docx"})
     blockers = list({(item["code"], item["path"]): item for item in blockers}.values())
     source_sha256 = hashlib.sha256(source_data).hexdigest() if source_data is not None else ""
     definition_sha256 = _canonical_hash(raw_definition)
     assessment_hash = _canonical_hash({
-        "assessment_version": "template-admission/2",
+        "assessment_version": "template-admission/3",
+        "inventory_version": INVENTORY_VERSION,
         "template_id": template_id,
         "version": version,
         "definition_sha256": definition_sha256,
         "source_docx_sha256": source_sha256,
+        "structure_inventory": inventory_summary,
     })
     manual_checks = [
         {"code": "office_pagination", "message": "在 Word 或 WPS 中检查最终分页、字体替换、表格跨页和内容裁切。"},
@@ -289,6 +325,7 @@ def assess_template_definition(
         "assessment_hash": assessment_hash,
         "definition_sha256": definition_sha256,
         "source_docx_sha256": source_sha256,
+        "structure_inventory": inventory_summary,
         "auto_verifiable_constraints": [
             {"property": field, "rule": rule}
             for field, rule in TEXT_STYLE_COVERAGE.items()
@@ -310,7 +347,7 @@ def assess_template_definition(
             report["blockers"].append({"code":"source_profile_invalid","message":"已确认的母版执行配置与当前版本或源文件不一致。","path":"definition.extensions.source_execution"})
             report.update(status="blocked",can_use_for_draft=False)
         else:
-            report.update(status="office_review_required",can_use_for_draft=True,blockers=[],source_profile_sha256=profile["profile_sha256"])
+            _apply_verified_profile(report, profile)
     return report
 
 
@@ -329,7 +366,7 @@ def assess_paper_template(template: PaperTemplate, source_data: bytes | None) ->
             report["blockers"].append({"code":"source_profile_invalid","message":"母版执行配置已失效，请重新确认规范与映射。","path":"source_execution"})
             report.update(status="blocked", can_use_for_draft=False)
         else:
-            report.update(status="office_review_required", can_use_for_draft=True, blockers=[], source_profile_sha256=profile["profile_sha256"])
+            _apply_verified_profile(report, profile)
     return report
 
 

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from app.models.project import WritingProject
 from app.services.document_assets import document_upload_dir
 
 _ORPHAN_GRACE_SECONDS = 24 * 60 * 60
+_UPLOAD_PREFIX = "/media/uploads/"
 
 
 def _url_to_path(url: str) -> Path | None:
@@ -74,27 +76,65 @@ def remove_project_images(proj: WritingProject) -> int:
     return removed
 
 
+def _referenced_filenames(value: object, referenced: set[str]) -> None:
+    """Collect upload references from all persisted shapes, including older snapshots."""
+    if isinstance(value, dict):
+        refs = value.get("attachment_refs")
+        if refs is not None:
+            if not isinstance(refs, list):
+                raise ValueError("Invalid attachment reference list")
+            for ref in refs:
+                if not isinstance(ref, dict):
+                    raise ValueError("Invalid attachment reference")
+                filename = ref.get("filename")
+                if filename is not None:
+                    if not isinstance(filename, str) or not _valid_filename(filename):
+                        raise ValueError("Invalid attachment filename")
+                    referenced.add(filename)
+                elif not isinstance(ref.get("url"), str) or not ref["url"].startswith(_UPLOAD_PREFIX):
+                    raise ValueError("Attachment reference has no usable location")
+        for item in value.values():
+            _referenced_filenames(item, referenced)
+    elif isinstance(value, list):
+        for item in value:
+            _referenced_filenames(item, referenced)
+    elif isinstance(value, str) and value.startswith(_UPLOAD_PREFIX):
+        filename = value[len(_UPLOAD_PREFIX):]
+        if not _valid_filename(filename):
+            raise ValueError("Invalid upload reference")
+        referenced.add(filename)
+
+
+def _valid_filename(filename: str) -> bool:
+    return bool(filename and filename not in {".", ".."} and "/" not in filename and "\\" not in filename and ".." not in filename)
+
+
 def cleanup_orphan_images(store: Store, grace_seconds: int = 0) -> int:
-    """删除未被项目引用的图片; 启动清理可传入宽限期。"""
+    """Remove uploads only after a complete, transactionally consistent reference scan."""
     upload_dir = document_upload_dir()
     if not upload_dir.exists():
         return 0
 
-    referenced: set[str] = set()
-    for proj in store.list_projects():
-        referenced.update(project_image_urls(proj))
+    try:
+        # Lock saved project/version writes until the inventory and deletions finish.
+        # The startup grace period also protects newly uploaded, not-yet-saved files.
+        with store.workflow_transaction() as conn:
+            referenced: set[str] = set()
+            for payload in store.iter_upload_reference_payloads_conn(conn):
+                _referenced_filenames(payload, referenced)
 
-    removed = 0
-    for path in upload_dir.iterdir():
-        if not path.is_file():
-            continue
-        url = f"/media/uploads/{path.name}"
-        if url not in referenced:
-            try:
-                if grace_seconds and time.time() - path.stat().st_mtime < grace_seconds:
+            removed = 0
+            for path in upload_dir.iterdir():
+                if path.is_symlink() or not path.is_file() or path.name in referenced:
                     continue
-                path.unlink()
-                removed += 1
-            except OSError:
-                pass
-    return removed
+                try:
+                    if grace_seconds and time.time() - path.stat().st_mtime < grace_seconds:
+                        continue
+                    path.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+            return removed
+    except (ValueError, TypeError, json.JSONDecodeError):
+        # A partial inventory must never be treated as proof that files are orphaned.
+        return 0

@@ -16,6 +16,8 @@ const api = vi.hoisted(() => ({
   respondSubmissionComment: vi.fn(),
   decideProcessRecord: vi.fn(),
   downloadProcessRecordAttachment: vi.fn(),
+  downloadSubmissionDocument: vi.fn(),
+  downloadSubmissionPdf: vi.fn(),
   exportProcessRecord: vi.fn(),
   fetchProcessRecordForm: vi.fn(),
   fetchCohortProcessRecordForm: vi.fn(),
@@ -24,6 +26,7 @@ const api = vi.hoisted(() => ({
   fetchCohortProcessRecords: vi.fn(),
   fetchCohorts: vi.fn(),
   fetchMyTasks: vi.fn(),
+  fetchWorkflowCapabilities: vi.fn(),
   fetchOrganizations: vi.fn(),
   fetchProjectVersions: vi.fn(),
   fetchSubmission: vi.fn(),
@@ -93,6 +96,7 @@ const cohort = {
 describe('Workflow reports', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    api.fetchWorkflowCapabilities.mockResolvedValue({ m2_workflow_enabled: true })
     api.fetchMyTasks.mockResolvedValue([])
     api.fetchWorkflowNotifications.mockResolvedValue({ items: [], unread: 0 })
     api.fetchSubmissions.mockResolvedValue([])

@@ -2302,6 +2302,15 @@ class Store:
                 ).fetchall()
         return [json.loads(row["data"]) for row in rows]
 
+    def iter_upload_reference_payloads_conn(self, conn: sqlite3.Connection) -> Iterator[dict]:
+        """Read every persisted project and workflow payload while the caller holds a transaction."""
+        for table in ("projects", "document_projects", "workflow_records"):
+            for row in conn.execute(f"SELECT data FROM {table}"):
+                payload = json.loads(row["data"])
+                if not isinstance(payload, dict):
+                    raise ValueError(f"Invalid upload reference payload in {table}")
+                yield payload
+
     def delete_workflow_record(self, kind: str, record_id: str) -> bool:
         with self._connect() as conn:
             cur = conn.execute(
@@ -2462,6 +2471,7 @@ class Store:
         consumer_id: str,
         limit: int = 20,
         lease_seconds: int = 120,
+        respect_attempt_limit: bool = False,
     ) -> list[dict]:
         """Atomically claim queued jobs and recover expired leases."""
         now = datetime.now(timezone.utc)
@@ -2475,6 +2485,8 @@ class Store:
                 "((state = 'queued' AND available_at <= ?) OR "
                 "(state = 'running' AND lease_until IS NOT NULL AND lease_until <= ?) OR "
                 "(state = 'failed' AND attempt_count < max_attempts AND available_at <= ?)) "
+                + ("AND attempt_count < max_attempts " if respect_attempt_limit else "")
+                +
                 "ORDER BY created_at ASC LIMIT ?",
                 (job_type, now_text, now_text, now_text, max(1, min(int(limit), 200))),
             ).fetchall()
@@ -2558,12 +2570,16 @@ class Store:
         with self._connect() as conn:
             return self.retry_job_conn(conn, job_id, reason)
 
-    def retry_job_conn(self, conn: sqlite3.Connection, job_id: str, reason: str = "") -> dict | None:
+    def retry_job_conn(
+        self, conn: sqlite3.Connection, job_id: str, reason: str = "", *, preserve_attempts: bool = False,
+    ) -> dict | None:
         now = _now()
+        attempt_update = "" if preserve_attempts else "attempt_count = 0, "
+        budget_check = " AND attempt_count < max_attempts" if preserve_attempts else ""
         cur = conn.execute(
-            "UPDATE jobs SET state = 'queued', attempt_count = 0, available_at = ?, lease_until = NULL, "
+            f"UPDATE jobs SET state = 'queued', {attempt_update}available_at = ?, lease_until = NULL, "
             "lease_token = NULL, leased_by = NULL, last_error = ?, completed_at = NULL, updated_at = ? "
-            "WHERE id = ? AND state IN ('failed', 'queued')",
+            f"WHERE id = ? AND state IN ('failed', 'queued'){budget_check}",
             (now, reason[:2000] if reason else "管理员手动重试", now, job_id),
         )
         if cur.rowcount != 1:
@@ -2749,10 +2765,24 @@ class Store:
         conn: sqlite3.Connection,
         proj: WritingProject,
         expected_revision: int,
+        *,
+        reference_number_owners: dict[str, str] | None = None,
     ) -> WritingProject | None:
         """Compare and save within an existing workflow transaction."""
         if proj.tenant_id or proj.membership_id:
             raise PermissionError("tenant projects require scoped repository")
+        row = conn.execute("SELECT data FROM projects WHERE id = ?", (proj.id,)).fetchone()
+        if row is None:
+            return None
+        previous = WritingProject.model_validate_json(row["data"])
+        if previous.revision != expected_revision or previous.tenant_id or previous.membership_id:
+            return None
+        from app.services.references import merge_reference_number_owners, reconcile_reference_numbers
+        if reference_number_owners is not None:
+            previous.reference_number_owners = merge_reference_number_owners(
+                previous.reference_number_owners, reference_number_owners,
+            )
+        reconcile_reference_numbers(previous, proj)
         next_revision = expected_revision + 1
         proj.revision = next_revision
         proj.updated_at = _now()
@@ -2780,22 +2810,43 @@ class Store:
         expected_revision: int,
     ) -> WritingProject | None:
         """Attach check history without changing or replacing manuscript content."""
-        project = self.get_project(project_id)
-        if project is None or project.revision != expected_revision:
-            return None
-        project.check_run_ids = list(check_run_ids)
-        project.updated_at = _now()
-        with self._connect() as conn:
+        with self.workflow_transaction() as conn:
+            now = _now()
             cur = conn.execute(
-                "UPDATE projects SET data = ?, updated_at = ? "
+                "UPDATE projects SET data = json_set(data, '$.check_run_ids', json(?), '$.updated_at', ?), updated_at = ? "
                 "WHERE id = ? AND json_extract(data, '$.revision') = ? "
                 "AND coalesce(json_extract(data, '$.tenant_id'), '') = '' "
                 "AND coalesce(json_extract(data, '$.membership_id'), '') = ''",
-                (project.model_dump_json(), project.updated_at, project.id, expected_revision),
+                (json.dumps(list(check_run_ids)), now, now, project_id, expected_revision),
             )
             if cur.rowcount != 1:
                 return None
-        return project
+            row = conn.execute("SELECT data FROM projects WHERE id = ?", (project_id,)).fetchone()
+            return WritingProject.model_validate_json(row["data"])
+
+    def update_project_snapshots(
+        self, project_id: str, expected_revision: int, expected_content_hash: str,
+        *, template_snapshot: dict | None, requirement_snapshot: dict | None,
+    ) -> WritingProject | None:
+        """Hydrate derived snapshots without replacing concurrent manuscript edits."""
+        from app.services.project_versions import project_content_hash
+        with self.workflow_transaction() as conn:
+            row = conn.execute("SELECT data FROM projects WHERE id = ?", (project_id,)).fetchone()
+            if row is None:
+                return None
+            current = WritingProject.model_validate_json(row["data"])
+            if (current.tenant_id or current.membership_id
+                    or current.revision != expected_revision
+                    or project_content_hash(current) != expected_content_hash):
+                return None
+            current.template_snapshot = template_snapshot
+            current.requirement_snapshot = requirement_snapshot
+            current.updated_at = _now()
+            conn.execute(
+                "UPDATE projects SET data = ?, updated_at = ? WHERE id = ?",
+                (current.model_dump_json(), current.updated_at, project_id),
+            )
+            return current
 
     def get_project(self, proj_id: str) -> WritingProject | None:
         with self._connect() as conn:

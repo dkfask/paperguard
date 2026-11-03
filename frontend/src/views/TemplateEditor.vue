@@ -42,6 +42,7 @@
         </label>
         <p>{{ t('editor.allowStructureDetail') }}</p>
       </div>
+    </section><section class="screen-form-section"><h3>{{ t('templateAdmission.title') }}</h3>
       <section class="template-admission" :class="admission?.status" data-test="editor-template-admission" aria-live="polite">
         <div class="admission-heading"><strong>{{ t('templateAdmission.title') }}</strong><span v-if="admission">{{ admission.status === 'blocked' ? t('templateAdmission.blocked') : t('templateAdmission.officeReview') }}</span></div>
         <p v-if="admission">{{ t('templateAdmission.boundVersion', { version: admission.version, digest: admission.assessment_hash?.slice(0, 12) }) }}</p>
@@ -52,7 +53,7 @@
         <p v-if="admission" class="admission-limit">{{ t('templateAdmission.noComplianceClaim') }}</p>
         <button class="small" type="button" :disabled="admissionBusy" @click="refreshAdmission">{{ admissionBusy ? t('common.loading') : t('templateAdmission.reassess') }}</button>
       </section>
-
+    </section><section v-if="tpl.writing_specification || (tpl.source_docx && tpl.id)" class="screen-form-section"><h3>{{ t('editor.extractedRules') }}</h3>
     <WritingSpecificationPreview :specification="tpl.writing_specification" :template-id="tpl.id" />
     <WritingProfileConfirmation :template="tpl" :dirty="JSON.stringify(tpl) !== savedTemplateSnapshot" @published="profilePublished" />
     <!-- 写作规范绑定 -->

@@ -129,3 +129,30 @@ def test_extracts_chinese_form_sections_and_table_structure(tmp_path):
     assert structure["tables"][0]["has_merged_cells"] is True
     assert structure["tables"][0]["section_title"] == "一、课题信息表"
     assert structure["tables"][0]["non_empty_cells"] == 3
+
+
+def test_explicit_third_level_number_corrects_heading_style_but_not_decimal_prose(tmp_path):
+    from app.core.extract.specification import extract_writing_specification
+
+    document = docx.Document()
+    document.add_heading('第5章 系统实现', level=1)
+    document.add_heading('5.1 硬件系统实现', level=2)
+    document.add_heading('5.1.1 温湿度模块实现', level=2)
+    document.add_paragraph('3.14 ℃为本次测试的测量值。')
+    document.add_heading('5.2 软件系统实现', level=2)
+    document.add_heading('5.2.1 环境数据显示功能', level=2)
+    path = tmp_path / 'heading-style-conflict.docx'
+    document.save(path)
+
+    sections = extract_section_tree(path)
+    assert [child['title'] for child in sections[0]['children']] == ['5.1 硬件系统实现', '5.2 软件系统实现']
+    assert [child['children'][0]['type'] for child in sections[0]['children']] == ['heading3', 'heading3']
+    assert [child['children'][0]['title'] for child in sections[0]['children']] == [
+        '5.1.1 温湿度模块实现', '5.2.1 环境数据显示功能'
+    ]
+
+    spec = extract_writing_specification(path)
+    roles = {node.text: node.role for node in spec.nodes}
+    assert roles['5.1.1 温湿度模块实现'] == 'heading3'
+    assert roles['5.2.1 环境数据显示功能'] == 'heading3'
+    assert roles['3.14 ℃为本次测试的测量值。'] == 'body'

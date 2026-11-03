@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { expect, request, test, type Page, type TestInfo } from '@playwright/test'
 import { API_BASE_URL, createStudent, publishFixturePackage } from './document-platform.api'
 
@@ -118,7 +119,8 @@ test.describe('all-page desktop viewport', () => {
   test.beforeAll(async () => {
     const api = await request.newContext({ baseURL: API_BASE_URL })
     try {
-      const bundle = await publishFixturePackage(api)
+      const bundle = await publishFixturePackage(api, process.env.E2E_TEMPLATE_PATH
+        ?? resolve(process.cwd(), '../backend/tests/fixtures/templates/viewport-anchored.docx'))
       teacher = { token: bundle.managerToken, user: bundle.managerUser }
       const account = await createStudent(api, 'desktop-layout-admin')
       const registered = await api.post('/api/auth/login', { data: { username: account.username, password: account.password } })

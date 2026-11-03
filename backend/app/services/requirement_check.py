@@ -3,23 +3,99 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from app.models.template import PaperTemplate
 from app.models.project import ProjectSection, WritingProject
+from app.services.references import reference_block_text, reference_number_for
 
 
 _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+_DATE_RE = re.compile(r"^((?:19|20)\d{2})(?:年(\d{1,2})月(?:(\d{1,2})日)?|[-/.](\d{1,2})(?:[-/.](\d{1,2}))?)?$")
+
+
+def _defense_year(value: str) -> int | None:
+    match = _DATE_RE.fullmatch(str(value or "").strip())
+    if not match:
+        return None
+    year = int(match.group(1))
+    month = match.group(2) or match.group(4)
+    day = match.group(3) or match.group(5)
+    try:
+        if month:
+            date(year, int(month), int(day or 1))
+    except ValueError:
+        return None
+    return year
+
+
+def _recent_reference_summary(project: WritingProject, section: ProjectSection | None,
+                              field_key: str) -> dict:
+    """Summarize explicit reference facts; never infer years or languages from prose."""
+    blocks = [block for block in (section.paragraphs if section else [])
+              if block.type.value == "paragraph" and reference_block_text(block).strip()]
+    year = _defense_year(project.meta.get(field_key, "")) if field_key else None
+    result = {"total": len(blocks), "defense_year": year, "window": None,
+              "recent_confirmed": None, "english_confirmed": None,
+              "unknown_year": None, "unknown_language_in_window": None,
+              "status": "window_unknown", "reasons": []}
+    if year is None:
+        result["reasons"].append("答辩日期未填写或年份不明确")
+        return result
+    result["window"] = [year - 2, year]
+    recent = english = unknown_year = unknown_language = 0
+    for block in blocks:
+        reference = block.reference
+        raw_year = str(reference.year or "").strip() if reference else ""
+        year_fact = reference.year_fact if reference else None
+        year_confirmed = bool(
+            year_fact
+            and year_fact.status == "confirmed"
+            and year_fact.confirmed_by
+            and year_fact.confirmed_at
+            and str(year_fact.value or "").strip() == raw_year
+        )
+        if not re.fullmatch(r"(?:19|20)\d{2}", raw_year) or not year_confirmed:
+            unknown_year += 1
+            continue
+        if not year - 2 <= int(raw_year) <= year:
+            continue
+        recent += 1
+        fact = reference.language_fact
+        languages = set(fact.languages) if fact else set()
+        confirmed = bool(fact and fact.status == "confirmed" and fact.confirmed_by and fact.confirmed_at)
+        if confirmed and languages == {"en"}:
+            english += 1
+        elif not confirmed or len(languages) != 1 or "und" in languages:
+            unknown_language += 1
+    result.update(recent_confirmed=recent, english_confirmed=english,
+                  unknown_year=unknown_year, unknown_language_in_window=unknown_language)
+    if unknown_year:
+        result["reasons"].append(f"{unknown_year} 篇出版年份未知、未确认或不明确")
+    if unknown_language:
+        result["reasons"].append(f"窗口内 {unknown_language} 篇语种未知、混合或待确认")
+    if recent >= 15 and english >= 5:
+        result["status"] = "met"
+    elif recent + unknown_year < 15 or english + unknown_year + unknown_language < 5:
+        result["status"] = "not_met"
+    else:
+        result["status"] = "incomplete"
+    return result
 
 
 def _section_text(section: ProjectSection | None) -> str:
     if section is None:
         return ""
     parts: list[str] = []
+    reference_number = 0
     for block in section.paragraphs:
         if block.type.value == "paragraph":
-            parts.append(block.text or "")
+            is_references = str(getattr(getattr(section, "type", ""), "value", getattr(section, "type", ""))) == "references"
+            has_reference_content = bool(reference_block_text(block).strip())
+            if is_references and has_reference_content:
+                reference_number += 1
+            parts.append(reference_block_text(block, reference_number_for(block, reference_number) if is_references and has_reference_content else None))
         elif block.type.value == "table" and block.table:
             parts.extend(str(cell or "") for row in block.table.cells for cell in row)
     return "\n".join(parts).strip()
@@ -209,6 +285,27 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
             failed = ("min" in params and actual < params["min"]) or ("max" in params and actual > params["max"])
             if failed:
                 findings.append(_finding(descriptor, descriptor["description"] or f"参考文献数量未达到要求: {_expectation(expected)}", actual, _expectation(expected), section.key if section else None))
+            continue
+        if checker == "references.recent_language_summary":
+            section = section or _section_for(project, "references", params)
+            field_key = str(params.get("defense_date_field_key") or "")
+            bound = bool(field_key and template and sum(field.key == field_key for field in template.meta_fields) == 1)
+            actual = _recent_reference_summary(project, section, field_key if bound else "")
+            if not bound:
+                actual["reasons"] = ["模板未明确绑定答辩日期字段"]
+            if actual["window"] is None:
+                message = "文献内容提示：答辩日期待确定，近三年统计窗口尚未确定。"
+            else:
+                start, end = actual["window"]
+                status = {"met": "已满足数量下限", "not_met": "未满足数量下限", "incomplete": "统计不完整，暂不能判断"}[actual["status"]]
+                message = (f"文献内容提示：{start}–{end} 年，文献共 {actual['total']} 篇，"
+                           f"窗口内 {actual['recent_confirmed']} 篇，其中已确认英文 {actual['english_confirmed']} 篇；"
+                           f"年份未知或待确认 {actual['unknown_year']} 篇，窗口内语种待核对 {actual['unknown_language_in_window']} 篇。{status}。")
+                if actual["reasons"]:
+                    message += " " + "；".join(actual["reasons"]) + "。"
+            advisory = _finding({**descriptor, "severity": "info", "enforce": "soft"}, message, actual,
+                                {"recent_min": 15, "english_min": 5}, section.key if section else "references")
+            findings.append(advisory)
             continue
         if checker in ("references.recent_count", "references.recent_ratio"):
             section = section or _section_for(project, "references", params)

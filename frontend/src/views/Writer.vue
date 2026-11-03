@@ -5,8 +5,8 @@
     <button @click="loadProject">{{ t('common.reload') }}</button>
     <button @click="$router.push('/')">{{ t('sidebar.theses') }}</button>
   </div>
-  <div v-else-if="project && template" class="writer-shell">
-    <header class="writer-command-bar">
+  <div v-else-if="project && template" ref="writerShell" class="writer-shell" :inert="importing" :aria-busy="importing">
+    <header class="writer-command-bar" :inert="Boolean(recoveryDraft)">
       <div class="writer-command-leading">
         <button class="icon-action" :title="t('writer.backToTheses')" :aria-label="t('writer.backToTheses')" @click="router.push('/')">
           <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
@@ -31,7 +31,7 @@
           <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
           <span>{{ t('writer.aiAssistant') }}</span>
         </button>
-        <button v-if="isManager()" class="small" @click="openTemplateModal"
+        <button v-if="isManager() && templateMigrationEnabled" class="small" @click="openTemplateModal"
                 :disabled="saving" :title="t('writer.switchTemplateTitle')">
           <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
           <span>{{ t('writer.switchTemplate') }}</span>
@@ -45,17 +45,21 @@
           <span class="material-symbols-outlined" aria-hidden="true">build</span>
           <span>{{ fixing ? t('writer.fixing') : t('writer.fix') }}</span>
         </button>
-        <button class="writer-import-action" @click="chooseDocx" :disabled="importing || saving"
+        <button v-if="manuscriptImportEnabled" class="writer-import-action" @click="chooseDocx" :disabled="importing || saving"
                 :title="t('writer.importTitle')" :aria-label="t('writer.importBody')">
           <span class="material-symbols-outlined" aria-hidden="true">upload_file</span>
           <span>{{ importing ? t('writer.importing') : t('writer.importBody') }}</span>
         </button>
-        <button class="writer-preview-action" @click="previewDocx" :disabled="exporting || saving || dirtyCount > 0"
+        <button v-if="manuscriptImportEnabled" class="small" type="button" :disabled="importing || saving" @click="restoreDocxImport"
+                :title="t('writer.resumeImport')" :aria-label="t('writer.resumeImport')" data-test="resume-docx-import">
+          <span class="material-symbols-outlined" aria-hidden="true">history</span>
+        </button>
+        <button v-if="formalDeliveryEnabled" class="writer-preview-action" @click="previewDocx" :disabled="exporting || saving || dirtyCount > 0"
                 :title="t('writer.previewTitle')" :aria-label="t('writer.preview')">
           <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
           <span>{{ t('writer.preview') }}</span>
         </button>
-        <button class="primary writer-export-action" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0"
+        <button v-if="formalDeliveryEnabled" class="primary writer-export-action" @click="exportDocx(false)" :disabled="exporting || saving || dirtyCount > 0"
                 :title="t('writer.export')" :aria-label="t('writer.export')">
           <span class="material-symbols-outlined" aria-hidden="true">download</span>
           <span>{{ exporting ? t('writer.exporting') : t('writer.export') }}</span>
@@ -63,9 +67,10 @@
       </div>
     </header>
 
+    <div v-if="capabilitiesResolved && !formalDeliveryEnabled" class="notice-banner" role="status">{{ t('writer.personalDeliveryUnavailable') }}</div>
     <div class="writer-columns">
     <!-- 左侧章节导航：写作时持续可见，避免反复打开抽屉遮住正文。 -->
-    <aside id="writer-outline-panel" ref="outlinePanelRef" class="sidebar" tabindex="-1" :aria-label="t('writer.outline')" data-test="writer-outline">
+    <aside id="writer-outline-panel" ref="outlinePanelRef" class="sidebar" tabindex="-1" :aria-label="t('writer.outline')" :inert="Boolean(recoveryDraft)" data-test="writer-outline">
       <div class="tree-nav-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
         <span style="font-size: 12px; font-weight: 600; color: var(--muted)">{{ t('writer.outline') }}</span>
         <button v-if="canEditStructure" class="tiny" @click="openAddSectionModal" :title="t('writer.addSection')">
@@ -110,41 +115,49 @@
     <!-- 右侧编辑区 -->
     <section class="editor-pane">
       <div v-if="error" class="error-banner" role="alert">⚠ {{ error }}<button v-if="exportJob && !exporting" class="small" @click="retryExportJob">{{ t('writer.exportRetry') }}</button></div>
+      <section v-if="headingHierarchyIssues.length" class="missing-panel" role="status" data-test="writer-heading-issues">
+        <strong>{{ t('writer.headingHierarchyTitle') }}</strong>
+        <p>{{ t('writer.headingHierarchyHint') }}</p>
+        <ul>
+          <li v-for="issue in headingHierarchyIssues" :key="issue.key">
+            <button type="button" class="small" @click="select(issue)">{{ issue.title }}</button>
+            <span> {{ t(`writer.headingMissing.${issue.missing}`) }}</span>
+          </li>
+        </ul>
+      </section>
+      <section v-if="headingAffected.length" class="notice-banner" role="status" data-test="writer-heading-affected">
+        <strong>{{ t('writer.headingAffectedTitle') }}</strong>
+        <ul>
+          <li v-for="section in headingAffected" :key="section.key">
+            <button type="button" class="small" @click="select(section)">{{ section.title || section.key }}</button>
+          </li>
+        </ul>
+        <button type="button" class="small" @click="headingAffectedKeys = []">{{ t('writer.acknowledged') }}</button>
+      </section>
       <div v-if="exportCheck" class="notice-banner export-check-status" role="status" aria-live="polite">
-        <strong>{{ manualReview?.status === 'required' ? t('writer.exportCandidateGenerated') : t('writer.exportGenerated') }}</strong>
+        <strong>{{ manualReview?.status === 'required' ? t('writer.automaticCheckPendingTitle') : readyExport ? t('writer.exportReady') : t('writer.exportGenerated') }}</strong>
         <span>{{ t('writer.exportFormatStatus', { status: exportCheckLabel(exportCheck.status), count: exportCheck.count }) }}</span>
-        <span>{{ t('writer.exportVisualPending') }}</span>
+        <button v-if="readyExport" class="small" :disabled="exporting" data-test="writer-download-ready" @click="downloadReadyExport">{{ t('writer.downloadReadyExport') }}</button>
+        <button v-if="readyExport && optionalPdfEnabled" class="small" :disabled="exporting" data-test="writer-download-pdf" @click="downloadReadyExportPdf"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('writer.downloadOptionalPdf') }}</button>
       </div>
-      <div v-if="confirmedExport" class="notice-banner confirmed-export" data-test="writer-confirmed-export">
-        <span>{{ t('writer.confirmedExportAvailable') }}</span>
-        <button class="small" :disabled="confirmedExportBusy || exporting || saving || dirtyCount > 0" @click="downloadConfirmedExport">
-          {{ confirmedExportBusy ? t('writer.manualReviewWorking') : t('writer.downloadConfirmedExport') }}
-        </button>
-      </div>
-      <div v-if="manualReview?.status === 'required'" class="manual-review-panel" data-test="writer-manual-review">
-        <strong>{{ t('writer.manualReviewTitle') }}</strong>
-        <p>{{ isManager() ? t('writer.manualReviewTeacherDetail') : t('writer.manualReviewStudentDetail') }}</p>
-        <button v-if="isManager()" class="small" :disabled="manualReviewBusy" @click="downloadReviewCandidate">
-          {{ manualReviewBusy ? t('writer.manualReviewWorking') : t('writer.downloadReviewCandidate') }}
-        </button>
-        <span v-if="candidateDownloaded" class="review-downloaded">{{ t('writer.reviewCandidateDownloaded') }}</span>
-        <div v-if="isManager()" class="manual-review-checklist">
-          <label v-for="item in manualReview.checklist || []" :key="item.id">
-            <input v-model="manualReviewConfirmations[item.id]" type="checkbox" :disabled="!candidateDownloaded || manualReviewBusy" />
-            <span>{{ item.description }}</span>
-          </label>
-        </div>
-        <button v-if="isManager()" class="primary" :disabled="!candidateDownloaded || !manualReviewReady || manualReviewBusy" @click="confirmManualReview">
-          {{ manualReviewBusy ? t('writer.manualReviewWorking') : t('writer.confirmManualReview') }}
-        </button>
-      </div>
+      <section v-if="manualReview?.status === 'required'" class="manual-review-panel" data-test="writer-manual-review" :aria-label="t('writer.automaticCheckPendingTitle')">
+        <p>{{ t('writer.automaticCheckPendingDetail') }}</p>
+      </section>
       <div v-if="templateNotice" class="notice-banner">✅ {{ templateNotice }}</div>
       <div v-if="fixNotice" class="notice-banner" role="status">{{ fixNotice }}</div>
+      <div v-if="reviewTargetStatus" class="notice-banner" role="status" data-test="review-location-status">
+        {{ t(`writer.reviewLocation.${reviewTargetStatus}`) }}
+        <RouterLink v-if="typeof route.query.review_submission === 'string'" :to="{ path: '/workflow', query: { panel: 'submissions', submission: route.query.review_submission } }">{{ t('writer.reviewLocation.viewOriginal') }}</RouterLink>
+      </div>
       <div v-if="recoveryUnavailable" class="hint recovery-status" role="status">{{ t('writer.recoveryUnavailable') }}</div>
       <div v-if="recoveryDraft" class="recovery-banner" role="status">
         <div>
           <strong>{{ t('writer.recoveryFound') }}</strong>
           <span>{{ t('writer.recoverySavedAt', { time: recoveryDraft.saved_at, revision: recoveryDraft.base_revision }) }}</span>
+          <label v-if="recoveryDraft.section_text_draft" class="recovery-section-text">
+            <span>{{ t('writer.recoverySectionText', { section: recoveryDraft.section_text_draft.section_key }) }}</span>
+            <textarea :value="recoveryDraft.section_text_draft.text" readonly rows="5" data-test="recovery-section-text" />
+          </label>
         </div>
         <div class="form-row">
           <button class="primary" @click="restoreLocalDraft">{{ t('writer.restoreDraft') }}</button>
@@ -159,7 +172,7 @@
         <span>{{ t('writer.saveConflict') }}</span>
         <button @click="reloadAfterConflict">{{ t('writer.reloadServer') }}</button>
       </div>
-      <input ref="docxInput" type="file" accept=".docx" hidden @change="onDocxSelected" />
+      <input v-if="manuscriptImportEnabled" ref="docxInput" type="file" accept=".docx" hidden @change="onDocxSelected" />
 
       <!-- Export gate details -->
       <div v-if="missing.length" class="missing-panel">
@@ -168,7 +181,6 @@
           <li v-for="(m, i) in missing" :key="i">{{ m }}</li>
         </ul>
         <div class="form-row" style="margin-top: 8px">
-          <button v-if="isManager()" @click="exportDocx(true)" :disabled="exporting">{{ t('writer.exportAnyway') }}</button>
           <button @click="missing = []">{{ t('writer.acknowledged') }}</button>
         </div>
       </div>
@@ -231,17 +243,37 @@
         </div>
       </div>
 
-      <div v-if="importPreview" class="modal-mask writer-modal-mask" @click.self="importPreview = null">
-        <div class="modal card import-modal">
+      <div v-if="importPreview" class="modal-mask writer-modal-mask" @click.self="closeDocxImport">
+        <div class="modal card import-modal" role="dialog" aria-modal="true" data-test="docx-import-preview">
           <h3>{{ t('writer.wordImportTitle') }}</h3>
           <p class="hint">{{ importPreview.filename }} · {{ t('writer.importStats', { paragraphs: importPreview.stats.paragraphs, tables: importPreview.stats.tables, images: importPreview.stats.images, equations: importPreview.stats.equations || 0 }) }}</p>
+          <p class="hint">{{ t('writer.importPreviewBound', { revision: importPreview.project_revision }) }}</p>
+          <div v-if="importError" class="error-banner" role="alert">{{ importError }}</div>
           <div v-if="importPreview.warnings?.length" class="notice-banner">{{ importPreview.warnings.join('；') }}</div>
+          <div v-if="importPreview.heading_candidates?.length" class="import-heading-list">
+            <h4>{{ t('writer.importHeadingReview') }}</h4>
+            <label v-for="item in importPreview.heading_candidates" :key="item.id" class="import-heading-item">
+              <span>{{ item.text }}</span>
+              <small>{{ t('writer.importHeadingSuggested', { level: importHeadingLabel(item.suggested) }) }}</small>
+              <select v-model="importHeadingSelections[item.id]" :disabled="importing" :data-test="`import-heading-${item.id}`">
+                <option value="">{{ t('writer.importHeadingChoose') }}</option>
+                <option value="heading1">{{ t('writer.heading1') }}</option>
+                <option value="heading2">{{ t('writer.heading2') }}</option>
+                <option value="heading3">{{ t('writer.heading3') }}</option>
+                <option value="body">{{ t('writer.importAsBody') }}</option>
+              </select>
+            </label>
+            <button type="button" :disabled="importing || !importDecisionsNeedPreview || !importSelectionsComplete" @click="updateDocxPreview" data-test="update-docx-preview">
+              {{ t('writer.updateImportPreview') }}
+            </button>
+          </div>
+          <h4>{{ t('writer.importOutline') }}</h4>
           <div class="import-section-list">
             <div v-for="section in importPreview.sections" :key="section.key" class="import-section-item">
               <strong>{{ section.title }}</strong><span>{{ t('writer.contentBlocks', { count: section.paragraphs.length }) }}</span>
             </div>
           </div>
-          <div class="form-row"><button class="primary" :disabled="importing" @click="applyDocxImport">{{ t('writer.applyToDraft') }}</button><button @click="importPreview = null">{{ t('common.cancel') }}</button></div>
+          <div class="form-row"><button class="primary" :disabled="importing || !importReadyToApply" @click="applyDocxImport" data-test="apply-docx-import">{{ t('writer.applyToDraft') }}</button><button :disabled="importing" @click="closeDocxImport">{{ t('common.close') }}</button></div>
         </div>
       </div>
       <div v-if="exportPreview" class="modal-mask writer-modal-mask" @click.self="exportPreview = null">
@@ -266,6 +298,7 @@
       />
       </Teleport>
 
+      <div :inert="Boolean(recoveryDraft)">
       <!-- Cover -->
       <div v-if="currentSection && currentSection.type === 'cover'">
         <h2>📋 {{ t('writer.coverInfo') }}</h2>
@@ -282,6 +315,15 @@
       <div v-else-if="currentSection && isHeading(currentSection.type)">
         <div class="editor-head">
           <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
+          <label v-if="canEditStructure" class="heading-level-control">
+            <span>{{ t('writer.headingLevel') }}</span>
+            <select :value="currentSection.type" data-test="writer-heading-level"
+                    :disabled="structureBusy" @change="changeHeadingLevel(currentSection.key, $event)">
+              <option value="heading1">{{ t('writer.heading1') }}</option>
+              <option value="heading2">{{ t('writer.heading2') }}</option>
+              <option value="heading3">{{ t('writer.heading3') }}</option>
+            </select>
+          </label>
           <span class="hint">{{ t('writer.headingHint') }}</span>
           <button class="small" @click="toggleSectionInputMode">
             {{ sectionInputMode === 'blocks' ? t('writer.sectionModeBlocks') : t('writer.sectionModeParagraphs') }}
@@ -289,13 +331,26 @@
         </div>
         <input v-model="currentSection.title" class="heading-input"
                :class="'type-' + currentSection.type" :style="editorStyle(currentSection.type, true)" @input="scheduleSave" />
-        <section-text-editor v-if="sectionInputMode === 'section'" v-model="sectionText"
-                             :reset-key="currentSection.key" :style-vars="editorStyle(currentSection.type)" @apply="applySectionText" />
+          <section-text-editor v-if="sectionInputMode === 'section'" v-model="sectionText"
+                             :document="sectionDocument" :reset-key="currentSection.key" :style-vars="editorStyle(currentSection.type)"
+                             @update:document="onSectionDocumentUpdate" @apply="applySectionText" />
         <block-list v-else :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
                     :style-vars="editorStyle(currentSection.type)"
                     :chapter="chapterOf(currentSection.key)"
+                    :figure-offset="chapterFigureOffset(currentSection.key)"
+                    :table-offset="chapterTableOffset(currentSection.key)"
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
+      </div>
+
+      <!-- References section -->
+      <div v-else-if="currentSection && (currentSection.type === 'references' || currentSection.key === 'references')">
+        <div class="editor-head">
+          <span class="type-tag">{{ typeLabel(currentSection.type) }}</span>
+          <span class="hint">{{ t('writer.referencesEditorHint') }}</span>
+        </div>
+        <input v-model="currentSection.title" class="heading-input" :style="editorStyle(currentSection.type, true)" @input="scheduleSave" />
+        <ReferencesEditor :paragraphs="currentSection.paragraphs" @change="scheduleSave" @confirm-language="confirmReferenceLanguage" @confirm-year="confirmReferenceYear" />
       </div>
 
       <!-- Body section -->
@@ -313,13 +368,17 @@
         </div>
         <input v-model="currentSection.title" class="heading-input" :class="'type-' + currentSection.type"
                :style="editorStyle(currentSection.type, true)" @input="scheduleSave" />
-        <section-text-editor v-if="sectionInputMode === 'section'" v-model="sectionText"
-                             :reset-key="currentSection.key" :style-vars="editorStyle(currentSection.type)" @apply="applySectionText" />
+          <section-text-editor v-if="sectionInputMode === 'section'" v-model="sectionText"
+                             :document="sectionDocument" :reset-key="currentSection.key" :style-vars="editorStyle(currentSection.type)"
+                             @update:document="onSectionDocumentUpdate" @apply="applySectionText" />
         <block-list v-else :paragraphs="currentSection.paragraphs" :project-id="projectId"
                     :style-class="'style-' + currentSection.type" :section-title="currentSection.title"
                     :style-vars="editorStyle(currentSection.type)"
                     :chapter="chapterOf(currentSection.key)"
+                    :figure-offset="chapterFigureOffset(currentSection.key)"
+                    :table-offset="chapterTableOffset(currentSection.key)"
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
+      </div>
       </div>
 
     </section>
@@ -428,6 +487,11 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <div v-if="checkOpen && checkResult?.quality_advisories?.length" class="not-checked-list" data-test="reference-quality-advisories">
+          <strong>{{ t('writer.referenceQuality') }}</strong>
+          <p v-for="item in checkResult.quality_advisories" :key="item.rule_id">{{ item.message }}</p>
         </div>
 
         <div v-if="checkOpen && checkResult && checkResult.waived?.length" class="waived-list">
@@ -669,13 +733,13 @@
 <script setup>
 import { exportCheckMessage } from '../utils/exportCheckMessage'
 import BaseModal from '../components/base/BaseModal.vue'
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { auth, isManager } from '../auth'
 import {
-  fetchProject, fetchTemplate, fetchTemplates, updateProjectSection, updateProjectMeta, restoreProjectSnapshot, createProjectExportJob, fetchProjectExportJob, fetchProjectExportJobs, downloadProjectExportJob, downloadProjectExportReviewCandidate, confirmProjectExportManualReview, retryProjectExportJob, previewProjectExport,
+  fetchProject, fetchTemplate, fetchTemplates, fetchSubmission, updateProjectSection, updateProjectMeta, restoreProjectSnapshot, createProjectExportJob, fetchProjectExportJob, fetchProjectExportJobs, downloadProjectExportJob, downloadProjectExportPdf, retryProjectExportJob, previewProjectExport,
   checkProject, checkProjectTemplate, fixProject, updateProjectSectionsStructure, refreshProjectTemplate, switchProjectTemplate,
-  importProjectDocx,
+  fetchProjectCapabilities, previewProjectDocx, fetchProjectDocxCandidate, reviseProjectDocxCandidate, applyProjectDocxCandidate,
   acknowledgeRequirements, assistRequirement, listRequirementWaivers, listRequirementDisputes, previewRequirementUpgrade,
   requestRequirementWaiver, requestRequirementDispute, upgradeRequirements, decideRequirementWaiver, revokeRequirementWaiver, decideRequirementDispute,
   getAiDisclosure, aiStatus, getAiConfig, saveAiConfig, clearAiConfig, testAiConfig, aiAssist,
@@ -685,9 +749,13 @@ import BlockList from '../components/BlockList.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ReasonDialog from '../components/ReasonDialog.vue'
 import SectionTextEditor from '../components/SectionTextEditor.vue'
+import ReferencesEditor from '../components/writer/ReferencesEditor.vue'
 import { useI18n } from '../i18n'
-import { createTextBlocks, mergeTextBlocksWithMedia, textBlocksToSectionText } from '../utils/paragraphSplitter.js'
-import { isWritingSectionComplete, mergeWritingChecks } from '../utils/writingCompleteness.js'
+import { textBlocksToSectionText } from '../utils/paragraphSplitter.js'
+import { blocksToSectionDocument, legacyTextToSectionDocument, sectionDocumentText, sectionDocumentToBlocks } from '../utils/sectionDocument.js'
+import { countChapterFiguresBefore, countChapterTablesBefore } from '../utils/figureNumbering.js'
+import { clearConfirmedReferenceIntents, formatReference, mergeReferenceLanguageFacts, mergeReferenceNumbers, mergeReferenceYearFacts } from '../utils/references.js'
+import { affectedHeadingDescendants, findHeadingHierarchyIssues, isWritingSectionComplete, mergeWritingChecks } from '../utils/writingCompleteness.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -696,6 +764,9 @@ const projectId = route.params.id
 
 const project = ref(null)
 const template = ref(null)
+const writerShell = ref(null)
+const reviewTargetStatus = ref('')
+let reviewNavigationGeneration = 0
 const outlinePanelRef = ref(null), contextOpen = ref(false)
 const current = ref('cover')
 const error = ref('')
@@ -706,20 +777,30 @@ const savedAt = ref('')
 const exporting = ref(false)
 const exportJob = ref(null)
 const exportCheck = ref(null)
+const readyExport = ref(null)
 const manualReview = ref(null)
-const confirmedExport = ref(null)
-const confirmedExportBusy = ref(false)
-const manualReviewConfirmations = reactive({})
-const manualReviewBusy = ref(false)
-const candidateDownloaded = ref(false)
-const manualReviewReady = computed(() => {
-  const checklist = manualReview.value?.checklist || []
-  return checklist.length > 0 && checklist.every((item) => manualReviewConfirmations[item.id] === true)
-})
 let exportEditGeneration = 0
+let exportPollTimer = null
+let exportPollWake = null
+let writerUnmounted = false
 const exportPreview = ref(null)
 const importing = ref(false)
+const manuscriptImportEnabled = ref(false)
+const templateMigrationEnabled = ref(false)
+const formalDeliveryEnabled = ref(false)
+const optionalPdfEnabled = ref(false)
+const capabilitiesResolved = ref(false)
 const importPreview = ref(null)
+const importError = ref('')
+const importHeadingSelections = reactive({})
+const importPreviewState = ref(null)
+const importSelectionsComplete = computed(() => (importPreview.value?.heading_candidates || [])
+  .every(item => Boolean(importHeadingSelections[item.id])))
+const importDecisionsNeedPreview = computed(() => (importPreview.value?.heading_candidates || [])
+  .some(item => (importHeadingSelections[item.id] || '') !== (item.decision || '')))
+const importReadyToApply = computed(() => Boolean(importPreview.value?.candidate_id && importPreview.value?.candidate_sha256)
+  && importSelectionsComplete.value && !importDecisionsNeedPreview.value
+  && importStateIsCurrent(importPreviewState.value))
 const docxInput = ref(null)
 const showTemplateModal = ref(false)
 const templateList = ref([])
@@ -771,8 +852,13 @@ let beforeUnloadHandler = null
 const chapterMap = ref({})
 const sectionInputMode = ref('blocks')
 const sectionText = ref('')
+const sectionTextDraft = ref(null)
+const sectionDocument = ref({ type: 'doc', content: [{ type: 'paragraph' }] })
 const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract', 'english_abstract', 'keywords', 'english_keywords']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
+const headingAffectedKeys = ref([])
+const headingHierarchyIssues = computed(() => findHeadingHierarchyIssues(project.value?.sections || []))
+const headingAffected = computed(() => headingAffectedKeys.value.map(key => project.value?.sections?.find(section => section.key === key)).filter(Boolean))
 
 // 架构与权限：是否允许修改章节框架
 const canEditStructure = computed(() => {
@@ -796,9 +882,10 @@ const displaySections = computed(() => {
   }
   const sections = project.value.sections.map((sec) => {
     const tplItem = tplMap.get(sec.key)
-    let depth = tplItem?.depth || 0
-    if (sec.type === 'heading2') depth = 1
-    if (sec.type === 'heading3') depth = 2
+    const depth = sec.type === 'heading1' ? 0
+      : sec.type === 'heading2' ? 1
+        : sec.type === 'heading3' ? 2
+          : (tplItem?.depth || 0)
     return {
       key: sec.key,
       type: sec.type,
@@ -884,7 +971,6 @@ async function confirmAddSection() {
     })
 
     const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
-    invalidateExportReviewState()
     project.value = updated
     current.value = newKey
     computeChapterNumbers()
@@ -910,12 +996,42 @@ async function moveSection(node, delta) {
     const currentList = project.value.sections.map(structureItem)
     ;[currentList[index], currentList[targetIndex]] = [currentList[targetIndex], currentList[index]]
     const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
-    invalidateExportReviewState()
     project.value = updated
     computeChapterNumbers()
     void runCheckNow()
   } catch (e) {
     error.value = e.message || t('writer.moveSectionFailed')
+  } finally {
+    structureBusy.value = false
+  }
+}
+
+async function changeHeadingLevel(sectionKey, event) {
+  const nextType = event.target.value
+  if (structureBusy.value || !HEADING_TYPES.includes(nextType)) return
+  const section = project.value?.sections?.find((item) => item.key === sectionKey)
+  if (!section || !HEADING_TYPES.includes(section.type) || section.type === nextType) return
+
+  structureBusy.value = true
+  error.value = ''
+  try {
+    await flushPendingSaves()
+    const affected = affectedHeadingDescendants(project.value.sections, sectionKey)
+    const currentList = project.value.sections.map(structureItem)
+    const target = currentList.find((item) => item.key === sectionKey)
+    if (!target) return
+    target.type = nextType
+    const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
+    const savedSection = updated.sections.find((item) => item.key === sectionKey)
+    if (!savedSection) throw new Error(t('writer.changeHeadingFailed'))
+    Object.assign(section, savedSection)
+    project.value.revision = updated.revision
+    headingAffectedKeys.value = affected.map((item) => item.key)
+    computeChapterNumbers()
+    void runCheckNow()
+  } catch (e) {
+    event.target.value = section.type
+    error.value = e.message || t('writer.changeHeadingFailed')
   } finally {
     structureBusy.value = false
   }
@@ -936,7 +1052,6 @@ async function performRemoveSection(node) {
       .filter((s) => s.key !== node.key)
       .map(structureItem)
     const updated = await updateProjectSectionsStructure(projectId, currentList, project.value.revision)
-    invalidateExportReviewState()
     project.value = updated
     if (current.value === node.key) {
       current.value = updated.sections[Math.min(deletedIndex, updated.sections.length - 1)]?.key || 'cover'
@@ -957,27 +1072,80 @@ const currentSection = computed(() => {
 })
 
 watch(currentSection, (section) => {
-  sectionInputMode.value = 'blocks'
-  sectionText.value = section ? textBlocksToSectionText(section.paragraphs) : ''
-}, { immediate: true })
+  const draft = sectionTextDraft.value
+  if (section && draft?.section_key === section.key) {
+    sectionInputMode.value = 'section'
+    sectionText.value = draft.text
+    sectionDocument.value = draft.document ? clone(draft.document) : legacyTextToSectionDocument(draft.text, section.paragraphs)
+    sectionTextDraft.value = draft
+  } else {
+    sectionInputMode.value = 'blocks'
+    sectionText.value = section ? textBlocksToSectionText(section.paragraphs) : ''
+  }
+}, { immediate: true, flush: 'sync' })
+
+watch(sectionText, (text) => {
+  const section = currentSection.value
+  if (sectionInputMode.value !== 'section' || !section || section.type === 'cover') return
+  sectionTextDraft.value = text === textBlocksToSectionText(section.paragraphs)
+    ? null
+    : { section_key: section.key, text }
+  if (sectionTextDraft.value) persistLocalRecovery()
+  else maybeClearRecovery()
+}, { flush: 'sync' })
 
 function toggleSectionInputMode() {
   if (sectionInputMode.value === 'blocks') {
+    try {
+      sectionDocument.value = blocksToSectionDocument(currentSection.value?.paragraphs)
+    } catch {
+      error.value = t('writer.sectionDocumentInvalid')
+      return
+    }
     sectionText.value = textBlocksToSectionText(currentSection.value?.paragraphs)
     sectionInputMode.value = 'section'
   } else {
+    if (hasUnappliedSectionText()) {
+      error.value = t('writer.sectionTextPending')
+      return
+    }
     sectionInputMode.value = 'blocks'
   }
 }
 
-function applySectionText(text) {
+function onSectionDocumentUpdate(document) {
+  const sec = currentSection.value
+  if (!sec || sectionInputMode.value !== 'section') return
+  sectionDocument.value = clone(document)
+  sectionText.value = sectionDocumentText(document)
+  try {
+    const blocks = sectionDocumentToBlocks(document, sec.paragraphs)
+    sectionTextDraft.value = JSON.stringify(blocks) === JSON.stringify(sec.paragraphs)
+      ? null : { section_key: sec.key, text: sectionText.value, document: clone(document) }
+  } catch {
+    sectionTextDraft.value = { section_key: sec.key, text: sectionText.value, document: clone(document) }
+  }
+  if (sectionTextDraft.value) persistLocalRecovery()
+  else maybeClearRecovery()
+}
+
+function applySectionText(document) {
   const sec = currentSection.value
   if (!sec) return
-  const textBlocks = createTextBlocks(text, sec.key)
-  sec.paragraphs = mergeTextBlocksWithMedia(textBlocks, sec.paragraphs)
+  let blocks
+  try {
+    const candidate = document?.type === 'doc' ? document
+      : sectionTextDraft.value?.document || legacyTextToSectionDocument(String(document ?? sectionText.value), sec.paragraphs)
+    blocks = sectionDocumentToBlocks(candidate, sec.paragraphs)
+  } catch {
+    error.value = t('writer.sectionDocumentInvalid')
+    return
+  }
+  sectionInputMode.value = 'blocks'
+  sectionTextDraft.value = null
+  sec.paragraphs = blocks
   sectionText.value = textBlocksToSectionText(sec.paragraphs)
   scheduleSave()
-  sectionInputMode.value = 'blocks'
 }
 
 const metaFields = computed(() => template.value?.meta_fields || [])
@@ -1334,8 +1502,9 @@ async function loadProject() {
       : await fetchTemplate(p.template_id)
     computeChapterNumbers()
     loading.value = false
+    await navigateReviewTarget()
     beforeUnloadHandler = (event) => {
-      if (dirtyCount.value || saving.value) {
+      if (dirtyCount.value || saving.value || hasUnappliedSectionText()) {
         event.preventDefault()
         event.returnValue = ''
       }
@@ -1343,10 +1512,113 @@ async function loadProject() {
     window.addEventListener('beforeunload', beforeUnloadHandler)
     void runCheckNow()
     void loadWaivers()
-    void restorePendingOutputReview(p)
+    await loadProjectCapabilities()
+    if (formalDeliveryEnabled.value) void restorePendingOutputReview(p)
   } catch (e) {
     loading.value = false
     loadError.value = e.message || t('writer.projectLoadFailed')
+  }
+}
+
+async function navigateReviewTarget() {
+  const generation = ++reviewNavigationGeneration
+  const blockId = typeof route.query.review_block === 'string' ? route.query.review_block : ''
+  const submissionId = typeof route.query.review_submission === 'string' ? route.query.review_submission : ''
+  const commentId = typeof route.query.review_comment === 'string' ? route.query.review_comment : ''
+  for (const element of writerShell.value?.querySelectorAll('.review-target') || []) element.classList.remove('review-target')
+  if (!project.value || !blockId) {
+    reviewTargetStatus.value = ''
+    return
+  }
+  if (recoveryDraft.value || hasUnappliedSectionText()) {
+    reviewTargetStatus.value = 'pendingDraft'
+    return
+  }
+  const matches = (project.value.sections || []).flatMap(section => (section.paragraphs || [])
+    .filter(block => block.id === blockId).map(() => section))
+  if (matches.length !== 1) {
+    reviewTargetStatus.value = 'missing'
+    return
+  }
+  sectionInputMode.value = 'blocks'
+  current.value = matches[0].key
+  await nextTick()
+  if (generation !== reviewNavigationGeneration) return
+  const elements = [...(writerShell.value?.querySelectorAll('[data-review-block-id]') || [])]
+  const targets = elements.filter(element => element.getAttribute('data-review-block-id') === blockId)
+  for (const element of elements) element.classList.remove('review-target')
+  if (targets.length !== 1) {
+    reviewTargetStatus.value = 'missing'
+    return
+  }
+  targets[0].classList.add('review-target')
+  targets[0].scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  reviewTargetStatus.value = 'found'
+
+  if (!submissionId || !commentId) return
+  const activeElement = document.activeElement
+  try {
+    const detail = await fetchSubmission(submissionId)
+    if (generation !== reviewNavigationGeneration || current.value !== matches[0].key) return
+    const comments = (detail?.comments || []).filter(item => item.id === commentId && item.block_id === blockId
+      && (!item.submission_id || item.submission_id === submissionId))
+    const original = (detail?.version?.content_snapshot?.sections || []).flatMap(section => (section.paragraphs || [])
+      .filter(block => block.id === blockId))
+    if (detail?.submission?.id !== submissionId || detail?.participant?.project_id !== projectId
+        || comments.length !== 1 || original.length !== 1) {
+      reviewTargetStatus.value = 'textUnavailable'
+      return
+    }
+    const comment = comments[0]
+    if (comment.text_start == null && comment.text_end == null) return
+    const originalText = original[0].text
+    const chars = typeof originalText === 'string' ? Array.from(originalText) : []
+    if (!Number.isInteger(comment.text_start) || !Number.isInteger(comment.text_end)
+        || comment.text_start < 0 || comment.text_end <= comment.text_start || comment.text_end > chars.length
+        || !comment.quoted_text || chars.slice(comment.text_start, comment.text_end).join('') !== comment.quoted_text) {
+      reviewTargetStatus.value = 'textUnavailable'
+      return
+    }
+    const currentBlocks = (project.value?.sections || []).flatMap(section => (section.paragraphs || [])
+      .filter(block => block.id === blockId))
+    const textarea = targets[0].querySelector('textarea.para-text')
+    if (currentBlocks.length !== 1 || currentBlocks[0].text !== originalText || textarea?.value !== originalText) {
+      reviewTargetStatus.value = 'textChanged'
+      return
+    }
+    if (!writerShell.value?.contains(targets[0]) || document.activeElement !== activeElement) return
+    textarea.focus({ preventScroll: true })
+    textarea.setSelectionRange(chars.slice(0, comment.text_start).join('').length, chars.slice(0, comment.text_end).join('').length)
+    reviewTargetStatus.value = 'textFound'
+  } catch {
+    if (generation === reviewNavigationGeneration) reviewTargetStatus.value = 'textUnavailable'
+  }
+}
+
+watch(() => [route.query.review_block, route.query.review_submission, route.query.review_comment], () => { void navigateReviewTarget() })
+watch(recoveryDraft, (draft, previous) => {
+  if (previous && !draft) void navigateReviewTarget()
+})
+watch(sectionTextDraft, (draft, previous) => {
+  if (previous && !draft && route.query.review_block) void navigateReviewTarget()
+})
+
+async function loadProjectCapabilities() {
+  manuscriptImportEnabled.value = false
+  templateMigrationEnabled.value = false
+  formalDeliveryEnabled.value = false
+  optionalPdfEnabled.value = false
+  capabilitiesResolved.value = false
+  try {
+    const capabilities = await fetchProjectCapabilities(projectId)
+    manuscriptImportEnabled.value = capabilities?.manuscript_import_enabled === true
+    templateMigrationEnabled.value = capabilities?.template_migration_enabled === true
+    formalDeliveryEnabled.value = capabilities?.formal_delivery_enabled === true
+    optionalPdfEnabled.value = capabilities?.optional_pdf_enabled === true
+  } catch {
+    // Closed until the server confirms the available actions.
+  } finally {
+    capabilitiesResolved.value = true
   }
 }
 
@@ -1355,20 +1627,16 @@ async function restorePendingOutputReview(loaded) {
   try {
     const jobs = await fetchProjectExportJobs(projectId)
     if (generation !== exportEditGeneration || project.value?.revision !== loaded.revision) return
-    const approved = jobs.find(item => item.is_current_for_project === true && item.status === 'succeeded' && item.manual_review?.status === 'confirmed')
-    if (approved) {
-      confirmedExport.value = { id: approved.id, filename: approved.filename || 'paper.docx' }
-      manualReview.value = null
-      candidateDownloaded.value = false
-      exportCheck.value = { status: approved.output_check_status, count: Number(approved.output_check_count || 0) }
-      return
+    const currentJobs = jobs.filter(item => item.project_revision === loaded.revision && item.status === 'succeeded')
+    const available = currentJobs.find(item => item.manual_review?.status === 'not_required')
+    const job = currentJobs.find(item => ['required', 'confirmed'].includes(item.manual_review?.status))
+    if (available) {
+      readyExport.value = { id: available.id, filename: available.filename || 'paper.docx' }
+      exportCheck.value = { status: available.output_check_status, count: Number(available.output_check_count || 0) }
     }
-    confirmedExport.value = null
-    const job = jobs.find(item => item.is_current_for_project === true && item.status === 'succeeded' && item.manual_review?.status === 'required')
-    if (job) {
-      manualReview.value = { ...job.manual_review, exportId: job.id, filename: job.filename || 'paper.docx' }
-      candidateDownloaded.value = false
-      exportCheck.value = { status: job.output_check_status, count: Number(job.output_check_count || 0) }
+    if (!available && job) {
+      manualReview.value = { ...job.manual_review, status: 'required' }
+      exportCheck.value = { status: 'unverifiable', count: Number(job.output_check_count || 0) }
     }
   } catch (exception) {
     error.value = exception.message || t('writer.manualReviewCandidateFailed')
@@ -1400,6 +1668,14 @@ function computeChapterNumbers() {
 
 function chapterOf(key) { return chapterMap.value[key] || 0 }
 
+function chapterFigureOffset(key) {
+  return countChapterFiguresBefore(project.value?.sections, chapterMap.value, key)
+}
+
+function chapterTableOffset(key) {
+  return countChapterTablesBefore(project.value?.sections, chapterMap.value, key)
+}
+
 // ---------- 字数统计与完成度 ----------
 const requiredSections = computed(() => {
   const sections = project.value?.sections || []
@@ -1422,7 +1698,7 @@ const sectionChars = computed(() => currentSection.value ? sectionCharsOf(curren
 function sectionCharsOf(sec) {
   let n = (sec.title || '').trim().length
   for (const p of sec.paragraphs || []) {
-    if (p.type === 'paragraph') n += (p.text || '').trim().length
+    if (p.type === 'paragraph') n += (p.reference ? formatReference(p.reference) : p.text || '').trim().length
     else if (p.type === 'table' && p.table) {
       n += p.table.cells.flat().reduce((s, c) => s + String(c || '').trim().length, 0)
     }
@@ -1484,7 +1760,7 @@ async function select(node) {
   try {
     await flushPendingSaves()
     current.value = node.key
-  } catch { /* 保存错误已显示, 保留当前章节 */ }
+  } catch (e) { error.value = e.message || t('writer.saveSectionFailed') }
 }
 
 function focusOutline() {
@@ -1522,19 +1798,28 @@ function localRecoveryPayload() {
     base_revision: project.value.revision,
     saved_at: new Date().toISOString(),
     snapshot: editableSnapshot(),
+    ...(sectionTextDraft.value ? { section_text_draft: clone(sectionTextDraft.value) } : {}),
   }
 }
 
 function editableSnapshot() {
-  return clone({
+  const snapshot = clone({
     title: project.value.title,
     meta: project.value.meta,
     sections: project.value.sections,
   })
+  for (const section of snapshot.sections || []) {
+    for (const block of section.paragraphs || []) {
+      if (!block.reference) continue
+      delete block.reference.language_confirmation_requested
+      delete block.reference.year_confirmation_requested
+    }
+  }
+  return snapshot
 }
 
 function persistLocalRecovery() {
-  if (!project.value || !hasRecoveryStorage()) return
+  if (!project.value || recoveryDraft.value || !hasRecoveryStorage()) return
   try {
     localStorage.setItem(recoveryStorageKey(), JSON.stringify(localRecoveryPayload()))
   } catch {
@@ -1547,7 +1832,9 @@ function loadLocalRecovery() {
   try {
     const saved = JSON.parse(localStorage.getItem(recoveryStorageKey()) || 'null')
     const savedSnapshot = saved?.snapshot ? JSON.stringify(saved.snapshot) : ''
-    if (savedSnapshot && saved.saved_at && savedSnapshot !== JSON.stringify(editableSnapshot())) {
+    const sectionDraft = saved?.section_text_draft
+    const hasSectionDraft = typeof sectionDraft?.section_key === 'string' && typeof sectionDraft?.text === 'string'
+    if (savedSnapshot && saved.saved_at && (hasSectionDraft || savedSnapshot !== JSON.stringify(editableSnapshot()))) {
       recoveryDraft.value = saved
     } else if (savedSnapshot) {
       clearLocalRecovery()
@@ -1563,7 +1850,7 @@ function clearLocalRecovery() {
 }
 
 function maybeClearRecovery() {
-  if (!dirtyKeys.size && !pendingSaves.size && !pendingMeta && !inFlightSaves.size) {
+  if (!recoveryDraft.value && !hasUnappliedSectionText() && !dirtyKeys.size && !pendingSaves.size && !pendingMeta && !inFlightSaves.size) {
     clearLocalRecovery()
     failedSave.value = false
   }
@@ -1572,11 +1859,39 @@ function maybeClearRecovery() {
 async function restoreLocalDraft() {
   if (!recoveryDraft.value || !project.value) return
   try {
-    const updated = await restoreProjectSnapshot(projectId, recoveryDraft.value.snapshot, recoveryDraft.value.base_revision)
-    invalidateExportReviewState()
-    project.value = updated
-    template.value = updated.template_snapshot || template.value
-    clearLocalRecovery()
+    const saved = clone(recoveryDraft.value)
+    const draft = saved.section_text_draft
+    const savedSection = saved.snapshot?.sections?.find(item => item.key === draft?.section_key)
+    if (draft && !draft.document && savedSection) {
+      try {
+        draft.document = legacyTextToSectionDocument(draft.text, savedSection.paragraphs)
+      } catch {
+        error.value = t('writer.recoveryLegacyUnsupported')
+        return
+      }
+    }
+    if (JSON.stringify(saved.snapshot) !== JSON.stringify(editableSnapshot())) {
+      const updated = await restoreProjectSnapshot(projectId, saved.snapshot, saved.base_revision)
+      project.value = updated
+      template.value = updated.template_snapshot || template.value
+    }
+    if (draft) {
+      const section = project.value.sections.find(item => item.key === draft.section_key)
+      if (!section || section.type === 'cover' || section.type === 'references' || section.key === 'references') {
+        error.value = t('writer.recoverySectionMissing')
+        return
+      }
+      sectionTextDraft.value = clone(draft)
+      current.value = draft.section_key
+      sectionInputMode.value = 'section'
+      sectionText.value = draft.text
+      sectionDocument.value = clone(draft.document)
+      sectionTextDraft.value = clone(draft)
+      recoveryDraft.value = null
+      persistLocalRecovery()
+    } else {
+      clearLocalRecovery()
+    }
     failedSave.value = false
     conflictSave.value = null
     error.value = ''
@@ -1589,13 +1904,15 @@ async function restoreLocalDraft() {
 }
 
 function discardLocalDraft() {
+  sectionTextDraft.value = null
+  sectionInputMode.value = 'blocks'
+  sectionText.value = textBlocksToSectionText(currentSection.value?.paragraphs)
   clearLocalRecovery()
 }
 
 async function reloadAfterConflict() {
   try {
     const updated = await fetchProject(projectId)
-    invalidateExportReviewState()
     project.value = updated
     template.value = updated.template_snapshot || template.value
     pendingSaves.clear()
@@ -1605,24 +1922,18 @@ async function reloadAfterConflict() {
     error.value = ''
     loadLocalRecovery()
     computeChapterNumbers()
-    void restorePendingOutputReview(updated)
   } catch (e) {
     error.value = e.message || t('writer.reloadServerFailed')
   }
 }
 
-function invalidateExportReviewState() {
-  exportEditGeneration += 1
-  exportCheck.value = null
-  manualReview.value = null
-  confirmedExport.value = null
-  candidateDownloaded.value = false
-  Object.keys(manualReviewConfirmations).forEach((key) => delete manualReviewConfirmations[key])
-}
-
 function markDirty(key) {
   dirtyKeys.add(key)
-  invalidateExportReviewState()
+  exportEditGeneration += 1
+  stopExportPollWait()
+  exportCheck.value = null
+  manualReview.value = null
+  readyExport.value = null
 }
 function markClean(key) { dirtyKeys.delete(key) }
 
@@ -1644,6 +1955,18 @@ function scheduleSave() {
     enqueueSectionSave(key, pending.payload, pending.version)
   }, 800))
   scheduleCheck()
+}
+
+function confirmReferenceLanguage(block) {
+  if (!block?.reference?.language_fact?.languages?.length) return
+  block.reference.language_confirmation_requested = true
+  scheduleSave()
+}
+
+function confirmReferenceYear(block) {
+  if (!block?.reference?.year?.trim()) return
+  block.reference.year_confirmation_requested = true
+  scheduleSave()
 }
 
 function onMetaInput(key, value) {
@@ -1675,8 +1998,24 @@ function enqueueSectionSave(key, payload, version) {
     if (!project.value) return
     saving.value = true
     try {
+      const localSection = project.value.sections.find(section => section.key === key)
+      if (localSection?.type === 'references' || key === 'references') {
+        mergeReferenceNumbers(payload.paragraphs, localSection?.paragraphs)
+      }
       const result = await updateProjectSection(projectId, key, payload, project.value.revision)
       project.value.revision = result.revision
+      const savedSection = result.sections?.find(section => section.key === key)
+      const currentSection = project.value.sections.find(section => section.key === key)
+      if ((currentSection?.type === 'references' || key === 'references') && savedSection) {
+        mergeReferenceNumbers(currentSection?.paragraphs, savedSection.paragraphs)
+        mergeReferenceNumbers(pendingSaves.get(key)?.payload?.paragraphs, savedSection.paragraphs)
+        clearConfirmedReferenceIntents(currentSection.paragraphs, payload.paragraphs, savedSection.paragraphs)
+        if (saveVersions.get(key) === version && !pendingSaves.has(key)) {
+          mergeReferenceLanguageFacts(currentSection.paragraphs, savedSection.paragraphs)
+          mergeReferenceYearFacts(currentSection.paragraphs, savedSection.paragraphs)
+        }
+        if (dirtyKeys.size) persistLocalRecovery()
+      }
       if (saveVersions.get(key) === version && !pendingSaves.has(key)) markClean(key)
       savedAt.value = new Date().toLocaleTimeString()
     } catch (e) {
@@ -1726,12 +2065,14 @@ function enqueueSaveTask(task) {
   inFlightSaves.add(promise)
   promise.finally(() => {
     inFlightSaves.delete(promise)
+    if (hasUnappliedSectionText() || dirtyKeys.size) persistLocalRecovery()
     maybeClearRecovery()
   }).catch(() => {})
   return promise
 }
 
 async function flushPendingSaves() {
+  if (hasUnappliedSectionText()) throw new Error(t('writer.sectionTextPending'))
   for (const [key, pending] of pendingSaves) {
     clearTimeout(saveTimers.get(key))
     saveTimers.delete(key)
@@ -1749,6 +2090,7 @@ async function flushPendingSaves() {
   }
   const pendingPromises = [...inFlightSaves]
   if (pendingPromises.length) await Promise.all(pendingPromises)
+  if (hasUnappliedSectionText()) throw new Error(t('writer.sectionTextPending'))
 }
 
 async function saveCurrent() { scheduleSave(); await flushPendingSaves() }
@@ -1807,7 +2149,6 @@ async function runOneClickFix() {
   try {
     await flushPendingSaves()
     const result = await fixProject(projectId, project.value.revision)
-    if (result.project.revision !== project.value.revision) invalidateExportReviewState()
     project.value = result.project
     if (result.project.template_snapshot) template.value = result.project.template_snapshot
     checkStale.value = true
@@ -1899,7 +2240,6 @@ async function confirmUpgrade() {
   upgradeBusy.value = true
   try {
     const result = await upgradeRequirements(projectId, { expected_snapshot_hash: upgradePreview.value.from_snapshot_hash, reason: t('writer.upgradeReasonDefault'), confirm: true })
-    invalidateExportReviewState()
     project.value = result.project; upgradePreview.value = null; await runCheckNow()
   } catch (e) { error.value = e.message || t('writer.upgradeApplyFailed') }
   finally { upgradeBusy.value = false }
@@ -1920,9 +2260,6 @@ async function openAssist(item) {
     await flushPendingSaves()
     if (!await confirmAiDisclosure()) return
     const result = await assistRequirement(projectId, item.id, item.description)
-    if (Number.isInteger(result.project_revision) && result.project_revision !== project.value.revision) {
-      invalidateExportReviewState()
-    }
     const previous = project.value.ai_assist_results || []
     project.value.ai_assist_results = previous.filter((saved) => saved.requirement_item_id !== item.id).concat(result)
     if (Number.isInteger(result.project_revision)) project.value.revision = result.project_revision
@@ -1931,7 +2268,7 @@ async function openAssist(item) {
   finally { assistBusy.value = '' }
 }
 
-function jumpTo(f) { if (f.section_key) current.value = f.section_key }
+function jumpTo(f) { if (f.section_key) void select({ key: f.section_key }) }
 function sectionTitle(key) {
   const sec = project.value?.sections.find((s) => s.key === key)
   return sec ? sec.title || key : key
@@ -1941,15 +2278,77 @@ function chooseDocx() {
   docxInput.value?.click()
 }
 
+function hasUnappliedSectionText() {
+  return Boolean(sectionTextDraft.value)
+}
+
+function captureImportState() {
+  return {
+    revision: project.value.revision,
+    editGeneration: exportEditGeneration,
+    snapshot: JSON.stringify(editableSnapshot()),
+  }
+}
+
+function importStateIsCurrent(state) {
+  return Boolean(state && project.value
+    && state.revision === project.value.revision
+    && state.editGeneration === exportEditGeneration
+    && state.snapshot === JSON.stringify(editableSnapshot())
+    && !hasUnappliedSectionText()
+    && !recoveryDraft.value && !conflictSave.value && !failedSave.value
+    && !dirtyKeys.size && !pendingSaves.size && !pendingMeta && !inFlightSaves.size)
+}
+
+async function prepareDocxImport() {
+  if (recoveryDraft.value) throw new Error(t('writer.importResolveRecovery'))
+  if (conflictSave.value) throw new Error(t('writer.importResolveConflict'))
+  if (hasUnappliedSectionText()) throw new Error(t('writer.importApplySectionText'))
+  await flushPendingSaves()
+  if (recoveryDraft.value) throw new Error(t('writer.importResolveRecovery'))
+  if (conflictSave.value || failedSave.value || dirtyKeys.size || pendingSaves.size || pendingMeta || inFlightSaves.size) {
+    throw new Error(t('writer.importResolveConflict'))
+  }
+  if (hasUnappliedSectionText()) throw new Error(t('writer.importApplySectionText'))
+  return captureImportState()
+}
+
+function importHeadingLabel(level) {
+  return ({ heading1: t('writer.heading1'), heading2: t('writer.heading2'),
+    heading3: t('writer.heading3'), body: t('writer.importAsBody') })[level] || level
+}
+
+function closeDocxImport() {
+  if (importing.value) return
+  importPreview.value = null
+  importPreviewState.value = null
+  importError.value = ''
+}
+
+function showDocxImportPreview(candidate, state) {
+  if (!importStateIsCurrent(state) || candidate.project_revision !== state.revision) {
+    importPreview.value = null
+    importPreviewState.value = null
+    throw new Error(t('writer.importDraftChanged'))
+  }
+  Object.keys(importHeadingSelections).forEach(key => delete importHeadingSelections[key])
+  for (const item of candidate.heading_candidates || []) {
+    importHeadingSelections[item.id] = item.decision || ''
+  }
+  importPreviewState.value = state
+  importPreview.value = candidate
+  importError.value = ''
+}
+
 async function onDocxSelected(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
-  if (!file) return
+  if (!file || importing.value) return
   importing.value = true
   error.value = ''
   try {
-    await flushPendingSaves()
-    importPreview.value = { ...(await importProjectDocx(projectId, file)), file }
+    const state = await prepareDocxImport()
+    showDocxImportPreview(await previewProjectDocx(projectId, file), state)
   } catch (e) {
     error.value = e.message || t('writer.wordPreviewFailed')
   } finally {
@@ -1957,52 +2356,147 @@ async function onDocxSelected(event) {
   }
 }
 
-async function applyDocxImport() {
-  if (!importPreview.value?.file || importing.value) return
+async function restoreDocxImport() {
+  if (importing.value) return
   importing.value = true
   error.value = ''
   try {
-    await flushPendingSaves()
-    const result = await importProjectDocx(projectId, importPreview.value.file, true, project.value.revision)
-    invalidateExportReviewState()
-    project.value = result.project
-    template.value = result.project.template_snapshot || template.value
-    importPreview.value = null
-    computeChapterNumbers()
-    templateNotice.value = t('writer.importedNotice', { paragraphs: result.stats.paragraphs, tables: result.stats.tables })
-    setTimeout(() => { templateNotice.value = '' }, 5000)
-    void runCheckNow()
+    const state = await prepareDocxImport()
+    showDocxImportPreview(await fetchProjectDocxCandidate(projectId), state)
   } catch (e) {
-    error.value = e.message || t('writer.applyImportFailed')
+    error.value = e.message || t('writer.resumeImportFailed')
   } finally {
     importing.value = false
   }
 }
 
+async function updateDocxPreview() {
+  if (importing.value || !importPreview.value || !importSelectionsComplete.value || !importDecisionsNeedPreview.value) return
+  const state = importPreviewState.value
+  if (!importStateIsCurrent(state)) {
+    importError.value = t('writer.importDraftChanged')
+    return
+  }
+  importing.value = true
+  importError.value = ''
+  try {
+    const decisions = Object.fromEntries((importPreview.value.heading_candidates || [])
+      .map(item => [item.id, importHeadingSelections[item.id]]))
+    const updated = await reviseProjectDocxCandidate(projectId, importPreview.value.candidate_id, decisions)
+    showDocxImportPreview(updated, state)
+  } catch (e) {
+    if (importPreview.value) importError.value = e.message || t('writer.wordPreviewFailed')
+    else error.value = e.message || t('writer.wordPreviewFailed')
+  } finally {
+    importing.value = false
+  }
+}
+
+async function applyDocxImport() {
+  if (importing.value || !importReadyToApply.value) return
+  const candidate = importPreview.value
+  const state = importPreviewState.value
+  importing.value = true
+  error.value = ''
+  importError.value = ''
+  try {
+    const result = await applyProjectDocxCandidate(projectId, candidate)
+    if (!importStateIsCurrent(state)) {
+      for (const timer of saveTimers.values()) clearTimeout(timer)
+      saveTimers.clear()
+      clearTimeout(metaTimer)
+      metaTimer = null
+      persistLocalRecovery()
+      conflictSave.value = { key: '__import', revision: result.project?.revision }
+      importPreview.value = null
+      importPreviewState.value = null
+      error.value = t('writer.importApplyConflict')
+      return
+    }
+    exportEditGeneration += 1
+    exportCheck.value = null
+    readyExport.value = null
+    manualReview.value = null
+    project.value = result.project
+    template.value = result.project.template_snapshot || template.value
+    importPreview.value = null
+    importPreviewState.value = null
+    if (current.value !== 'cover' && !result.project.sections.some(section => section.key === current.value)) {
+      current.value = result.project.sections[0]?.key || 'cover'
+    }
+    computeChapterNumbers()
+    templateNotice.value = [t('writer.importedNotice', { paragraphs: result.stats.paragraphs, tables: result.stats.tables }),
+      ...(result.warnings || [])].join('；')
+    setTimeout(() => { templateNotice.value = '' }, 5000)
+    void runCheckNow()
+  } catch (e) {
+    importError.value = e.message || t('writer.applyImportFailed')
+  } finally {
+    importing.value = false
+  }
+}
+
+function stopExportPollWait() {
+  if (exportPollTimer !== null) clearTimeout(exportPollTimer)
+  exportPollTimer = null
+  const wake = exportPollWake
+  exportPollWake = null
+  if (wake) wake()
+}
+
+function waitForExportPoll() {
+  return new Promise((resolve) => {
+    exportPollWake = () => {
+      exportPollTimer = null
+      exportPollWake = null
+      resolve()
+    }
+    exportPollTimer = setTimeout(exportPollWake, 2000)
+  })
+}
+
 async function pollExportJob(jobId, initial) {
   const generation = exportEditGeneration
+  const configuredSeconds = Number(initial.total_timeout_seconds)
+  const timeoutSeconds = Number.isInteger(configuredSeconds) && configuredSeconds >= 1 && configuredSeconds <= 3600
+    ? configuredSeconds : 900
+  // Use elapsed time, rather than the device's wall clock, to tolerate clock
+  // differences between the browser and the server. The server owns the deadline.
+  const stopAt = performance.now() + (timeoutSeconds + 30) * 1000
   let current = initial
-  for (let attempt = 0; attempt < 120 && current.status !== 'succeeded'; attempt += 1) {
+  while (!writerUnmounted && generation === exportEditGeneration && current.status !== 'succeeded') {
     if (current.status === 'failed') {
+      if (['PROJECT_EXPORT_DEADLINE_EXCEEDED', 'PROJECT_EXPORT_DEADLINE_INVALID'].includes(current.error_code)) {
+        exportJob.value = null
+        throw new Error(t('writer.exportDeadlineExpired'))
+      }
+      if (['PROJECT_EXPORT_QUEUE_STATE_MISSING', 'PROJECT_EXPORT_QUEUE_STATE_INVALID', 'PROJECT_EXPORT_ATTEMPTS_EXHAUSTED'].includes(current.error_code)) {
+        exportJob.value = null
+        throw new Error(t('writer.exportRetryUnavailable'))
+      }
       throw new Error(exportCheckMessage(current.output_check_diagnostic) || t('writer.exportBackendFailed', { code: current.error_code || 'PROJECT_EXPORT_FAILED', id: current.id }))
     }
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    if (performance.now() >= stopAt) {
+      // The task might still be running; a retry request would conflict with it.
+      exportJob.value = null
+      throw new Error(t('writer.exportStillProcessing', { id: jobId }))
+    }
+    await waitForExportPoll()
+    if (writerUnmounted || generation !== exportEditGeneration) return
     current = await fetchProjectExportJob(projectId, jobId)
   }
-  if (current.status !== 'succeeded') {
-    throw new Error(t('writer.exportStillProcessing', { id: jobId }))
-  }
-  if (current.manual_review?.status === 'required') {
+  if (writerUnmounted || generation !== exportEditGeneration) return
+  if (['required', 'confirmed'].includes(current.manual_review?.status)) {
     if (generation !== exportEditGeneration) return
-    manualReview.value = { ...current.manual_review, exportId: current.id, filename: current.filename || 'paper.docx' }
-    candidateDownloaded.value = false
-    Object.keys(manualReviewConfirmations).forEach((key) => delete manualReviewConfirmations[key])
+    manualReview.value = { ...current.manual_review, status: 'required' }
     if (generation === exportEditGeneration) exportCheck.value = {
-      status: current.output_check_status || 'unverifiable',
+      status: 'unverifiable',
       count: Number(current.output_check_count || 0),
     }
     return
   }
+  if (generation !== exportEditGeneration) return
+  readyExport.value = { id: jobId, filename: current.filename || 'paper.docx' }
   await downloadProjectExportJob(projectId, jobId, current.filename || 'paper.docx')
   if (generation === exportEditGeneration) exportCheck.value = {
     status: current.output_check_status || 'unverifiable',
@@ -2010,60 +2504,35 @@ async function pollExportJob(jobId, initial) {
   }
 }
 
-async function downloadReviewCandidate() {
-  if (!manualReview.value?.exportId || manualReviewBusy.value) return
-  manualReviewBusy.value = true
+async function downloadReadyExport() {
+  if (!readyExport.value || exporting.value) return
+  const file = readyExport.value
+  exporting.value = true
   error.value = ''
   try {
-    const downloaded = await downloadProjectExportReviewCandidate(projectId, manualReview.value.exportId, manualReview.value.filename)
-    if (downloaded.outputSha256 !== manualReview.value.output_sha256) throw new Error(t('writer.manualReviewCandidateChanged'))
-    candidateDownloaded.value = true
+    await flushPendingSaves()
+    if (readyExport.value !== file) return
+    await downloadProjectExportJob(projectId, file.id, file.filename)
   } catch (e) {
-    candidateDownloaded.value = false
-    error.value = e.message || t('writer.manualReviewCandidateFailed')
-  } finally {
-    manualReviewBusy.value = false
-  }
-}
-
-async function confirmManualReview() {
-  if (!manualReview.value?.exportId || !candidateDownloaded.value || !manualReviewReady.value || manualReviewBusy.value) return
-  const generation = exportEditGeneration
-  manualReviewBusy.value = true
-  error.value = ''
-  try {
-    const saved = await confirmProjectExportManualReview(projectId, manualReview.value.exportId, {
-      output_sha256: manualReview.value.output_sha256,
-      confirmed_check_ids: manualReview.value.checklist.map((item) => item.id),
-    })
-    if (saved.manual_review?.status !== 'confirmed') throw new Error(t('writer.manualReviewNotConfirmed'))
-    await downloadProjectExportJob(projectId, manualReview.value.exportId, manualReview.value.filename)
-    exportJob.value = null
-    confirmedExport.value = { id: manualReview.value.exportId, filename: manualReview.value.filename }
-    manualReview.value = null
-    candidateDownloaded.value = false
-    if (generation === exportEditGeneration) exportCheck.value = {
-      status: saved.output_check_status || 'unverifiable',
-      count: Number(saved.output_check_count || 0),
-    }
-  } catch (e) {
-    error.value = e.message || t('writer.manualReviewFailed')
-  } finally {
-    manualReviewBusy.value = false
-  }
-}
-
-async function downloadConfirmedExport() {
-  if (!confirmedExport.value?.id || confirmedExportBusy.value || dirtyCount.value > 0) return
-  confirmedExportBusy.value = true
-  error.value = ''
-  try {
-    await downloadProjectExportJob(projectId, confirmedExport.value.id, confirmedExport.value.filename)
-  } catch (e) {
-    confirmedExport.value = null
     error.value = e.message || t('writer.exportFailed')
   } finally {
-    confirmedExportBusy.value = false
+    exporting.value = false
+  }
+}
+
+async function downloadReadyExportPdf() {
+  if (!readyExport.value || exporting.value || !optionalPdfEnabled.value) return
+  const file = readyExport.value
+  exporting.value = true
+  error.value = ''
+  try {
+    await flushPendingSaves()
+    if (readyExport.value !== file) return
+    await downloadProjectExportPdf(projectId, file.id, file.filename.replace(/\.docx$/i, '') + '.pdf')
+  } catch (e) {
+    error.value = e.message || t('writer.exportFailed')
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -2077,10 +2546,10 @@ async function exportDocx(force = false) {
   if (exporting.value) return
   exporting.value = true
   error.value = ''
+  exportJob.value = null
   exportCheck.value = null
   manualReview.value = null
-  candidateDownloaded.value = false
-  Object.keys(manualReviewConfirmations).forEach((key) => delete manualReviewConfirmations[key])
+  readyExport.value = null
   missing.value = []
   try {
     await flushPendingSaves()
@@ -2107,7 +2576,12 @@ async function retryExportJob() {
     await pollExportJob(task.id, task)
     exportJob.value = null
   } catch (e) {
-    error.value = e.message || t('writer.exportFailed')
+    if ([404, 409].includes(e.status)) {
+      exportJob.value = null
+      error.value = [e.message, t('writer.exportRetryUnavailable')].filter(Boolean).join('。')
+    } else {
+      error.value = e.message || t('writer.exportFailed')
+    }
   } finally {
     exporting.value = false
   }
@@ -2130,8 +2604,8 @@ async function previewDocx() {
 async function refreshTemplate() {
   openConfirmDialog({ title: t('writer.updateStandardsTitle'), description: t('writer.updateStandardsDetail'), confirmLabel: t('writer.updateStandardsConfirm') }, async () => {
     error.value = ''
+    await flushPendingSaves()
     const updated = await refreshProjectTemplate(projectId)
-    invalidateExportReviewState()
     project.value = updated
     template.value = updated.template_snapshot || template.value
   })
@@ -2170,7 +2644,6 @@ async function applyTemplate(templateId) {
   try {
     await flushPendingSaves()
     const updated = await switchProjectTemplate(projectId, templateId)
-    invalidateExportReviewState()
     project.value = updated
     template.value = updated.template_snapshot || template.value
     showTemplateModal.value = false
@@ -2187,12 +2660,16 @@ onBeforeRouteLeave(async () => {
   try {
     await flushPendingSaves()
     return true
-  } catch {
+  } catch (e) {
+    error.value = e.message || t('writer.saveSectionFailed')
     return false
   }
 })
 
 onBeforeUnmount(() => {
+  writerUnmounted = true
+  stopExportPollWait()
+  reviewNavigationGeneration++
   for (const timer of saveTimers.values()) clearTimeout(timer)
   clearTimeout(metaTimer)
   clearTimeout(scheduleCheck.timer)
@@ -2201,6 +2678,9 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.export-check-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.manual-review-panel { display: grid; justify-items: start; gap: 12px; margin-bottom: 16px; padding: 16px; border: 1px solid var(--border, #d7dce4); border-radius: 8px; background: var(--surface, #fff); }
+.manual-review-panel p { margin: 0; line-height: 1.6; }
 .writer { display: flex; gap: 24px; align-items: flex-start; }
 .sidebar {
   width: 280px; flex-shrink: 0; background: var(--card); border: 1px solid var(--border);
@@ -2243,6 +2723,8 @@ onBeforeUnmount(() => {
 .recovery-status { margin: 0 auto 10px; max-width: 840px; }
 .recovery-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 auto 10px; max-width: 840px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; color: #1e3a8a; font-size: 12px; }
 .recovery-banner > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.recovery-section-text { display: grid; gap: 4px; margin-top: 8px; }
+.recovery-section-text textarea { width: 100%; min-width: 0; resize: vertical; }
 .recovery-banner span { color: inherit; }
 .recovery-banner .form-row { flex-shrink: 0; }
 .recovery-banner button { white-space: nowrap; }
@@ -2312,6 +2794,8 @@ button.small { font-size: 13px; padding: 6px 12px; white-space: nowrap; }
 .editor-pane { flex: 1; min-width: 0; }
 .editor-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .type-tag { background: #eff6ff; color: var(--primary); font-size: 12px; padding: 2px 10px; border-radius: 999px; }
+.heading-level-control { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.heading-level-control select { padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
 .hint { color: var(--muted); font-size: 13px; }
 .heading-input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 16px; margin-bottom: 20px; }
 
@@ -2648,4 +3132,5 @@ button.tiny.danger { color: var(--error); }
   .meta-row input { min-width: 0; width: 100%; }
 }
 
+:deep(.review-target) { outline: 2px solid var(--primary); outline-offset: 3px; }
 </style>

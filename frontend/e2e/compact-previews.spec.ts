@@ -136,4 +136,54 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 900, height: 600 
     await expect(page.getByRole('region', { name: 'Other formatting styles', exact: true }).locator('summary')).toHaveText(['English Abstract', 'Chinese Keywords', 'English Keywords'])
     await fitsDialog(page)
   })
+
+  test(`long Word rules remain reachable during template confirmation at ${viewport.width}`, async ({ page }, info) => {
+    await page.setViewportSize(viewport)
+    await visualSession(page)
+    const roles = ['body', 'cover', 'abstract', 'english_abstract', 'heading1', 'heading2', 'heading3', 'figure_caption', 'table_caption', 'table_text', 'table', 'image', 'section', 'header', 'footer', 'references']
+    const template = {
+      id: 'visual-template', name: '长规范模板', description: '', version: '1', allow_structure_edit: false,
+      source_docx: 'fixture.docx', sections: [], styles: {}, meta_fields: [], rule_packs: [], requirement_set_ids: [],
+      writing_specification: {
+        specification_sha256: 'fixture-hash', source_sha256: 'fixture-source', nodes: [], review_items: [], coverage: { limitations: [] },
+        rules: roles.map((role, index) => ({
+          id: `rule-${index}`, scope: { role, region_title: '' }, property: 'font.eastAsia', expected: '宋体',
+          confidence: 'single', supporting_count: 1, observed_count: 1, evidence_node_ids: [],
+        })),
+      },
+    }
+    await page.route('**/api/templates/visual-template', route => route.fulfill({ json: template }))
+    await page.route('**/api/templates/admission/assess', route => route.fulfill({ json: {
+      status: 'office_review_required', version: '1', assessment_hash: 'fixture-assessment', blockers: [], manual_checks: [],
+    } }))
+    await page.route('**/api/templates/visual-template/writing-profile/propose', route => route.fulfill({ json: {
+      proposal_id: 'fixture-proposal', trials: { normal: { status: 'pass' }, long: { status: 'pass' } },
+      template: { source_execution: { fields: [], headings: [], object_properties: {}, confirmed_content_rule_ids: [], defense_date_field_key: '' } },
+    } }))
+
+    await page.goto('/templates/visual-template/edit')
+    await page.getByRole('tab', { name: '模板提取规则', exact: true }).click()
+    const pane = page.locator('.template-form-deck .screen-deck-pane.screen-pane-active > .screen-form-section')
+    const preview = page.getByRole('button', { name: '预览执行配置', exact: true })
+    await expect(page.locator('[data-test="writing-specification"]')).toBeVisible()
+    if (viewport.width > 768) {
+      expect(await pane.evaluate(el => el.scrollHeight)).toBeGreaterThan(await pane.evaluate(el => el.clientHeight))
+      await page.mouse.move(viewport.width / 2, viewport.height - 80)
+      await page.mouse.wheel(0, 10000)
+      await expect.poll(() => pane.evaluate(el => el.scrollTop)).toBeGreaterThan(0)
+    } else {
+      await preview.scrollIntoViewIfNeeded()
+    }
+    await expect(preview).toBeInViewport({ ratio: 1 })
+    await preview.click()
+    const plan = page.locator('[data-test="writing-profile-plan"]')
+    await expect(plan).toBeVisible()
+    const publish = plan.getByRole('button', { name: '确认并发布此版本', exact: true })
+    await publish.scrollIntoViewIfNeeded()
+    await expect(publish).toBeInViewport({ ratio: 1 })
+    await expect(publish).toBeDisabled()
+    for (const checkbox of await plan.locator('input[type="checkbox"]').all()) await checkbox.check()
+    await expect(publish).toBeEnabled()
+    await page.screenshot({ path: info.outputPath('long-template-confirmation.png'), animations: 'disabled' })
+  })
 }

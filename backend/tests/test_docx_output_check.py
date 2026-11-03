@@ -1,5 +1,6 @@
 """Independent checks over emitted Word files, including negative mutations."""
 
+import copy
 from io import BytesIO
 import zipfile
 
@@ -132,6 +133,7 @@ def test_generated_docx_passes_and_report_binds_output_bytes(tmp_path):
     report = require_docx_output_pass(data, project, template)
 
     assert report["status"] == "pass"
+    assert report["inspector_version"] == "docx-output-check/4"
     assert report["check_count"] > 0
     assert report["passed_count"] == report["check_count"]
     assert report["project_revision"] == 7
@@ -142,6 +144,7 @@ def test_generated_docx_passes_and_report_binds_output_bytes(tmp_path):
     assert not verify_report_binding({**report, "status": "fail"}, data)
     assert not verify_report_binding({**report, "status": "unverifiable"}, data)
     assert not verify_report_binding({**report, "checks": []}, data)
+    assert not verify_report_binding({**report, "source_profile_sha256": "0" * 64}, data)
 
 
 @pytest.mark.parametrize("location", ["body", "header", "extended_chart", "package", "source_only"])
@@ -750,6 +753,78 @@ def test_duplicate_inline_text_runs_are_checked_by_position(tmp_path):
     bad_report = inspect_docx_output(mutated.getvalue(), project, template)
     assert bad_report["status"] == "fail"
     assert any(item["rule"] == "format.bold" and item["status"] == "fail" and item["object"].endswith("run:1") for item in bad_report["checks"])
+
+
+def test_inline_format_moved_to_adjacent_text_fails_output_check(tmp_path):
+    _, project, template = _sample(tmp_path)
+    block = project.sections[0].paragraphs[0]
+    block.text = "甲乙丙"
+    block.inline_runs = [InlineTextRun(text="甲", bold=True), InlineTextRun(text="乙丙", italic=True)]
+    output = tmp_path / "shifted-runs.docx"
+    export_project_to_docx(project, template, str(output))
+    doc = Document(output)
+    for section in doc.sections:
+        for footer_paragraph in section.footer.paragraphs:
+            footer_paragraph.clear()
+    baseline = BytesIO()
+    doc.save(baseline)
+    assert inspect_docx_output(baseline.getvalue(), project, template)["status"] == "pass"
+
+    paragraph = next(item for item in doc.paragraphs if item.text == block.text)
+    paragraph.runs[0].text = "甲乙"
+    paragraph.runs[1].text = "丙"
+    changed = BytesIO()
+    doc.save(changed)
+    report = inspect_docx_output(changed.getvalue(), project, template)
+    assert report["status"] == "fail"
+    assert any(item["rule"] == "format.bold" and item["status"] == "fail" for item in report["checks"])
+
+
+def test_split_output_run_with_unchanged_format_passes_output_check(tmp_path):
+    _, project, template = _sample(tmp_path)
+    block = project.sections[0].paragraphs[0]
+    block.text = "甲乙丙"
+    block.inline_runs = [InlineTextRun(text="甲乙", bold=True), InlineTextRun(text="丙", italic=True)]
+    output = tmp_path / "split-runs.docx"
+    export_project_to_docx(project, template, str(output))
+    doc = Document(output)
+    for section in doc.sections:
+        for footer_paragraph in section.footer.paragraphs:
+            footer_paragraph.clear()
+    paragraph = next(item for item in doc.paragraphs if item.text == block.text)
+    first = paragraph.runs[0]
+    first.text = "甲"
+    split = copy.deepcopy(first._r)
+    split.find(qn("w:t")).text = "乙"
+    first._r.addnext(split)
+    changed = BytesIO()
+    doc.save(changed)
+    report = inspect_docx_output(changed.getvalue(), project, template)
+    assert report["status"] == "pass", [item for item in report["checks"] if item["status"] != "pass"]
+
+
+def test_merged_output_runs_with_identical_format_pass_output_check(tmp_path):
+    _, project, template = _sample(tmp_path)
+    block = project.sections[0].paragraphs[0]
+    block.text = "甲 乙丙"
+    block.inline_runs = [
+        InlineTextRun(text="甲", bold=True), InlineTextRun(text=" 乙", bold=True),
+        InlineTextRun(text="丙", italic=True),
+    ]
+    output = tmp_path / "merged-runs.docx"
+    export_project_to_docx(project, template, str(output))
+    doc = Document(output)
+    for section in doc.sections:
+        for footer_paragraph in section.footer.paragraphs:
+            footer_paragraph.clear()
+    paragraph = next(item for item in doc.paragraphs if item.text == block.text)
+    first, second = paragraph.runs[:2]
+    first.text += second.text
+    second._r.getparent().remove(second._r)
+    changed = BytesIO()
+    doc.save(changed)
+    report = inspect_docx_output(changed.getvalue(), project, template)
+    assert report["status"] == "pass", [item for item in report["checks"] if item["status"] != "pass"]
 
 
 @pytest.mark.parametrize(

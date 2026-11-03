@@ -34,7 +34,7 @@
     <div v-if="exportCheck" class="notice-banner export-check-status" role="status" aria-live="polite">
       <strong>{{ t('writer.exportGenerated') }}</strong>
       <span>{{ t('writer.exportFormatStatus', { status: exportCheckLabel(exportCheck.status), count: exportCheck.count }) }}</span>
-      <span>{{ t('writer.exportVisualPending') }}</span>
+      <span>{{ t('writer.exportVisualScope') }}</span>
     </div>
 
     <!-- ============ TAB 1: WRITING WORKSPACE ============ -->

@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import io
+import base64
 import hashlib
 import json
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Event
 
+import pytest
 from fastapi.testclient import TestClient
 from docx import Document
 
@@ -21,6 +26,71 @@ from tests._helpers import register_fixture_response
 
 
 client = TestClient(app)
+
+
+def test_comment_lookup_is_not_limited_by_other_submissions(tmp_path):
+    from app.api.workflow import _comment_records
+
+    store = Store(tmp_path / "comments.db")
+    with store.workflow_transaction() as conn:
+        store.save_workflow_record_conn(conn, "comment", {
+            "id": "target-comment", "submission_id": "target-submission", "status": "open",
+        })
+        conn.execute(
+            "UPDATE workflow_records SET updated_at = ? WHERE kind = 'comment' AND id = ?",
+            ("2000-01-01T00:00:00+00:00", "target-comment"),
+        )
+        for index in range(500):
+            store.save_workflow_record_conn(conn, "comment", {
+                "id": f"other-comment-{index}", "submission_id": "other-submission", "status": "open",
+            })
+
+    assert [item["id"] for item in _comment_records(store, "target-submission")] == ["target-comment"]
+
+
+def test_prior_feedback_follows_revision_chain_and_rejects_invalid_history(tmp_path):
+    from fastapi import HTTPException
+    from app.api.workflow import _prior_unresolved_comments
+
+    store = Store(tmp_path / "feedback.db")
+    store.save_workflow_record("project_version", {
+        "id": "old-version", "content_snapshot": {"sections": [
+            {"key": "intro", "title": "绪论", "paragraphs": [{"id": "p1", "text": "原稿内容"}]},
+        ]},
+    })
+    store.save_workflow_record("submission", {
+        "id": "first", "participant_id": "student-task", "project_version_id": "old-version",
+        "submission_number": "SUB-OLD",
+    })
+    store.save_workflow_record("submission", {
+        "id": "second", "participant_id": "student-task", "prior_submission_id": "first",
+    })
+    store.save_workflow_record("comment", {
+        "id": "old-open", "submission_id": "first", "block_id": "p1",
+        "status": "addressed", "severity": "blocking", "body": "补充背景",
+    })
+    store.save_workflow_record("comment", {
+        "id": "already-resolved", "submission_id": "second", "status": "resolved", "severity": "blocking",
+    })
+    current = {"id": "third", "participant_id": "student-task", "prior_submission_id": "second"}
+
+    feedback = _prior_unresolved_comments(store, current)
+    assert [item["id"] for item in feedback] == ["old-open"]
+    assert feedback[0]["source_submission_number"] == "SUB-OLD"
+    assert feedback[0]["source_section_title"] == "绪论"
+    assert feedback[0]["source_text"] == "原稿内容"
+    with store.workflow_transaction() as conn:
+        assert _prior_unresolved_comments(store, current, conn=conn) == feedback
+
+    with pytest.raises(HTTPException) as missing:
+        _prior_unresolved_comments(store, {**current, "prior_submission_id": "missing"})
+    assert missing.value.status_code == 409
+    with pytest.raises(HTTPException) as other_task:
+        _prior_unresolved_comments(store, {**current, "participant_id": "other-task"})
+    assert other_task.value.status_code == 409
+    with pytest.raises(HTTPException) as cycle:
+        _prior_unresolved_comments(store, {**current, "prior_submission_id": "third"})
+    assert cycle.value.status_code == 409
 
 
 def test_archive_worker_rejects_source_changed_after_request(tmp_path, monkeypatch):
@@ -41,13 +111,17 @@ def test_archive_worker_rejects_source_changed_after_request(tmp_path, monkeypat
         "participant_id": "archive-source-participant",
     })
     store.save_workflow_record("participant", {"id": "archive-source-participant"})
-    store.save_workflow_record("archive", {"id": "archive-source-change", "submission_id": "archive-source-submission", "participant_id": "archive-source-participant", "status": "queued", "source_template_sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
+    store.save_workflow_record("archive", {"id": "archive-source-change", "job_id": "archive-source-job", "submission_id": "archive-source-submission", "participant_id": "archive-source-participant", "status": "queued", "source_template_sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
+    with store.workflow_transaction() as conn:
+        store.create_job_conn(conn, job_id="archive-source-job", job_type="archive.generate", resource_type="archive", resource_id="archive-source-change")
+    claimed = store.claim_jobs(job_type="archive.generate", consumer_id="source-test", limit=50)
+    job = next(item for item in claimed if item["id"] == "archive-source-job")
     changed = Document(source)
     changed.core_properties.author = "changed after archive request"
     changed.save(source)
     invoked = []
     monkeypatch.setattr(workflow_api, "export_project_to_docx", lambda *_args, **_kwargs: invoked.append(True))
-    result = workflow_api._run_archive(store, "archive-source-change")
+    result = workflow_api._run_archive(store, "archive-source-change", lease_token=job["lease_token"])
     assert result["status"] == "failed"
     assert not result.get("file_path")
     assert not invoked
@@ -55,6 +129,44 @@ def test_archive_worker_rejects_source_changed_after_request(tmp_path, monkeypat
 
 def _password(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:10]}-8a"
+
+
+def _make_legacy_manual_archive(archive_id: str, message: str, monkeypatch, *, pending: bool = False):
+    """Construct a pre-existing archive for backward-compatibility checks."""
+    from app.api import workflow as workflow_api
+
+    store = Store()
+    archive = store.get_workflow_record("archive", archive_id)
+    path = Path(archive["file_path"])
+    with zipfile.ZipFile(io.BytesIO(path.read_bytes())) as bundle:
+        files = {name: bundle.read(name) for name in bundle.namelist()}
+    manifest = json.loads(files["manifest.json"])
+    manifest["output_check"]["office_review_required"] = True
+    manifest["output_check"]["manual_checks"] = [message]
+    files["manifest.json"] = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+    result = io.BytesIO()
+    with zipfile.ZipFile(result, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        for name, data in files.items():
+            bundle.writestr(name, data)
+    path.write_bytes(result.getvalue())
+    archive["manifest"] = manifest
+    archive["manifest_hash"] = workflow_api._hash(manifest)
+    assert store.save_workflow_record("archive", archive, expected_revision=archive["revision"])
+    if pending:
+        participant = store.get_workflow_record("participant", archive["participant_id"])
+        participant["state"] = "pending_archive"
+        assert store.save_workflow_record("participant", participant, expected_revision=participant["revision"])
+
+    original_check = workflow_api.require_docx_output_pass
+
+    def check_legacy_archive(*args, **kwargs):
+        report = original_check(*args, **kwargs)
+        if kwargs.get("context_kind") == "workflow-archive-download":
+            report["office_review_required"] = True
+            report["manual_checks"] = [message]
+        return report
+
+    monkeypatch.setattr(workflow_api, "require_docx_output_pass", check_legacy_archive)
 
 
 def _login(username: str, password: str) -> dict[str, str]:
@@ -104,18 +216,1206 @@ def _prepare_project(student_headers: dict[str, str], participant_id: str) -> st
     return project_id
 
 
-def test_workflow_happy_path_and_idempotency(monkeypatch):
+@pytest.fixture
+def ready_submission_candidate(request, monkeypatch):
+    if hasattr(request, "param"):
+        stage = request.param
+        if stage == "m1-pdf-disabled":
+            monkeypatch.setenv("PAPERGUARD_WORD_PDF_ENABLED", "false")
+            from app.services import word_optional_pdf
+
+            def reject_pdf_conversion(*_args, **_kwargs):
+                pytest.fail("Word submission and archive must not invoke the optional PDF converter")
+
+            monkeypatch.setattr(word_optional_pdf, "create_optional_pdf", reject_pdf_conversion)
+            stage = "m1"
+        monkeypatch.setenv("PAPERGUARD_DELIVERY_STAGE", stage)
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+    organization = client.post("/api/organizations", headers=admin, json={
+        "id": f"submission-boundary-school-{suffix}", "name": "提交边界测试学校", "type": "school",
+    })
+    assert organization.status_code == 201, organization.text
+    scope = client.put(f"/api/organizations/users/{teacher_id}/context", headers=admin, json={
+        "organization_context": {"school_id": organization.json()["id"]},
+    })
+    assert scope.status_code == 200, scope.text
+    cohort = client.post("/api/cohorts", headers=teacher, json={
+        "name": "提交边界测试批次", "organization_id": organization.json()["id"],
+    })
+    assert cohort.status_code == 201, cohort.text
+    cohort_id = cohort.json()["id"]
+    assert client.post(f"/api/cohorts/{cohort_id}/members", headers=teacher, json={
+        "student_id": student_id, "teacher_id": teacher_id,
+    }).status_code == 201
+    now = datetime.now(timezone.utc)
+    stage = client.post(f"/api/cohorts/{cohort_id}/stages", headers=teacher, json={
+        "key": "final", "name": "终稿", "open_at": (now - timedelta(minutes=1)).isoformat(),
+        "deadline_at": (now + timedelta(days=1)).isoformat(), "is_final": True,
+    })
+    assert stage.status_code == 201, stage.text
+    assert client.post(f"/api/stages/{stage.json()['id']}/publish", headers=teacher).status_code == 200
+    participant = client.get("/api/my-tasks", headers=student).json()[0]
+    _prepare_project(student, participant["id"])
+    assert client.post(f"/api/stage-participants/{participant['id']}/acknowledge", headers=student, json={}).status_code == 200
+    candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]})
+    assert candidate.status_code == 201 and candidate.json()["status"] == "ready", candidate.text
+    return {"admin": admin, "teacher": teacher, "student": student, "cohort_id": cohort_id,
+            "participant_id": participant["id"], "candidate_id": candidate.json()["id"], "now": now}
+
+
+def test_comment_text_range_is_bound_to_the_submitted_snapshot(ready_submission_candidate):
+    fixture = ready_submission_candidate
+    student, teacher = fixture["student"], fixture["teacher"]
+    candidate = Store().get_workflow_record("candidate", fixture["candidate_id"])
+    project_id = candidate["project_id"]
+    project = client.get(f"/api/projects/{project_id}", headers=student).json()
+    section = next(item for item in project["sections"] if item["key"] == "ch1")
+    section["paragraphs"][0]["text"] = "结果😀结果\n实验"
+    saved = client.put(f"/api/projects/{project_id}/section/ch1", headers=student, json={
+        "base_revision": project["revision"], "paragraphs": section["paragraphs"],
+    })
+    assert saved.status_code == 200, saved.text
+    latest = client.post("/api/submission-candidates", headers=student, json={"participant_id": fixture["participant_id"]})
+    assert latest.status_code == 201 and latest.json()["status"] == "ready", latest.text
+    submitted = client.post("/api/submissions", headers=student, json={
+        "candidate_id": latest.json()["id"], "idempotency_key": f"text-range-{uuid.uuid4().hex}",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    endpoint = f"/api/submissions/{submission_id}/comments"
+    base = {"body": "请核实", "block_id": "ch1-p1"}
+
+    for fields in (
+        {"quoted_text": "结果", "text_start": 3},
+        {"quoted_text": "结果", "text_end": 5},
+        {"quoted_text": "", "text_start": 3, "text_end": 5},
+        {"quoted_text": "结果", "text_start": 3, "text_end": 3},
+        {"quoted_text": "结果", "text_start": 3, "text_end": 99},
+        {"quoted_text": "结果", "text_start": 2, "text_end": 4},
+        {"quoted_text": "实验", "text_start": 3, "text_end": 5},
+        {"block_id": "", "quoted_text": "结果", "text_start": 3, "text_end": 5},
+    ):
+        response = client.post(endpoint, headers=teacher, json={**base, **fields})
+        assert response.status_code == 422, (fields, response.text)
+
+    for quote, start, end in (("结果", 3, 5), ("😀", 2, 3)):
+        response = client.post(endpoint, headers=teacher, json={
+            **base, "quoted_text": quote, "text_start": start, "text_end": end,
+        })
+        assert response.status_code == 201, response.text
+        assert (response.json()["quoted_text"], response.json()["text_start"], response.json()["text_end"]) == (quote, start, end)
+    legacy = client.post(endpoint, headers=teacher, json={**base, "quoted_text": "结果"})
+    assert legacy.status_code == 201, legacy.text
+    detail = client.get(f"/api/submissions/{submission_id}", headers=student)
+    assert detail.status_code == 200, detail.text
+    assert any(item.get("quoted_text") == "结果" and item.get("text_start") == 3
+               and item.get("text_end") == 5 for item in detail.json()["comments"])
+
+
+@pytest.mark.parametrize("ready_submission_candidate", ["legacy", "m1", "m1-pdf-disabled"], indirect=True)
+def test_student_teacher_revision_and_archive_closed_loop(ready_submission_candidate):
+    fixture = ready_submission_candidate
+    student, teacher = fixture["student"], fixture["teacher"]
+    first = client.post("/api/submissions", headers=student, json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": "closed-loop-first",
+    })
+    assert first.status_code == 200, first.text
+    first_id = first.json()["submission"]["id"]
+    project_id = first.json()["participant"]["project_id"]
+    first_detail = client.get(f"/api/submissions/{first_id}", headers=teacher)
+    assert first_detail.status_code == 200, first_detail.text
+    first_version = first_detail.json()["version"]
+    original_section = next(section for section in first_version["content_snapshot"]["sections"] if section["key"] == "ch1")
+    original_text = original_section["paragraphs"][0]["text"]
+
+    comment = client.post(f"/api/submissions/{first_id}/comments", headers=teacher, json={
+        "body": "补充实验结果", "severity": "blocking", "block_id": "ch1-p1",
+    })
+    assert comment.status_code == 201, comment.text
+    comment_id = comment.json()["id"]
+    returned = client.post(f"/api/submissions/{first_id}/reviews", headers=teacher, json={
+        "decision": "returned", "reason": "请补充实验结果",
+    })
+    assert returned.status_code == 200 and returned.json()["participant"]["state"] == "needs_revision", returned.text
+    student_feedback = client.get(f"/api/submissions/{first_id}", headers=student)
+    assert student_feedback.json()["review"]["reason"] == "请补充实验结果"
+
+    project = client.get(f"/api/projects/{project_id}", headers=student).json()
+    section = next(section for section in project["sections"] if section["key"] == "ch1")
+    paragraphs = section["paragraphs"]
+    paragraphs[0]["text"] = original_text + " 已补充实验结果。"
+    saved = client.put(f"/api/projects/{project_id}/section/ch1", headers=student, json={
+        "base_revision": project["revision"], "paragraphs": paragraphs,
+    })
+    assert saved.status_code == 200, saved.text
+    reply = client.post(f"/api/comments/{comment_id}/response", headers=student, json={"body": "已补充实验结果"})
+    assert reply.status_code == 201, reply.text
+    second_candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": fixture["participant_id"]})
+    assert second_candidate.status_code == 201 and second_candidate.json()["status"] == "ready", second_candidate.text
+    second = client.post("/api/submissions", headers=student, json={
+        "candidate_id": second_candidate.json()["id"], "idempotency_key": "closed-loop-second",
+    })
+    assert second.status_code == 200, second.text
+    second_id = second.json()["submission"]["id"]
+    second_detail = client.get(f"/api/submissions/{second_id}", headers=teacher)
+    assert second_detail.status_code == 200, second_detail.text
+    new_version = second_detail.json()["version"]
+    new_section = next(section for section in new_version["content_snapshot"]["sections"] if section["key"] == "ch1")
+    assert new_section["paragraphs"][0]["text"] == original_text + " 已补充实验结果。"
+    assert new_version["content_hash"] != first_version["content_hash"]
+    assert second_detail.json()["prior_unresolved_comments"][0]["responses"][0]["body"] == "已补充实验结果"
+    original_again = client.get(f"/api/submissions/{first_id}", headers=teacher).json()
+    assert next(section for section in original_again["version"]["content_snapshot"]["sections"] if section["key"] == "ch1")["paragraphs"][0]["text"] == original_text
+
+    resolved = client.post(f"/api/comments/{comment_id}/status", headers=teacher, json={"status": "resolved"})
+    assert resolved.status_code == 200, resolved.text
+    approved = client.post(f"/api/submissions/{second_id}/reviews", headers=teacher, json={"decision": "approved"})
+    assert approved.status_code == 200 and approved.json()["participant"]["state"] == "pending_archive", approved.text
+    archive_id = approved.json()["archive"]["id"]
+    run_once()
+    download = client.get(f"/api/archives/{archive_id}/download", headers=student)
+    assert download.status_code == 200, download.text
+    with zipfile.ZipFile(io.BytesIO(download.content)) as bundle:
+        assert not any(name.lower().endswith('.pdf') for name in bundle.namelist())
+        document = bundle.read("final.docx")
+    assert hashlib.sha256(document).hexdigest() == second_candidate.json()["artifact"]["docx_sha256"]
+    with zipfile.ZipFile(io.BytesIO(document)) as docx:
+        assert "已补充实验结果" in docx.read("word/document.xml").decode("utf-8")
+
+
+@pytest.mark.parametrize(("requirement_type", "enforce", "allowed"), [
+    ("manual", "hard", False),
+    ("doc", "hard", False),
+    ("manual", "soft", True),
+])
+def test_submission_requires_hard_rules_to_be_checked(
+    ready_submission_candidate, monkeypatch, requirement_type, enforce, allowed,
+):
     from app.api import workflow as workflow_api
 
-    original_output_check = workflow_api.require_docx_output_pass
+    fixture = ready_submission_candidate
+    original_check = workflow_api.check_project
 
-    def office_review_required(*args, **kwargs):
-        report = original_output_check(*args, **kwargs)
-        report["office_review_required"] = True
-        report["manual_checks"] = ["核对 Word/WPS 分页、字体与表格跨页"]
+    def unchecked_rule(*args, **kwargs):
+        report = original_check(*args, **kwargs)
+        report["not_checked"].append({
+            "id": "unchecked-rule", "description": "待核验规则",
+            "type": requirement_type, "enforce": enforce,
+        })
         return report
 
-    monkeypatch.setattr(workflow_api, "require_docx_output_pass", office_review_required)
+    monkeypatch.setattr(workflow_api, "check_project", unchecked_rule)
+    response = client.post("/api/submission-candidates", headers=fixture["student"], json={
+        "participant_id": fixture["participant_id"],
+    })
+    assert response.status_code == 201, response.text
+    candidate = response.json()
+    assert candidate["status"] == ("ready" if allowed else "blocked")
+    if not allowed:
+        assert any(item["key"] == "automatic_unverified" for item in candidate["gates"])
+        # A stale candidate cannot bypass the gate by retaining an old ready state.
+        stored = Store().get_workflow_record("candidate", candidate["id"])
+        stored["status"] = "ready"
+        stored["gates"] = [item for item in stored["gates"] if item["key"] != "automatic_unverified"]
+        Store().save_workflow_record("candidate", stored, expected_revision=stored["revision"])
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": candidate["id"], "idempotency_key": f"unchecked-{uuid.uuid4().hex}",
+    })
+    assert submitted.status_code == (200 if allowed else 409), submitted.text
+    if not allowed:
+        assert any(item["key"] == "automatic_unverified" for item in submitted.json()["detail"]["gates"])
+
+
+@pytest.mark.parametrize("ready_submission_candidate", ["legacy", "m1"], indirect=True)
+@pytest.mark.parametrize("archive_check", ["candidate", "archive"])
+def test_submission_and_archive_reject_output_requiring_manual_review(
+    ready_submission_candidate, monkeypatch, archive_check,
+):
+    from app.api import workflow as workflow_api
+
+    fixture = ready_submission_candidate
+    check_output = workflow_api.require_docx_output_pass
+    verify_artifact = workflow_api._verified_candidate_artifact
+
+    def pending_output(*args, **kwargs):
+        return {**check_output(*args, **kwargs), "office_review_required": True}
+
+    with monkeypatch.context() as patch:
+        patch.setattr(workflow_api, "require_docx_output_pass", pending_output)
+        candidate = client.post("/api/submission-candidates", headers=fixture["student"], json={
+            "participant_id": fixture["participant_id"],
+        })
+    assert candidate.status_code == 201, candidate.text
+    assert candidate.json()["status"] == "blocked"
+    output_gate = next(item for item in candidate.json()["gates"] if item["key"] == "output_artifact")
+    assert output_gate["diagnostic"]["findings"][0]["rule"] == "workflow.automatic_output_check"
+    assert "artifact" not in candidate.json()
+
+    def pending_verified_artifact(*args, **kwargs):
+        data, report = verify_artifact(*args, **kwargs)
+        return data, {**report, "manual_checks": ["分页尚未自动核验"]}
+
+    submit_request = {"candidate_id": fixture["candidate_id"], "idempotency_key": "automatic-check-required"}
+    with monkeypatch.context() as patch:
+        patch.setattr(workflow_api, "_verified_candidate_artifact", pending_verified_artifact)
+        rejected = client.post("/api/submissions", headers=fixture["student"], json=submit_request)
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"]["code"] == "SUBMISSION_ARTIFACT_INVALID"
+
+    submitted = client.post("/api/submissions", headers=fixture["student"], json=submit_request)
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    with monkeypatch.context() as patch:
+        patch.setattr(workflow_api, "_verified_candidate_artifact", pending_verified_artifact)
+        rejected = client.post(f"/api/submissions/{submission_id}/reviews", headers=fixture["teacher"],
+                               json={"decision": "approved"})
+    assert rejected.status_code == 409, rejected.text
+    assert rejected.json()["detail"]["code"] == "SUBMISSION_ARTIFACT_INVALID"
+
+    approved = client.post(f"/api/submissions/{submission_id}/reviews", headers=fixture["teacher"],
+                           json={"decision": "approved"})
+    assert approved.status_code == 200, approved.text
+    archive_id = approved.json()["archive"]["id"]
+    with monkeypatch.context() as patch:
+        if archive_check == "candidate":
+            patch.setattr(workflow_api, "_verified_candidate_artifact", pending_verified_artifact)
+        else:
+            def pending_archive_output(*args, **kwargs):
+                report = check_output(*args, **kwargs)
+                if kwargs.get("context_kind") == "workflow-archive":
+                    report["office_review_required"] = True
+                return report
+
+            patch.setattr(workflow_api, "require_docx_output_pass", pending_archive_output)
+        run_once()
+    archive = client.get(f"/api/archives/{archive_id}", headers=fixture["student"])
+    assert archive.json()["status"] == "failed", archive.text
+    assert archive.json()["error_code"] == "ARCHIVE_OUTPUT_CHECK_FAILED"
+    assert client.get(f"/api/archives/{archive_id}/download", headers=fixture["student"]).status_code == 409
+
+
+def test_submitted_review_cannot_switch_stage_configuration(ready_submission_candidate):
+    fixture = ready_submission_candidate
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": f"frozen-stage-{uuid.uuid4().hex}",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    participant_id = fixture["participant_id"]
+    stage_id = submitted.json()["participant"]["stage_id"]
+    original_config_id = submitted.json()["submission"]["stage_config_id"]
+    draft = client.post(f"/api/stages/{stage_id}/versions", headers=fixture["admin"], json={
+        "is_final": False, "reason": "后续阶段配置调整",
+    })
+    assert draft.status_code == 201, draft.text
+    new_config_id = draft.json()["new_config"]["id"]
+
+    for expected_state in ("submitted", "pending_archive", "archived"):
+        current = client.get(f"/api/stage-participants/{participant_id}", headers=fixture["student"])
+        assert current.json()["participant"]["state"] == expected_state
+        result = client.post(f"/api/stages/{stage_id}/versions/{new_config_id}/publish", headers=fixture["admin"], json={
+            "participant_ids": [participant_id], "reason": "尝试切换审核中的阶段配置",
+        })
+        assert result.status_code == 409, result.text
+        detail = client.get(f"/api/submissions/{submission_id}", headers=fixture["teacher"])
+        assert detail.json()["config"]["id"] == original_config_id
+        if expected_state == "submitted":
+            decision = client.post(f"/api/submissions/{submission_id}/reviews", headers=fixture["teacher"], json={
+                "decision": "approved",
+            })
+            assert decision.status_code == 200, decision.text
+            assert decision.json()["archive"] is not None
+        elif expected_state == "pending_archive":
+            run_once()
+
+
+def test_submission_history_retains_its_frozen_stage_configuration(ready_submission_candidate):
+    fixture = ready_submission_candidate
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": f"history-stage-{uuid.uuid4().hex}",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission = submitted.json()["submission"]
+    participant_id = fixture["participant_id"]
+    stage_id = submitted.json()["participant"]["stage_id"]
+    assert client.post(f"/api/submissions/{submission['id']}/withdraw", headers=fixture["student"]).status_code == 200
+    draft = client.post(f"/api/stages/{stage_id}/versions", headers=fixture["admin"], json={
+        "revision_days": 21, "reason": "调整后续修订要求",
+    })
+    assert draft.status_code == 201, draft.text
+    new_config_id = draft.json()["new_config"]["id"]
+    published = client.post(f"/api/stages/{stage_id}/versions/{new_config_id}/publish", headers=fixture["admin"], json={
+        "reason": "发布后续阶段配置",
+    })
+    assert published.status_code == 200, published.text
+    store = Store()
+    participant = store.get_workflow_record("participant", participant_id)
+    participant["config_version_id"] = new_config_id
+    assert store.save_workflow_record("participant", participant, expected_revision=participant["revision"])
+    current = client.get(f"/api/stage-participants/{participant_id}", headers=fixture["student"])
+    assert current.json()["config"]["id"] == new_config_id
+    history = client.get(f"/api/submissions/{submission['id']}", headers=fixture["teacher"])
+    assert history.status_code == 200, history.text
+    assert history.json()["config"] == submission["stage_config_snapshot"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("id", "stage-config-other"), ("stage_id", "stage-other"), ("revision_days", 99),
+])
+def test_review_rejects_invalid_frozen_stage_configuration(ready_submission_candidate, field, value):
+    fixture = ready_submission_candidate
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": f"invalid-stage-{uuid.uuid4().hex}",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    store = Store()
+    record = store.get_workflow_record("submission", submission_id)
+    record["stage_config_snapshot"][field] = value
+    assert store.save_workflow_record("submission", record, expected_revision=record["revision"])
+
+    detail = client.get(f"/api/submissions/{submission_id}", headers=fixture["teacher"])
+    assert detail.status_code == 409 and detail.json()["detail"]["code"] == "SUBMISSION_CONFIG_INVALID"
+    decision = client.post(f"/api/submissions/{submission_id}/reviews", headers=fixture["teacher"], json={
+        "decision": "approved",
+    })
+    assert decision.status_code == 409 and decision.json()["detail"]["code"] == "SUBMISSION_CONFIG_INVALID"
+    assert store.get_workflow_record("participant", fixture["participant_id"])["state"] == "submitted"
+
+
+def test_stage_configuration_switch_loses_to_concurrent_submission(ready_submission_candidate, monkeypatch):
+    fixture = ready_submission_candidate
+    store = Store()
+    participant = store.get_workflow_record("participant", fixture["participant_id"])
+    stage_id = participant["stage_id"]
+    original_config_id = participant["config_version_id"]
+    draft = client.post(f"/api/stages/{stage_id}/versions", headers=fixture["admin"], json={
+        "is_final": False, "reason": "调整后续阶段配置",
+    })
+    assert draft.status_code == 201, draft.text
+    new_config_id = draft.json()["new_config"]["id"]
+    waiting, proceed = Event(), Event()
+    original_transaction = Store.workflow_transaction
+
+    @contextmanager
+    def delay_first_transaction(current_store):
+        if not waiting.is_set():
+            waiting.set()
+            assert proceed.wait(timeout=10)
+        with original_transaction(current_store) as conn:
+            yield conn
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Store, "workflow_transaction", delay_first_transaction)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(client.post, f"/api/stages/{stage_id}/versions/{new_config_id}/publish",
+                                      headers=fixture["admin"], json={
+                                          "participant_ids": [participant["id"]], "reason": "更新可编辑任务配置",
+                                      })
+            try:
+                assert waiting.wait(timeout=10)
+                submitted = client.post("/api/submissions", headers=fixture["student"], json={
+                    "candidate_id": fixture["candidate_id"], "idempotency_key": f"stage-race-{uuid.uuid4().hex}",
+                })
+            finally:
+                proceed.set()
+            switched = pending.result(timeout=20)
+    assert submitted.status_code == 200, submitted.text
+    assert switched.status_code == 409, switched.text
+    current = store.get_workflow_record("participant", participant["id"])
+    assert current["state"] == "submitted" and current["config_version_id"] == original_config_id
+    assert store.get_workflow_record("stage", stage_id)["config_version_id"] == original_config_id
+    assert store.get_workflow_record("stage_config", new_config_id)["status"] == "draft"
+
+
+def test_submitted_word_download_is_bound_to_the_submission_and_guidance(ready_submission_candidate, monkeypatch):
+    from app.api import workflow as workflow_api
+
+    fixture = ready_submission_candidate
+    student, teacher = fixture["student"], fixture["teacher"]
+    submitted = client.post("/api/submissions", headers=student, json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": "submitted-document-download",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    project_id = submitted.json()["participant"]["project_id"]
+    path = f"/api/submissions/{submission_id}/document"
+    candidate = Store().get_workflow_record("candidate", fixture["candidate_id"])
+    artifact = workflow_api._candidate_artifact_path(candidate["id"])
+    original = artifact.read_bytes()
+    for headers in (student, teacher):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.content == original
+        assert response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        assert response.headers["cache-control"] == "private, no-store"
+        assert hashlib.sha256(response.content).hexdigest() == candidate["artifact"]["docx_sha256"]
+
+    other_teacher, other_student, _, _ = _create_people(fixture["admin"])
+    for headers in (other_teacher, other_student):
+        assert client.get(path, headers=headers).status_code in (403, 404)
+    assert client.get(path).status_code == 401
+
+    project = client.get(f"/api/projects/{project_id}", headers=student).json()
+    section = next(item for item in project["sections"] if item["key"] == "ch1")
+    paragraphs = section["paragraphs"]
+    paragraphs[0]["text"] += " 修改后的草稿。"
+    saved = client.put(f"/api/projects/{project_id}/section/ch1", headers=student, json={
+        "base_revision": project["revision"], "paragraphs": paragraphs,
+    })
+    assert saved.status_code == 200, saved.text
+    assert client.get(path, headers=teacher).content == original
+
+    try:
+        artifact.write_bytes(b"altered submission")
+        unavailable = client.get(path, headers=teacher)
+        assert unavailable.status_code == 409
+        assert unavailable.json()["detail"]["code"] == "SUBMISSION_ARTIFACT_INVALID"
+    finally:
+        artifact.write_bytes(original)
+
+    verify = workflow_api._verified_candidate_artifact
+
+    def require_office_review(*args, **kwargs):
+        data, report = verify(*args, **kwargs)
+        return data, {**report, "office_review_required": True, "manual_checks": ["页面尚未核验"]}
+
+    from app.services.manual_output_review import confirm_review, review_checklist
+    version = Store().get_workflow_record("project_version", submitted.json()["submission"]["project_version_id"])
+    _, pending_report = require_office_review(Store(), candidate, version)
+    candidate["manual_review"] = confirm_review(
+        pending_report, output_sha256=pending_report["output_sha256"],
+        confirmed_check_ids=[item["id"] for item in review_checklist(pending_report)], reviewer_id="legacy-reviewer",
+    )
+    assert Store().save_workflow_record("candidate", candidate, expected_revision=candidate["revision"])
+    monkeypatch.setattr(workflow_api, "_verified_candidate_artifact", require_office_review)
+    for headers in (student, teacher):
+        assert client.get(path, headers=headers).status_code == 409
+
+
+def test_optional_submission_pdf_requires_the_checked_submission_and_never_blocks_word(ready_submission_candidate, monkeypatch):
+    from app.api import workflow as workflow_api
+    from app.services import word_optional_pdf
+
+    fixture = ready_submission_candidate
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": "optional-submission-pdf",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    path = f"/api/submissions/{submission_id}/document"
+    artifact = workflow_api._candidate_artifact_path(fixture["candidate_id"])
+    original = artifact.read_bytes()
+    pdf = b"%PDF-1.4 test conversion result"
+    used = []
+
+    def convert(data):
+        used.append(data)
+        return pdf, {"source_sha256": hashlib.sha256(data).hexdigest(), "pdf_sha256": hashlib.sha256(pdf).hexdigest()}
+
+    monkeypatch.setattr(word_optional_pdf, "word_pdf_available", lambda: True)
+    monkeypatch.setattr(word_optional_pdf, "create_optional_pdf", convert)
+    assert client.get(path, headers=fixture["student"]).content == original
+    assert not used
+    for headers in (fixture["student"], fixture["teacher"]):
+        response = client.get(path + "?format=pdf", headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.content == pdf and response.headers["content-type"] == "application/pdf"
+        assert response.headers["x-paperguard-source-sha256"] == hashlib.sha256(original).hexdigest()
+        assert response.headers["x-paperguard-pdf-sha256"] == hashlib.sha256(pdf).hexdigest()
+    assert used == [original, original]
+    other_teacher, other_student, _, _ = _create_people(fixture["admin"])
+    for headers in (other_teacher, other_student):
+        assert client.get(path + "?format=pdf", headers=headers).status_code in (403, 404)
+    assert client.get(path + "?format=pdf").status_code == 401
+
+    def fail(_data):
+        raise word_optional_pdf.WordPdfError("conversion failed")
+
+    monkeypatch.setattr(word_optional_pdf, "create_optional_pdf", fail)
+    assert client.get(path + "?format=pdf", headers=fixture["student"]).status_code == 503
+    assert client.get(path, headers=fixture["student"]).content == original
+
+    def mutate(data):
+        artifact.write_bytes(b"changed during conversion")
+        return convert(data)
+
+    monkeypatch.setattr(word_optional_pdf, "create_optional_pdf", mutate)
+    try:
+        assert client.get(path + "?format=pdf", headers=fixture["student"]).status_code == 409
+    finally:
+        artifact.write_bytes(original)
+    assert client.get(path, headers=fixture["student"]).content == original
+
+
+def test_content_advisory_follows_submission_and_does_not_block_review(ready_submission_candidate, monkeypatch):
+    from app.api import workflow as workflow_api
+
+    fixture = ready_submission_candidate
+    original_check = workflow_api.check_project
+    advisory = {
+        "rule_id": "recent-references", "checker": "references.recent_language_summary",
+        "message": "近三年文献数量待教师审核", "severity": "info", "enforce": "soft",
+    }
+
+    def check_with_advisory(*args, **kwargs):
+        report = original_check(*args, **kwargs)
+        report.setdefault("quality_advisories", []).append(advisory)
+        return report
+
+    monkeypatch.setattr(workflow_api, "check_project", check_with_advisory)
+    candidate = client.post("/api/submission-candidates", headers=fixture["student"], json={
+        "participant_id": fixture["participant_id"],
+    })
+    assert candidate.status_code == 201 and candidate.json()["status"] == "ready", candidate.text
+    assert advisory in candidate.json()["check_report"]["quality_advisories"]
+
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": candidate.json()["id"], "idempotency_key": f"quality-advisory-{uuid.uuid4().hex}",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+
+    def no_live_check(*_args, **_kwargs):
+        raise AssertionError("review must read the frozen submission report")
+
+    monkeypatch.setattr(workflow_api, "check_project", no_live_check)
+    detail = client.get(f"/api/submissions/{submission_id}", headers=fixture["teacher"])
+    assert detail.status_code == 200, detail.text
+    assert advisory in detail.json()["candidate"]["check_report"]["quality_advisories"]
+    approved = client.post(f"/api/submissions/{submission_id}/reviews", headers=fixture["teacher"], json={
+        "decision": "approved",
+    })
+    assert approved.status_code == 200, approved.text
+
+
+def test_required_material_is_bound_to_each_submission(ready_submission_candidate, tmp_path, monkeypatch):
+    fixture = ready_submission_candidate
+    store = Store()
+    monkeypatch.setenv("PAPERGUARD_PROCESS_FILE_DIR", str(tmp_path / "process-files"))
+    participant = store.get_workflow_record("participant", fixture["participant_id"])
+    stage = store.get_workflow_record("stage", participant["stage_id"])
+    config_id = participant.get("config_version_id") or stage["config_version_id"]
+    config = store.get_workflow_record("stage_config", config_id)
+    config["required_materials"] = ["task_book"]
+    assert store.save_workflow_record("stage_config", config, expected_revision=config["revision"])
+
+    record = client.post(f"/api/stage-participants/{participant['id']}/process-records", headers=fixture["student"], json={
+        "artifact_type": "task_book", "data": {"title": "原任务书", "requirements": "完成实验"},
+    })
+    assert record.status_code == 201, record.text
+    record_id = record.json()["id"]
+    original = b"submitted task material"
+    attachment = client.post(f"/api/process-records/{record_id}/attachments", headers=fixture["student"], files={
+        "file": ("task.txt", original, "text/plain"),
+    })
+    assert attachment.status_code == 201, attachment.text
+    attachment_id = attachment.json()["id"]
+    assert client.post(f"/api/process-records/{record_id}/submit", headers=fixture["student"]).status_code == 200
+
+    stale = client.post("/api/submission-candidates", headers=fixture["student"], json={"participant_id": participant["id"]})
+    assert stale.status_code == 201 and stale.json()["status"] == "ready", stale.text
+    assert client.post(f"/api/process-records/{record_id}/decisions", headers=fixture["teacher"], json={"decision": "approved"}).status_code == 200
+    rejected = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": stale.json()["id"], "idempotency_key": f"stale-material-{uuid.uuid4().hex}",
+    })
+    assert rejected.status_code == 409, rejected.text
+
+    candidate = client.post("/api/submission-candidates", headers=fixture["student"], json={"participant_id": participant["id"]})
+    assert candidate.status_code == 201 and candidate.json()["status"] == "ready", candidate.text
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": candidate.json()["id"], "idempotency_key": f"frozen-material-{uuid.uuid4().hex}",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    live = store.get_workflow_record("process_record", record_id)
+    Path(live["attachments"][0]["storage_path"]).write_bytes(b"changed after submission")
+    live["data"]["title"] = "后来修改"
+    assert store.save_workflow_record("process_record", live, expected_revision=live["revision"])
+
+    detail = client.get(f"/api/submissions/{submission_id}", headers=fixture["teacher"])
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["submitted_materials_available"] is True
+    frozen = detail.json()["submitted_materials"]
+    assert len(frozen) == 1 and frozen[0]["data"]["title"] == "原任务书"
+    assert "storage_path" not in frozen[0]["attachments"][0]
+    download_url = frozen[0]["attachments"][0]["download_url"]
+    assert client.get(download_url, headers=fixture["teacher"]).content == original
+    other_teacher, other_student, _, _ = _create_people(fixture["admin"])
+    for user in (other_teacher, other_student):
+        assert client.get(download_url, headers=user).status_code in (403, 404)
+
+    from app.api.workflow import _candidate_material_dir
+    frozen_file = _candidate_material_dir(candidate.json()["id"]) / attachment_id
+    frozen_file.write_bytes(b"tampered frozen material")
+    unavailable = client.get(f"/api/submissions/{submission_id}", headers=fixture["teacher"])
+    assert unavailable.json()["submitted_materials_available"] is False
+    assert client.get(download_url, headers=fixture["teacher"]).status_code == 409
+    assert client.post(f"/api/submissions/{submission_id}/reviews", headers=fixture["teacher"], json={"decision": "approved"}).status_code == 409
+    frozen_file.write_bytes(original)
+
+    approved = client.post(f"/api/submissions/{submission_id}/reviews", headers=fixture["teacher"], json={"decision": "approved"})
+    assert approved.status_code == 200, approved.text
+    archive_id = approved.json()["archive"]["id"]
+    run_once()
+    archive = client.get(f"/api/archives/{archive_id}/download", headers=fixture["student"])
+    assert archive.status_code == 200, archive.text
+    with zipfile.ZipFile(io.BytesIO(archive.content)) as bundle:
+        frozen_records = json.loads(bundle.read("process-records.json"))
+        assert next(item for item in frozen_records if item["id"] == record_id)["data"]["title"] == "原任务书"
+        assert bundle.read(f"materials/{attachment_id}.txt") == original
+
+
+def _approved_archive_from_candidate(fixture):
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": f"archive-recovery-{uuid.uuid4().hex}",
+    })
+    assert submitted.status_code == 200, submitted.text
+    approved = client.post(f"/api/submissions/{submitted.json()['submission']['id']}/reviews", headers=fixture["teacher"], json={
+        "decision": "approved",
+    })
+    assert approved.status_code == 200, approved.text
+    return approved.json()["archive"]
+
+
+def test_older_student_material_stays_available_through_review_and_archive(
+    ready_submission_candidate, tmp_path, monkeypatch,
+):
+    from app.api.process_records import material_requirement_state
+    from app.services.workflow_jobs import consume_archive_jobs
+
+    fixture = ready_submission_candidate
+    store = Store()
+    suffix = uuid.uuid4().hex[:12]
+    record_id = f"process-old-{suffix}"
+    attachment_id = f"file-old-{suffix}"
+    attachment = tmp_path / f"{attachment_id}.txt"
+    contents = b"older student material"
+    attachment.write_bytes(contents)
+    monkeypatch.setenv("PAPERGUARD_PROCESS_FILE_DIR", str(tmp_path))
+    with store.workflow_transaction() as conn:
+        store.save_workflow_record_conn(conn, "process_record", {
+            "id": record_id, "scope_type": "participant", "scope_id": fixture["participant_id"],
+            "artifact_type": "task_book", "state": "submitted", "approval_history": [],
+            "attachments": [{
+                "id": attachment_id, "name": "task-book.txt", "storage_path": str(attachment),
+                "media_type": "text/plain", "sha256": hashlib.sha256(contents).hexdigest(),
+            }],
+        })
+        conn.execute("UPDATE workflow_records SET updated_at = ? WHERE kind = ? AND id = ?",
+                     ("2000-01-01T00:00:00Z", "process_record", record_id))
+        for index in range(501):
+            store.save_workflow_record_conn(conn, "process_record", {
+                "id": f"process-noise-{suffix}-{index}", "scope_type": "participant",
+                "scope_id": f"other-{suffix}", "state": "draft", "attachments": [],
+            })
+
+    assert not any(item["id"] == record_id for item in store.list_workflow_records("process_record"))
+    assert material_requirement_state(store, fixture["participant_id"], "task_book")["record_ids"] == [record_id]
+    for user in (fixture["student"], fixture["teacher"]):
+        records = client.get(f"/api/stage-participants/{fixture['participant_id']}/process-records", headers=user)
+        assert records.status_code == 200 and any(item["id"] == record_id for item in records.json())
+        downloaded = client.get(f"/api/process-files/{attachment_id}/download", headers=user)
+        assert downloaded.status_code == 200 and downloaded.content == contents
+    inbox = client.get("/api/process-records/inbox", headers=fixture["teacher"])
+    assert inbox.status_code == 200 and any(item["id"] == record_id for item in inbox.json())
+    other_teacher, other_student, _, _ = _create_people(fixture["admin"])
+    for user in (other_teacher, other_student):
+        denied = client.get(f"/api/process-files/{attachment_id}/download", headers=user)
+        assert denied.status_code in (403, 404)
+
+    archive = _approved_archive_from_candidate(fixture)
+    result = consume_archive_jobs(store, consumer_id=f"material-test-{suffix}", limit=50)
+    assert archive["job_id"] in result["succeeded"], result
+    downloaded_archive = client.get(f"/api/archives/{archive['id']}/download", headers=fixture["student"])
+    assert downloaded_archive.status_code == 200, downloaded_archive.text
+    with zipfile.ZipFile(io.BytesIO(downloaded_archive.content)) as bundle:
+        records = json.loads(bundle.read("process-records.json"))
+        assert any(item["id"] == record_id for item in records)
+        assert bundle.read(f"materials/{attachment_id}.txt") == contents
+
+
+def test_archive_recovery_keeps_active_worker_running(ready_submission_candidate):
+    from app.api.workflow import recover_pending_archives
+    from app.services.workflow_jobs import consume_archive_jobs
+
+    archive = _approved_archive_from_candidate(ready_submission_candidate)
+    store = Store()
+    claimed = store.claim_jobs(job_type="archive.generate", consumer_id="active-worker", limit=50)
+    assert any(job["id"] == archive["job_id"] for job in claimed)
+    record = store.get_workflow_record("archive", archive["id"])
+    record["status"] = "running"
+    assert store.save_workflow_record("archive", record, expected_revision=record["revision"])
+
+    recover_pending_archives(store)
+
+    assert store.get_workflow_record("archive", archive["id"])["status"] == "running"
+    assert store.get_job(archive["job_id"])["state"] == "running"
+    with store.workflow_transaction() as conn:
+        conn.execute("UPDATE jobs SET lease_until = ? WHERE id = ?", ("2000-01-01T00:00:00+00:00", archive["job_id"]))
+    assert archive["job_id"] in consume_archive_jobs(store, consumer_id="cleanup-worker", limit=50)["succeeded"]
+
+
+def test_archive_worker_recovers_after_interrupted_lease(ready_submission_candidate):
+    from app.services.workflow_jobs import consume_archive_jobs
+
+    archive = _approved_archive_from_candidate(ready_submission_candidate)
+    store = Store()
+    claimed = store.claim_jobs(job_type="archive.generate", consumer_id="interrupted-worker", limit=50)
+    assert any(job["id"] == archive["job_id"] for job in claimed)
+    record = store.get_workflow_record("archive", archive["id"])
+    record["status"] = "running"
+    assert store.save_workflow_record("archive", record, expected_revision=record["revision"])
+    with store.workflow_transaction() as conn:
+        conn.execute("UPDATE jobs SET lease_until = ? WHERE id = ?", ("2000-01-01T00:00:00+00:00", archive["job_id"]))
+
+    result = consume_archive_jobs(store, consumer_id="replacement-worker", limit=50)
+
+    assert archive["job_id"] in result["succeeded"], result
+    assert store.get_workflow_record("archive", archive["id"])["status"] == "succeeded"
+    assert store.get_job(archive["job_id"])["state"] == "succeeded"
+    assert client.get(f"/api/archives/{archive['id']}/download", headers=ready_submission_candidate["student"]).status_code == 200
+
+
+@pytest.mark.parametrize("stale_fails", [False, True])
+def test_interrupted_archive_worker_cannot_overwrite_replacement(ready_submission_candidate, monkeypatch, stale_fails):
+    from app.api import workflow as workflow_api
+    from app.services.workflow_jobs import consume_archive_jobs
+
+    archive = _approved_archive_from_candidate(ready_submission_candidate)
+    store = Store()
+    reached_check, release_old = Event(), Event()
+    original = workflow_api.require_docx_output_pass
+
+    def pause_first_archive_check(*args, **kwargs):
+        if kwargs.get("context_kind") == "workflow-archive" and not reached_check.is_set():
+            reached_check.set()
+            assert release_old.wait(30)
+            if stale_fails:
+                raise RuntimeError("interrupted worker failed after replacement")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(workflow_api, "require_docx_output_pass", pause_first_archive_check)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        old = executor.submit(consume_archive_jobs, store, consumer_id="old-worker", limit=50)
+        try:
+            assert reached_check.wait(30)
+            with store.workflow_transaction() as conn:
+                conn.execute("UPDATE jobs SET lease_until = ? WHERE id = ?", ("2000-01-01T00:00:00+00:00", archive["job_id"]))
+            replacement = consume_archive_jobs(store, consumer_id="replacement-worker", limit=50)
+            assert archive["job_id"] in replacement["succeeded"], replacement
+            before = client.get(f"/api/archives/{archive['id']}/download", headers=ready_submission_candidate["student"])
+            assert before.status_code == 200, before.text
+        finally:
+            release_old.set()
+        stale_result = old.result(timeout=30)
+
+    assert archive["job_id"] not in stale_result["succeeded"]
+    after = client.get(f"/api/archives/{archive['id']}/download", headers=ready_submission_candidate["student"])
+    assert after.status_code == 200 and after.content == before.content
+    assert store.get_job(archive["job_id"])["state"] == "succeeded"
+    assert store.get_workflow_record("archive", archive["id"])["status"] == "succeeded"
+
+
+def test_exhausted_archive_job_notifies_both_roles_and_can_retry(ready_submission_candidate, tmp_path):
+    from app.services.workflow_jobs import consume_archive_jobs
+
+    fixture = ready_submission_candidate
+    archive = _approved_archive_from_candidate(fixture)
+    store = Store()
+    attachment = tmp_path / "missing-material.txt"
+    data = b"synthetic test material"
+    store.save_workflow_record("process_record", {
+        "id": f"process-{uuid.uuid4().hex[:12]}", "scope_type": "participant", "scope_id": fixture["participant_id"],
+        "attachments": [{"id": "attachment", "storage_path": str(attachment), "sha256": hashlib.sha256(data).hexdigest()}],
+    })
+    with store.workflow_transaction() as conn:
+        conn.execute("UPDATE jobs SET max_attempts = 1 WHERE id = ?", (archive["job_id"],))
+
+    first = consume_archive_jobs(store, consumer_id="failing-worker", limit=50)
+    assert any(item["job_id"] == archive["job_id"] and item["state"] == "failed" for item in first["failed"])
+    failed = store.get_workflow_record("archive", archive["id"])
+    assert failed["status"] == "failed" and failed["error_code"] == "ARCHIVE_GENERATION_FAILED"
+    assert client.get(f"/api/archives/{archive['id']}/download", headers=fixture["student"]).status_code == 409
+    participant = store.get_workflow_record("participant", fixture["participant_id"])
+    supervision = next(item for item in store.list_workflow_records("supervision", limit=None)
+                       if item.get("cohort_id") == fixture["cohort_id"] and item.get("student_id") == participant["student_id"])
+    for recipient in (participant["student_id"], supervision["teacher_id"]):
+        assert any(event["event_type"] == "archive.failed" and event["resource_id"] == archive["id"]
+                   for event in store.list_workflow_events(recipient))
+
+    attachment.write_bytes(data)
+    retried = client.post(f"/api/archives/{archive['id']}/retry", headers=fixture["teacher"], json={"reason": "归档条件已恢复"})
+    assert retried.status_code == 200, retried.text
+    recovered = consume_archive_jobs(store, consumer_id="recovered-worker", limit=50)
+    assert archive["job_id"] in recovered["succeeded"], recovered
+    assert client.get(f"/api/archives/{archive['id']}/download", headers=fixture["student"]).status_code == 200
+
+
+def test_expired_last_archive_attempt_is_parked(ready_submission_candidate):
+    from app.services.workflow_jobs import consume_archive_jobs
+
+    archive = _approved_archive_from_candidate(ready_submission_candidate)
+    store = Store()
+    with store.workflow_transaction() as conn:
+        conn.execute("UPDATE jobs SET max_attempts = 1 WHERE id = ?", (archive["job_id"],))
+    claimed = store.claim_jobs(job_type="archive.generate", consumer_id="interrupted-final-worker", limit=50)
+    assert any(job["id"] == archive["job_id"] for job in claimed)
+    record = store.get_workflow_record("archive", archive["id"])
+    record["status"] = "running"
+    assert store.save_workflow_record("archive", record, expected_revision=record["revision"])
+    with store.workflow_transaction() as conn:
+        conn.execute("UPDATE jobs SET lease_until = ? WHERE id = ?", ("2000-01-01T00:00:00+00:00", archive["job_id"]))
+
+    result = consume_archive_jobs(store, consumer_id="replacement-worker", limit=50)
+
+    assert archive["job_id"] not in result["succeeded"]
+    assert store.get_job(archive["job_id"])["state"] == "failed"
+    failed = store.get_workflow_record("archive", archive["id"])
+    assert failed["status"] == "failed" and failed["error_code"] == "ARCHIVE_ATTEMPTS_EXHAUSTED"
+
+
+def test_retry_archive_rejects_a_mismatched_job(ready_submission_candidate):
+    fixture = ready_submission_candidate
+    archive = _approved_archive_from_candidate(fixture)
+    store = Store()
+    record = store.get_workflow_record("archive", archive["id"])
+    record["status"] = "failed"
+    assert store.save_workflow_record("archive", record, expected_revision=record["revision"])
+    with store.workflow_transaction() as conn:
+        conn.execute("UPDATE jobs SET job_type = ? WHERE id = ?", ("project.export", archive["job_id"]))
+    original_job = store.get_job(archive["job_id"])
+
+    response = client.post(f"/api/archives/{archive['id']}/retry", headers=fixture["teacher"], json={"reason": "重试"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "ARCHIVE_QUEUE_STATE_MISMATCH"
+    assert store.get_job(archive["job_id"]) == original_job
+    assert store.get_workflow_record("archive", archive["id"])["status"] == "failed"
+    assert store.cancel_job(archive["job_id"], reason="test completed")
+
+
+def test_submission_image_stays_bound_to_its_version_and_guidance(ready_submission_candidate):
+    from app.services.project_versions import resolve_project_attachment
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
+    )
+    fixture = ready_submission_candidate
+    student, teacher = fixture["student"], fixture["teacher"]
+    participant = Store().get_workflow_record("participant", fixture["participant_id"])
+    project_id = participant["project_id"]
+    project = client.get(f"/api/projects/{project_id}", headers=student).json()
+    uploaded = client.post(f"/api/projects/{project_id}/images", headers=student, files={
+        "file": ("figure.png", png, "image/png"),
+    })
+    assert uploaded.status_code == 201, uploaded.text
+    section = next(item for item in project["sections"] if item["key"] == "ch1")
+    saved = client.put(f"/api/projects/{project_id}/section/ch1", headers=student, json={
+        "base_revision": project["revision"],
+        "paragraphs": section["paragraphs"] + [{
+            "id": "submitted-figure", "type": "image",
+            "image": {"url": uploaded.json()["url"], "caption": "图 1.1 研究结果"},
+        }],
+    })
+    assert saved.status_code == 200, saved.text
+    candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]})
+    assert candidate.status_code == 201 and candidate.json()["status"] == "ready", candidate.text
+    submitted = client.post("/api/submissions", headers=student, json={
+        "candidate_id": candidate.json()["id"], "idempotency_key": "image-version-submit",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    image_path = f"/api/submissions/{submission_id}/image"
+
+    # The student can keep editing, but the teacher must see the submitted image.
+    current = client.get(f"/api/projects/{project_id}", headers=student).json()
+    section = next(item for item in current["sections"] if item["key"] == "ch1")
+    saved = client.put(f"/api/projects/{project_id}/section/ch1", headers=student, json={
+        "base_revision": current["revision"],
+        "paragraphs": [block for block in section["paragraphs"] if block["id"] != "submitted-figure"],
+    })
+    assert saved.status_code == 200, saved.text
+    for headers in (student, teacher):
+        image = client.get(image_path, headers=headers, params={"block_id": "submitted-figure"})
+        assert image.status_code == 200 and image.content == png, image.text
+        assert image.headers["content-type"] == "image/png"
+        assert image.headers["cache-control"] == "private, no-store"
+    other_teacher, other_student, _, _ = _create_people(fixture["admin"])
+    for headers in (other_teacher, other_student):
+        assert client.get(image_path, headers=headers, params={"block_id": "submitted-figure"}).status_code in (403, 404)
+    assert client.get(image_path, headers=teacher, params={"block_id": "ch1-p1"}).status_code == 404
+
+    version = Store().get_workflow_record("project_version", candidate.json()["project_version_id"])
+    path = resolve_project_attachment(version["attachment_refs"][0])
+    path.write_bytes(b"changed image")
+    tampered = client.get(image_path, headers=teacher, params={"block_id": "submitted-figure"})
+    assert tampered.status_code == 409
+    assert tampered.json()["detail"]["code"] == "SUBMISSION_IMAGE_UNAVAILABLE"
+
+
+def test_student_can_withdraw_pending_submission_after_deadline(ready_submission_candidate):
+    fixture = ready_submission_candidate
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": "withdraw-after-deadline",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    store = Store()
+    participant = store.get_workflow_record("participant", fixture["participant_id"])
+    participant["effective_deadline_at"] = (fixture["now"] - timedelta(seconds=1)).isoformat()
+    assert store.save_workflow_record("participant", participant, expected_revision=participant["revision"])
+
+    withdrawn = client.post(f"/api/submissions/{submission_id}/withdraw", headers=fixture["student"])
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["state"] == "withdrawn"
+    participant = store.get_workflow_record("participant", fixture["participant_id"])
+    assert participant["state"] == "in_progress"
+    assert participant["current_submission_id"] == ""
+    assert participant["last_submission_id"] == submission_id
+    assert any(event["data"].get("event_type") == "submission.withdrawn"
+               and event["data"].get("resource_id") == submission_id
+               for event in client.get("/api/notifications", headers=fixture["teacher"]).json()["items"])
+
+
+def test_withdraw_loses_to_concurrent_teacher_decision(ready_submission_candidate, monkeypatch):
+    fixture = ready_submission_candidate
+    submitted = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": "withdraw-concurrent-review",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    waiting, proceed = Event(), Event()
+    original_transaction = Store.workflow_transaction
+
+    @contextmanager
+    def delay_first_transaction(store):
+        if not waiting.is_set():
+            waiting.set()
+            assert proceed.wait(timeout=10)
+        with original_transaction(store) as conn:
+            yield conn
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Store, "workflow_transaction", delay_first_transaction)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(client.post, f"/api/submissions/{submission_id}/withdraw",
+                                      headers=fixture["student"])
+            try:
+                assert waiting.wait(timeout=10)
+                reviewed = client.post(f"/api/submissions/{submission_id}/reviews", headers=fixture["teacher"],
+                                       json={"decision": "returned", "reason": "补充研究内容"})
+            finally:
+                proceed.set()
+            withdrawn = pending.result(timeout=20)
+    assert reviewed.status_code == 200, reviewed.text
+    assert withdrawn.status_code == 409, withdrawn.text
+    assert withdrawn.json()["detail"]["code"] == "WITHDRAW_NOT_PENDING"
+    submission = Store().get_workflow_record("submission", submission_id)
+    participant = Store().get_workflow_record("participant", fixture["participant_id"])
+    assert submission["state"] == "returned"
+    assert participant["state"] == "needs_revision"
+    assert participant["current_submission_id"] == submission_id
+
+
+def test_submission_rechecks_deadline_after_artifact_verification(ready_submission_candidate, monkeypatch):
+    from app.api import workflow as workflow_api
+
+    fixture = ready_submission_candidate
+    verify = workflow_api._verified_candidate_artifact
+
+    def verify_after_deadline(*args, **kwargs):
+        result = verify(*args, **kwargs)
+
+        class ClockAfterDeadline(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return (fixture["now"] + timedelta(days=2)).astimezone(tz or timezone.utc)
+
+        monkeypatch.setattr(workflow_api, "datetime", ClockAfterDeadline)
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr(workflow_api, "_verified_candidate_artifact", verify_after_deadline)
+        response = client.post("/api/submissions", headers=fixture["student"], json={
+            "candidate_id": fixture["candidate_id"], "idempotency_key": "deadline-during-verification",
+        })
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "DEADLINE_PASSED"
+    assert Store().get_workflow_record("candidate", fixture["candidate_id"])["status"] == "ready"
+    assert Store().get_workflow_record("participant", fixture["participant_id"])["state"] == "in_progress"
+
+
+def test_submission_rolls_back_if_deadline_passes_during_transaction(ready_submission_candidate, monkeypatch):
+    from app.api import workflow as workflow_api
+
+    fixture = ready_submission_candidate
+    notify = workflow_api._notify
+
+    def notify_after_deadline(*args, **kwargs):
+        result = notify(*args, **kwargs)
+
+        class ClockAfterDeadline(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return (fixture["now"] + timedelta(days=2)).astimezone(tz or timezone.utc)
+
+        monkeypatch.setattr(workflow_api, "datetime", ClockAfterDeadline)
+        return result
+
+    with monkeypatch.context() as patch:
+        patch.setattr(workflow_api, "_notify", notify_after_deadline)
+        response = client.post("/api/submissions", headers=fixture["student"], json={
+            "candidate_id": fixture["candidate_id"], "idempotency_key": "deadline-during-transaction",
+        })
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "DEADLINE_PASSED"
+    store = Store()
+    assert store.get_workflow_record("candidate", fixture["candidate_id"])["status"] == "ready"
+    assert store.get_workflow_record("participant", fixture["participant_id"])["state"] == "in_progress"
+    assert not any(item.get("participant_id") == fixture["participant_id"]
+                   for item in store.list_workflow_records("submission", limit=None))
+
+
+def test_submission_rechecks_cohort_after_concurrent_close(ready_submission_candidate, monkeypatch):
+    fixture = ready_submission_candidate
+    waiting, proceed = Event(), Event()
+    original_transaction = Store.workflow_transaction
+
+    @contextmanager
+    def delay_first_transaction(store):
+        if not waiting.is_set():
+            waiting.set()
+            assert proceed.wait(timeout=10)
+        with original_transaction(store) as conn:
+            yield conn
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Store, "workflow_transaction", delay_first_transaction)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(client.post, "/api/submissions", headers=fixture["student"], json={
+                "candidate_id": fixture["candidate_id"], "idempotency_key": "cohort-closed-during-submit",
+            })
+            try:
+                assert waiting.wait(timeout=10)
+                closed = client.post(f"/api/cohorts/{fixture['cohort_id']}/close", headers=fixture["admin"],
+                                     json={"reason": "结束批次", "force": True})
+            finally:
+                proceed.set()
+            response = pending.result(timeout=20)
+    assert closed.status_code == 200, closed.text
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "COHORT_CLOSED"
+    assert Store().get_workflow_record("candidate", fixture["candidate_id"])["status"] == "ready"
+    assert Store().get_workflow_record("participant", fixture["participant_id"])["state"] == "in_progress"
+    reopened = client.post(f"/api/cohorts/{fixture['cohort_id']}/reopen", headers=fixture["admin"],
+                           json={"reason": "继续提交"})
+    assert reopened.status_code == 200, reopened.text
+    retried = client.post("/api/submissions", headers=fixture["student"], json={
+        "candidate_id": fixture["candidate_id"], "idempotency_key": "cohort-closed-during-submit",
+    })
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["submission"]["state"] == "submitted"
+
+
+@pytest.mark.parametrize("delivery_stage", ["legacy", "m1"])
+def test_submission_and_archive_use_the_same_checked_document(monkeypatch, delivery_stage):
+    monkeypatch.setenv("PAPERGUARD_DELIVERY_STAGE", delivery_stage)
+    from app.api import workflow as workflow_api
+    from app.api.workflow import _candidate_artifact_path
+
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+    organization = client.post("/api/organizations", headers=admin, json={
+        "id": f"workflow-artifact-school-{suffix}", "name": "提交成品测试学校", "type": "school",
+    }).json()
+    other_teacher, _, other_teacher_id, _ = _create_people(admin)
+    other_teacher_record = Store().get_user(other_teacher_id)
+    other_teacher_record["organization_context"] = {"school_id": organization["id"]}
+    Store().save_user(other_teacher_record)
+    cohort = client.post("/api/cohorts", headers=admin, json={
+        "name": "提交成品测试批次", "organization_id": organization["id"],
+    }).json()
+    assert client.post(f"/api/cohorts/{cohort['id']}/members", headers=admin, json={
+        "student_id": student_id, "teacher_id": teacher_id,
+    }).status_code == 201
+    now = datetime.now(timezone.utc)
+    stage = client.post(f"/api/cohorts/{cohort['id']}/stages", headers=admin, json={
+        "key": "final", "name": "终稿", "open_at": (now - timedelta(minutes=1)).isoformat(),
+        "deadline_at": (now + timedelta(days=1)).isoformat(), "is_final": True,
+    }).json()
+    assert client.post(f"/api/stages/{stage['id']}/publish", headers=admin).status_code == 200
+    participant = client.get("/api/my-tasks", headers=student).json()[0]
+    project_id = _prepare_project(student, participant["id"])
+    assert client.post(f"/api/stage-participants/{participant['id']}/acknowledge", headers=student, json={}).status_code == 200
+
+    candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]})
+    assert candidate.status_code == 201 and candidate.json()["status"] == "ready", candidate.text
+    candidate_id = candidate.json()["id"]
+    path = _candidate_artifact_path(candidate_id)
+    original = path.read_bytes()
+    assert candidate.json()["artifact"]["docx_sha256"] == hashlib.sha256(original).hexdigest()
+    with monkeypatch.context() as failing_renderer:
+        def fail_render(*_args, **_kwargs):
+            raise OSError("renderer unavailable")
+
+        failing_renderer.setattr(workflow_api, "export_project_to_docx", fail_render)
+        blocked = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]})
+        assert blocked.status_code == 201 and blocked.json()["status"] == "blocked"
+        assert any(gate["key"] == "output_artifact" and gate["blocking"] for gate in blocked.json()["gates"])
+        assert client.post("/api/submissions", headers=student, json={
+            "candidate_id": blocked.json()["id"], "idempotency_key": f"artifact-failure-{suffix}",
+        }).status_code == 409
+
+    path.write_bytes(b"altered")
+    rejected = client.post("/api/submissions", headers=student, json={
+        "candidate_id": candidate_id, "idempotency_key": f"artifact-{suffix}",
+    })
+    assert rejected.status_code == 409
+    path.write_bytes(original)
+    submitted = client.post("/api/submissions", headers=student, json={
+        "candidate_id": candidate_id, "idempotency_key": f"artifact-{suffix}",
+    })
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+
+    path.write_bytes(b"altered after submission")
+    assert client.post(f"/api/submissions/{submission_id}/reviews", headers=teacher, json={"decision": "approved"}).status_code == 409
+    path.write_bytes(original)
+    approved = client.post(f"/api/submissions/{submission_id}/reviews", headers=teacher, json={"decision": "approved"})
+    assert approved.status_code == 200, approved.text
+    archive_id = approved.json()["archive"]["id"]
+    path.write_bytes(b"altered before archive")
+    run_once()
+    assert client.get(f"/api/archives/{archive_id}", headers=student).json()["status"] == "failed"
+    assert client.get(f"/api/archives/{archive_id}/download", headers=student).status_code == 409
+    path.write_bytes(original)
+    for unauthorized in (other_teacher, student):
+        rejected = client.post(f"/api/archives/{archive_id}/retry", headers=unauthorized, json={"reason": "无权重试"})
+        assert rejected.status_code == 403, rejected.text
+        assert Store().get_workflow_record("archive", archive_id)["status"] == "failed"
+    with monkeypatch.context() as job_busy:
+        from app.repositories.workflow_repository import WorkflowRepository
+
+        job_busy.setattr(WorkflowRepository, "retry_job_in_transaction", lambda *_args, **_kwargs: None)
+        blocked_retry = client.post(f"/api/archives/{archive_id}/retry", headers=teacher, json={"reason": "任务正忙"})
+        assert blocked_retry.status_code == 409
+        assert Store().get_workflow_record("archive", archive_id)["status"] == "failed"
+    retried = client.post(f"/api/archives/{archive_id}/retry", headers=teacher, json={"reason": "恢复已验证的提交文件"})
+    assert retried.status_code == 200
+    assert retried.json()["retry_requested_by"] == teacher_id
+    run_once()
+    download = client.get(f"/api/archives/{archive_id}/download", headers=student)
+    assert download.status_code == 200, download.text
+    with zipfile.ZipFile(io.BytesIO(download.content)) as bundle:
+        assert bundle.read("final.docx") == original
+
+
+def test_workflow_happy_path_and_idempotency(monkeypatch):
+    from app.api import workflow as workflow_api
     admin = _login("admin", "TestAdminPassword123")
     suffix = uuid.uuid4().hex[:8]
     organization = client.post("/api/organizations", headers=admin, json={
@@ -128,7 +1428,7 @@ def test_workflow_happy_path_and_idempotency(monkeypatch):
     other_password = _password("OtherStudent")
     other = register_fixture_response(client, other_name, other_password, display_name="其他学生")
     other_id = other.json()["id"]
-    _login(other_name, other_password)
+    other_student = _login(other_name, other_password)
 
     cohort = client.post("/api/cohorts", headers=admin, json={
         "name": "2027 届闭环批次", "organization_id": organization_id, "academic_year": "2027",
@@ -166,6 +1466,28 @@ def test_workflow_happy_path_and_idempotency(monkeypatch):
     project_id = _prepare_project(student, participant_id)
     acknowledged = client.post(f"/api/stage-participants/{participant_id}/acknowledge", headers=student, json={})
     assert acknowledged.status_code == 200, acknowledged.text
+
+    original_project_check = workflow_api.check_project
+
+    def unchecked_required_rule(*args, **kwargs):
+        report = original_project_check(*args, **kwargs)
+        report["not_checked"].append({"id": "required-rule", "description": "必需规则", "type": "auto", "enforce": "hard", "reason": "unsupported_checker"})
+        report["summary"]["not_checked"] += 1
+        return report
+
+    monkeypatch.setattr(workflow_api, "check_project", unchecked_required_rule)
+    blocked = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant_id})
+    assert blocked.status_code == 201 and blocked.json()["status"] == "blocked"
+    assert any(item["key"] == "automatic_unverified" and item["detail"] == ["必需规则"] for item in blocked.json()["gates"])
+    # Existing candidates created before the gate was added must also fail closed.
+    old_candidate = Store().get_workflow_record("candidate", blocked.json()["id"])
+    old_candidate["status"] = "ready"
+    old_candidate["gates"] = [item for item in old_candidate["gates"] if item["key"] != "automatic_unverified"]
+    Store().save_workflow_record("candidate", old_candidate, expected_revision=old_candidate["revision"])
+    rejected = client.post("/api/submissions", headers=student, json={"candidate_id": old_candidate["id"], "idempotency_key": f"unchecked-{suffix}"})
+    assert rejected.status_code == 409
+    assert any(item["key"] == "automatic_unverified" for item in rejected.json()["detail"]["gates"])
+    monkeypatch.setattr(workflow_api, "check_project", original_project_check)
 
     candidate = client.post("/api/submission-candidates", headers=student, json={
         "participant_id": participant_id, "modification_note": "首次提交",
@@ -225,10 +1547,22 @@ def test_workflow_happy_path_and_idempotency(monkeypatch):
     assert submitted.status_code == 200, submitted.text
     submission_id = submitted.json()["submission"]["id"]
 
+    invalid_anchor = client.post(f"/api/submissions/{submission_id}/comments", headers=teacher, json={
+        "body": "请修改", "block_id": "not-in-submitted-version",
+    })
+    assert invalid_anchor.status_code == 422
+    invalid_quote = client.post(f"/api/submissions/{submission_id}/comments", headers=teacher, json={
+        "body": "请修改", "block_id": "ch1-p1", "quoted_text": "不属于该版本的文字",
+    })
+    assert invalid_quote.status_code == 422
+    assert client.post(f"/api/submissions/{submission_id}/comments", headers=other_student, json={
+        "body": "其他学生试图批注", "block_id": "ch1-p1",
+    }).status_code == 403
     comment = client.post(f"/api/submissions/{submission_id}/comments", headers=teacher, json={
-        "body": "请补充实验分析", "severity": "blocking", "block_id": "ch1-p1",
+        "body": "请补充实验分析", "severity": "blocking", "block_id": "ch1-p1", "quoted_text": "论文正文内容",
     })
     assert comment.status_code == 201, comment.text
+    assert comment.json()["block_id"] == "ch1-p1"
     comment_id = comment.json()["id"]
     returned = client.post(f"/api/submissions/{submission_id}/reviews", headers=teacher, json={
         "decision": "returned", "reason": "需要补充实验分析",
@@ -247,11 +1581,21 @@ def test_workflow_happy_path_and_idempotency(monkeypatch):
     assert review["decision"] == "returned"
     assert review["reason"] == "需要补充实验分析"
     assert "reviewer_id" not in review
+    late_comment = client.post(f"/api/submissions/{submission_id}/comments", headers=teacher,
+                               json={"body": "已退回后新增的批注"})
+    assert late_comment.status_code == 409 and late_comment.json()["detail"]["code"] == "COMMENT_NOT_PENDING"
     assert client.post(f"/api/comments/{comment_id}/response", headers=student,
                        json={"body": "已补充实验分析"}).status_code == 201
-    assert client.post(f"/api/comments/{comment_id}/status", headers=teacher,
-                       json={"status": "resolved", "body": "已复核"}).status_code == 200
-
+    assert client.post(f"/api/comments/{comment_id}/response", headers=student,
+                       json={"body": "补充了对照结果"}).status_code == 201
+    teacher_events = client.get("/api/notifications", headers=teacher).json()["items"]
+    replies = [item for item in teacher_events if item["event_type"] == "comment.responded"
+               and item["resource_id"] == submission_id]
+    assert len(replies) == 2
+    assert all(item["resource_type"] == "submission" for item in replies)
+    student_events = client.get("/api/notifications", headers=student).json()["items"]
+    assert not any(item["event_type"] == "comment.responded" and item["resource_id"] == submission_id
+                   for item in student_events)
     candidate2 = client.post("/api/submission-candidates", headers=student, json={
         "participant_id": participant_id, "modification_note": "按意见修订",
     })
@@ -261,16 +1605,80 @@ def test_workflow_happy_path_and_idempotency(monkeypatch):
     })
     assert submitted2.status_code == 200, submitted2.text
     submission2_id = submitted2.json()["submission"]["id"]
+    prior_feedback = client.get(f"/api/submissions/{submission2_id}", headers=teacher).json()["prior_unresolved_comments"]
+    assert [item["id"] for item in prior_feedback] == [comment_id]
+    assert prior_feedback[0]["source_submission_number"] == submitted.json()["submission"]["submission_number"]
+    assert prior_feedback[0]["status"] == "addressed" and len(prior_feedback[0]["responses"]) == 2
     blocked_approval = client.post(f"/api/submissions/{submission2_id}/reviews", headers=teacher, json={"decision": "approved"})
     assert blocked_approval.status_code == 409 and "导师确认" in blocked_approval.text
+    unresolved_approval = client.post(f"/api/submissions/{submission2_id}/reviews", headers=teacher, json={
+        "decision": "approved", "manual_confirmations": {"导师确认": True},
+    })
+    assert unresolved_approval.status_code == 409
+    assert comment_id in unresolved_approval.json()["detail"]["open_blocking_comments"]
+    assert client.post(f"/api/comments/{comment_id}/status", headers=teacher,
+                       json={"status": "resolved", "body": "已复核"}).status_code == 200
+    assert client.get(f"/api/submissions/{submission2_id}", headers=teacher).json()["prior_unresolved_comments"] == []
+
+    # A blocking comment committed while approval is waiting for its transaction
+    # must be part of the approval decision.
+    approval_waiting, allow_approval = Event(), Event()
+    original_transaction = Store.workflow_transaction
+
+    @contextmanager
+    def delay_first_transaction(store):
+        if not approval_waiting.is_set():
+            approval_waiting.set()
+            assert allow_approval.wait(timeout=10)
+        with original_transaction(store) as conn:
+            yield conn
+
+    with monkeypatch.context() as race:
+        race.setattr(Store, "workflow_transaction", delay_first_transaction)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            approval_future = executor.submit(client.post, f"/api/submissions/{submission2_id}/reviews", headers=teacher,
+                                              json={"decision": "approved", "manual_confirmations": {"导师确认": True}})
+            try:
+                assert approval_waiting.wait(timeout=10)
+                late_blocking = client.post(f"/api/submissions/{submission2_id}/comments", headers=teacher,
+                                            json={"body": "仍需修改", "severity": "blocking"})
+            finally:
+                allow_approval.set()
+            raced_approval = approval_future.result(timeout=10)
+    assert late_blocking.status_code == 201, late_blocking.text
+    assert raced_approval.status_code == 409
+    assert late_blocking.json()["id"] in raced_approval.json()["detail"]["open_blocking_comments"]
+    assert client.post(f"/api/comments/{late_blocking.json()['id']}/status", headers=teacher,
+                       json={"status": "resolved"}).status_code == 200
+
+    from app.repositories.workflow_repository import WorkflowRepository
+
+    def fail_archive_job(*_args, **_kwargs):
+        raise RuntimeError("archive job unavailable")
+
+    with monkeypatch.context() as interrupted:
+        interrupted.setattr(WorkflowRepository, "create_job_in_transaction", fail_archive_job)
+        with pytest.raises(RuntimeError, match="archive job unavailable"):
+            client.post(f"/api/submissions/{submission2_id}/reviews", headers=teacher, json={
+                "decision": "approved", "manual_confirmations": {"导师确认": True},
+            })
+    unchanged = client.get(f"/api/submissions/{submission2_id}", headers=student).json()
+    assert unchanged["submission"]["state"] == "submitted"
+    assert unchanged["participant"]["state"] == "submitted"
+    assert not any(item.get("submission_id") == submission2_id for item in Store().list_workflow_records("archive", limit=None))
     approved = client.post(f"/api/submissions/{submission2_id}/reviews", headers=teacher, json={
         "decision": "approved", "manual_confirmations": {"导师确认": True},
     })
     assert approved.status_code == 200, approved.text
     assert approved.json()["participant"]["state"] == "pending_archive"
+    automatic_archive = approved.json()["archive"]
+    assert automatic_archive["status"] == "queued"
+    assert approved.json()["participant"]["archive_id"] == automatic_archive["id"]
+    assert client.get(f"/api/jobs/{automatic_archive['job_id']}", headers=admin).json()["state"] == "queued"
 
     archive = client.post("/api/archives", headers=admin, json={"submission_id": submission2_id})
     assert archive.status_code == 202 and archive.json()["status"] == "queued", archive.text
+    assert archive.json()["id"] == automatic_archive["id"]
     assert "file_path" not in archive.json()
     archive_id = archive.json()["id"]
     job_id = archive.json()["job_id"]
@@ -280,13 +1688,19 @@ def test_workflow_happy_path_and_idempotency(monkeypatch):
     worker_result = run_once()
     assert job_id in worker_result["archives"]["succeeded"]
     assert not any(item["job_id"] == job_id for item in worker_result["archives"]["failed"])
+    normal_download = client.get(f"/api/archives/{archive_id}/download", headers=student)
+    assert normal_download.status_code == 200 and normal_download.content[:2] == b"PK"
+    _make_legacy_manual_archive(archive_id, "核对 Word/WPS 分页、字体与表格跨页", monkeypatch, pending=True)
     archive_status = client.get(f"/api/archives/{archive_id}", headers=admin)
     assert archive_status.status_code == 200 and archive_status.json()["status"] == "succeeded"
+    assert all(item["id"] != archive_id for item in client.get("/api/archives", headers=other_student).json())
+    assert client.get(f"/api/archives/{archive_id}", headers=other_student).status_code == 404
+    assert client.get(f"/api/archives/{archive_id}/download", headers=other_student).status_code == 404
     assert archive_status.json()["manifest"]["output_check"]["status"] == "pass"
     assert archive_status.json()["manifest"]["output_check"]["check_count"] > 0
     assert not archive_status.json().get("download_url")
     assert archive_status.json()["manual_review"]["status"] == "required"
-    assert archive_status.json()["review_candidate_url"]
+    assert not archive_status.json().get("review_candidate_url")
     completed_job = client.get(f"/api/jobs/{job_id}", headers=admin)
     assert completed_job.status_code == 200 and completed_job.json()["state"] == "succeeded"
     download = client.get(f"/api/archives/{archive_id}/download", headers=student)
@@ -297,9 +1711,9 @@ def test_workflow_happy_path_and_idempotency(monkeypatch):
         "output_sha256": "0" * 64, "confirmed_check_ids": [],
     }).status_code == 403
     candidate = client.get(f"/api/archives/{archive_id}/review-candidate", headers=teacher)
-    assert candidate.status_code == 200 and candidate.content[:2] == b"PK"
+    assert candidate.status_code == 409
+    assert candidate.json()["detail"]["code"] == "OUTPUT_CHECK_AUTOMATION_REQUIRED"
     review = archive_status.json()["manual_review"]
-    assert candidate.headers["x-paperguard-output-sha256"] == review["output_sha256"]
     assert client.post(f"/api/archives/{archive_id}/manual-review", headers=teacher, json={
         "output_sha256": "0" * 64, "confirmed_check_ids": [item["id"] for item in review["checklist"]],
     }).status_code == 409
@@ -310,13 +1724,23 @@ def test_workflow_happy_path_and_idempotency(monkeypatch):
         "output_sha256": review["output_sha256"],
         "confirmed_check_ids": [item["id"] for item in review["checklist"]],
     })
-    assert confirmed.status_code == 200, confirmed.text
-    assert confirmed.json()["manual_review"]["status"] == "confirmed"
-    assert confirmed.json()["download_url"]
-    assert Store().get_workflow_record("participant", archive_status.json()["participant_id"])["state"] == "archived"
+    assert confirmed.status_code == 409, confirmed.text
+    assert confirmed.json()["detail"]["code"] == "OUTPUT_CHECK_AUTOMATION_REQUIRED"
+    assert Store().get_workflow_record("participant", archive_status.json()["participant_id"])["state"] == "pending_archive"
+
+    # A historical receipt cannot turn an incomplete automatic check into a pass.
+    from app.services.manual_output_review import confirm_review
+    legacy_archive = Store().get_workflow_record("archive", archive_id)
+    legacy_archive["manual_review"] = confirm_review(
+        legacy_archive["manifest"]["output_check"], output_sha256=review["output_sha256"],
+        confirmed_check_ids=[item["id"] for item in review["checklist"]], reviewer_id="legacy-reviewer",
+    )
+    assert Store().save_workflow_record("archive", legacy_archive, expected_revision=legacy_archive["revision"])
+    legacy_view = client.get(f"/api/archives/{archive_id}", headers=teacher).json()
+    assert legacy_view["manual_review"]["status"] == "required"
+    assert not legacy_view.get("download_url")
     download = client.get(f"/api/archives/{archive_id}/download", headers=student)
-    assert download.status_code == 200
-    assert download.content[:2] == b"PK"
+    assert download.status_code == 409
     successful_archive = Store().get_workflow_record("archive", archive_id)
     assert successful_archive.get("file_path")
     assert successful_archive["manifest"]["output_check"]["status"] == "pass"
@@ -336,10 +1760,91 @@ def test_workflow_happy_path_and_idempotency(monkeypatch):
     assert Store().save_workflow_record("project_version", version, expected_revision=version["revision"])
     assert client.get(f"/api/archives/{archive_id}/download", headers=student).status_code == 409
     report = client.get(f"/api/reports/cohorts/{cohort_id}", headers=admin)
-    assert report.status_code == 200 and report.json()["participant_count"] == 2 and report.json()["state_counts"]["archived"] == 1
+    assert report.status_code == 200 and report.json()["participant_count"] == 2 and report.json()["state_counts"]["pending_archive"] == 1
     assert client.get(f"/api/reports/cohorts/{cohort_id}", headers=student).status_code == 403
     assert client.get("/api/notifications", headers=student).json()["unread"] >= 1
     assert project_id
+
+
+def test_teacher_reopens_while_archive_is_generating(monkeypatch):
+    from app.api import workflow as workflow_api
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+    organization = client.post("/api/organizations", headers=admin, json={
+        "id": f"workflow-reopen-school-{suffix}", "name": "重开测试学校", "type": "school",
+    }).json()
+    cohort = client.post("/api/cohorts", headers=admin, json={
+        "name": "重开测试批次", "organization_id": organization["id"], "academic_year": "2027",
+    }).json()
+    assert client.post(f"/api/cohorts/{cohort['id']}/members", headers=admin, json={
+        "student_id": student_id, "teacher_id": teacher_id,
+    }).status_code == 201
+    now = datetime.now(timezone.utc)
+    stage = client.post(f"/api/cohorts/{cohort['id']}/stages", headers=admin, json={
+        "key": "final", "name": "终稿", "open_at": (now - timedelta(minutes=1)).isoformat(),
+        "deadline_at": (now + timedelta(days=1)).isoformat(), "is_final": True,
+    }).json()
+    assert client.post(f"/api/stages/{stage['id']}/publish", headers=admin).status_code == 200
+    participant = client.get("/api/my-tasks", headers=student).json()[0]
+    project_id = _prepare_project(student, participant["id"])
+    assert client.post(f"/api/stage-participants/{participant['id']}/acknowledge", headers=student, json={}).status_code == 200
+    candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]}).json()
+    submission = client.post("/api/submissions", headers=student, json={
+        "candidate_id": candidate["id"], "idempotency_key": f"reopen-{suffix}",
+    }).json()["submission"]
+    approved = client.post(f"/api/submissions/{submission['id']}/reviews", headers=teacher, json={"decision": "approved"})
+    assert approved.status_code == 200, approved.text
+    archive = approved.json()["archive"]
+    path = f"/api/stage-participants/{participant['id']}/reopen"
+    assert client.post(path, headers=student, json={"reason": "学生不能重开"}).status_code == 403
+    assert client.post(path, headers=admin, json={"reason": "管理员不能代替教师重开"}).status_code == 403
+    assert client.post(path, headers=teacher, json={"reason": "   "}).status_code == 422
+
+    original_verify = workflow_api._verified_candidate_artifact
+
+    def verify_after_reopen(*args, **kwargs):
+        monkeypatch.setattr(workflow_api, "_verified_candidate_artifact", original_verify)
+        reopened = client.post(path, headers=teacher, json={"reason": "需要补充实验结果"})
+        assert reopened.status_code == 200, reopened.text
+        assert reopened.json()["state"] == "in_progress"
+        return original_verify(*args, **kwargs)
+
+    monkeypatch.setattr(workflow_api, "_verified_candidate_artifact", verify_after_reopen)
+    result = run_once()
+    assert archive["job_id"] in result["archives"]["succeeded"]
+    current = client.get(f"/api/stage-participants/{participant['id']}", headers=student).json()["participant"]
+    assert current["state"] == "in_progress"
+    assert current["current_submission_id"] == ""
+    assert current["archive_id"] == ""
+    historical = Store().get_workflow_record("archive", archive["id"])
+    assert historical["status"] == "succeeded"
+    assert historical["superseded_by_reopen"] is True
+    project = client.get(f"/api/projects/{project_id}", headers=student).json()
+    updated = client.put(f"/api/projects/{project_id}/meta", headers=student, json={
+        "base_revision": project["revision"], "meta": {**project["meta"], "title": "重开后的修订"},
+    })
+    assert updated.status_code == 200, updated.text
+    next_candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]})
+    assert next_candidate.status_code == 201 and next_candidate.json()["status"] == "ready", next_candidate.text
+    next_submission = client.post("/api/submissions", headers=student, json={
+        "candidate_id": next_candidate.json()["id"], "idempotency_key": f"reopen-next-{suffix}",
+    })
+    assert next_submission.status_code == 200, next_submission.text
+    next_approval = client.post(f"/api/submissions/{next_submission.json()['submission']['id']}/reviews", headers=teacher, json={"decision": "approved"})
+    assert next_approval.status_code == 200, next_approval.text
+    next_archive = next_approval.json()["archive"]
+    _make_legacy_manual_archive(archive["id"], "核对分页", monkeypatch)
+    old_review = client.get(f"/api/archives/{archive['id']}", headers=teacher).json()["manual_review"]
+    assert old_review["status"] == "required"
+    confirmed = client.post(f"/api/archives/{archive['id']}/manual-review", headers=teacher, json={
+        "output_sha256": old_review["output_sha256"],
+        "confirmed_check_ids": [item["id"] for item in old_review["checklist"]],
+    })
+    assert confirmed.status_code == 409, confirmed.text
+    current = client.get(f"/api/stage-participants/{participant['id']}", headers=student).json()["participant"]
+    assert current["state"] == "pending_archive"
+    assert current["archive_id"] == next_archive["id"]
 
 
 def test_archive_output_check_failure_remains_blocked_after_retry(monkeypatch):
@@ -349,7 +1854,6 @@ def test_archive_output_check_failure_remains_blocked_after_retry(monkeypatch):
             "unsupported": [], "check_count": 1, "passed_count": 0,
         })
 
-    monkeypatch.setattr("app.api.workflow.require_docx_output_pass", reject_archive_output)
     admin = _login("admin", "TestAdminPassword123")
     teacher, student, teacher_id, student_id = _create_people(admin)
     suffix = uuid.uuid4().hex[:8]
@@ -384,6 +1888,7 @@ def test_archive_output_check_failure_remains_blocked_after_retry(monkeypatch):
     submission = submitted.json()["submission"]
     approved = client.post(f"/api/submissions/{submission['id']}/reviews", headers=teacher, json={"decision": "approved"})
     assert approved.status_code == 200 and approved.json()["participant"]["state"] == "pending_archive"
+    monkeypatch.setattr("app.api.workflow.require_docx_output_pass", reject_archive_output)
 
     archive = client.post("/api/archives", headers=admin, json={"submission_id": submission["id"]})
     assert archive.status_code == 202, archive.text
@@ -441,7 +1946,8 @@ def test_member_assignment_accepts_business_references_for_admin_flows():
     assert preview.json()["results"][0]["payload"]["student_id"] == student_id
 
 
-def test_teacher_transfer_updates_open_task_and_resource_access():
+@pytest.mark.parametrize("race_action", ["comment", "comment_status", "review", "extension", "withdraw_comment", "withdraw_review"])
+def test_teacher_transfer_updates_open_task_and_resource_access(monkeypatch, race_action):
     admin = _login("admin", "TestAdminPassword123")
     teacher, student, teacher_id, student_id = _create_people(admin)
     suffix = uuid.uuid4().hex[:8]
@@ -478,19 +1984,357 @@ def test_teacher_transfer_updates_open_task_and_resource_access():
     participant = task.json()[0]
     assert participant["teacher_id"] == teacher_id
     assert client.get(f"/api/stage-participants/{participant['id']}", headers=teacher).status_code == 200
-
-    transferred = client.post(f"/api/cohorts/{cohort_id}/members", headers=admin, json={
-        "student_id": student_id, "teacher_id": second_id, "reason": "导师工作调整",
+    project_id = _prepare_project(student, participant["id"])
+    assert client.post(f"/api/stage-participants/{participant['id']}/acknowledge", headers=student, json={}).status_code == 200
+    candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]})
+    assert candidate.status_code == 201 and candidate.json()["status"] == "ready", candidate.text
+    submitted = client.post("/api/submissions", headers=student, json={
+        "candidate_id": candidate.json()["id"], "idempotency_key": f"transfer-race-{suffix}",
     })
-    assert transferred.status_code == 201, transferred.text
-    assert transferred.json()["teacher_id"] == second_id
+    assert submitted.status_code == 200, submitted.text
+    submission_id = submitted.json()["submission"]["id"]
+    existing_comment = client.post(f"/api/submissions/{submission_id}/comments", headers=teacher, json={
+        "body": "转交前的批注", "severity": "info",
+    })
+    assert existing_comment.status_code == 201, existing_comment.text
+    comment_id = existing_comment.json()["id"]
+    actions = {
+        "comment": (f"/api/submissions/{submission_id}/comments", {"body": "转交后的旧教师批注"}),
+        "comment_status": (f"/api/comments/{comment_id}/status", {"status": "resolved"}),
+        "review": (f"/api/submissions/{submission_id}/reviews", {"decision": "returned", "reason": "修改"}),
+        "extension": (f"/api/stage-participants/{participant['id']}/extension", {
+            "effective_deadline_at": (now + timedelta(days=4)).isoformat(), "reason": "延长修订时间",
+        }),
+    }
+    action_path, action_body = actions[race_action.removeprefix("withdraw_")]
+
+    waiting, proceed = Event(), Event()
+    original_transaction = Store.workflow_transaction
+
+    @contextmanager
+    def delay_first_transaction(store):
+        if not waiting.is_set():
+            waiting.set()
+            assert proceed.wait(timeout=10)
+        with original_transaction(store) as conn:
+            yield conn
+
+    with monkeypatch.context() as race:
+        race.setattr(Store, "workflow_transaction", delay_first_transaction)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            method = client.put if race_action == "extension" else client.post
+            pending = executor.submit(method, action_path, headers=teacher, json=action_body)
+            try:
+                assert waiting.wait(timeout=10)
+                if race_action.startswith("withdraw_"):
+                    changed = client.post(f"/api/submissions/{submission_id}/withdraw", headers=student)
+                else:
+                    changed = client.post(f"/api/cohorts/{cohort_id}/members", headers=admin, json={
+                        "student_id": student_id, "teacher_id": second_id, "reason": "导师工作调整",
+                    })
+            finally:
+                proceed.set()
+            stale_action = pending.result(timeout=10)
+    if race_action.startswith("withdraw_"):
+        assert changed.status_code == 200, changed.text
+        assert stale_action.status_code == 409, stale_action.text
+        detail = client.get(f"/api/submissions/{submission_id}", headers=student).json()
+        assert detail["submission"]["state"] == "withdrawn" and detail["review"] is None
+        assert len(detail["comments"]) == 1 and detail["comments"][0]["status"] == "open"
+        return
+
+    assert stale_action.status_code == 403, stale_action.text
+    assert changed.status_code == 201, changed.text
+    assert changed.json()["teacher_id"] == second_id
     updated = client.get(f"/api/stage-participants/{participant['id']}", headers=student)
     assert updated.status_code == 200 and updated.json()["participant"]["teacher_id"] == second_id
     assert client.get(f"/api/stage-participants/{participant['id']}", headers=teacher).status_code == 404
     assert client.get(f"/api/stage-participants/{participant['id']}", headers=second_teacher).status_code == 200
+    version_id = submitted.json()["submission"]["project_version_id"]
+    for path in (f"/api/projects/{project_id}", f"/api/projects/{project_id}/versions", f"/api/project-versions/{version_id}"):
+        assert client.get(path, headers=teacher).status_code in {403, 404}
+        assert client.get(path, headers=second_teacher).status_code == 200
+    assert all(item["id"] != project_id for item in client.get("/api/projects", headers=teacher).json())
+    detail = client.get(f"/api/submissions/{submission_id}", headers=second_teacher).json()
+    assert detail["submission"]["state"] == "submitted"
+    assert detail["review"] is None
+    assert len(detail["comments"]) == 1 and detail["comments"][0]["status"] == "open"
+    assert client.post(f"/api/submissions/{submission_id}/comments", headers=second_teacher,
+                       json={"body": "接手教师批注"}).status_code == 201
+    assert client.post(f"/api/comments/{comment_id}/status", headers=admin,
+                       json={"status": "resolved"}).status_code == 200
     messages = client.get("/api/notifications", headers=second_teacher)
     assert messages.status_code == 200
     assert any(item.get("data", {}).get("event_type") == "supervision.transferred" for item in messages.json()["items"])
+
+
+def test_reopened_feedback_across_rounds_blocks_submission_until_answered():
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+    organization = client.post("/api/organizations", headers=admin, json={
+        "id": f"feedback-history-{suffix}", "name": "历史批注测试学校", "type": "school",
+    }).json()
+    cohort = client.post("/api/cohorts", headers=admin, json={
+        "name": "历史批注测试批次", "organization_id": organization["id"],
+    }).json()
+    assert client.post(f"/api/cohorts/{cohort['id']}/members", headers=admin, json={
+        "student_id": student_id, "teacher_id": teacher_id,
+    }).status_code == 201
+    now = datetime.now(timezone.utc)
+    stage = client.post(f"/api/cohorts/{cohort['id']}/stages", headers=admin, json={
+        "key": "paper", "name": "论文", "open_at": (now - timedelta(minutes=1)).isoformat(),
+        "deadline_at": (now + timedelta(days=1)).isoformat(),
+    }).json()
+    assert client.post(f"/api/stages/{stage['id']}/publish", headers=admin).status_code == 200
+    participant = client.get("/api/my-tasks", headers=student).json()[0]
+    _prepare_project(student, participant["id"])
+    assert client.post(f"/api/stage-participants/{participant['id']}/acknowledge", headers=student, json={}).status_code == 200
+
+    def candidate():
+        result = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]})
+        assert result.status_code == 201, result.text
+        return result.json()
+
+    def submit(item, key):
+        return client.post("/api/submissions", headers=student, json={
+            "candidate_id": item["id"], "idempotency_key": f"{key}-{suffix}",
+        })
+
+    stale_candidate = candidate()
+    first = submit(candidate(), "first")
+    assert first.status_code == 200, first.text
+    first_id = first.json()["submission"]["id"]
+    comment = client.post(f"/api/submissions/{first_id}/comments", headers=teacher, json={
+        "body": "补充数据来源", "severity": "blocking",
+    })
+    assert comment.status_code == 201, comment.text
+    comment_id = comment.json()["id"]
+    assert client.post(f"/api/submissions/{first_id}/reviews", headers=teacher, json={
+        "decision": "returned", "reason": "请修改",
+    }).status_code == 200
+    assert client.post(f"/api/comments/{comment_id}/response", headers=student, json={"body": "已补充"}).status_code == 201
+
+    second = submit(candidate(), "second")
+    assert second.status_code == 200, second.text
+    second_id = second.json()["submission"]["id"]
+    assert client.post(f"/api/submissions/{second_id}/reviews", headers=teacher, json={
+        "decision": "returned", "reason": "请进一步修改",
+    }).status_code == 200
+    assert client.post(f"/api/comments/{comment_id}/status", headers=teacher, json={"status": "open"}).status_code == 200
+    detail = client.get(f"/api/submissions/{second_id}", headers=student).json()
+    assert [item["id"] for item in detail["prior_unresolved_comments"]] == [comment_id]
+
+    stale = submit(stale_candidate, "stale")
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "CHECK_STALE"
+    blocked = candidate()
+    assert blocked["status"] == "blocked"
+    gate = next(item for item in blocked["gates"] if item["key"] == "comment_responses")
+    assert gate["blocking"] and comment_id in gate["detail"]
+    assert client.post(f"/api/comments/{comment_id}/response", headers=student, json={"body": "已补充具体来源"}).status_code == 201
+    ready = candidate()
+    assert ready["status"] == "ready"
+
+    # Recheck inside the submission transaction in case feedback changes after preview.
+    assert client.post(f"/api/comments/{comment_id}/status", headers=teacher, json={"status": "open"}).status_code == 200
+    rejected = submit(ready, "third")
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "COMMENT_RESPONSE_REQUIRED"
+    assert comment_id in rejected.json()["detail"]["comment_ids"]
+    assert client.post(f"/api/comments/{comment_id}/response", headers=student, json={"body": "已再次补充"}).status_code == 201
+    third = submit(ready, "third")
+    assert third.status_code == 200, third.text
+
+
+def test_return_preserves_revision_window_and_allows_resubmission(monkeypatch):
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+    organization = client.post("/api/organizations", headers=admin, json={
+        "id": f"return-deadline-{suffix}", "name": "退回修订期限测试学校", "type": "school",
+    }).json()
+    cohort = client.post("/api/cohorts", headers=admin, json={
+        "name": "退回修订期限测试批次", "organization_id": organization["id"],
+    }).json()
+    assert client.post(f"/api/cohorts/{cohort['id']}/members", headers=admin, json={
+        "student_id": student_id, "teacher_id": teacher_id,
+    }).status_code == 201
+    now = datetime.now(timezone.utc)
+    stage = client.post(f"/api/cohorts/{cohort['id']}/stages", headers=admin, json={
+        "key": "paper", "name": "论文", "open_at": (now - timedelta(minutes=1)).isoformat(),
+        "deadline_at": (now + timedelta(days=1)).isoformat(), "revision_days": 0,
+    }).json()
+    assert client.post(f"/api/stages/{stage['id']}/publish", headers=admin).status_code == 200
+    participant = client.get("/api/my-tasks", headers=student).json()[0]
+    _prepare_project(student, participant["id"])
+    assert client.post(f"/api/stage-participants/{participant['id']}/acknowledge", headers=student, json={}).status_code == 200
+
+    def submit(key):
+        candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]})
+        assert candidate.status_code == 201 and candidate.json()["status"] == "ready", candidate.text
+        result = client.post("/api/submissions", headers=student, json={
+            "candidate_id": candidate.json()["id"], "idempotency_key": f"{key}-{suffix}",
+        })
+        assert result.status_code == 200, result.text
+        return result.json()["submission"]
+
+    first = submit("initial")
+    store = Store()
+    expired = store.get_workflow_record("participant", participant["id"])
+    expired["effective_deadline_at"] = (now - timedelta(hours=1)).isoformat()
+    assert store.save_workflow_record("participant", expired, expected_revision=expired["revision"])
+    review_path = f"/api/submissions/{first['id']}/reviews"
+    blocked = client.post(review_path, headers=teacher, json={"decision": "returned", "reason": "需要修改"})
+    assert blocked.status_code == 409 and "修订期限" in blocked.text
+    assert client.get(f"/api/submissions/{first['id']}", headers=student).json()["submission"]["state"] == "submitted"
+
+    extended = client.put(f"/api/stage-participants/{participant['id']}/extension", headers=teacher, json={
+        "effective_deadline_at": (now + timedelta(days=3)).isoformat(), "reason": "安排修订时间",
+    })
+    assert extended.status_code == 200, extended.text
+    revision_deadline = (now + timedelta(days=8)).replace(microsecond=0)
+    returned = client.post(review_path, headers=teacher, json={
+        "decision": "returned", "reason": "需要修改", "revision_deadline_at": revision_deadline.isoformat(),
+    })
+    assert returned.status_code == 200, returned.text
+    assert datetime.fromisoformat(returned.json()["participant"]["revision_deadline_at"]) == revision_deadline
+
+    second = submit("revision")
+    returned_again = client.post(f"/api/submissions/{second['id']}/reviews", headers=teacher, json={
+        "decision": "returned", "reason": "继续完善",
+    })
+    assert returned_again.status_code == 200, returned_again.text
+    assert datetime.fromisoformat(returned_again.json()["participant"]["revision_deadline_at"]) == revision_deadline
+    third = submit("revision-again")
+
+    waiting, proceed = Event(), Event()
+    original_transaction = Store.workflow_transaction
+
+    @contextmanager
+    def delay_review_transaction(store):
+        if not waiting.is_set():
+            waiting.set()
+            assert proceed.wait(timeout=10)
+        with original_transaction(store) as conn:
+            yield conn
+
+    latest_deadline = (now + timedelta(days=10)).replace(microsecond=0)
+    with monkeypatch.context() as race:
+        race.setattr(Store, "workflow_transaction", delay_review_transaction)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(client.post, f"/api/submissions/{third['id']}/reviews", headers=teacher,
+                                      json={"decision": "returned", "reason": "进一步修改"})
+            try:
+                assert waiting.wait(timeout=10)
+                extension = client.put(f"/api/stage-participants/{participant['id']}/extension", headers=teacher, json={
+                    "effective_deadline_at": latest_deadline.isoformat(), "reason": "延长修订时间",
+                })
+            finally:
+                proceed.set()
+            raced_return = pending.result(timeout=10)
+    assert extension.status_code == 200, extension.text
+    assert raced_return.status_code == 200, raced_return.text
+    assert datetime.fromisoformat(raced_return.json()["participant"]["revision_deadline_at"]) == latest_deadline
+    submit("revision-after-extension")
+
+
+@pytest.mark.parametrize("is_final", [False, True])
+@pytest.mark.parametrize("revision_days", [0, 7])
+def test_transfer_after_approval_reopens_for_current_teacher(monkeypatch, is_final, revision_days):
+    admin = _login("admin", "TestAdminPassword123")
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    successor, _, successor_id, _ = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+    organization = client.post("/api/organizations", headers=admin, json={
+        "id": f"reopen-transfer-{suffix}", "name": "重开转交测试学校", "type": "school",
+    }).json()
+    cohort = client.post("/api/cohorts", headers=admin, json={
+        "name": "重开转交测试批次", "organization_id": organization["id"],
+    }).json()
+    member_path = f"/api/cohorts/{cohort['id']}/members"
+    assert client.post(member_path, headers=admin, json={
+        "student_id": student_id, "teacher_id": teacher_id,
+    }).status_code == 201
+    now = datetime.now(timezone.utc)
+    stage = client.post(f"/api/cohorts/{cohort['id']}/stages", headers=admin, json={
+        "key": "paper", "name": "论文", "open_at": (now - timedelta(minutes=1)).isoformat(),
+        "deadline_at": (now + timedelta(days=1)).isoformat(), "is_final": is_final,
+        "revision_days": revision_days,
+    }).json()
+    assert client.post(f"/api/stages/{stage['id']}/publish", headers=admin).status_code == 200
+    participant = client.get("/api/my-tasks", headers=student).json()[0]
+    _prepare_project(student, participant["id"])
+    assert client.post(f"/api/stage-participants/{participant['id']}/acknowledge", headers=student, json={}).status_code == 200
+    candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]}).json()
+    submitted = client.post("/api/submissions", headers=student, json={
+        "candidate_id": candidate["id"], "idempotency_key": f"initial-{suffix}",
+    }).json()["submission"]
+    approved = client.post(f"/api/submissions/{submitted['id']}/reviews", headers=teacher, json={"decision": "approved"})
+    assert approved.status_code == 200, approved.text
+    if is_final:
+        assert approved.json()["archive"]["job_id"] in run_once()["archives"]["succeeded"]
+    store = Store()
+    expired = store.get_workflow_record("participant", participant["id"])
+    expired["effective_deadline_at"] = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    assert store.save_workflow_record("participant", expired, expected_revision=expired["revision"])
+
+    waiting, proceed = Event(), Event()
+    original_transaction = Store.workflow_transaction
+
+    @contextmanager
+    def delay_first_transaction(store):
+        if not waiting.is_set():
+            waiting.set()
+            assert proceed.wait(timeout=10)
+        with original_transaction(store) as conn:
+            yield conn
+
+    reopen_path = f"/api/stage-participants/{participant['id']}/reopen"
+    with monkeypatch.context() as race:
+        race.setattr(Store, "workflow_transaction", delay_first_transaction)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(client.post, reopen_path, headers=teacher, json={"reason": "需要修订"})
+            try:
+                assert waiting.wait(timeout=10)
+                transferred = client.post(member_path, headers=admin, json={
+                    "student_id": student_id, "teacher_id": successor_id, "reason": "导师调整",
+                })
+            finally:
+                proceed.set()
+            stale = pending.result(timeout=10)
+    assert transferred.status_code == 201, transferred.text
+    assert stale.status_code == 403, stale.text
+
+    reopened = client.post(reopen_path, headers=successor, json={"reason": "需要修订"})
+    if revision_days == 0:
+        assert reopened.status_code == 409
+        extended = client.put(f"/api/stage-participants/{participant['id']}/extension", headers=successor, json={
+            "effective_deadline_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(), "reason": "安排修订",
+        })
+        assert extended.status_code == 200, extended.text
+        reopened = client.post(reopen_path, headers=successor, json={"reason": "需要修订"})
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["teacher_id"] == successor_id
+    deadline = datetime.fromisoformat(reopened.json()["revision_deadline_at"])
+    assert deadline > datetime.now(timezone.utc)
+    extension = deadline + timedelta(days=2)
+    extended = client.put(f"/api/stage-participants/{participant['id']}/extension", headers=successor, json={
+        "effective_deadline_at": extension.isoformat(), "reason": "增加修订时间",
+    })
+    assert extended.status_code == 200, extended.text
+    assert datetime.fromisoformat(extended.json()["revision_deadline_at"]) == extension
+    next_candidate = client.post("/api/submission-candidates", headers=student, json={"participant_id": participant["id"]})
+    assert next_candidate.status_code == 201 and next_candidate.json()["status"] == "ready", next_candidate.text
+    next_submission = client.post("/api/submissions", headers=student, json={
+        "candidate_id": next_candidate.json()["id"], "idempotency_key": f"after-transfer-{suffix}",
+    })
+    assert next_submission.status_code == 200, next_submission.text
+    next_id = next_submission.json()["submission"]["id"]
+    events = client.get("/api/notifications", headers=successor).json()["items"]
+    assert any(item.get("resource_id") == next_id and item.get("event_type") == "submission.created" for item in events)
+    old_events = client.get("/api/notifications", headers=teacher).json()["items"]
+    assert not any(item.get("resource_id") == next_id for item in old_events)
 
 
 def test_workflow_direct_id_denial_and_publish_requires_members():
@@ -719,6 +2563,66 @@ def test_active_teacher_can_configure_only_their_scoped_workflow():
     assert client.post(f"/api/stages/{stage.json()['id']}/preview", headers=teacher_headers).status_code == 200
     assert client.post(f"/api/stages/{stage.json()['id']}/publish", headers=teacher_headers).status_code == 200
     assert client.get("/api/reports/cohorts/unknown", headers=teacher_headers).status_code == 403
+
+
+def test_teachers_cannot_transfer_another_teachers_student():
+    admin = _login("admin", "TestAdminPassword123")
+    first, _, first_id, student_id = _create_people(admin)
+    second, _, second_id, second_student_id = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+    school = client.post("/api/organizations", headers=admin, json={
+        "id": f"workflow-teacher-boundary-{suffix}", "name": "教师指导范围测试", "type": "school",
+    }).json()
+    for teacher_id in (first_id, second_id):
+        response = client.put(f"/api/organizations/users/{teacher_id}/context", headers=admin, json={
+            "organization_context": {"school_id": school["id"]},
+        })
+        assert response.status_code == 200, response.text
+    cohort = client.post("/api/cohorts", headers=first, json={
+        "name": "指导关系测试", "organization_id": school["id"],
+    }).json()
+    path = f"/api/cohorts/{cohort['id']}/members"
+    original = {"student_id": student_id, "teacher_id": first_id}
+    assert client.post(path, headers=first, json=original).status_code == 201
+    assert client.post(path, headers=first, json=original).status_code == 201
+
+    transfer = {"student_id": student_id, "teacher_id": second_id}
+    assert client.post(path, headers=second, json=transfer).status_code == 403
+    assert client.post(path, headers=first, json=transfer).status_code == 403
+    for dry_run in (True, False):
+        result = client.post(path + "/import", headers=second, json={
+            "dry_run": dry_run, "rows": [transfer],
+        })
+        assert result.status_code == 200, result.text
+        assert result.json()["summary"]["failed"] == 1
+        assert result.json()["summary"]["imported"] == 0
+    assert client.get(path, headers=first).json()[0]["teacher_id"] == first_id
+
+    authorized = client.post(path, headers=admin, json={**transfer, "reason": "管理员调整指导关系"})
+    assert authorized.status_code == 201, authorized.text
+    assert authorized.json()["teacher_id"] == second_id
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        attempts = [
+            executor.submit(client.post, path, headers=headers,
+                            json={"student_id": second_student_id, "teacher_id": teacher_id})
+            for headers, teacher_id in ((first, first_id), (second, second_id))
+        ]
+        results = [attempt.result() for attempt in attempts]
+    assert sorted(result.status_code for result in results) == [201, 403]
+    relationships = [item for item in client.get(path, headers=admin).json()
+                     if item["student_id"] == second_student_id and item.get("active")]
+    assert len(relationships) == 1
+
+    _, _, _, future_student_id = _create_people(admin)
+    scheduled = client.post(path, headers=admin, json={
+        "student_id": future_student_id, "teacher_id": first_id,
+        "effective_from": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+    })
+    assert scheduled.status_code == 201, scheduled.text
+    assert client.post(path, headers=second, json={
+        "student_id": future_student_id, "teacher_id": second_id,
+    }).status_code == 403
 
 
 def test_supervising_teacher_can_extend_only_own_student_deadline():
@@ -1164,7 +3068,10 @@ def test_my_tasks_skips_incomplete_participant_records():
     assert all(item.get("cohort_id") and item.get("stage_id") for item in student_tasks.json())
 
 
-def test_docx_manuscript_import_previews_then_applies_with_revision_guard(tmp_path):
+def test_docx_manuscript_import_previews_then_applies_with_revision_guard(tmp_path, monkeypatch):
+    from app.core import feature_flags
+
+    monkeypatch.setattr(feature_flags, "manuscript_import_enabled", lambda: True)
     admin = _login("admin", "TestAdminPassword123")
     teacher, student, teacher_id, student_id = _create_people(admin)
     suffix = uuid.uuid4().hex[:8]
@@ -1211,13 +3118,22 @@ def test_docx_manuscript_import_previews_then_applies_with_revision_guard(tmp_pa
         "base_revision": project["revision"], "meta": {"title": "先保存的修改"},
     })
     assert stale.status_code == 200
-    rejected = client.post(f"/api/projects/{project['id']}/import-docx?apply=true&base_revision={project['revision']}", headers=student, files={
-        "file": ("manuscript.docx", payload, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    rejected = client.post(f"/api/projects/{project['id']}/import-docx", headers=student, params={
+        "apply": "true", "base_revision": preview.json()["project_revision"],
+        "candidate_id": preview.json()["candidate_id"], "candidate_sha256": preview.json()["candidate_sha256"],
     })
     assert rejected.status_code == 409, rejected.text
     latest = client.get(f"/api/projects/{project['id']}", headers=student).json()
-    applied = client.post(f"/api/projects/{project['id']}/import-docx?apply=true&base_revision={latest['revision']}", headers=student, files={
+    assert latest["meta"]["title"] == "先保存的修改"
+    refreshed = client.post(f"/api/projects/{project['id']}/import-docx", headers=student, files={
         "file": ("manuscript.docx", payload, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    })
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["candidate_id"] != preview.json()["candidate_id"]
+    assert refreshed.json()["project_revision"] == latest["revision"]
+    applied = client.post(f"/api/projects/{project['id']}/import-docx", headers=student, params={
+        "apply": "true", "base_revision": refreshed.json()["project_revision"],
+        "candidate_id": refreshed.json()["candidate_id"], "candidate_sha256": refreshed.json()["candidate_sha256"],
     })
     assert applied.status_code == 200, applied.text
     assert applied.json()["applied"] is True
@@ -1491,3 +3407,71 @@ def test_binding_existing_paper_persists_batch_scope_atomically(monkeypatch):
     rebound = client.post(f'/api/stage-participants/{participant["id"]}/project', headers=student, json={'project_id': project['id']})
     assert rebound.status_code == 200
     assert Store().get_project(project['id']).revision == current.revision
+
+
+def test_submission_candidate_blocks_invalid_heading_hierarchy_and_allows_repair(ready_submission_candidate):
+    fixture = ready_submission_candidate
+    participant = Store().get_workflow_record('participant', fixture['participant_id'])
+    project_id = participant['project_id']
+    project = client.get(f'/api/projects/{project_id}', headers=fixture['student']).json()
+    sections = [{key: item[key] for key in ('key', 'type', 'title', 'required')}
+                for item in project['sections']]
+    next(item for item in sections if item['key'] == 'ch1_1')['type'] = 'heading3'
+    saved = client.put(f'/api/projects/{project_id}/sections', headers=fixture['student'], json={
+        'base_revision': project['revision'], 'sections': sections,
+    })
+    assert saved.status_code == 200, saved.text
+    blocked = client.post('/api/submission-candidates', headers=fixture['student'], json={
+        'participant_id': fixture['participant_id'],
+    })
+    assert blocked.status_code == 201, blocked.text
+    assert blocked.json()['status'] == 'blocked'
+    completeness = next(gate for gate in blocked.json()['gates'] if gate['key'] == 'completeness')
+    assert any('三级标题' in issue for issue in completeness['detail'])
+    next(item for item in sections if item['key'] == 'ch1_1')['type'] = 'heading2'
+    repaired = client.put(f'/api/projects/{project_id}/sections', headers=fixture['student'], json={
+        'base_revision': saved.json()['revision'], 'sections': sections,
+    })
+    assert repaired.status_code == 200, repaired.text
+    ready = client.post('/api/submission-candidates', headers=fixture['student'], json={
+        'participant_id': fixture['participant_id'],
+    })
+    assert ready.status_code == 201 and ready.json()['status'] == 'ready', ready.text
+
+
+@pytest.mark.parametrize('ready_submission_candidate', ['m1-pdf-disabled'], indirect=True)
+def test_old_submission_and_archive_recheck_heading_hierarchy(ready_submission_candidate, monkeypatch):
+    from app.api import workflow as workflow_api
+
+    fixture = ready_submission_candidate
+    participant = Store().get_workflow_record('participant', fixture['participant_id'])
+    project_id = participant['project_id']
+    project = client.get(f'/api/projects/{project_id}', headers=fixture['student']).json()
+    sections = [{key: item[key] for key in ('key', 'type', 'title', 'required')}
+                for item in project['sections']]
+    next(item for item in sections if item['key'] == 'ch1_1')['type'] = 'heading3'
+    saved = client.put(f'/api/projects/{project_id}/sections', headers=fixture['student'], json={
+        'base_revision': project['revision'], 'sections': sections,
+    })
+    assert saved.status_code == 200, saved.text
+    with monkeypatch.context() as patch:
+        patch.setattr(workflow_api, 'validate_project_completeness', lambda *_args: [])
+        patch.setattr(workflow_api, 'validate_heading_hierarchy', lambda _sections: [])
+        candidate = client.post('/api/submission-candidates', headers=fixture['student'], json={
+            'participant_id': fixture['participant_id'],
+        })
+        assert candidate.status_code == 201 and candidate.json()['status'] == 'ready', candidate.text
+        submitted = client.post('/api/submissions', headers=fixture['student'], json={
+            'candidate_id': candidate.json()['id'], 'idempotency_key': 'old-heading-test',
+        })
+        assert submitted.status_code == 200, submitted.text
+        submission_id = submitted.json()['submission']['id']
+        approved = client.post(f'/api/submissions/{submission_id}/reviews', headers=fixture['teacher'], json={
+            'decision': 'approved',
+        })
+        assert approved.status_code == 200, approved.text
+        archive_id = approved.json()['archive']['id']
+        run_once()
+        assert client.get(f'/api/archives/{archive_id}/download', headers=fixture['student']).status_code == 200
+    assert client.get(f'/api/submissions/{submission_id}/document', headers=fixture['student']).status_code == 409
+    assert client.get(f'/api/archives/{archive_id}/download', headers=fixture['student']).status_code == 409

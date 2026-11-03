@@ -453,6 +453,12 @@ export async function downloadProjectExportJob(projectId, exportId, fallbackName
   await downloadBlob(resp, fallbackName)
 }
 
+export async function downloadProjectExportPdf(projectId, exportId, fallbackName = 'paper.pdf') {
+  const resp = await api(`${API_BASE}/projects/${projectId}/export-jobs/${exportId}/download?format=pdf`)
+  if (!resp.ok) throw await responseError(resp, 'PDF 生成失败，Word 文件仍可下载')
+  await downloadBlob(resp, fallbackName)
+}
+
 export async function downloadProjectExportReviewCandidate(projectId, exportId, fallbackName = 'paper.review-candidate.docx') {
   const resp = await api(`${API_BASE}/projects/${projectId}/export-jobs/${exportId}/review-candidate`)
   if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '下载人工核查候选失败'))
@@ -470,7 +476,7 @@ export async function confirmProjectExportManualReview(projectId, exportId, payl
 
 export async function retryProjectExportJob(projectId, exportId) {
   const resp = await api(`${API_BASE}/projects/${projectId}/export-jobs/${exportId}/retry`, { method: 'POST' })
-  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '重试导出任务失败'))
+  if (!resp.ok) throw await responseError(resp, '重试导出任务失败')
   return resp.json()
 }
 
@@ -491,23 +497,51 @@ export async function previewProjectExport(projectId, force = false) {
   return resp.json()
 }
 
-export async function importProjectDocx(projectId, file, apply = false, baseRevision = null) {
-  const params = new URLSearchParams()
-  if (apply) params.set('apply', 'true')
-  if (baseRevision !== null && baseRevision !== undefined) params.set('base_revision', String(baseRevision))
+export async function fetchProjectCapabilities(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/capabilities`)
+  if (!resp.ok) throw await responseError(resp, '获取写作能力失败')
+  return resp.json()
+}
+
+export async function fetchWorkflowCapabilities() {
+  const resp = await api(`${API_BASE}/workflow-capabilities`)
+  if (!resp.ok) throw await responseError(resp, '获取工作流能力失败')
+  return resp.json()
+}
+
+export async function previewProjectDocx(projectId, file) {
   const form = new FormData()
   form.append('file', file)
-  const query = params.toString()
-  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx${query ? `?${query}` : ''}`, {
+  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx`, { method: 'POST', body: form })
+  if (!resp.ok) throw await responseError(resp, '预览 Word 论文失败')
+  return resp.json()
+}
+
+export async function fetchProjectDocxCandidate(projectId) {
+  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx/candidate`)
+  if (!resp.ok) throw await responseError(resp, '恢复导入预览失败')
+  return resp.json()
+}
+
+export async function reviseProjectDocxCandidate(projectId, candidateId, decisions) {
+  const params = new URLSearchParams()
+  params.set('candidate_id', candidateId)
+  const form = new FormData()
+  form.append('heading_decisions', JSON.stringify(decisions))
+  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx?${params}`, {
     method: 'POST', body: form,
   })
-  if (!resp.ok) {
-    const detail = await resp.json().catch(() => ({}))
-    const err = new Error(detailMessage(detail, '导入 Word 正文失败'))
-    err.status = resp.status
-    err.revision = detail.detail?.revision
-    throw err
-  }
+  if (!resp.ok) throw await responseError(resp, '更新导入预览失败')
+  return resp.json()
+}
+
+export async function applyProjectDocxCandidate(projectId, candidate) {
+  const params = new URLSearchParams({
+    apply: 'true', candidate_id: candidate.candidate_id, candidate_sha256: candidate.candidate_sha256,
+    base_revision: String(candidate.project_revision),
+  })
+  const resp = await api(`${API_BASE}/projects/${projectId}/import-docx?${params}`, { method: 'POST' })
+  if (!resp.ok) throw await responseError(resp, '应用 Word 论文失败')
   return resp.json()
 }
 
@@ -822,6 +856,24 @@ export async function downloadProcessRecordAttachment(fileId) {
   await downloadBlob(resp, fileId)
 }
 
+export async function downloadSubmissionMaterial(submissionId, fileId, name) {
+  const resp = await api(`${API_BASE}/submissions/${encodeURIComponent(submissionId)}/materials/${encodeURIComponent(fileId)}/download`)
+  if (!resp.ok) throw new Error(detailMessage(await resp.json().catch(() => ({})), '下载提交材料失败'))
+  await downloadBlob(resp, name || fileId)
+}
+
+export async function downloadSubmissionDocument(submissionId) {
+  const resp = await api(`${API_BASE}/submissions/${encodeURIComponent(submissionId)}/document`)
+  if (!resp.ok) throw await responseError(resp, '下载提交版 Word 失败')
+  await downloadBlob(resp, 'submission.docx')
+}
+
+export async function downloadSubmissionPdf(submissionId) {
+  const resp = await api(`${API_BASE}/submissions/${encodeURIComponent(submissionId)}/document?format=pdf`)
+  if (!resp.ok) throw await responseError(resp, 'PDF 生成失败，Word 文件仍可下载')
+  await downloadBlob(resp, 'submission.pdf')
+}
+
 export async function fetchTask(participantId) {
   return workflowJson(`${API_BASE}/stage-participants/${participantId}`, {}, '获取任务详情失败')
 }
@@ -862,6 +914,12 @@ export async function fetchSubmissions() {
 
 export async function fetchSubmission(submissionId) {
   return workflowJson(`${API_BASE}/submissions/${submissionId}`, {}, '获取提交详情失败')
+}
+
+export async function withdrawSubmission(submissionId) {
+  return workflowJson(`${API_BASE}/submissions/${submissionId}/withdraw`, {
+    method: 'POST',
+  }, '撤回提交失败')
 }
 
 export async function fetchProjectVersions(projectId) {
@@ -1081,6 +1139,12 @@ export async function getPrivateImageUrl(path) {
   if (!resp.ok) throw new Error('图片加载失败')
   const blob = await resp.blob()
   return URL.createObjectURL(blob)
+}
+
+export async function getSubmissionImageUrl(submissionId, blockId) {
+  const resp = await api(`${API_BASE}/submissions/${encodeURIComponent(submissionId)}/image?block_id=${encodeURIComponent(blockId)}`)
+  if (!resp.ok) throw await responseError(resp, '提交图片加载失败')
+  return URL.createObjectURL(await resp.blob())
 }
 
 

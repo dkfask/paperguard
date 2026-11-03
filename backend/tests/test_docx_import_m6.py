@@ -6,6 +6,7 @@ from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from fastapi import HTTPException
 
 from app.api.projects import _apply_imported_docx, _parse_par
 from app.core.export.docx_exporter import _export_paragraph
@@ -131,9 +132,10 @@ def test_section_save_keeps_inline_runs_only_when_text_still_matches():
     assert "".join(run.text for run in saved.inline_runs) == saved.text
     assert saved.inline_runs[1].bold is True
 
-    edited = _parse_par(imported | {"text": "修改后的段落"}, "project-inline-text")
-    assert edited.text == "修改后的段落"
-    assert edited.inline_runs == []
+    with pytest.raises(HTTPException) as exc_info:
+        _parse_par(imported | {"text": "修改后的段落"}, "project-inline-text")
+    assert exc_info.value.status_code == 422
+    assert "段落文字与行内格式不一致" in exc_info.value.detail
 
 
 def test_empty_inline_runs_do_not_change_legacy_project_hash():

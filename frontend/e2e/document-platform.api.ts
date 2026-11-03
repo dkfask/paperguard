@@ -57,7 +57,7 @@ async function jsonOrThrow(response: Awaited<ReturnType<APIRequestContext['get']
   return response.json()
 }
 
-export async function publishFixturePackage(api: APIRequestContext): Promise<PublishedPackage> {
+export async function publishFixturePackage(api: APIRequestContext, templatePath = TEMPLATE_PATH): Promise<PublishedPackage> {
   if (!E2E_ADMIN_PASSWORD) throw new Error('E2E_ADMIN_PASSWORD is required')
   const specName = `E2E 通用报告规范 ${Date.now()}-${randomBytes(4).toString('hex')}`
 
@@ -66,12 +66,12 @@ export async function publishFixturePackage(api: APIRequestContext): Promise<Pub
   })
   const login = await jsonOrThrow(loginResponse, 'admin login')
   const headers = { Authorization: `Bearer ${login.token}` }
-  const templateFile = readFileSync(TEMPLATE_PATH)
+  const templateFile = readFileSync(templatePath)
   const templateResponse = await api.post('/api/templates/parse', {
     headers,
     multipart: {
       file: {
-        name: basename(TEMPLATE_PATH),
+        name: basename(templatePath),
         mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         buffer: templateFile,
       },

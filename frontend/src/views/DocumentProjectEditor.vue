@@ -17,7 +17,7 @@
             <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
             {{ validating ? t('documentProjects.validating') : t('documentProjects.validate') }}
           </button>
-          <button class="export-action" type="button" :disabled="validating || saving || exporting" @click="exportProject">
+          <button v-if="formalDeliveryEnabled" class="export-action" type="button" :disabled="validating || saving || exporting" @click="exportProject">
             <span class="material-symbols-outlined" aria-hidden="true">download</span>
             {{ exporting ? t('documentProjects.exporting') : t('documentProjects.export') }}
           </button>
@@ -181,6 +181,7 @@ const draft = reactive({
   sections: {},
 })
 const loading = ref(true)
+const formalDeliveryEnabled = computed(() => editor.value?.capabilities?.formal_delivery_enabled !== false)
 const saving = ref(false)
 const validating = ref(false)
 const exporting = ref(false)
@@ -254,9 +255,11 @@ async function load() {
   try {
     editor.value = await getDocumentProjectEditor(route.params.id)
     applyProject(editor.value.project)
-    const jobs = await fetchDocumentRenderJobs(route.params.id)
-    const current = jobs.find(item => item.project_revision === draft.revision && item.status === 'succeeded' && item.manual_review?.status === 'required')
-    if (current) manualReview.value = { ...current.manual_review, jobId: current.id }
+    if (formalDeliveryEnabled.value) {
+      const jobs = await fetchDocumentRenderJobs(route.params.id)
+      const current = jobs.find(item => item.project_revision === draft.revision && item.status === 'succeeded' && item.manual_review?.status === 'required')
+      if (current) manualReview.value = { ...current.manual_review, jobId: current.id }
+    }
   } catch (exception) {
     error.value = exception.message
   } finally {

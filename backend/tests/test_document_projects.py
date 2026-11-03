@@ -256,6 +256,48 @@ def test_document_project_render_returns_docx_artifact() -> None:
     assert b"PK" not in response.content
 
 
+def test_m1_generic_document_keeps_drafts_but_blocks_delivery_and_queued_work(monkeypatch) -> None:
+    from app.services.document_render_jobs import run_document_render_job
+    from app.services.workflow_jobs import consume_document_render_jobs
+
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    package = _published_package(client, headers)
+    created = client.post('/api/document-projects', headers=headers,
+        json={'package_id': package['id'], 'title': '试点草稿'})
+    assert created.status_code == 201, created.text
+    project = created.json()
+    base = f"/api/document-projects/{project['id']}"
+    queued = client.post(base + '/render-jobs', headers=headers)
+    assert queued.status_code == 202, queued.text
+    job = queued.json()
+
+    monkeypatch.setenv('PAPERGUARD_DELIVERY_STAGE', 'm1')
+    editor = client.get(base + '/editor', headers=headers)
+    assert editor.status_code == 200
+    assert editor.json()['capabilities']['formal_delivery_enabled'] is False
+    saved = client.put(base, headers=headers, json={'title': '试点草稿已保存', 'base_revision': project['revision']})
+    assert saved.status_code == 200, saved.text
+
+    paths = [
+        ('post', '/render?force=true', None),
+        ('post', '/render-jobs?force=true', None),
+        ('post', f"/render-jobs/{job['id']}/retry", None),
+        ('get', f"/render-jobs/{job['id']}/artifact", None),
+        ('get', f"/render-jobs/{job['id']}/review-candidate", None),
+        ('post', f"/render-jobs/{job['id']}/manual-review", {'output_sha256': 'a' * 64, 'confirmed_check_ids': ['a']}),
+    ]
+    for method, path, payload in paths:
+        response = client.request(method, base + path, headers=headers, json=payload)
+        assert response.status_code == 403, (path, response.text)
+        assert response.json()['detail']['code'] == 'm1_generic_delivery_unavailable'
+    direct = run_document_render_job(Store(), job['id'])
+    assert direct['error_code'] == 'M1_GENERIC_DELIVERY_UNAVAILABLE'
+    consumed = consume_document_render_jobs(Store(), consumer_id='test-m1')
+    assert consumed['claimed'] == 0
+    assert Store().get_workflow_record('document_render_job', job['id'])['status'] == 'queued'
+
+
 def test_document_project_image_upload_is_owned_but_unverified_render_is_blocked(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("PAPERGUARD_DATA_DIR", str(tmp_path))
     client = TestClient(app)

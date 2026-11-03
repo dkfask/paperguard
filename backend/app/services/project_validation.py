@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from app.models.project import WritingProject
 from app.models.template import PaperTemplate, SectionType
+from app.services.references import reference_block_text
 
 
 def _section_complete(proj_sec) -> bool:
@@ -28,7 +29,7 @@ def _section_complete(proj_sec) -> bool:
             ):
                 return True
         else:
-            if par.text.strip():
+            if reference_block_text(par).strip():
                 return True
     return False
 
@@ -54,6 +55,39 @@ def section_complete_with_children(index: int, sections: list) -> bool:
     return False
 
 
+def validate_heading_hierarchy(sections: list) -> list[str]:
+    """Check visible chapter headings without preventing draft edits.
+
+    Body containers do not start a new outline. References, acknowledgements,
+    and appendices are top-level parents; front matter closes the prior outline.
+    Untitled headings are not visible parents in the exported document.
+    """
+    issues: list[str] = []
+    has_chapter = False
+    has_section = False
+    for section in sections:
+        section_type = section.type
+        title = (section.title or "").strip()
+        if section_type == SectionType.HEADING1.value:
+            has_chapter = bool(title)
+            has_section = False
+        elif section_type == SectionType.HEADING2.value:
+            if title and not has_chapter:
+                issues.append(f"二级标题「{title}」缺少有效的一级标题，请补充上级标题或调整级别")
+            has_section = bool(title) and has_chapter
+        elif section_type == SectionType.HEADING3.value:
+            if title and not has_section:
+                parent = "二级" if has_chapter else "一级和二级"
+                issues.append(f"三级标题「{title}」缺少有效的{parent}标题，请补充上级标题或调整级别")
+        elif section_type in (SectionType.REFERENCES.value, SectionType.ACKNOWLEDGEMENT.value, SectionType.APPENDIX.value):
+            has_chapter = bool(title)
+            has_section = False
+        elif section_type != SectionType.BODY.value:
+            has_chapter = False
+            has_section = False
+    return issues
+
+
 def validate_project_completeness(
     proj: WritingProject, tpl: PaperTemplate
 ) -> list[str]:
@@ -62,8 +96,9 @@ def validate_project_completeness(
     检查:
     - 封面必填字段
     - 模板中 required=True 的章节(标题节与内容节)
+    - 标题是否缺少有效的上级标题
     """
-    missing: list[str] = []
+    missing = validate_heading_hierarchy(proj.sections)
 
     # 封面必填字段
     for f in tpl.meta_fields:
@@ -90,5 +125,22 @@ def validate_project_completeness(
         index = indices.get(key)
         if index is None or proj.sections[index].type != sec.type or not section_complete_with_children(index, proj.sections):
             missing.append(f"「{sec.title or sec.key}」未完成(标题或内容为空)")
+
+    for section in proj.sections:
+        if section.type != SectionType.REFERENCES.value and section.key != "references":
+            continue
+        for index, block in enumerate(section.paragraphs, start=1):
+            reference = block.reference
+            if not reference:
+                continue
+            has_fact = any(str(getattr(reference, field) or "").strip() for field in (
+                "authors", "title", "source", "collection", "publisher", "institution", "organization",
+            ))
+            if reference.kind == "unparsed" or (reference.original_pasted_text is not None and not has_fact):
+                label = f"[{block.reference_number}]" if block.reference_number else f"第 {index} 条"
+                missing.append(f"参考文献 {label} 尚未确认类型和补录事实字段")
+            elif reference.original_pasted_text is not None:
+                label = f"[{block.reference_number}]" if block.reference_number else f"第 {index} 条"
+                missing.append(f"参考文献 {label} 的标准著录尚未完成自动核验，原文已保留，请等待系统适配")
 
     return missing

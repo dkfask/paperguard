@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from app.core.feature_flags import m1_pilot_active
 from app.db import Store, new_id
 from app.domain.documents.hashing import document_project_content_hash
 from app.domain.documents.hashing import canonical_hash
@@ -120,6 +121,8 @@ def create_document_render_job(
     actor_id: str,
 ) -> dict[str, Any]:
     """Persist one version-frozen generic render request and queue item."""
+    if m1_pilot_active():
+        raise DocumentDeliveryGateError("试点期间通用文档仅支持草稿")
     content_hash = document_project_content_hash(project)
     repository = WorkflowRepository(store)
     for existing in repository.list(RENDER_JOB_KIND):
@@ -237,6 +240,8 @@ def recover_pending_document_render_jobs(store: Store) -> None:
 
 def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "system") -> dict[str, Any]:
     """Render the immutable job snapshot and publish one controlled artifact."""
+    if m1_pilot_active():
+        return {"status": "blocked", "error_code": "M1_GENERIC_DELIVERY_UNAVAILABLE"}
     raw = get_document_render_job(store, render_job_id)
     if not raw:
         return {"status": "failed", "error_code": "DOCUMENT_RENDER_JOB_NOT_FOUND"}
@@ -323,6 +328,8 @@ def run_document_render_job(store: Store, render_job_id: str, actor_id: str = "s
         latest = get_document_render_job(store, render_job_id)
         if latest and latest.get("status") == "cancelled":
             raise DocumentRenderCancelled()
+        if m1_pilot_active():
+            raise DocumentDeliveryGateError("试点期间通用文档仅支持草稿")
         storage = artifact_storage()
         stored = storage.put_bytes(
             artifact.storage_key,

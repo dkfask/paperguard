@@ -12,7 +12,7 @@ from typing import Any
 
 from app.models.writing_specification import WritingSpecification
 
-COMPILER_VERSION = "template-content-rules/1"
+COMPILER_VERSION = "template-content-rules/2"
 _NUMBER = r"(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)"
 _COUNT_UNIT = r"(字|字符|词|单词|个|项|条)"
 _LOWER = re.compile(rf"(?:不少于|至少|不低于|不得少于|最少)\s*({_NUMBER})\s*{_COUNT_UNIT}")
@@ -121,6 +121,19 @@ def _compile_instruction(rule: Any, specification: WritingSpecification,
     text = str(rule.expected or "").strip()
     if rule.property != "instruction.text" or rule.evidence_kind != "explicit_instruction":
         return None
+    compact = re.sub(r"\s+", "", unicodedata.normalize("NFKC", text))
+    if re.search(r"参考文献.{0,30}至少15篇近3年.{0,12}其中5篇是英文", compact):
+        references = [node for node in sections if _node_kind(node) == "references" and _node_key(node)]
+        if len(references) != 1:
+            return None
+        return {
+            "rule_id": rule.id, "kind": "auto", "checker": "references.recent_language_summary",
+            "target": _node_key(references[0]), "params": {},
+            "description": "近三年文献数量及英文篇数（内容提示，不阻断交付）",
+            "expected": {"recent_min": 15, "english_min": 5},
+            "source_text": text, "source_node_ids": list(rule.evidence_node_ids),
+            "requires_defense_date_field": True, "enforce": "soft", "severity": "info",
+        }
     # “表格形式” is enforceable when it names a section that exists in the
     # template tree. Other table guidance remains manual.
     if "表格" in text and re.search(r"(?:表格.{0,12}(?:形式|表示|展示|进行)|(?:用|以|采用|使用).{0,6}表格)", text):
@@ -220,7 +233,8 @@ def review_content_instructions(specification: WritingSpecification, sections: A
 
 def compile_confirmed_content_requirements(specification: WritingSpecification, sections: Any,
                                            confirmed_rule_ids: list[str], *, template_id: str,
-                                           template_name: str, template_version: str) -> dict[str, Any]:
+                                           template_name: str, template_version: str,
+                                           meta_fields: Any = (), defense_date_field_key: str = "") -> dict[str, Any]:
     """Compile only teacher-selected candidates; unknown IDs fail closed."""
     if len(confirmed_rule_ids) != len(set(confirmed_rule_ids)):
         raise ValueError("内容规则确认项重复")
@@ -231,6 +245,11 @@ def compile_confirmed_content_requirements(specification: WritingSpecification, 
         if set(confirmed_rule_ids) & manual:
             raise ValueError("存在尚未支持自动检查的内容说明，不能启用为硬性规则")
         raise ValueError("内容规则引用未知或已过期的规范项")
+    needs_date = any(candidates[rule_id].get("requires_defense_date_field") for rule_id in confirmed_rule_ids)
+    field_keys = [str(getattr(field, "key", "") if not isinstance(field, dict) else field.get("key", ""))
+                  for field in meta_fields or []]
+    if needs_date and (not defense_date_field_key or field_keys.count(defense_date_field_key) != 1):
+        raise ValueError("请明确选择模板封面中表示答辩日期的字段")
     requirements = []
     review_requirements = []
     for rule_id, candidate in candidates.items():
@@ -240,9 +259,10 @@ def compile_confirmed_content_requirements(specification: WritingSpecification, 
             "type": "auto" if confirmed else "manual",
             "target": candidate["target"],
             "checker": candidate["checker"] if confirmed else "",
-            "params": candidate["params"],
-            "severity": "error" if confirmed else "info",
-            "enforce": "hard" if confirmed else "soft",
+            "params": {**candidate["params"], **({"defense_date_field_key": defense_date_field_key}
+                       if confirmed and candidate.get("requires_defense_date_field") else {})},
+            "severity": candidate.get("severity", "error") if confirmed else "info",
+            "enforce": candidate.get("enforce", "hard") if confirmed else "soft",
             "description": candidate["description"],
             "source": f"{template_name} · Word 明确要求",
             "source_version": template_version,

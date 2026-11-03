@@ -128,6 +128,21 @@ def test_spacing_types_character_indent_and_false_page_control(tmp_path):
     assert props['paragraph.keep_next'] is False
 
 
+def test_character_indents_override_length_indents_for_each_side():
+    ns = qn('w:x')[1:].split('}')[0]
+    styles = etree.fromstring(f'''<w:styles xmlns:w="{ns}">
+      <w:style w:type="paragraph" w:styleId="Normal" w:default="1"/>
+      </w:styles>'''.encode())
+    paragraph = etree.fromstring(f'''<w:p xmlns:w="{ns}"><w:pPr>
+      <w:ind w:left="0" w:leftChars="200" w:right="20" w:rightChars="100"
+             w:hanging="0" w:hangingChars="50"/>
+      </w:pPr><w:r><w:t>正文</w:t></w:r></w:p>'''.encode())
+    props, _, _, _ = EffectiveFormatResolver(styles).paragraph(paragraph)
+    assert props['paragraph.indent.left'] == {'value': 2, 'unit': 'character'}
+    assert props['paragraph.indent.right'] == {'value': 1, 'unit': 'character'}
+    assert props['paragraph.indent.hanging'] == {'value': 0.5, 'unit': 'character'}
+
+
 def test_rules_stay_in_their_regions_and_roles(tmp_path):
     doc = _normal_document()
     doc.add_heading('摘要', level=1)

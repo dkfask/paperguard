@@ -99,8 +99,10 @@ class ReviewDecision(BaseModel):
 class CommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
     severity: str = Field(default="info", pattern="^(info|blocking)$")
-    block_id: str = ""
-    quoted_text: str = ""
+    block_id: str = Field(default="", max_length=400)
+    quoted_text: str = Field(default="", max_length=4000)
+    text_start: int | None = Field(default=None, ge=0)
+    text_end: int | None = Field(default=None, ge=0)
 
 
 class CommentResponse(BaseModel):

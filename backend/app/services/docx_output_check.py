@@ -25,10 +25,12 @@ from app.models.project import WritingProject
 from app.models.template import PaperTemplate, SectionType, TextStyle
 from app.services.document_assets import resolve_document_image_path
 from app.services.project_versions import project_content_hash
+from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
 from app.services.upload_security import validate_docx_bytes
 
 
-INSPECTOR_VERSION = "docx-output-check/2"
+INSPECTOR_VERSION = "docx-output-check/4"
+MASTER_INSPECTOR_VERSION = "docx-output-check/6-master"
 _CHART_NS = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
     "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
@@ -115,7 +117,7 @@ def expected_output_check_identity(
     source_data: bytes | None,
 ) -> dict[str, Any]:
     return {
-        "inspector_version": INSPECTOR_VERSION,
+        "inspector_version": MASTER_INSPECTOR_VERSION if template.source_execution else INSPECTOR_VERSION,
         "project_id": project.id,
         "project_revision": project.revision,
         "project_content_hash": project_content_hash(project),
@@ -191,10 +193,14 @@ def _expected_text(project: WritingProject) -> list[tuple[str, str, int]]:
             table_number = 0
         if section.title and kind not in {"keywords", "english_keywords"}:
             expected.append((section.title, section.key, -1))
+        reference_number = 0
         for index, block in enumerate(section.paragraphs):
             block_kind = str(getattr(block.type, "value", block.type))
             if block_kind == "paragraph":
-                text = str(block.text or "")
+                has_reference_content = bool(reference_block_text(block).strip())
+                if kind == "references" and has_reference_content:
+                    reference_number += 1
+                text = reference_block_text(block, reference_number_for(block, reference_number) if kind == "references" and has_reference_content else None)
                 if kind in {"keywords", "english_keywords"} and text.strip():
                     prefix = "关键词：" if kind == "keywords" else "Key Words: "
                     if not text.strip().startswith(("关键词", "Key Words", "Keywords")):
@@ -914,7 +920,7 @@ def inspect_docx_output(
     project_hash = project_content_hash(project)
     result: dict[str, Any] = {
         "contract_version": 1,
-        "inspector_version": INSPECTOR_VERSION,
+        "inspector_version": MASTER_INSPECTOR_VERSION if template.source_execution else INSPECTOR_VERSION,
         "context_kind": context_kind,
         "project_id": project.id,
         "project_revision": project.revision,
@@ -989,7 +995,10 @@ def inspect_docx_output(
                 check("structure.required_title", "fail", obj=f"section:{node.key}", expected="non-empty section title", actual=section.title, evidence="required title is empty in the project snapshot")
             if node_kind in {"abstract", "english_abstract", "keywords", "english_keywords", "body", "references", "acknowledgement", "appendix"}:
                 has_content = any(
-                    (str(getattr(block.type, "value", block.type)) == "paragraph" and bool(str(block.text or "").strip()))
+                    (
+                        str(getattr(block.type, "value", block.type)) == "paragraph"
+                        and bool(reference_block_text(block).strip())
+                    )
                     or str(getattr(block.type, "value", block.type)) in {"image", "table", "equation"}
                     for block in section.paragraphs
                 )
@@ -1099,22 +1108,45 @@ def inspect_docx_output(
                 unsupported.append(f"行内 run 文本与段落文本不一致，无法核验: {section_key}/{block_index}")
                 check("capability.inline_run_mapping", "unverifiable", obj=f"paragraph:{par_index}", expected=source_block.text, actual="".join(item.text for item in source_block.inline_runs), evidence="exporter would discard inline formatting when source run text does not match the paragraph")
             else:
-                inline_specs = [item for item in source_block.inline_runs if item.text]
-            if inline_specs and len(inline_specs) != len(runs):
-                unsupported.append(f"行内 run 数无法与输出逐位置关联: {section_key}/{block_index}")
-                check("capability.inline_run_mapping", "unverifiable", obj=f"paragraph:{par_index}", expected=len(inline_specs), actual=len(runs), evidence="inline formatting must map one-to-one by run position")
+                try:
+                    is_reference = str(getattr(section.type, "value", section.type)) == "references"
+                    marker = re.match(r"^\[(\d+)\] ", paragraph.text) if is_reference else None
+                    inline_specs = reference_inline_runs(source_block, int(marker.group(1))) if marker else [item for item in source_block.inline_runs if item.text]
+                except ReferenceInlineMappingError:
+                    unsupported.append(f"参考文献行内格式无法与输出文字关联: {section_key}/{block_index}")
+                    check("capability.inline_run_mapping", "unverifiable", obj=f"paragraph:{par_index}", expected="reference text mapped to formatting", actual="unmappable reference", evidence="structured reference body differs from source text")
+                    inline_specs = []
+            if inline_specs and "".join(run.text for run in runs) != "".join(item.text for item in inline_specs):
+                unsupported.append(f"输出文字无法与行内格式逐字关联: {section_key}/{block_index}")
+                check("capability.inline_run_mapping", "unverifiable", obj=f"paragraph:{par_index}", expected="all paragraph text mapped to runs", actual="run text differs", evidence="text outside readable runs cannot be matched to source formatting")
+                inline_specs = []
+        inline_index = 0
+        inline_remaining = len(inline_specs[0].text) if inline_specs else 0
         for run_index, run in enumerate(runs):
             obj = f"paragraph:{par_index}/run:{run_index}"
-            inline = inline_specs[run_index] if run_index < len(inline_specs) else None
-            _check_run_style(
-                check, run, paragraph, style, obj,
-                bold_extra=bool(source_block and source_block.bold) or bool(inline and inline.bold),
-                italic_extra=bool(source_block and source_block.italic) or bool(inline and inline.italic),
-                underline_extra=bool(source_block and source_block.underline) or bool(inline and inline.underline),
-                highlight_override=(inline.highlight if inline and inline.highlight is not None else source_block.highlight if source_block and source_block.highlight is not None else None),
-                vert_align_override=(inline.vert_align if inline and inline.vert_align is not None else source_block.vert_align if source_block and source_block.vert_align is not None else None),
-                unsupported=unsupported,
-            )
+            mapped = []
+            remaining = len(run.text)
+            # Word can split or merge runs without changing their appearance.
+            while remaining and inline_index < len(inline_specs):
+                inline = inline_specs[inline_index]
+                mapped.append(inline)
+                consumed = min(remaining, inline_remaining)
+                remaining -= consumed
+                inline_remaining -= consumed
+                if not inline_remaining:
+                    inline_index += 1
+                    if inline_index < len(inline_specs):
+                        inline_remaining = len(inline_specs[inline_index].text)
+            for inline in mapped or [None]:
+                _check_run_style(
+                    check, run, paragraph, style, obj,
+                    bold_extra=bool(source_block and source_block.bold) or bool(inline and inline.bold),
+                    italic_extra=bool(source_block and source_block.italic) or bool(inline and inline.italic),
+                    underline_extra=bool(source_block and source_block.underline) or bool(inline and inline.underline),
+                    highlight_override=(inline.highlight if inline and inline.highlight is not None else source_block.highlight if source_block and source_block.highlight is not None else None),
+                    vert_align_override=(inline.vert_align if inline and inline.vert_align is not None else source_block.vert_align if source_block and source_block.vert_align is not None else None),
+                    unsupported=unsupported,
+                )
     for paragraph_index, paragraph in enumerate(actual_paragraphs):
         if paragraph_index in matched_indices:
             continue
@@ -1224,9 +1256,12 @@ def verify_report_binding(report: dict[str, Any] | None, data: bytes) -> bool:
     if not isinstance(report, dict):
         return False
     checks = report.get("checks")
+    master_report = "source_profile_sha256" in report
+    expected_version = MASTER_INSPECTOR_VERSION if master_report else INSPECTOR_VERSION
     return bool(
         report.get("contract_version") == 1
-        and report.get("inspector_version") == INSPECTOR_VERSION
+        and report.get("inspector_version") == expected_version
+        and (not master_report or re.fullmatch(r"[0-9a-f]{64}", str(report.get("source_profile_sha256") or "")))
         and report.get("status") == "pass"
         and isinstance(checks, list)
         and len(checks) > 0

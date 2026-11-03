@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
 
@@ -222,12 +223,12 @@ def _create_supported_scope_project() -> tuple[str, str]:
     return project_id, template_id
 
 
-def _create_full_default_gb7713_project() -> str:
+def _create_full_default_gb7713_project(headers: dict[str, str] | None = None) -> str:
     """Populate the actual built-in paper structure, including front matter and body."""
     created = client.post("/api/projects", json={
         "template_id": "default-gb7713",
         "title": "格式一致性研究",
-    })
+    }, headers=headers)
     assert created.status_code == 201, created.text
     project_id = created.json()["id"]
     meta = client.put(f"/api/projects/{project_id}/meta", json={
@@ -236,7 +237,7 @@ def _create_full_default_gb7713_project() -> str:
             "student_id": "20261001", "major": "计算机科学与技术",
             "advisor": "李老师", "date": "2026年10月",
         },
-    })
+    }, headers=headers)
     assert meta.status_code == 200, meta.text
     contents = {
         "abstract": "本文研究论文格式检查与修复方法。",
@@ -262,7 +263,7 @@ def _create_full_default_gb7713_project() -> str:
             "base_revision": revision,
             "title": section["title"],
             "paragraphs": [{"id": f"{section['key']}-sample", "text": contents[section["key"]]}],
-        })
+        }, headers=headers)
         assert updated.status_code == 200, updated.text
         revision = updated.json()["revision"]
     return project_id
@@ -529,7 +530,7 @@ def test_export_missing_project_404():
     assert client.post("/api/projects/nonexist/export").status_code == 404
 
 
-def test_durable_project_export_job_roundtrip():
+def test_durable_project_export_job_roundtrip(monkeypatch):
     """DOCX export can be queued, recovered by the worker, and downloaded safely."""
     from app.services.export_jobs import EXPORT_DIR
     from app.worker import run_once
@@ -558,20 +559,36 @@ def test_durable_project_export_job_roundtrip():
     assert completed.json()["status"] == "succeeded"
     assert completed.json()["output_check_status"] == "pass"
     assert completed.json()["output_check_count"] > 0
+    assert completed.json()["is_current_for_project"] is True
+    assert "download_url" in completed.json()
     saved_export = Store().get_workflow_record("project_export", task["id"])
     assert saved_export["output_check"]["output_sha256"]
     assert saved_export["output_check"]["project_content_hash"] == saved_export["content_hash"]
     downloaded = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.content[:2] == b"PK"
+    from app.services import word_optional_pdf
+    pdf = b"%PDF-1.4 test conversion result"
+    pdf_url = f"/api/projects/{project_id}/export-jobs/{task['id']}/download?format=pdf"
+    monkeypatch.setattr(word_optional_pdf, "word_pdf_available", lambda: True)
+    monkeypatch.setattr(word_optional_pdf, "create_optional_pdf", lambda data: (pdf, {
+        "source_sha256": hashlib.sha256(data).hexdigest(), "pdf_sha256": hashlib.sha256(pdf).hexdigest(),
+    }))
+    optional_pdf = client.get(pdf_url)
+    assert optional_pdf.status_code == 200, optional_pdf.text
+    assert optional_pdf.content == pdf
+    assert optional_pdf.headers["x-paperguard-source-sha256"] == hashlib.sha256(downloaded.content).hexdigest()
+    assert optional_pdf.headers["x-paperguard-pdf-sha256"] == hashlib.sha256(pdf).hexdigest()
+    assert optional_pdf.headers["cache-control"] == "private, no-store"
+    monkeypatch.setattr(word_optional_pdf, "word_pdf_available", lambda: False)
+    unavailable_pdf = client.get(pdf_url)
+    assert unavailable_pdf.status_code == 503
+    assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 200
+    monkeypatch.setattr(word_optional_pdf, "word_pdf_available", lambda: True)
     output = EXPORT_DIR / f"{task['id']}.docx"
     original_output = output.read_bytes()
     saved_export = Store().get_workflow_record("project_export", task["id"])
     original_report = saved_export["output_check"]
-
-    reused = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
-    assert reused.status_code == 202, reused.text
-    assert reused.json()["id"] == task["id"]
 
     other_project_id = _create_full_default_gb7713_project()
     changed_other_project = client.put(f"/api/projects/{other_project_id}/section/ch1", json={
@@ -608,33 +625,6 @@ def test_durable_project_export_job_roundtrip():
     assert cross_project_output.status_code == 409
     output.write_bytes(original_output)
 
-    # Editing the live project does not invalidate a legitimate export tied to its frozen snapshot.
-    edited = client.put(f"/api/projects/{project_id}/section/ch1", json={
-        "title": "第一章 绪论", "paragraphs": [{"id": "body-sample", "text": "后续修改，不属于已生成的历史快照。"}],
-    })
-    assert edited.status_code == 200
-    historical = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
-    assert historical.status_code == 409
-    stale_candidate = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/review-candidate")
-    assert stale_candidate.status_code == 409
-    assert stale_candidate.json()["detail"] == "论文内容或模板已变化，请重新导出并完成核查"
-    stale_confirmation = client.post(
-        f"/api/projects/{project_id}/export-jobs/{task['id']}/manual-review",
-        json={"output_sha256": original_report["output_sha256"], "confirmed_check_ids": ["stale-check"]},
-    )
-    assert stale_confirmation.status_code == 409
-    assert stale_confirmation.json()["detail"] == "论文内容或模板已变化，请重新导出并完成核查"
-    stale_view = next(
-        item for item in client.get(f"/api/projects/{project_id}/export-jobs").json()
-        if item["id"] == task["id"]
-    )
-    assert stale_view["is_current_for_project"] is False
-    assert "download_url" not in stale_view and "review_candidate_url" not in stale_view
-    replacement = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
-    assert replacement.status_code == 202, replacement.text
-    assert replacement.json()["id"] != task["id"]
-    assert replacement.json()["content_hash"] != saved_export["content_hash"]
-
     saved_export = Store().get_workflow_record("project_export", task["id"])
     original_report = saved_export["output_check"]
     original_template_snapshot = saved_export["template_snapshot"]
@@ -653,6 +643,9 @@ def test_durable_project_export_job_roundtrip():
     saved_export = Store().save_workflow_record("project_export", saved_export, expected_revision=saved_export["revision"])
     changed_snapshot = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
     assert changed_snapshot.status_code == 409
+    changed_view = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}").json()
+    assert changed_view["is_current_for_project"] is False
+    assert "download_url" not in changed_view
 
     saved_export["template_snapshot"] = original_template_snapshot
     saved_export["output_check"] = original_report
@@ -660,6 +653,25 @@ def test_durable_project_export_job_roundtrip():
     output.write_bytes(original_output + b"tampered")
     rejected = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
     assert rejected.status_code == 409
+    assert client.get(pdf_url).status_code == 409
+    output.write_bytes(original_output)
+    # The identity/digest negative cases above ran against a current project.
+    # Only after restoring valid evidence, verify that editing invalidates it.
+    assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 200
+    edited = client.put(f"/api/projects/{project_id}/section/ch1", json={
+        "title": "第一章 绪论", "paragraphs": [{"id": "body-sample", "text": "已修改的当前论文，需要重新导出。"}],
+    })
+    assert edited.status_code == 200
+    historical = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+    assert historical.status_code == 409
+    assert client.get(pdf_url).status_code == 409
+    assert "论文内容已变化" in historical.text
+    stale_views = [client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}").json(),
+                   next(item for item in client.get(f"/api/projects/{project_id}/export-jobs").json()
+                        if item["id"] == task["id"])]
+    for stale_view in stale_views:
+        assert stale_view["is_current_for_project"] is False
+        assert "download_url" not in stale_view and "review_candidate_url" not in stale_view
     audit = client.get("/api/audit", params={"resource_type": "project_export"})
     assert audit.status_code == 200
     assert {item["action"] for item in audit.json() if item["resource_id"] == task["id"]} >= {
@@ -669,6 +681,324 @@ def test_durable_project_export_job_roundtrip():
         output.unlink()
     if template_id:
         client.delete(f"/api/templates/{template_id}")
+
+
+def test_reference_numbers_remain_stable_through_api_reordering_and_deletion():
+    project_id = _create_full_default_gb7713_project()
+    project = client.get(f"/api/projects/{project_id}").json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    first = refs["paragraphs"][0]
+    second = {"id": "new-reference", "type": "paragraph", "text": "", "reference": {
+        "kind": "book", "authors": "测试作者", "title": "第二本文献", "year": "2026",
+    }}
+    saved = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project["revision"], "paragraphs": [first, second],
+    })
+    assert saved.status_code == 200, saved.text
+    project = saved.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    assert [block["reference_number"] for block in refs["paragraphs"]] == [1, 2]
+    saved = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project["revision"], "paragraphs": list(reversed(refs["paragraphs"])),
+    })
+    assert saved.status_code == 200, saved.text
+    project = saved.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    assert [block["reference_number"] for block in refs["paragraphs"]] == [2, 1]
+    saved = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project["revision"], "paragraphs": [refs["paragraphs"][0], {
+            "id": "third-reference", "text": "第三本文献. 2026.",
+        }],
+    })
+    assert saved.status_code == 200, saved.text
+    project = saved.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    assert [block["reference_number"] for block in refs["paragraphs"]] == [2, 3]
+    refs["paragraphs"][1]["reference_number"] = 1
+    rejected = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project["revision"], "paragraphs": refs["paragraphs"],
+    })
+    assert rejected.status_code == 422, rejected.text
+    assert client.get(f"/api/projects/{project_id}").json()["revision"] == project["revision"]
+
+
+def test_pasted_reference_round_trip_and_unparsed_export_gate():
+    project_id = _create_full_default_gb7713_project()
+    project = client.get(f"/api/projects/{project_id}").json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    pasted = {
+        "id": "pasted-reference", "type": "paragraph", "text": "", "reference": {
+            "kind": "unparsed", "unformatted_text": "[1] 复制的原文", "original_pasted_text": "[1] 复制的原文",
+        },
+    }
+    response = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project["revision"], "paragraphs": [*refs["paragraphs"], pasted],
+    })
+    assert response.status_code == 200, response.text
+    project = response.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    saved = refs["paragraphs"][-1]
+    assert saved["reference_number"] == 2
+    assert saved["reference"]["original_pasted_text"] == "[1] 复制的原文"
+
+    for path in ("export", "export-jobs"):
+        result = client.post(f"/api/projects/{project_id}/{path}?force=true")
+        assert result.status_code == 409, result.text
+        assert "[2]" in str(result.json())
+
+    saved["reference"].update({"kind": "journal", "unformatted_text": "编辑后的文本", "original_pasted_text": "伪造原文"})
+    response = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project["revision"], "paragraphs": refs["paragraphs"],
+    })
+    assert response.status_code == 200, response.text
+    reloaded = client.get(f"/api/projects/{project_id}").json()
+    saved = next(section for section in reloaded["sections"] if section["key"] == "references")["paragraphs"][-1]
+    assert saved["reference"]["original_pasted_text"] == "[1] 复制的原文"
+    assert saved["reference"]["unformatted_text"] == "编辑后的文本"
+    saved["reference"].update({"authors": "张三", "title": "题名", "source": "期刊", "year": "2024"})
+    refs = next(section for section in reloaded["sections"] if section["key"] == "references")
+    response = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": reloaded["revision"], "paragraphs": refs["paragraphs"],
+    })
+    assert response.status_code == 200, response.text
+    for path in ("export", "export-jobs"):
+        result = client.post(f"/api/projects/{project_id}/{path}?force=true")
+        assert result.status_code == 409, f"unexpected status {result.status_code}"
+        assert "自动核验" in str(result.json())
+
+
+def test_local_recovery_preserves_pasted_reference_original():
+    project_id = _create_full_default_gb7713_project()
+    project = client.get(f"/api/projects/{project_id}").json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    pasted = {
+        "id": "recovered-reference", "type": "paragraph", "text": "", "reference": {
+            "kind": "unparsed", "unformatted_text": "[1] 原始粘贴文本", "original_pasted_text": "[1] 原始粘贴文本",
+        },
+    }
+    saved = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project["revision"], "paragraphs": [*refs["paragraphs"], pasted],
+    })
+    assert saved.status_code == 200, saved.text
+    project = saved.json()
+    snapshot = {key: deepcopy(project[key]) for key in ("title", "meta", "sections")}
+    recovered = next(section for section in snapshot["sections"] if section["key"] == "references")["paragraphs"][-1]
+    recovered["reference"].update({"kind": "journal", "title": "恢复的题名", "original_pasted_text": "被覆盖的原文"})
+
+    response = client.post(f"/api/projects/{project_id}/restore-local", json={
+        "base_revision": project["revision"], "snapshot": snapshot,
+    })
+    assert response.status_code == 200, response.text
+    project = response.json()
+    recovered = next(section for section in project["sections"] if section["key"] == "references")["paragraphs"][-1]
+    assert recovered["reference"]["original_pasted_text"] == "[1] 原始粘贴文本"
+    assert recovered["reference"]["title"] == "恢复的题名"
+
+    for replacement in ({"reference": None}, {"type": "image", "reference": None, "image": {}}):
+        snapshot = {key: deepcopy(project[key]) for key in ("title", "meta", "sections")}
+        recovered = next(section for section in snapshot["sections"] if section["key"] == "references")["paragraphs"][-1]
+        recovered.update(replacement)
+        response = client.post(f"/api/projects/{project_id}/restore-local", json={
+            "base_revision": project["revision"], "snapshot": snapshot,
+        })
+        assert response.status_code == 422, response.text
+        assert client.get(f"/api/projects/{project_id}").json()["revision"] == project["revision"]
+
+
+@pytest.mark.parametrize("restore_local", [False, True], ids=["section-save", "local-recovery"])
+def test_legacy_reference_conversion_preserves_server_original(restore_local):
+    project_id = _create_full_default_gb7713_project()
+    project = client.get(f"/api/projects/{project_id}").json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    legacy = refs["paragraphs"][0]
+    original = legacy["text"]
+    legacy.update({"text": "", "reference": {
+        "kind": "journal", "title": "调整后的题名", "unformatted_text": "本地编辑后的文字",
+        "original_pasted_text": "客户端伪造的原文",
+    }})
+
+    if restore_local:
+        snapshot = {key: deepcopy(project[key]) for key in ("title", "meta", "sections")}
+        response = client.post(f"/api/projects/{project_id}/restore-local", json={
+            "base_revision": project["revision"], "snapshot": snapshot,
+        })
+    else:
+        response = client.put(f"/api/projects/{project_id}/section/references", json={
+            "base_revision": project["revision"], "paragraphs": refs["paragraphs"],
+        })
+    assert response.status_code == 200, response.text
+    reloaded = client.get(f"/api/projects/{project_id}").json()
+    reference = next(section for section in reloaded["sections"] if section["key"] == "references")["paragraphs"][0]["reference"]
+    assert reference["original_pasted_text"] == original
+    assert reference["unformatted_text"] == "本地编辑后的文字"
+
+
+def test_reference_language_confirmation_is_bound_to_server_actor_and_source():
+    project_id = _create_full_default_gb7713_project()
+    project = client.get(f"/api/projects/{project_id}").json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    refs["paragraphs"].append({
+        "id": "language-ref", "type": "paragraph", "text": "", "reference": {
+            "kind": "journal", "authors": "张三", "title": "An English Title", "year": "2024",
+            "language_fact": {"languages": ["en"], "evidence": "来源全文", "status": "confirmed",
+                              "confirmed_by": "forged", "confirmed_at": "forged"},
+        },
+    })
+
+    def save(current, paragraphs):
+        return client.put(f"/api/projects/{project_id}/section/references", json={
+            "base_revision": current["revision"], "paragraphs": paragraphs,
+        })
+
+    response = save(project, refs["paragraphs"])
+    assert response.status_code == 200, response.text
+    project = response.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    reference = refs["paragraphs"][-1]["reference"]
+    assert reference["language_fact"]["status"] == "unconfirmed"
+    assert reference["language_fact"]["confirmed_by"] == ""
+    reference["language_confirmation_requested"] = True
+    response = save(project, refs["paragraphs"])
+    assert response.status_code == 200, response.text
+    project = response.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    fact = refs["paragraphs"][-1]["reference"]["language_fact"]
+    assert fact["languages"] == ["en"]
+    assert fact["status"] == "confirmed"
+    assert fact["confirmed_by"] and fact["confirmed_by"] != "forged"
+    assert fact["confirmed_at"] and fact["confirmed_at"] != "forged"
+
+    # Old clients do not know the language field and must not erase it.
+    refs["paragraphs"][-1]["reference"].pop("language_fact")
+    response = save(project, refs["paragraphs"])
+    assert response.status_code == 200, response.text
+    project = response.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    assert refs["paragraphs"][-1]["reference"]["language_fact"] == fact
+
+    # A different source cannot reuse an earlier confirmation.
+    refs["paragraphs"][-1]["reference"]["title"] = "另一篇文献"
+    response = save(project, refs["paragraphs"])
+    assert response.status_code == 200, response.text
+    project = response.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    assert refs["paragraphs"][-1]["reference"]["language_fact"]["status"] == "unconfirmed"
+    assert refs["paragraphs"][-1]["reference"]["language_fact"]["confirmed_by"] == ""
+
+    snapshot = {key: deepcopy(project[key]) for key in ("title", "meta", "sections")}
+    restored = next(section for section in snapshot["sections"] if section["key"] == "references")["paragraphs"][-1]
+    restored["reference"]["language_fact"].update({"status": "confirmed", "confirmed_by": "forged", "confirmed_at": "forged"})
+    response = client.post(f"/api/projects/{project_id}/restore-local", json={
+        "base_revision": project["revision"], "snapshot": snapshot,
+    })
+    assert response.status_code == 200, response.text
+    restored_fact = next(section for section in response.json()["sections"] if section["key"] == "references")["paragraphs"][-1]["reference"]["language_fact"]
+    assert restored_fact["status"] == "unconfirmed"
+    assert restored_fact["confirmed_by"] == ""
+
+
+def test_reference_year_confirmation_survives_old_clients_and_rejects_forged_recovery():
+    project_id = _create_full_default_gb7713_project()
+    project = client.get(f"/api/projects/{project_id}").json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    refs["paragraphs"].append({
+        "id": "year-ref", "type": "paragraph", "text": "", "reference": {
+            "kind": "journal", "authors": "张三", "title": "题名", "year": "2024",
+            "year_fact": {"value": "2024", "evidence": "期刊首页", "status": "confirmed",
+                          "confirmed_by": "forged", "confirmed_at": "forged"},
+        },
+    })
+
+    def save(current, paragraphs):
+        return client.put(f"/api/projects/{project_id}/section/references", json={
+            "base_revision": current["revision"], "paragraphs": paragraphs,
+        })
+
+    response = save(project, refs["paragraphs"])
+    assert response.status_code == 200, response.text
+    project = response.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    reference = refs["paragraphs"][-1]["reference"]
+    assert reference["year_fact"]["status"] == "unconfirmed"
+    reference["year_confirmation_requested"] = True
+    response = save(project, refs["paragraphs"])
+    assert response.status_code == 200, response.text
+    project = response.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    fact = refs["paragraphs"][-1]["reference"]["year_fact"]
+    assert fact["status"] == "confirmed"
+    assert fact["confirmed_by"] and fact["confirmed_by"] != "forged"
+    assert fact["confirmed_at"] and fact["confirmed_at"] != "forged"
+
+    refs["paragraphs"][-1]["reference"].pop("year_fact")
+    response = save(project, refs["paragraphs"])
+    assert response.status_code == 200, response.text
+    project = response.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    assert refs["paragraphs"][-1]["reference"]["year_fact"] == fact
+    refs["paragraphs"][-1]["reference"]["year"] = "2025"
+    response = save(project, refs["paragraphs"])
+    assert response.status_code == 200, response.text
+    project = response.json()
+    refs = next(section for section in project["sections"] if section["key"] == "references")
+    assert refs["paragraphs"][-1]["reference"]["year_fact"]["status"] == "unconfirmed"
+
+    snapshot = {key: deepcopy(project[key]) for key in ("title", "meta", "sections")}
+    restored = next(section for section in snapshot["sections"] if section["key"] == "references")["paragraphs"][-1]
+    restored["reference"]["year_fact"].update({"status": "confirmed", "confirmed_by": "forged", "confirmed_at": "forged"})
+    response = client.post(f"/api/projects/{project_id}/restore-local", json={
+        "base_revision": project["revision"], "snapshot": snapshot,
+    })
+    assert response.status_code == 200, response.text
+    restored_fact = next(section for section in response.json()["sections"] if section["key"] == "references")["paragraphs"][-1]["reference"]["year_fact"]
+    assert restored_fact["status"] == "unconfirmed"
+    assert restored_fact["confirmed_by"] == ""
+
+
+@pytest.mark.parametrize("prefix", ["[8]", "[ 8 ]", "［8］"])
+def test_legacy_reference_number_survives_api_save_and_reload(prefix, tmp_path):
+    from app.models.project import ParagraphBlock
+
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    project.reference_number_owners = {}
+    refs = next(section for section in project.sections if section.key == "references")
+    refs.paragraphs = [ParagraphBlock(id="legacy-ref", text=f"{prefix} 李四. 论文乙. 2025.")]
+    store.save_project(project)
+    response = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project.revision,
+        "paragraphs": [block.model_dump(mode="json") for block in refs.paragraphs],
+    })
+    assert response.status_code == 200, response.text
+    reloaded = client.get(f"/api/projects/{project_id}")
+    assert reloaded.status_code == 200, reloaded.text
+    saved = next(section for section in reloaded.json()["sections"] if section["key"] == "references")
+    assert saved["paragraphs"][0]["reference_number"] == 8
+    assert reloaded.json()["reference_number_owners"] == {"8": "legacy-ref"}
+    document = _render_project_directly_for_renderer_assertion(project_id, tmp_path / "legacy.docx")
+    assert "[8] 李四. 论文乙. 2025." in [paragraph.text for paragraph in document.paragraphs]
+
+
+def test_ambiguous_legacy_references_block_saving_and_both_export_endpoints():
+    from app.models.project import ParagraphBlock
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    project.reference_number_owners = {}
+    refs = next(section for section in project.sections if section.key == "references")
+    refs.paragraphs = [ParagraphBlock(id="old-positional", text="旧文献甲. 2026."),
+                       ParagraphBlock(id="old-explicit", text="[1] 旧文献乙. 2026.")]
+    store.save_project(project)
+    for endpoint in ("export", "export-jobs"):
+        rejected = client.post(f"/api/projects/{project_id}/{endpoint}?force=true")
+        assert rejected.status_code == 422, rejected.text
+        assert "编号 [1]" in rejected.text
+    rejected = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": project.revision, "paragraphs": [block.model_dump(mode="json") for block in refs.paragraphs],
+    })
+    assert rejected.status_code == 422
+    assert store.get_project(project_id).revision == project.revision
 
 
 def test_durable_project_export_unknown_capability_fails_without_publishing():
@@ -702,6 +1032,33 @@ def test_durable_project_export_unknown_capability_fails_without_publishing():
     assert retried["output_check_diagnostic"]["findings"]
     assert not retried.get("file_path")
     assert not (EXPORT_DIR / f"{task['id']}.docx").exists()
+
+
+def test_export_identity_detects_changed_or_missing_template_source(tmp_path, monkeypatch):
+    from app.models.project import WritingProject
+    from app.services.export_jobs import export_identity, export_job_is_current, export_job_view
+
+    source = tmp_path / "identity-source.docx"
+    Document().save(source)
+    monkeypatch.setenv("PAPERGUARD_TEMPLATE_DIR", str(tmp_path))
+    template = PaperTemplate(id="identity-template", name="身份测试", source_docx=source.name)
+    project = WritingProject(id="identity-project", template_id=template.id,
+                             template_snapshot=template.model_dump(mode="json"))
+    identity = export_identity(project)
+    assert identity is not None
+    record = {**identity, "id": "export-identity", "status": "succeeded",
+              "output_check": {"status": "pass"}}
+    assert export_job_is_current(record, identity)
+    modified = Document(source)
+    modified.core_properties.author = "source changed"
+    modified.save(source)
+    changed_identity = export_identity(project)
+    assert not export_job_is_current(record, changed_identity)
+    view = export_job_view(record, current_identity=changed_identity, check_current=True)
+    assert view["is_current_for_project"] is False and "download_url" not in view
+    source.unlink()
+    assert export_identity(project) is None
+    assert not export_job_is_current(record, export_identity(project))
 
 
 def test_paper_job_freezes_source_bytes_before_worker_starts(tmp_path, monkeypatch):
@@ -757,32 +1114,73 @@ def test_durable_project_export_failure_can_be_retried(monkeypatch):
         output.unlink()
 
 
-def test_stale_failed_export_cannot_be_retried(monkeypatch):
+def test_project_export_manual_retries_preserve_attempt_budget_and_audit(tmp_path, monkeypatch):
+    """Retrying a frozen export must not reset or exceed its queue budget."""
     from app.services import export_jobs
     from app.worker import run_once
 
+    monkeypatch.setattr(export_jobs, "EXPORT_DIR", tmp_path)
+
+    def fail_export(*_args, **_kwargs):
+        raise RuntimeError("synthetic export failure")
+
+    monkeypatch.setattr(export_jobs, "export_project_to_docx", fail_export)
     project_id = _create_full_default_gb7713_project()
     queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
     assert queued.status_code == 202, queued.text
     task = queued.json()
+    store = Store()
+    with store.workflow_transaction() as conn:
+        conn.execute("UPDATE jobs SET max_attempts = 2 WHERE id = ?", (task["job_id"],))
 
-    def fail_export(*_args, **_kwargs):
-        raise RuntimeError("synthetic stale export failure")
-
-    monkeypatch.setattr(export_jobs, "export_project_to_docx", fail_export)
-    failed_run = run_once()
-    assert task["job_id"] in {item["job_id"] for item in failed_run["exports"]["failed"]}
-
-    project = client.get(f"/api/projects/{project_id}").json()
-    section = next(item for item in project["sections"] if item["required"])
-    edited = client.put(f"/api/projects/{project_id}/section/{section['key']}", json={
-        "paragraphs": [{"id": f"{section['key']}-changed", "text": "已更新论文正文，旧快照不得重试。"}],
-    })
-    assert edited.status_code == 200, edited.text
+    assert task["job_id"] in {item["job_id"] for item in run_once()["exports"]["failed"]}
+    assert store.get_job(task["job_id"])["attempt_count"] == 1
+    frozen = store.get_workflow_record("project_export", task["id"])["project_snapshot"]
 
     retried = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry")
-    assert retried.status_code == 409
-    assert retried.json()["detail"] == "论文内容或模板已变化，请重新导出并完成核查"
+    assert retried.status_code == 200, retried.text
+    assert store.get_job(task["job_id"])["attempt_count"] == 1
+    audit = [event for event in store.list_audit_events()
+             if event["resource_id"] == task["id"] and event["action"] == "project.export.retry_requested"]
+    assert len(audit) == 1
+
+    assert task["job_id"] in {item["job_id"] for item in run_once()["exports"]["failed"]}
+    job = store.get_job(task["job_id"])
+    assert job["attempt_count"] == 2 and job["state"] == "failed"
+    blocked = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry")
+    assert blocked.status_code == 409
+    assert "上限" in blocked.text
+    saved = store.get_workflow_record("project_export", task["id"])
+    assert saved["status"] == "failed" and saved["project_snapshot"] == frozen
+    assert not saved.get("file_path")
+    assert store.get_job(task["job_id"])["attempt_count"] == 2
+    assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+
+
+def test_project_export_retry_rejects_outdated_project_snapshot(tmp_path, monkeypatch):
+    from app.services import export_jobs
+    from app.worker import run_once
+
+    monkeypatch.setattr(export_jobs, "EXPORT_DIR", tmp_path)
+
+    def fail_export(*_args, **_kwargs):
+        raise RuntimeError("synthetic export failure")
+
+    monkeypatch.setattr(export_jobs, "export_project_to_docx", fail_export)
+    project_id = _create_full_default_gb7713_project()
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+    assert task["job_id"] in {item["job_id"] for item in run_once()["exports"]["failed"]}
+    changed = client.put(f"/api/projects/{project_id}/section/abstract", json={
+        "paragraphs": [{"id": "changed-after-failure", "text": "更新后的摘要内容。"}],
+    })
+    assert changed.status_code == 200, changed.text
+
+    blocked = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry")
+    assert blocked.status_code == 409
+    assert "已变化" in blocked.text
+    assert Store().get_workflow_record("project_export", task["id"])["status"] == "failed"
 
 
 def test_project_owner_can_retry_own_failed_export(monkeypatch):
@@ -1205,6 +1603,158 @@ def test_save_image_and_table_blocks():
     assert sec["paragraphs"][2]["type"] == "table"
 
 
+def test_section_save_preserves_image_geometry_and_rejects_invalid_geometry():
+    proj_id = _create_project_instantiates_sections()
+    image_url = client.post(
+        f"/api/projects/{proj_id}/images",
+        files={"file": ("figure.png", _make_image_png(), "image/png")},
+    ).json()["url"]
+    image = {"url": image_url, "caption": "结构图", "width_cm": 12.5,
+             "height_cm": 7.5, "alignment": "center"}
+    payload = {"paragraphs": [{"id": "img-geometry", "type": "image", "image": image}]}
+
+    response = client.put(f"/api/projects/{proj_id}/section/ch1", json=payload)
+    assert response.status_code == 200, response.text
+    stored = client.get(f"/api/projects/{proj_id}").json()
+    section = next(section for section in stored["sections"] if section["key"] == "ch1")
+    assert section["paragraphs"][0]["image"] == image
+
+    payload["paragraphs"][0]["image"]["width_cm"] = -1
+    invalid = client.put(f"/api/projects/{proj_id}/section/ch1", json=payload)
+    assert invalid.status_code == 422
+    assert client.get(f"/api/projects/{proj_id}").json()["revision"] == stored["revision"]
+
+
+def test_section_save_rejects_inconsistent_inline_runs_without_dropping_formatting():
+    proj_id = _create_project_instantiates_sections()
+    initial = client.put(f"/api/projects/{proj_id}/section/ch1", json={"paragraphs": [{
+        "id": "formatted", "type": "paragraph", "text": "重要内容",
+        "inline_runs": [{"text": "重要", "bold": True}, {"text": "内容"}],
+    }]})
+    assert initial.status_code == 200, initial.text
+    project = initial.json()
+    response = client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "base_revision": project["revision"], "paragraphs": [{
+            "id": "formatted", "type": "paragraph", "text": "重要内容修改",
+            "inline_runs": [{"text": "重要", "bold": True}, {"text": "内容"}],
+        }],
+    })
+    assert response.status_code == 422
+    saved = client.get(f"/api/projects/{proj_id}").json()
+    assert saved["revision"] == project["revision"]
+    paragraph = next(section for section in saved["sections"] if section["key"] == "ch1")["paragraphs"][0]
+    assert paragraph["text"] == "重要内容"
+    assert paragraph["inline_runs"][0]["bold"] is True
+
+
+def _project_with_imported_table(merged: bool = False):
+    from app.models.project import ParagraphBlock
+
+    proj_id = _create_project_instantiates_sections()
+    document = Document()
+    table = document.add_table(rows=2, cols=2)
+    if merged:
+        table.cell(0, 0).merge(table.cell(0, 1)).text = "合并表头"
+    else:
+        table.cell(0, 0).text = "名称"
+        table.cell(0, 1).text = "结果"
+    table.cell(1, 0).text = "样例"
+    table.cell(1, 1).text = "通过"
+    cells = [[cell.text for cell in row.cells] for row in table.rows]
+    block = ParagraphBlock.model_validate({
+        "id": "imported-table", "type": "table", "table": {
+            "rows": 2, "cols": 2, "cells": cells, "caption": "原题注",
+            "source_xml": table._tbl.xml,
+        },
+    })
+    store = Store()
+    project = store.get_project(proj_id)
+    section = next(section for section in project.sections if section.key == "ch1")
+    section.paragraphs = [block]
+    assert store.update_project_if_revision(project, project.revision) is not None
+    return proj_id, table._tbl.xml
+
+
+def test_section_save_keeps_unmodified_server_table_xml_and_ignores_client_xml():
+    proj_id, original_xml = _project_with_imported_table(merged=True)
+    project = client.get(f"/api/projects/{proj_id}").json()
+    section = next(section for section in project["sections"] if section["key"] == "ch1")
+    section["paragraphs"][0]["table"].update(caption="新题注", source_xml="<w:tbl>客户端伪造</w:tbl>")
+    response = client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "base_revision": project["revision"], "paragraphs": section["paragraphs"],
+    })
+    assert response.status_code == 200, response.text
+    stored = next(item for item in response.json()["sections"] if item["key"] == "ch1")
+    assert stored["paragraphs"][0]["table"]["source_xml"] == original_xml
+    assert stored["paragraphs"][0]["table"]["caption"] == "新题注"
+
+
+def test_section_save_rebuilds_edited_plain_table_and_rejects_new_client_xml(tmp_path):
+    proj_id, _ = _project_with_imported_table()
+    project = client.get(f"/api/projects/{proj_id}").json()
+    section = next(section for section in project["sections"] if section["key"] == "ch1")
+    section["paragraphs"][0]["table"]["cells"][1][1] = "已修改"
+    section["paragraphs"].append({
+        "id": "new-table", "type": "table", "table": {
+            "rows": 1, "cols": 1, "cells": [["真实内容"]],
+            "source_xml": "<w:tbl>客户端伪造</w:tbl>",
+        },
+    })
+    response = client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "base_revision": project["revision"], "paragraphs": section["paragraphs"],
+    })
+    assert response.status_code == 200, response.text
+    stored = next(item for item in response.json()["sections"] if item["key"] == "ch1")
+    assert [block["table"]["source_xml"] for block in stored["paragraphs"]] == ["", ""]
+    rendered = _render_project_directly_for_renderer_assertion(proj_id, tmp_path / "updated-table.docx")
+    assert rendered.tables[0].cell(1, 1).text == "已修改"
+    assert rendered.tables[1].cell(0, 0).text == "真实内容"
+
+
+def test_section_save_blocks_edit_of_complex_imported_table_without_changing_project():
+    proj_id, original_xml = _project_with_imported_table(merged=True)
+    project = client.get(f"/api/projects/{proj_id}").json()
+    section = next(section for section in project["sections"] if section["key"] == "ch1")
+    section["paragraphs"][0]["table"]["cells"][1][1] = "不能静默破坏合并结构"
+    response = client.put(f"/api/projects/{proj_id}/section/ch1", json={
+        "base_revision": project["revision"], "paragraphs": section["paragraphs"],
+    })
+    assert response.status_code == 409
+    assert "表格" in str(response.json()["detail"])
+    stored = client.get(f"/api/projects/{proj_id}").json()
+    saved_table = next(item for item in stored["sections"] if item["key"] == "ch1")["paragraphs"][0]["table"]
+    assert stored["revision"] == project["revision"]
+    assert saved_table["cells"][1][1] == "通过"
+    assert saved_table["source_xml"] == original_xml
+
+
+@pytest.mark.parametrize("kind", ["nested_table", "drawing", "field", "unknown", "multiple_paragraphs"])
+def test_plain_table_classifier_rejects_unrepresentable_cell_contents(kind):
+    from docx.oxml import OxmlElement
+    from app.api.projects import _plain_table_can_be_rebuilt
+
+    document = Document()
+    table = document.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    cell.text = "保留文字"
+    if kind == "nested_table":
+        cell.add_table(rows=1, cols=1).cell(0, 0).text = "嵌套内容"
+    elif kind == "multiple_paragraphs":
+        cell.add_paragraph("第二段")
+    else:
+        run = cell.paragraphs[0].runs[0]._r
+        run.append(OxmlElement({"drawing": "w:drawing", "field": "w:fldChar", "unknown": "w:unknown"}[kind]))
+
+    assert not _plain_table_can_be_rebuilt(table._tbl.xml)
+
+
+@pytest.mark.parametrize("source_xml", ["<w:tbl>", "<!DOCTYPE x><x/>", "<x/>"])
+def test_plain_table_classifier_rejects_invalid_xml(source_xml):
+    from app.api.projects import _plain_table_can_be_rebuilt
+
+    assert not _plain_table_can_be_rebuilt(source_xml)
+
+
 def test_renderer_docx_with_image_and_table(tmp_path):
     """完整论文样稿中的普通表格与内嵌图片经过核验后可下载。"""
 
@@ -1270,7 +1820,9 @@ def test_docx_imported_image_renders_from_configured_data_dir_but_is_not_publish
     from docx.shared import Cm
 
     from app.services.document_assets import document_upload_dir
+    from app.core import feature_flags
 
+    monkeypatch.setattr(feature_flags, "manuscript_import_enabled", lambda: True)
     data_dir = tmp_path / "paperguard-data"
     monkeypatch.setenv("PAPERGUARD_DATA_DIR", str(data_dir))
     project_id = _create_project_instantiates_sections()
@@ -1293,8 +1845,8 @@ def test_docx_imported_image_renders_from_configured_data_dir_but_is_not_publish
 
     applied = client.post(
         f"/api/projects/{project_id}/import-docx",
-        params={"apply": "true", "base_revision": preview.json()["project_revision"]},
-        files={"file": ("manuscript.docx", payload, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        params={"apply": "true", "base_revision": preview.json()["project_revision"],
+                "candidate_id": preview.json()["candidate_id"], "candidate_sha256": preview.json()["candidate_sha256"]},
     )
     assert applied.status_code == 200, applied.text
     image_block = next(
@@ -1902,12 +2454,208 @@ def test_large_batch_export_can_queue_without_reading_through_its_own_write_lock
     assert same['id'] == queued['id']
 
 
-def test_only_current_file_digest_and_review_receipt_can_be_reused_as_export(tmp_path, monkeypatch):
+def test_export_request_limit_cannot_be_bypassed_by_force_and_expired_task_cannot_retry(monkeypatch):
+    from app.services.export_jobs import park_expired_project_exports
+
+    monkeypatch.setenv("PAPERGUARD_EXPORT_REQUEST_LIMIT", "2")
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    previous_id = None
+    for force in ("false", "true"):
+        response = client.post(f"/api/projects/{project_id}/export-jobs?force={force}")
+        assert response.status_code == 202, response.text
+        task = response.json()
+        if previous_id:
+            assert task["previous_export_id"] == previous_id
+        record = store.get_workflow_record("project_export", task["id"])
+        record["deadline_at"] = "2000-01-01T00:00:00+00:00"
+        assert store.save_workflow_record("project_export", record, expected_revision=record["revision"])
+        park_expired_project_exports(store)
+        retry = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry")
+        assert retry.status_code == 409
+        previous_id = task["id"]
+
+    blocked = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert blocked.status_code == 409
+    assert "多次导出失败" in blocked.text
+
+
+def test_student_can_request_new_export_after_queue_record_is_lost(monkeypatch):
+    """The actual owner API recovers an orphan without altering the frozen input."""
+    suffix = uuid.uuid4().hex[:8]
+    username, password = f"export_recovery_{suffix}", f"ExportRecover-{suffix}-8a"
+    register_fixture(client, username, password, display_name="导出恢复学生")
+    login = client.post("/api/auth/login", json={"username": username, "password": password})
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    monkeypatch.setenv("PAPERGUARD_EXPORT_REQUEST_LIMIT", "3")
+    project_id = _create_full_default_gb7713_project(headers=headers)
+    path = f"/api/projects/{project_id}/export-jobs"
+    first = client.post(path, headers=headers)
+    assert first.status_code == 202, first.text
+    original = first.json()
+    store = Store()
+    frozen = store.get_workflow_record("project_export", original["id"])["project_snapshot"]
+    with store.workflow_transaction() as conn:
+        conn.execute("DELETE FROM jobs WHERE id = ?", (original["job_id"],))
+
+    replacement = client.post(path, headers=headers)
+
+    assert replacement.status_code == 202, replacement.text
+    assert replacement.json()["id"] != original["id"]
+    assert replacement.json()["previous_export_id"] == original["id"]
+    saved = store.get_workflow_record("project_export", original["id"])
+    assert saved["status"] == "failed" and saved["error_code"] == "PROJECT_EXPORT_QUEUE_STATE_MISSING"
+    assert saved["project_snapshot"] == frozen and not saved["file_path"]
+    assert store.get_job(replacement.json()["job_id"])["state"] == "queued"
+
+
+def test_export_api_keeps_missing_queue_failure_when_force_hits_request_limit(monkeypatch):
+    monkeypatch.setenv("PAPERGUARD_EXPORT_REQUEST_LIMIT", "1")
+    project_id = _create_full_default_gb7713_project()
+    path = f"/api/projects/{project_id}/export-jobs"
+    first = client.post(path)
+    assert first.status_code == 202, first.text
+    original = first.json()
+    store = Store()
+    frozen = store.get_workflow_record("project_export", original["id"])["project_snapshot"]
+    with store.workflow_transaction() as conn:
+        conn.execute("DELETE FROM jobs WHERE id = ?", (original["job_id"],))
+
+    blocked = client.post(path + "?force=true")
+
+    assert blocked.status_code == 409 and "多次导出失败" in blocked.text
+    saved = store.get_workflow_record("project_export", original["id"])
+    assert saved["status"] == "failed" and saved["error_code"] == "PROJECT_EXPORT_QUEUE_STATE_MISSING"
+    assert saved["project_snapshot"] == frozen
+    assert len(client.get(path).json()) == 1
+
+
+def test_export_api_does_not_modify_another_projects_live_queue(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setenv("PAPERGUARD_EXPORT_REQUEST_LIMIT", "3")
+    other_project = _create_full_default_gb7713_project()
+    current_project = _create_full_default_gb7713_project()
+    other = client.post(f"/api/projects/{other_project}/export-jobs").json()
+    path = f"/api/projects/{current_project}/export-jobs"
+    original = client.post(path).json()
+    store = Store()
+    lease_until = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat(timespec="seconds")
+    with store.workflow_transaction() as conn:
+        conn.execute("UPDATE jobs SET state = 'running', lease_until = ?, lease_token = ?, leased_by = ? WHERE id = ?",
+                     (lease_until, "other-live-token", "other-worker", other["job_id"]))
+    record = store.get_workflow_record("project_export", original["id"])
+    record["job_id"] = other["job_id"]
+    assert store.save_workflow_record("project_export", record, expected_revision=record["revision"])
+    before = store.get_job(other["job_id"])
+
+    replacement = client.post(path)
+
+    assert replacement.status_code == 202, replacement.text
+    assert replacement.json()["previous_export_id"] == original["id"]
+    assert store.get_workflow_record("project_export", original["id"])["error_code"] == "PROJECT_EXPORT_QUEUE_STATE_MISSING"
+    assert store.get_job(other["job_id"]) == before
+
+
+def test_title_hierarchy_blocks_formal_exports_until_fixed_even_with_force():
+    project_id = _create_full_default_gb7713_project()
+    original = client.get(f'/api/projects/{project_id}').json()
+    sections = [{key: section[key] for key in ('key', 'type', 'title', 'required')}
+                for section in original['sections']]
+    for section in sections:
+        if section['key'] in {'ch1_1', 'ch1_2'}:
+            section['type'] = 'heading3'
+    saved = client.put(f'/api/projects/{project_id}/sections', json={
+        'base_revision': original['revision'], 'sections': sections,
+    })
+    assert saved.status_code == 200, saved.text
+    assert next(s for s in saved.json()['sections'] if s['key'] == 'ch1_1')['paragraphs'] == next(
+        s for s in original['sections'] if s['key'] == 'ch1_1')['paragraphs']
+    preview = client.post(f'/api/projects/{project_id}/export-preview?force=true')
+    assert preview.status_code == 200
+    assert not preview.json()['can_export']
+    assert sum('三级标题' in issue for issue in preview.json()['missing']) == 2
+    for route in ('export', 'export-jobs'):
+        result = client.post(f'/api/projects/{project_id}/{route}?force=true')
+        assert result.status_code == 409
+        assert sum('三级标题' in issue for issue in result.json()['detail']['missing']) == 2
+    next(item for item in sections if item['key'] == 'ch1_1')['type'] = 'heading2'
+    repaired = client.put(f'/api/projects/{project_id}/sections', json={
+        'base_revision': saved.json()['revision'], 'sections': sections,
+    })
+    assert repaired.status_code == 200, repaired.text
+    preview = client.post(f'/api/projects/{project_id}/export-preview?force=true')
+    assert preview.json()['can_export'], preview.text
+    result = client.post(f'/api/projects/{project_id}/export?force=true')
+    assert result.status_code == 200, result.text
+
+
+def test_queued_and_legacy_exports_recheck_the_frozen_heading_hierarchy(tmp_path, monkeypatch):
+    from app.services import export_jobs, project_validation
+    from app.services.export_jobs import create_export_job, run_project_export
+
+    monkeypatch.setattr(export_jobs, 'EXPORT_DIR', tmp_path)
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    next(section for section in project.sections if section.key == 'ch1_1').type = 'heading3'
+    store.save_project(project)
+    template = PaperTemplate.model_validate(project.template_snapshot)
+    job = create_export_job(store, project, template, force=True, actor_id='user-admin')
+    with monkeypatch.context() as patch:
+        patch.setattr(project_validation, 'validate_heading_hierarchy', lambda _sections: [])
+        old_result = run_project_export(store, job['id'])
+    assert old_result['status'] == 'succeeded', old_result
+    download = client.get(f'/api/projects/{project_id}/export-jobs/{job["id"]}/download')
+    assert download.status_code == 409
+    assert any('三级标题' in issue for issue in download.json()['detail']['missing'])
+
+    another_id = _create_full_default_gb7713_project()
+    another = store.get_project(another_id)
+    next(section for section in another.sections if section.key == 'ch1_1').type = 'heading3'
+    store.save_project(another)
+    another_template = PaperTemplate.model_validate(another.template_snapshot)
+    queued = create_export_job(store, another, another_template, force=True, actor_id='user-admin')
+    invoked = []
+    monkeypatch.setattr(export_jobs, 'export_project_to_docx', lambda *_args, **_kwargs: invoked.append(True))
+    result = run_project_export(store, queued['id'])
+    assert result['status'] == 'failed'
+    assert not result.get('file_path') and not invoked
+
+
+def test_stale_failed_export_cannot_be_retried(monkeypatch):
+    from app.services import export_jobs
+    from app.worker import run_once
+
+    project_id = _create_full_default_gb7713_project()
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+
+    def fail_export(*_args, **_kwargs):
+        raise RuntimeError("synthetic stale export failure")
+
+    monkeypatch.setattr(export_jobs, "export_project_to_docx", fail_export)
+    failed_run = run_once()
+    assert task["job_id"] in {item["job_id"] for item in failed_run["exports"]["failed"]}
+
+    project = client.get(f"/api/projects/{project_id}").json()
+    section = next(item for item in project["sections"] if item["required"])
+    edited = client.put(f"/api/projects/{project_id}/section/{section['key']}", json={
+        "paragraphs": [{"id": f"{section['key']}-changed", "text": "已更新论文正文，旧快照不得重试。"}],
+    })
+    assert edited.status_code == 200, edited.text
+
+    retried = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/retry")
+    assert retried.status_code == 409
+    assert "论文内容已变化" in retried.json()["detail"]
+
+
+def test_unverified_completed_artifact_is_not_reused_and_active_job_binds_template(tmp_path, monkeypatch):
     from app.models.project import WritingProject
     from app.services import export_jobs
-    from app.services.docx_output_check import template_output_hash
-    from app.services.export_jobs import create_export_job, export_identity
-    from app.services.manual_output_review import confirm_review, review_checklist
+    from app.services.export_jobs import create_export_job
 
     store = Store(tmp_path / "export-reuse.db")
     output_dir = tmp_path / "exports"
@@ -1916,42 +2664,27 @@ def test_only_current_file_digest_and_review_receipt_can_be_reused_as_export(tmp
     project = WritingProject(id="reusable-export-project", template_id=template.id, title="版本一")
     queued = create_export_job(store, project, template, force=True, actor_id="teacher")
     output_dir.mkdir()
-    data = b"reviewed-docx-bytes"
+    data = b"unverified-docx-bytes"
     output = output_dir / f"{queued['id']}.docx"
     output.write_bytes(data)
-    identity = export_identity(project, template)
-    report = {
-        "office_review_required": True,
-        "manual_checks": ["核对 Word 页面版式"],
+    queued.update({"status": "succeeded", "file_path": str(output), "output_check": {
+        "status": "pass", "office_review_required": True,
         "output_sha256": hashlib.sha256(data).hexdigest(),
-        "project_id": project.id,
-        "project_revision": project.revision,
-        "project_content_hash": identity["content_hash"],
-        "template_id": template.id,
-        "template_version": template.version,
-        "template_hash": template_output_hash(template),
-        "source_template_sha256": identity["source_template_sha256"],
-    }
-    receipt = confirm_review(
-        report,
-        output_sha256=report["output_sha256"],
-        confirmed_check_ids=[item["id"] for item in review_checklist(report)],
-        reviewer_id="teacher",
-    )
-    queued.update({"status": "succeeded", "file_path": str(output), "output_check": report, "manual_review": receipt})
+    }, "manual_review": {"status": "confirmed"}})
     queued = store.save_workflow_record("project_export", queued, expected_revision=queued["revision"])
 
-    reused = create_export_job(store, project, template, force=True, actor_id="teacher")
-    assert reused["id"] == queued["id"]
-
+    # Legacy manual confirmation cannot make an unverifiable artifact reusable.
+    next_job = create_export_job(store, project, template, force=True, actor_id="teacher")
+    assert next_job["id"] != queued["id"] and next_job["status"] == "queued"
     output.write_bytes(data + b"tampered")
-    after_digest_change = create_export_job(store, project, template, force=True, actor_id="teacher")
-    assert after_digest_change["id"] != queued["id"]
-    assert after_digest_change["status"] == "queued"
+    assert create_export_job(store, project, template, force=True, actor_id="teacher")["id"] == next_job["id"]
 
+    changed_template = template.model_copy(update={"name": "不同版本的模板"})
+    after_template_change = create_export_job(store, project, changed_template, force=True, actor_id="teacher")
+    assert after_template_change["id"] not in {queued["id"], next_job["id"]}
     project.title = "版本二"
     after_content_change = create_export_job(store, project, template, force=True, actor_id="teacher")
-    assert after_content_change["id"] not in {queued["id"], after_digest_change["id"]}
+    assert after_content_change["id"] not in {queued["id"], next_job["id"], after_template_change["id"]}
     assert after_content_change["content_hash"] != queued["content_hash"]
 
 
@@ -2045,6 +2778,11 @@ def test_signed_master_policy_overrides_roundtrip_project_export_and_archive(tmp
         assert project["template_source_snapshot"]["styles"]["body"]["size_pt"] != 14.0
         assert project["template_snapshot"]["page_layout"]["left_margin_cm"] == 2.0
         assert project["template_snapshot"]["source_execution"]["signature"]
+        section_layout = source.sections[0]
+        expected_width = (section_layout.page_width.twips - round(2.0 * 567)
+                          - section_layout.right_margin.twips) / 567
+        for heading in project["template_snapshot"]["source_execution"]["headings"]:
+            assert heading["page_box_cm"][0] == pytest.approx(expected_width)
 
         section = next(item for item in project["sections"] if item["type"] == "heading1")
         saved = client.put(f"/api/projects/{project_id}/section/{section['key']}", json={
@@ -2063,14 +2801,21 @@ def test_signed_master_policy_overrides_roundtrip_project_export_and_archive(tmp
         completed = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
         assert completed.status_code == 200, completed.text
         assert task["job_id"] in worker_result["exports"]["succeeded"], completed.json().get("output_check_diagnostic")
+        assert completed.json()["output_check_status"] == "unverifiable"
+        assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+
+        # The remaining assertions isolate policy formatting and archive plumbing.
+        # Pagination approval is mocked here and separately tested by the actual gate.
+        from app.services import master_docx_check
+        monkeypatch.setattr(master_docx_check, "_apply_master_layout_review_policy",
+                            lambda report, _receipt: report.update(office_review_required=False, manual_checks=[]))
+        queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+        assert queued.status_code == 202, queued.text
+        task = queued.json()
+        worker_result = run_once()
+        completed = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+        assert task["job_id"] in worker_result["exports"]["succeeded"], completed.json().get("output_check_diagnostic")
         assert completed.json()["output_check_status"] == "pass"
-        review = completed.json()["manual_review"]
-        assert review["status"] == "required"
-        confirmed = client.post(f"/api/projects/{project_id}/export-jobs/{task['id']}/manual-review", json={
-            "output_sha256": review["output_sha256"],
-            "confirmed_check_ids": [item["id"] for item in review["checklist"]],
-        })
-        assert confirmed.status_code == 200, confirmed.text
         downloaded = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
         assert downloaded.status_code == 200, downloaded.text
 
@@ -2114,16 +2859,30 @@ def test_signed_master_policy_overrides_roundtrip_project_export_and_archive(tmp
         participant_id = f"master-policy-participant-{suffix}"
         cohort_id = f"master-policy-cohort-{suffix}"
         archive_id = f"master-policy-archive-{suffix}"
-        store.save_workflow_record("project_version", {
-            "id": version_id,
+        from app.services.project_versions import project_attachment_refs
+        candidate_id = f"candidate-{uuid.uuid4().hex[:12]}"
+        candidate_path = tmp_path / "candidate.docx"
+        monkeypatch.setattr(workflow_api, "_candidate_artifact_path", lambda _candidate_id: candidate_path)
+        candidate_path.write_bytes(downloaded.content)
+        version = {
+            "id": version_id, "project_id": project.id,
             "content_hash": project_content_hash(project),
             "content_snapshot": project.model_dump(mode="json"),
+            "attachment_refs": project_attachment_refs(project),
+        }
+        store.save_workflow_record("project_version", version)
+        stored_export = store.get_workflow_record("project_export", task["id"])
+        store.save_workflow_record("candidate", {
+            "id": candidate_id, "project_version_id": version_id, "project_id": project.id,
+            "content_hash": version["content_hash"], "participant_id": participant_id,
+            "artifact": {"docx_sha256": hashlib.sha256(downloaded.content).hexdigest(),
+                         "output_check": stored_export["output_check"]},
         })
         store.save_workflow_record("submission", {
             "id": submission_id,
             "project_version_id": version_id,
             "participant_id": participant_id,
-            "candidate_id": "",
+            "candidate_id": candidate_id,
             "submission_number": 1,
             "stage_config_id": "test-stage",
             "stage_config_snapshot": {},
@@ -2137,14 +2896,21 @@ def test_signed_master_policy_overrides_roundtrip_project_export_and_archive(tmp
             "state": "pending_archive",
         })
         monkeypatch.setattr(workflow_api, "_archive_dir", lambda: tmp_path / "archives")
+        archive_job_id = f"archive-job-{suffix}"
         store.save_workflow_record("archive", {
             "id": archive_id,
+            "job_id": archive_job_id,
             "submission_id": submission_id,
             "participant_id": participant_id,
             "source_template_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
             "status": "queued",
         })
-        archived = workflow_api._run_archive(store, archive_id, actor_id=admin_id)
+        with store.workflow_transaction() as conn:
+            store.create_job_conn(conn, job_id=archive_job_id, job_type="archive.generate",
+                                  resource_type="archive", resource_id=archive_id)
+        job = next(item for item in store.claim_jobs(job_type="archive.generate", consumer_id="policy-test", limit=50)
+                   if item["id"] == archive_job_id)
+        archived = workflow_api._run_archive(store, archive_id, actor_id=admin_id, lease_token=job["lease_token"])
         assert archived["status"] == "succeeded", archived
         with zipfile.ZipFile(archived["file_path"]) as bundle:
             manifest = json.loads(bundle.read("manifest.json"))
@@ -2160,3 +2926,90 @@ def test_signed_master_policy_overrides_roundtrip_project_export_and_archive(tmp
             client.post(f"/api/policies/{policy_id}/archive")
         if source_name:
             delete_template_source(source_name)
+
+
+@pytest.mark.parametrize("endpoint", ["export", "export-jobs"])
+def test_export_preflight_reports_unmappable_reference_format_even_with_force(endpoint):
+    project_id = _create_full_default_gb7713_project()
+    current = client.get(f"/api/projects/{project_id}").json()
+    response = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": current["revision"], "title": "参考文献",
+        "paragraphs": [{
+            "id": "references-sample", "text": "[1] 旧作者. 旧题名",
+            "inline_runs": [{"text": "[1] 旧作者. "}, {"text": "旧题名", "italic": True}],
+            "reference": {"kind": "journal", "authors": "新作者", "title": "新题名",
+                          "source": "期刊", "year": "2025"},
+        }],
+    })
+    assert response.status_code == 200, response.text
+    result = client.post(f"/api/projects/{project_id}/{endpoint}?force=true")
+    assert result.status_code == 409, result.text
+    assert any("参考文献第 1 条" in item and "行内格式" in item
+               for item in result.json()["detail"]["missing"])
+
+
+def test_legacy_table_export_snapshot_remains_downloadable():
+    from app.worker import run_once
+
+    project_id = _create_full_default_gb7713_project()
+    current = client.get(f"/api/projects/{project_id}").json()
+    chapter = next(section for section in current["sections"] if section["key"] == "ch1")
+    response = client.put(f"/api/projects/{project_id}/section/ch1", json={
+        "base_revision": current["revision"], "title": chapter["title"],
+        "paragraphs": [*chapter["paragraphs"], {"id": "old-table", "type": "table", "table": {
+            "rows": 1, "cols": 1, "cells": [["样例数据"]], "caption": "样例表",
+        }}],
+    })
+    assert response.status_code == 200, response.text
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+    result = run_once()
+    assert task["job_id"] in result["exports"]["succeeded"]
+    record = Store().get_workflow_record("project_export", task["id"])
+    snapshot_chapter = next(section for section in record["project_snapshot"]["sections"] if section["key"] == "ch1")
+    table = next(block["table"] for block in snapshot_chapter["paragraphs"] if block.get("type") == "table")
+    assert table.pop("borders") is None
+    Store().save_workflow_record("project_export", record)
+    downloaded = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content.startswith(b"PK")
+
+
+def test_approved_student_can_download_existing_export_but_not_edit():
+    from app.api.templates import get_store
+    from app.auth import current_user
+    from app.worker import run_once
+
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    student = {"id": "readonly-export-student", "role": "student", "status": "active"}
+    project.owner_id = student["id"]
+    store.save_project(project)
+    queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+    assert task["job_id"] in run_once()["exports"]["succeeded"]
+    store.save_workflow_record("cohort", {"id": "readonly-export-cohort", "status": "open"})
+    store.save_workflow_record("participant", {"id": "readonly-export-participant", "project_id": project_id,
+        "student_id": student["id"], "cohort_id": "readonly-export-cohort", "state": "approved"})
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[current_user] = lambda: student
+    try:
+        path = f"/api/projects/{project_id}"
+        capabilities = client.get(path + "/capabilities")
+        assert capabilities.status_code == 200, capabilities.text
+        assert capabilities.json()["formal_delivery_enabled"] is True
+        jobs = client.get(path + "/export-jobs")
+        assert jobs.status_code == 200 and any(job["id"] == task["id"] for job in jobs.json())
+        downloaded = client.get(path + f"/export-jobs/{task['id']}/download")
+        assert downloaded.status_code == 200, downloaded.text
+        assert downloaded.content.startswith(b"PK")
+        assert client.put(path + "/meta", json={"base_revision": project.revision, "meta": {}}).status_code == 409
+        app.dependency_overrides[current_user] = lambda: {**student, "id": "another-student"}
+        assert client.get(path + "/capabilities").status_code == 403
+        assert client.get(path + f"/export-jobs/{task['id']}/download").status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_store, None)
+        app.dependency_overrides.pop(current_user, None)

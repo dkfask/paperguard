@@ -15,9 +15,9 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.auth import can_manage, current_user
-from app.core.feature_flags import require_general_document_platform
+from app.core.feature_flags import m1_pilot_active, require_general_document_platform, require_generic_delivery
 from app.db import Store, new_id
-from app.domain.documents.hashing import canonical_hash
+from app.domain.documents.hashing import canonical_hash, document_project_content_hash
 from app.domain.documents.schemas import Artifact, ContentBlock, DocumentPackage, DocumentProject, DocumentTemplate, TemplateVersion, ValidationRun
 from app.domain.documents.specs import SpecVersion
 from app.services.document_project_engine import (
@@ -277,6 +277,7 @@ def get_document_project_editor(
         "template_version": public_bundle["template_version"],
         "spec_version": public_bundle["spec_version"],
         "editor_schema": editor_schema(bundle["template_version"].definition),
+        "capabilities": {"formal_delivery_enabled": not m1_pilot_active()},
     }
 
 
@@ -372,6 +373,7 @@ def render_project(
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(store, project, user)
+    require_generic_delivery()
     _ensure_force_override(user, force)
     bundle = _project_package(store, project)
     _ensure_export_preflight(bundle, project)
@@ -477,6 +479,15 @@ def _verified_render_output(store: Store, project_id: str, record: dict) -> tupl
         snapshot_spec_version = SpecVersion.model_validate(snapshot["spec_version"])
         if snapshot_project.id != project_id or record.get("project_id") != project_id:
             raise ValueError("project identity mismatch")
+        current_project = store.get_document_project(project_id)
+        if current_project is None:
+            raise ValueError("current project is missing")
+        if (
+            current_project.revision != snapshot_project.revision
+            or document_project_content_hash(current_project)
+            != document_project_content_hash(snapshot_project)
+        ):
+            raise ValueError("rendered output is stale for the current project")
         if (
             snapshot_project.package_id != snapshot_package.id
             or snapshot_project.template_version_id != snapshot_package.template_version_id
@@ -520,6 +531,7 @@ def create_render_job(
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(store, project, user)
+    require_generic_delivery()
     _ensure_force_override(user, force)
     bundle = _project_package(store, project)
     _ensure_export_preflight(bundle, project)
@@ -646,6 +658,7 @@ def retry_render_job(
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(store, project, user)
+    require_generic_delivery()
     record = _render_job_for_project(store, project, render_job_id)
     if record.get("status") not in {"failed", "queued"}:
         raise HTTPException(status_code=409, detail="当前渲染任务不可重试")
@@ -692,6 +705,7 @@ def download_render_artifact(
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(store, project, user)
+    require_generic_delivery()
     record = _render_job_for_project(store, project, render_job_id)
     artifact, data, report = _verified_render_output(store, project_id, record)
     if not review_matches(report, artifact.manual_review):
@@ -719,6 +733,7 @@ def confirm_render_manual_review(
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(store, project, user)
+    require_generic_delivery()
     if not can_manage(user):
         raise HTTPException(status_code=403, detail="仅教师或管理员可以确认 Word/WPS 成品核查")
     record = _render_job_for_project(store, project, render_job_id)
@@ -753,6 +768,7 @@ def download_render_review_candidate(
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_project_access(store, project, user)
+    require_generic_delivery()
     if not can_manage(user):
         raise HTTPException(status_code=403, detail="仅教师或管理员可以下载核查候选")
     record = _render_job_for_project(store, project, render_job_id)

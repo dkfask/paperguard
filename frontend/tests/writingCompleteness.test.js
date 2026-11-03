@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isWritingSectionComplete, mergeWritingChecks } from '../src/utils/writingCompleteness'
+import { affectedHeadingDescendants, findHeadingHierarchyIssues, isWritingSectionComplete, mergeWritingChecks } from '../src/utils/writingCompleteness'
 
 describe('template writing completion', () => {
   it('keeps template failures visible alongside rule and policy findings', () => {
@@ -41,5 +41,41 @@ describe('template writing completion', () => {
     expect(isWritingSectionComplete(section, [section])).toBe(false)
     section.paragraphs[0].table.cells[0][0] = 0
     expect(isWritingSectionComplete(section, [section])).toBe(true)
+  })
+})
+
+describe('heading hierarchy', () => {
+  it('reports missing parents, resets at special sections, and allows appendix subsections', () => {
+    const sections = [
+      { key: 'orphan', type: 'heading2', title: '无上级' },
+      { key: 'child', type: 'heading3', title: '无有效上级' },
+      { key: 'chapter', type: 'heading1', title: '第一章' },
+      { key: 'jump', type: 'heading3', title: '跳级' },
+      { key: 'section', type: 'heading2', title: '小节' },
+      { key: 'nested', type: 'heading3', title: '正常子节' },
+      { key: 'refs', type: 'references', title: '参考文献' },
+      { key: 'after-refs', type: 'heading2', title: '参考文献小节' },
+      { key: 'new-abstract', type: 'abstract', title: '摘要' },
+      { key: 'after-abstract', type: 'heading2', title: '无父节' },
+      { key: 'appendix', type: 'appendix', title: '附录' },
+      { key: 'appendix-section', type: 'heading2', title: '附录小节' },
+      { key: 'blank', type: 'heading2', title: '  ' },
+      { key: 'after-blank', type: 'heading3', title: '空标题之后' },
+    ]
+    expect(findHeadingHierarchyIssues(sections).map(item => item.key)).toEqual([
+      'orphan', 'child', 'jump', 'after-abstract', 'after-blank',
+    ])
+  })
+
+  it('lists descendants affected by changing a parent without consuming the next peer', () => {
+    const sections = [
+      { key: 'chapter', type: 'heading1', title: '第一章' },
+      { key: 'section', type: 'heading2', title: '1.1' },
+      { key: 'child-a', type: 'heading3', title: '1.1.1' },
+      { key: 'child-b', type: 'heading3', title: '1.1.2' },
+      { key: 'next', type: 'heading2', title: '1.2' },
+      { key: 'next-child', type: 'heading3', title: '1.2.1' },
+    ]
+    expect(affectedHeadingDescendants(sections, 'section').map(item => item.key)).toEqual(['child-a', 'child-b'])
   })
 })

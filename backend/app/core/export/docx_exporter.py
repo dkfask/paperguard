@@ -31,6 +31,7 @@ from lxml import etree
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import Align, PaperTemplate, SectionType, TextStyle
 from app.services.document_assets import document_upload_dir
+from app.services.references import reference_block_text, reference_inline_runs, reference_number_for, validate_reference_numbers
 
 _IMAGE_WIDTH_CM = 14.0
 _IMAGE_MAX_HEIGHT_CM = 13.5
@@ -857,6 +858,7 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
     内容、封面字段和导出相关模板设置都与源稿一致时直接保留源 DOCX，避免无意义的
     XML 重建造成分页/布局损失；任一项变化时，以模板为基底重新渲染项目。
     """
+    validate_reference_numbers(project)
     if template.source_execution:
         from app.services.master_docx_renderer import render_master_docx
         render_master_docx(project, template, out_path, source_path=template_path)
@@ -1046,10 +1048,19 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
             _add_text_paragraph(doc, proj_sec.title, title_style,
                                 word_style=word_style,
                                 suppress_inherited_page_break=bool(word_style))
+        reference_number = 0
         for index, par in enumerate(proj_sec.paragraphs):
+            is_reference_paragraph = (
+                section_type is SectionType.REFERENCES
+                and str(getattr(par.type, "value", par.type)) == "paragraph"
+            )
+            has_reference_content = is_reference_paragraph and bool(reference_block_text(par).strip())
+            if has_reference_content:
+                reference_number += 1
             _export_paragraph(
                 doc, par, style, template, numbering,
                 suppress_generated_caption=_has_adjacent_caption(proj_sec.paragraphs, index),
+                reference_number=reference_number_for(par, reference_number) if has_reference_content else None,
             )
 
     for proj_sec in project.sections:
@@ -1109,7 +1120,8 @@ def _has_adjacent_caption(paragraphs: list[ParagraphBlock], index: int) -> bool:
 def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
                       template: PaperTemplate | None = None,
                       numbering: _Numbering | None = None,
-                      suppress_generated_caption: bool = False) -> None:
+                      suppress_generated_caption: bool = False,
+                      reference_number: int | None = None) -> None:
     """导出单个内容块: 文本段落 / 图片(带题注) / 表格(带题注)。"""
     if par.type.value == "image" and par.image and par.image.url:
         _export_image(doc, par.image, template, numbering, include_caption=not suppress_generated_caption)
@@ -1129,7 +1141,8 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
             fallback = p.add_run(par.equation.alt_text or "[公式无法渲染]")
             _apply_run_font(fallback, style)
         return
-    if not par.text:
+    text = reference_block_text(par, reference_number)
+    if not text:
         return
     if template is not None and par.type.value == "paragraph":
         if _is_caption_paragraph(par, "图"):
@@ -1138,11 +1151,11 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
             style = _style_for(template, "table_caption", None)
     p = doc.add_paragraph()
     _apply_paragraph_format(p, style)
-    inline_runs = par.inline_runs
-    if not inline_runs or "".join(run.text for run in inline_runs) != par.text:
+    inline_runs = reference_inline_runs(par, reference_number) if reference_number is not None and par.inline_runs else par.inline_runs
+    if not inline_runs or "".join(run.text for run in inline_runs) != text:
         inline_runs = [None]
     for inline in inline_runs:
-        run = p.add_run(inline.text if inline is not None else par.text)
+        run = p.add_run(inline.text if inline is not None else text)
         _apply_run_font(run, style)
         # 行内格式只"加"不"减": 模板样式里的加粗/斜体/下划线要保留
         if par.bold or (inline is not None and inline.bold):

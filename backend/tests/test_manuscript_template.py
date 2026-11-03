@@ -79,7 +79,7 @@ def test_complete_source_tree_keeps_parents_content_order_and_layout_package(man
     output = tmp_path / 'output.docx'
     render_master_docx(project, derived, str(output), source_path=str(source))
     report = inspect_docx_output(output.read_bytes(), project, derived, source_template_bytes=payload)
-    assert report['status'] == 'pass', [c for c in report['checks'] if c['status'] != 'pass']
+    assert report['status'] == 'pass', [(c['rule'], c['object']) for c in report['checks'] if c['status'] != 'pass']
     with zipfile.ZipFile(output) as archive:
         root = etree.fromstring(archive.read('word/document.xml'))
     direct = root.xpath('./w:body/w:p//w:t/text()', namespaces=NS)
@@ -144,33 +144,22 @@ def test_source_order_changes_are_rejected_and_legacy_hashes_stay_stable(manuscr
 
 
 def test_import_api_preserves_the_tree_and_cleans_only_failed_instance_sources(manuscript_case, tmp_path, monkeypatch):
+    from app.core import feature_flags
+
+    monkeypatch.setattr(feature_flags, 'manuscript_import_enabled', lambda: True)
     path, template, _, _ = manuscript_case
     monkeypatch.setenv('PAPERGUARD_TEMPLATE_DIR', str(tmp_path))
     monkeypatch.setenv('PAPERGUARD_DATA_DIR', str(tmp_path / 'data'))
     store = Store(tmp_path / 'import-api.db')
     actor = {'id': 'import-owner', 'role': 'student', 'username': 'import-owner'}
-    old_heading_key = next(
-        heading['key'] for heading in template.source_execution['headings']
-        if heading['kind'] == 'heading1' and heading['title'] == '第1章 模板示例'
-    )
     project = WritingProject(id='import-api-project', owner_id=actor['id'], template_id=template.id,
-        template_snapshot=template.model_dump(mode='json'), template_source_snapshot=template.model_dump(mode='json'),
-        requirement_snapshot={
-            'content_hash': 'sha256:before-import',
-            'format_overrides': {'body': {'size_pt': 14.0}},
-            'resolved_items': [{
-                'id': 'table-required', 'target': old_heading_key, 'enforce': 'hard', 'severity': 'error',
-                'params': {'section_key': old_heading_key, 'section_keys': [old_heading_key]},
-            }],
-        })
+        template_snapshot=template.model_dump(mode='json'), template_source_snapshot=template.model_dump(mode='json'))
     store.save_project(project)
     manuscript = Document()
-    manuscript.add_heading('第1章 新增分析', 1)
-    manuscript.add_paragraph('新增章节正文。')
-    manuscript.add_heading('第2章 模板示例', 1)
-    manuscript.add_heading('2.1 模板二级示例', 2)
+    manuscript.add_heading('第1章 系统分析', 1)
+    manuscript.add_heading('1.1 系统功能分析', 2)
     manuscript.add_paragraph('系统功能正文。')
-    manuscript.add_heading('2.1.1 模板三级示例', 3)
+    manuscript.add_heading('1.1.1 数据采集功能分析', 3)
     manuscript.add_paragraph('三级节正文。')
     raw = io.BytesIO(); manuscript.save(raw)
     previous = dict(app.dependency_overrides)
@@ -183,51 +172,20 @@ def test_import_api_preserves_the_tree_and_cleans_only_failed_instance_sources(m
         assert preview.status_code == 200, preview.text
         assert preview.json()['structure_mode'] == 'manuscript'
         assert not list(tmp_path.glob('tplsrc-manuscript-*.docx'))
-        response = client.post(base, params={'apply': True, 'base_revision': store.get_project(project.id).revision},
-            files={'file': ('paper.docx', raw.getvalue())})
+        response = client.post(base, params={'apply': True, 'base_revision': store.get_project(project.id).revision,
+            'candidate_id': preview.json()['candidate_id'], 'candidate_sha256': preview.json()['candidate_sha256']})
         assert response.status_code == 200, response.text
         saved = store.get_project(project.id)
         assert saved.layout_template_snapshot['source_docx'] == path.name
         assert saved.template_snapshot['source_docx'] != path.name
         assert [(s.type, s.title) for s in saved.sections if s.type.startswith('heading')] == [
-            ('heading1', '第1章 新增分析'), ('heading1', '第2章 模板示例'),
-            ('heading2', '2.1 模板二级示例'), ('heading3', '2.1.1 模板三级示例')]
-        section_map = saved.template_snapshot['source_execution']['manuscript_section_key_map']
-        mapped_key = section_map[old_heading_key]
-        assert mapped_key != old_heading_key
-        frozen_requirement = saved.requirement_snapshot['resolved_items'][0]
-        assert frozen_requirement['target'] == mapped_key
-        assert frozen_requirement['params']['section_key'] == mapped_key
-        assert frozen_requirement['params']['section_keys'] == [mapped_key]
-        assert saved.requirement_snapshot['content_hash'] != 'sha256:before-import'
-        assert saved.template_source_snapshot['styles']['body']['size_pt'] != 14.0
-        assert saved.template_snapshot['styles']['body']['size_pt'] == 14.0
-        assert response.json()['project']['template_snapshot']['styles']['body']['size_pt'] == 14.0
-
-        replacement = Document()
-        replacement.add_heading('第1章 新增引言', 1)
-        replacement.add_paragraph('引言正文。')
-        replacement.add_heading('第2章 新增分析', 1)
-        replacement.add_heading('第3章 模板示例', 1)
-        replacement.add_heading('3.1 新的二级标题', 2)
-        replacement.add_paragraph('替换论文正文。')
-        replacement_raw = io.BytesIO(); replacement.save(replacement_raw)
-        reimported = client.post(base, params={'apply': True, 'base_revision': saved.revision},
-            files={'file': ('replacement.docx', replacement_raw.getvalue())})
-        assert reimported.status_code == 200, reimported.text
-        saved = store.get_project(project.id)
-        new_map = saved.template_snapshot['source_execution']['manuscript_section_key_map']
-        new_mapped_key = new_map[old_heading_key]
-        assert new_mapped_key != mapped_key
-        reimported_requirement = saved.requirement_snapshot['resolved_items'][0]
-        assert reimported_requirement['target'] == new_mapped_key
-        assert reimported_requirement['params']['section_key'] == new_mapped_key
-        assert reimported_requirement['params']['section_keys'] == [new_mapped_key]
-
+            ('heading1', '第1章 系统分析'), ('heading2', '1.1 系统功能分析'), ('heading3', '1.1.1 数据采集功能分析')]
         before = set(tmp_path.glob('tplsrc-manuscript-*.docx'))
-        monkeypatch.setattr(store, 'update_project_if_revision', lambda *_: None)
-        conflict = client.post(base, params={'apply': True, 'base_revision': saved.revision},
-            files={'file': ('paper.docx', raw.getvalue())})
+        retry = client.post(base, files={'file': ('paper.docx', raw.getvalue())})
+        assert retry.status_code == 200, retry.text
+        monkeypatch.setattr(store, 'update_project_if_revision_conn', lambda *_: None)
+        conflict = client.post(base, params={'apply': True, 'base_revision': saved.revision,
+            'candidate_id': retry.json()['candidate_id'], 'candidate_sha256': retry.json()['candidate_sha256']})
         assert conflict.status_code == 409, conflict.text
         assert set(tmp_path.glob('tplsrc-manuscript-*.docx')) == before
         assert store.get_project(project.id).template_snapshot['source_docx'] == saved.template_snapshot['source_docx']
@@ -468,5 +426,113 @@ def test_requirement_upgrade_maps_policies_once_before_merging_template_rules(tm
         assert upgraded.status_code == 200, upgraded.text
         assert_targets(upgraded.json()['project']['requirement_snapshot'])
         assert_targets(store.get_project(project.id).requirement_snapshot)
+    finally:
+        app.dependency_overrides.clear(); app.dependency_overrides.update(previous)
+
+
+def test_mainline_import_preserves_requirement_targets_and_reimport(manuscript_case, tmp_path, monkeypatch):
+    from app.core import feature_flags
+
+    monkeypatch.setattr(feature_flags, 'manuscript_import_enabled', lambda: True)
+    path, template, _, _ = manuscript_case
+    monkeypatch.setenv('PAPERGUARD_TEMPLATE_DIR', str(tmp_path))
+    monkeypatch.setenv('PAPERGUARD_DATA_DIR', str(tmp_path / 'data'))
+    store = Store(tmp_path / 'import-api.db')
+    actor = {'id': 'import-owner', 'role': 'student', 'username': 'import-owner'}
+    old_heading_key = next(
+        heading['key'] for heading in template.source_execution['headings']
+        if heading['kind'] == 'heading1' and heading['title'] == '第1章 模板示例'
+    )
+    project = WritingProject(id='import-api-project', owner_id=actor['id'], template_id=template.id,
+        template_snapshot=template.model_dump(mode='json'), template_source_snapshot=template.model_dump(mode='json'),
+        requirement_snapshot={
+            'content_hash': 'sha256:before-import',
+            'format_overrides': {'body': {'size_pt': 14.0}},
+            'resolved_items': [{
+                'id': 'table-required', 'target': old_heading_key, 'enforce': 'hard', 'severity': 'error',
+                'params': {'section_key': old_heading_key, 'section_keys': [old_heading_key]},
+            }],
+        })
+    store.save_project(project)
+    manuscript = Document()
+    manuscript.add_heading('第1章 新增分析', 1)
+    manuscript.add_paragraph('新增章节正文。')
+    manuscript.add_heading('第2章 模板示例', 1)
+    manuscript.add_heading('2.1 模板二级示例', 2)
+    manuscript.add_paragraph('系统功能正文。')
+    manuscript.add_heading('2.1.1 模板三级示例', 3)
+    manuscript.add_paragraph('三级节正文。')
+    raw = io.BytesIO(); manuscript.save(raw)
+    previous = dict(app.dependency_overrides)
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[current_user] = lambda: actor
+    try:
+        client = TestClient(app)
+        base = '/api/projects/import-api-project/import-docx'
+        preview = client.post(base, files={'file': ('paper.docx', raw.getvalue())})
+        assert preview.status_code == 200, preview.text
+        assert preview.json()['structure_mode'] == 'manuscript'
+        assert not list(tmp_path.glob('tplsrc-manuscript-*.docx'))
+        response = client.post(base, params={
+            'apply': True, 'base_revision': store.get_project(project.id).revision,
+            'candidate_id': preview.json()['candidate_id'],
+            'candidate_sha256': preview.json()['candidate_sha256'],
+        })
+        assert response.status_code == 200, response.text
+        saved = store.get_project(project.id)
+        assert saved.layout_template_snapshot['source_docx'] == path.name
+        assert saved.template_snapshot['source_docx'] != path.name
+        assert [(s.type, s.title) for s in saved.sections if s.type.startswith('heading')] == [
+            ('heading1', '第1章 新增分析'), ('heading1', '第2章 模板示例'),
+            ('heading2', '2.1 模板二级示例'), ('heading3', '2.1.1 模板三级示例')]
+        section_map = saved.template_snapshot['source_execution']['manuscript_section_key_map']
+        mapped_key = section_map[old_heading_key]
+        assert mapped_key != old_heading_key
+        frozen_requirement = saved.requirement_snapshot['resolved_items'][0]
+        assert frozen_requirement['target'] == mapped_key
+        assert frozen_requirement['params']['section_key'] == mapped_key
+        assert frozen_requirement['params']['section_keys'] == [mapped_key]
+        assert saved.requirement_snapshot['content_hash'] != 'sha256:before-import'
+        assert saved.template_source_snapshot['styles']['body']['size_pt'] != 14.0
+        assert saved.template_snapshot['styles']['body']['size_pt'] == 14.0
+        assert response.json()['project']['template_snapshot']['styles']['body']['size_pt'] == 14.0
+
+        replacement = Document()
+        replacement.add_heading('第1章 新增引言', 1)
+        replacement.add_paragraph('引言正文。')
+        replacement.add_heading('第2章 新增分析', 1)
+        replacement.add_heading('第3章 模板示例', 1)
+        replacement.add_heading('3.1 新的二级标题', 2)
+        replacement.add_paragraph('替换论文正文。')
+        replacement_raw = io.BytesIO(); replacement.save(replacement_raw)
+        repreview = client.post(base, files={'file': ('replacement.docx', replacement_raw.getvalue())})
+        assert repreview.status_code == 200, repreview.text
+        reimported = client.post(base, params={
+            'apply': True, 'base_revision': saved.revision,
+            'candidate_id': repreview.json()['candidate_id'],
+            'candidate_sha256': repreview.json()['candidate_sha256'],
+        })
+        assert reimported.status_code == 200, reimported.text
+        saved = store.get_project(project.id)
+        new_map = saved.template_snapshot['source_execution']['manuscript_section_key_map']
+        new_mapped_key = new_map[old_heading_key]
+        assert new_mapped_key != mapped_key
+        reimported_requirement = saved.requirement_snapshot['resolved_items'][0]
+        assert reimported_requirement['target'] == new_mapped_key
+        assert reimported_requirement['params']['section_key'] == new_mapped_key
+        assert reimported_requirement['params']['section_keys'] == [new_mapped_key]
+
+        before = set(tmp_path.glob('tplsrc-manuscript-*.docx'))
+        conflict_preview = client.post(base, files={'file': ('paper.docx', raw.getvalue())})
+        assert conflict_preview.status_code == 200, conflict_preview.text
+        monkeypatch.setattr(store, 'update_project_if_revision_conn', lambda *_: None)
+        conflict = client.post(base, params={
+            'apply': True, 'base_revision': saved.revision,
+            'candidate_id': conflict_preview.json()['candidate_id'],
+            'candidate_sha256': conflict_preview.json()['candidate_sha256'],
+        })
+        assert conflict.status_code == 409, conflict.text
+        assert set(tmp_path.glob('tplsrc-manuscript-*.docx')) == before
+        assert store.get_project(project.id).template_snapshot['source_docx'] == saved.template_snapshot['source_docx']
     finally:
         app.dependency_overrides.clear(); app.dependency_overrides.update(previous)

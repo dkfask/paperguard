@@ -122,10 +122,19 @@ async function load() {
 }
 
 async function readNotification(item) {
-  try {
-    if (!item.read_at) { await markWorkflowNotificationRead(item.id); notifications.value = await fetchWorkflowNotifications() }
-    if (item.resource_type === 'submission') await router.push({ path: '/workflow', query: { panel: 'submissions', submission: item.resource_id } })
-  } catch (exception) { error.value = exception.message }
+  error.value = ''
+  const markRead = item.read_at ? Promise.resolve('') : Promise.resolve()
+    .then(() => markWorkflowNotificationRead(item.id))
+    .then(() => fetchWorkflowNotifications())
+    .then((result) => { notifications.value = result; return '' })
+    .catch((exception) => exception.message)
+  if (item.resource_type === 'submission') {
+    try { await router.push({ path: '/workflow', query: { panel: 'submissions', submission: item.resource_id } }) } catch (exception) { error.value = exception.message }
+  } else if (item.resource_type === 'archive') {
+    try { await router.push({ path: '/workflow', query: { panel: 'archives' } }) } catch (exception) { error.value = exception.message }
+  }
+  const notificationError = await markRead
+  if (notificationError && !error.value) error.value = notificationError
 }
 
 function deadlineFor(task) { return task.revision_deadline_at || task.effective_deadline_at || task.initial_deadline_at }

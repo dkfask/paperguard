@@ -20,6 +20,7 @@ from typing import Any
 from lxml import etree
 
 from app.core.extract.effective_format import EffectiveFormatResolver, location, measure, on
+from app.core.extract.heading_semantics import plausible_unstyled_numbered_heading, semantic_heading_level
 from app.core.extract.xml_utils import NS, load_part as _load_part, qn
 from app.models.writing_specification import (
     SpecificationEvidence, SpecificationReviewItem, WritingRule, WritingSpecification,
@@ -98,6 +99,8 @@ def _heading(paragraph: etree._Element, style_id: str, resolver: EffectiveFormat
     if len(text) < 90:
         match = re.match(r"^\s*(\d+(?:\.\d+){0,3})[\s、．]+\S", text)
         if match:
+            if "." in match.group(1) and not plausible_unstyled_numbered_heading(text):
+                return 0
             return match.group(1).count(".") + 1
         if re.match(r"^第[一二三四五六七八九十\d]+章\s*\S", text):
             return 1
@@ -108,7 +111,8 @@ def _instruction(text: str) -> bool:
     format_instruction = re.search(r"(?:正文|标题|图题|表题|图片|表格|页边距|字号|字体|行距|缩进|关键词).{0,24}"
                                    r"(?:采用|使用|设置|要求|应为|不得|不少于|不超过|宋体|黑体|小四|小五|倍行距)", text)
     writing_hint = re.search(r"^\s*(?:[（(]?(?:以下略)|[（(](?:列出|填写|此处|这里)|说明[：:]|此处|这里(?:要|应|需)|按照.{0,35}(?:填写|书写)|.{0,10}部分(?:要用|应当|需要))", text)
-    return bool(format_instruction or writing_hint)
+    reference_hint = re.search(r"参考文献.{0,30}至少\s*15\s*篇\s*近\s*3\s*年.{0,12}其中\s*5\s*篇\s*是英文", text)
+    return bool(format_instruction or writing_hint or reference_hint)
 
 
 def _role(text: str, style_name: str, heading: int, current: str) -> tuple[str, str]:
@@ -178,6 +182,36 @@ def _paragraph_font_observations(runs: list[dict]) -> tuple[dict, dict, dict]:
         if len(ranked) > 1:
             alternatives[prop] = [{"value": v["value"], "character_count": v["weight"]} for v in ranked]
     return props, sources, alternatives
+
+
+def _heading_content_runs(text: str, runs: list[dict]) -> list[dict]:
+    """Exclude an explicitly instructional trailing parenthesis from title formatting.
+
+    The complete source and individual runs remain in evidence; only the
+    formatting sample for the actual heading is narrowed.
+    """
+    match = re.search(r"[（(](?=[^（）()]{0,100}(?:按.{0,30}(?:描述|填写|编写|撰写)|"
+                      r"示例|说明|请填写|此处填写|根据.{0,30}(?:填写|描述)))"
+                      r"[^（）()]*[）)]\s*$", text)
+    if not match or not text[:match.start()].strip():
+        return runs
+    remaining = match.start()
+    selected = []
+    for run in runs:
+        part = run['text'][:remaining]
+        remaining -= len(part)
+        if part.strip():
+            sample = dict(run)
+            sample['text'] = part
+            sample['character_count'] = len(part)
+            sample['script_character_counts'] = {
+                'eastAsia': sum('\u3400' <= c <= '\u9fff' for c in part),
+                'latin': sum(c.isascii() and c.isalnum() for c in part),
+            }
+            selected.append(sample)
+        if remaining <= 0:
+            break
+    return selected or runs
 
 
 def _width(element: etree._Element | None) -> dict | None:
@@ -321,18 +355,22 @@ def extract_writing_specification(docx_path: str | Path) -> WritingSpecification
                 if total_runs > _MAX_RUNS:
                     raise ValueError("模板文字片段数量超过规范抽取预算")
                 table = p.xpath("ancestor::w:tbl[1]", namespaces=_NS)
+                heading_details = {}
                 if part != "word/document.xml":
                     role = "header" if "/header" in part else "footer"
                     node_region = part
                     node_region_title = "页眉" if role == "header" else "页脚"
                 elif table:
                     role, node_region = "instruction" if _instruction(text) else "table_text", location(table[0])
-                    node_region_title = "表格内文字"
+                    node_region_title = "封面表格" if location(p) in cover_paths else "表格内文字"
                 elif location(p) in cover_paths:
                     role, node_region = "instruction" if _instruction(text) else "cover", "cover"
                     node_region_title = "封面"
                 else:
-                    heading = _heading(p, style_id, resolver, text)
+                    declared_heading = _heading(p, style_id, resolver, text)
+                    heading = semantic_heading_level(text, declared_heading)
+                    if heading != declared_heading:
+                        heading_details = {"source_heading_level": declared_heading, "semantic_heading_level": heading}
                     role, current = _role(text, resolver.style_name(style_id), heading, current)
                     if heading or role.endswith("_title") or role == "toc":
                         region = "region-" + _hash([part, location(p)])[:16]
@@ -340,11 +378,21 @@ def extract_writing_specification(docx_path: str | Path) -> WritingSpecification
                     node_region = region
                     node_region_title = region_title
                 font_props, font_sources, mixed = _paragraph_font_observations(runs)
+                if role.startswith("heading"):
+                    title_runs = _heading_content_runs(text, runs)
+                    if title_runs is not runs:
+                        font_props, font_sources, _ = _paragraph_font_observations(title_runs)
                 props.update(font_props)
                 sources.update(font_sources)
                 paragraph = node(p, part, role, node_region, text=text[:300], properties=props, property_sources=sources,
                                  details={"style_id": style_id, "style_name": resolver.style_name(style_id), "runs": runs,
-                                          "mixed_properties": mixed, "empty": not text.strip(), "region_title": node_region_title})
+                                          "mixed_properties": mixed, "empty": not text.strip(), "region_title": node_region_title,
+                                          **({"in_cover": True} if part == "word/document.xml" and location(p) in cover_paths else {}),
+                                          **heading_details})
+                if heading_details and role.startswith("heading"):
+                    spec.review_items.append(SpecificationReviewItem(code="heading_number_style_conflict",
+                        message="标题编号层级与源样式不一致，按编号识别并在编译时采用对应级别的标题版式。",
+                        node_ids=[paragraph.node_id]))
                 if not text.strip() and table:
                     spec.review_items.append(SpecificationReviewItem(code="empty_field_style", message="空白表格区域的格式仅为候选，需结合字段用途试填确认。", node_ids=[paragraph.node_id]))
             for table in root.findall(f".//{qn('w:tbl')}"):

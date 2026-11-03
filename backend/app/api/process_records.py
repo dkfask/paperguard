@@ -111,7 +111,7 @@ def _record_view(record: dict) -> dict:
 
 def _records_for_participant(store: Store, participant_id: str) -> list[dict]:
     return [
-        item for item in store.list_workflow_records("process_record")
+        item for item in store.list_workflow_records("process_record", limit=None)
         if item.get("scope_type") == "participant" and item.get("scope_id") == participant_id
     ]
 
@@ -396,7 +396,7 @@ def process_record_inbox(store: Store = Depends(get_store), user: dict = Depends
     if user["role"] not in {"teacher", "admin", "college_admin"}:
         raise HTTPException(status_code=403, detail="只有教师或管理员可以查看材料审批收件箱")
     result = []
-    for record in store.list_workflow_records("process_record"):
+    for record in store.list_workflow_records("process_record", limit=None):
         if record.get("state") != "submitted":
             continue
         try:
@@ -749,7 +749,7 @@ def export_process_record(record_id: str, store: Store = Depends(get_store), use
 
 @router.get("/process-files/{file_id}/download")
 def download_record_attachment(file_id: str, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> FileResponse:
-    for record in store.list_workflow_records("process_record"):
+    for record in store.list_workflow_records("process_record", limit=None):
         attachment = next((item for item in record.get("attachments", []) if item.get("id") == file_id), None)
         if not attachment:
             continue

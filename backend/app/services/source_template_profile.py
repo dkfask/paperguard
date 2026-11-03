@@ -14,18 +14,39 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.extract.specification import extract_writing_specification, _text
 from app.core.extract.xml_utils import NS, load_part, qn
-from app.models.template import PaperTemplate, TextStyle, SectionType
+from app.models.template import DEFAULT_STYLES, PaperTemplate, TextStyle, SectionType
 from app.services.secret_store import _require_master_key
 
-PROFILE_VERSION = "word-master/4"
+PROFILE_VERSION = "word-master/6"
 
 
 class ProfileError(ValueError):
     pass
+
+
+class InlineLabelOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=64)
+    separator: str = Field(min_length=1, max_length=5)
+    bold: bool | None = None
+
+
+class BodyPageNumberSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    font: str = Field(min_length=1, max_length=128)
+    size_pt: float = Field(ge=6, le=36, multiple_of=0.5)
+
+    @field_validator("font")
+    @classmethod
+    def valid_font(cls, value):
+        value = value.strip()
+        if not value or any(ord(char) < 32 for char in value):
+            raise ValueError("页码字体名称无效")
+        return value
 
 
 class ConfirmWritingProfile(BaseModel):
@@ -37,6 +58,10 @@ class ConfirmWritingProfile(BaseModel):
     overrides: dict[str, Any] = Field(default_factory=dict)
     # Only explicit instruction candidates shown by the server may become hard checks.
     confirmed_content_rule_ids: list[str] = Field(default_factory=list)
+    confirmed_digit_font_rule_ids: list[str] = Field(default_factory=list)
+    inline_label_overrides: dict[str, InlineLabelOverride] = Field(default_factory=dict)
+    body_page_number: BodyPageNumberSettings | None = None
+    defense_date_field_key: str = ""
     # New objects have no universal dimensions inferred from a single source example.
     accept_new_object_defaults: bool = False
     remove_unmatched_toc_entries: bool = False
@@ -89,8 +114,27 @@ def verify_profile(template: PaperTemplate, source: bytes | None) -> dict:
         raise ProfileError("母版文件摘要变化，请重新导入并确认")
     if digest(execution_basis(template)) != profile.get("template_basis_sha256"):
         raise ProfileError("模板格式或章节已变化，请重新确认此版本")
+    # Older signed profiles may have omitted logical table borders. Re-read
+    # the digest-bound source so they cannot certify an unverified layout.
+    from docx import Document
+    from app.services.table_borders import template_table_borders
+    try:
+        template_table_borders(Document(io.BytesIO(source)))
+    except ValueError as exc:
+        raise ProfileError(str(exc)) from exc
+    from app.services.digit_font_rules import is_digit_font_instruction
+    digit_candidates = (profile.get("digit_font_review") or {}).get("candidates", [])
+    legacy_candidates = [item for item in (profile.get("content_rule_review") or {}).get("manual_items", [])
+                         if is_digit_font_instruction(item.get("source_text", ""))]
+    digit_rule = profile.get("digit_font_rule")
+    if (digit_candidates or legacy_candidates) and not digit_rule:
+        raise ProfileError("模板中的数字字体规则尚未确认，请重新预览并确认后发布")
+    if digit_rule and (len(digit_candidates) != 1
+                       or profile.get("confirmed_digit_font_rule_ids") != [digit_candidates[0].get("rule_id")]
+                       or digit_rule != digit_candidates[0]):
+        raise ProfileError("模板数字字体规则与确认记录不一致")
     if profile.get("content_requirements"):
-        if (profile.get("content_rule_compiler_version") != "template-content-rules/1"
+        if (profile.get("content_rule_compiler_version") not in {"template-content-rules/1", "template-content-rules/2"}
                 or not profile.get("specification_sha256")
                 or not isinstance(profile.get("confirmed_content_rule_ids"), list)):
             raise ProfileError("模板内容规则确认记录不完整")
@@ -106,12 +150,33 @@ def verify_profile(template: PaperTemplate, source: bytes | None) -> dict:
                 raise ProfileError("模板内容规则与源文件、规范或版本不匹配")
             seen_ids.add(rule_id)
             if rule_id in confirmed_ids:
-                if item.get("type") != "auto" or item.get("enforce") != "hard" or item.get("severity") != "error":
+                quality_rule = (profile.get("content_rule_compiler_version") == "template-content-rules/2"
+                                and item.get("checker") == "references.recent_language_summary")
+                if quality_rule:
+                    date_key = (item.get("params") or {}).get("defense_date_field_key")
+                    if (item.get("type") != "auto" or item.get("enforce") != "soft" or item.get("severity") != "info"
+                            or not date_key or date_key != profile.get("defense_date_field_key")
+                            or sum(field.key == date_key for field in template.meta_fields) != 1):
+                        raise ProfileError("文献内容提示缺少已确认的答辩日期字段")
+                elif item.get("type") != "auto" or item.get("enforce") != "hard" or item.get("severity") != "error":
                     raise ProfileError("已确认的内容规则未绑定硬性检查")
             elif item.get("type") != "manual" or item.get("enforce") != "soft":
                 raise ProfileError("未确认的内容规则不能启用为硬性检查")
         if not confirmed_ids.issubset(seen_ids):
             raise ProfileError("模板内容规则确认项与编译结果不匹配")
+    if profile.get("toc_active"):
+        # The source digest is already signed. Derive this rule for older
+        # profiles too, so a formatting repair does not invalidate templates.
+        from app.services.toc_appearance import source_toc_appearance
+        observed = source_toc_appearance(source, profile)
+        frozen = profile.get("toc_appearance_by_level")
+        # Profiles predating separate tab-leader evidence are still bound to
+        # the same source; derive that part from the source on every read.
+        without_leader = {level: {k: v for k, v in rules.items() if k != "leader"}
+                          for level, rules in observed.items()}
+        if frozen is not None and frozen != observed and frozen != without_leader:
+            raise ProfileError("目录外观与已确认母版不一致，请重新确认")
+        profile = {**profile, "toc_appearance_by_level": observed}
     return profile
 
 
@@ -158,6 +223,38 @@ def as_text_style(properties: dict, fallback: TextStyle | None = None) -> TextSt
     return TextStyle.model_validate(raw)
 
 
+def _configured_object_properties(style: TextStyle, inherited: dict) -> dict:
+    """Use the reviewed object style when the master has no body specimen."""
+    kind = style.line_spacing_rule
+    if kind not in {"auto", "exact", "atLeast"}:
+        raise ProfileError("图表文字的行距规则暂不支持，请调整模板样式")
+    properties = {
+        **inherited,
+        "font.eastAsia": style.font_zh,
+        "font.ascii": style.font_en,
+        "font.hAnsi": style.font_en,
+        "font.size": {"value": style.size_pt, "unit": "pt"},
+        "font.bold": style.bold,
+        "font.italic": style.italic,
+        "font.underline": "single" if style.underline else "none",
+        "paragraph.align": "both" if style.align.value == "justify" else style.align.value,
+        "paragraph.spacing.before": {"value": style.space_before_pt, "unit": "pt"},
+        "paragraph.spacing.after": {"value": style.space_after_pt, "unit": "pt"},
+        "paragraph.spacing.line": {"value": style.line_spacing,
+            "unit": "multiple" if kind == "auto" else "pt", "kind": kind},
+        "paragraph.indent.first_line": {"value": style.first_line_indent_chars, "unit": "character"},
+        "paragraph.indent.hanging": {"value": style.hanging_indent_cm * 72 / 2.54, "unit": "pt"},
+        "paragraph.page_break_before": style.page_break_before,
+    }
+    if style.color:
+        properties["font.color"] = style.color
+    if style.highlight:
+        properties["font.highlight"] = style.highlight
+    if style.vert_align:
+        properties["font.vertical_alignment"] = style.vert_align
+    return properties
+
+
 def compile_profile(template: PaperTemplate, source_path: Path, request: ConfirmWritingProfile, *, actor: str) -> PaperTemplate:
     if not request.accept_recommended or not request.accept_new_object_defaults:
         raise ProfileError("请确认采用的格式、冲突建议与新增图表的版心约束")
@@ -170,6 +267,14 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
     rules = {r.id: r for r in spec.rules}
     if set(request.overrides) - set(rules):
         raise ProfileError("覆盖项引用未知或过期的规则")
+    from app.services.digit_font_rules import review_digit_font_rules
+    digit_candidates = review_digit_font_rules(spec)
+    if len(digit_candidates) > 1:
+        raise ProfileError("模板含多个数字字体要求，请先澄清规则来源")
+    candidate_ids = {item["rule_id"] for item in digit_candidates}
+    if (len(request.confirmed_digit_font_rule_ids) != len(set(request.confirmed_digit_font_rule_ids))
+            or set(request.confirmed_digit_font_rule_ids) - candidate_ids):
+        raise ProfileError("数字字体确认项未知、重复或已过期")
     source = commentless_source(raw_source)
     with zipfile.ZipFile(io.BytesIO(source)) as archive:
         root = load_part(archive, "word/document.xml")
@@ -179,6 +284,7 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
         raise ProfileError("母版没有可填充正文")
     children = list(body)
     source_nodes = {n.path: n for n in spec.nodes if n.part == "word/document.xml"}
+    cover_table_regions = {n.region for n in spec.nodes if n.role == "table_text" and n.details.get("in_cover")}
     headings = []
     cursor = 0
     candidate = template.model_copy(deep=True)
@@ -201,7 +307,8 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
     prose = [n for n in spec.nodes if n.role == "body" and len(n.text.strip()) >= 80]
     body_properties = _majority(prose or [n for n in spec.nodes if n.role == "body" and n.text.strip()])
     if not body_properties:
-        body_properties = _majority(n for n in spec.nodes if n.role in {"abstract", "table_text"} and n.text.strip())
+        body_properties = _majority(n for n in spec.nodes if n.role in {"abstract", "table_text"}
+                                    and not n.details.get("in_cover") and n.text.strip())
     if not body_properties:
         raise ProfileError("未找到可复用的正文格式，请先补充正文示例")
     applied_rule_ids: set[str] = set()
@@ -243,6 +350,13 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
                 and section.type.value != evidence.role):
             raise ProfileError("章节层级与 Word 母版不一致，请重新读取章节后确认：" + section.title)
         region_nodes = [n for n in spec.nodes if n.region == evidence.region and n.role in {"body", "abstract", "english_abstract", "references", "acknowledgement", "appendix"} and n.text.strip()]
+        if section.type.value.startswith("heading"):
+            # Short lists and instructions often differ from regular prose.
+            # A local override needs more than a lone example; explicit reviewed
+            # overrides below still apply regardless of the sample count.
+            prose = [n for n in region_nodes if len(n.text.strip()) >= 80
+                     and not re.search(r"(?:list|列表)", n.details.get("style_name", ""), re.I)]
+            region_nodes = prose if len(prose) >= 2 else []
         properties = {**body_properties, **_majority(region_nodes)}
         if inline:
             values = [r["properties"] for r in evidence.details.get("runs",[]) if r.get("text","").strip()]
@@ -255,6 +369,29 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
                 applied_rule_ids.add(rule_id)
         title_properties = copy.deepcopy(evidence.properties)
         title_overridden = False
+        title_style_id = ""
+        title_style_source_node_id = ""
+        if evidence.details.get("source_heading_level") is not None:
+            # Preserve the observed conflict in the specification, then bind
+            # the corrected heading to an actual source sample of its level.
+            level = evidence.details.get("semantic_heading_level")
+            examples = [n for n in spec.nodes if n.part == "word/document.xml"
+                        and n.role == section.type.value
+                        and n.details.get("source_heading_level") is None
+                        and re.fullmatch(rf"(?:heading|标题)\s*{level}",
+                                         n.details.get("style_name", ""), re.I)
+                        and n.details.get("style_id") and n.properties.get("font.size")]
+            if not examples:
+                raise ProfileError("标题编号与样式冲突，但母版缺少可核验的同级标题样例：" + section.title)
+            body_order = {child.getroottree().getpath(child): i for i, child in enumerate(children)}
+            examples = [n for n in examples if n.path in body_order]
+            if not examples:
+                raise ProfileError("同级标题样例不在可映射的正文中：" + section.title)
+            exemplar = min(examples, key=lambda n: (body_order[n.path] > index, abs(body_order[n.path] - index)))
+            title_properties = copy.deepcopy(exemplar.properties)
+            title_style_id = exemplar.details["style_id"]
+            title_style_source_node_id = exemplar.node_id
+            title_overridden = True
         if inline:
             first = next((r for r in evidence.details.get("runs",[]) if r.get("text","").strip()),{})
             title_properties.update(first.get("properties",{}))
@@ -268,13 +405,27 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
         if inline:
             candidate.styles[section.type.value]=section.style
         separator = re.search(r"[：:]\s*",evidence.text)
+        label_override = request.inline_label_overrides.get(section.key)
+        if label_override and (not inline or not label_override.text.strip()
+                or re.search(r"[：:\x00-\x1f\x7f]", label_override.text)
+                or not re.fullmatch(r"[：:][ \t]{0,4}", label_override.separator)):
+            raise ProfileError("关键词标签或分隔符无效：" + section.title)
+        separator_properties = copy.deepcopy(properties)
+        if label_override and label_override.bold is not None:
+            title_properties["font.bold"] = label_override.bold
+            separator_properties["font.bold"] = label_override.bold
         headings.append({"key": section.key, "kind": section.type.value, "title": section.title,"inline":inline,
+                         "display_label": label_override.text if label_override else section.title,
+                         "separator_properties": separator_properties,
                          "title_overridden":title_overridden,
+                         "title_style_id":title_style_id, "title_style_source_node_id":title_style_source_node_id,
                          "bookmark_name":"PGH"+hashlib.sha256(section.key.encode()).hexdigest()[:16],
-                         "separator":separator.group() if inline and separator else "：",
+                         "separator":label_override.separator if label_override else (separator.group() if inline and separator else "："),
                          "index": index, "properties": properties, "title_properties": title_properties})
     if not headings:
         raise ProfileError("模板需要至少一个明确的正文或表单区域")
+    if set(request.inline_label_overrides) - {h["key"] for h in headings if h["inline"]}:
+        raise ProfileError("关键词标签无法绑定到已识别区域")
     # Resolve cover values without asking users to add programming placeholders.
     fields = []
     mapped_targets: dict[str, str] = {}
@@ -322,7 +473,15 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
         if not _text(target).strip():
             # Prefer the same cover column's actual values over a blank run's defaults.
             peers = [n for n in spec.nodes if n.role == "table_text" and n.text.strip() and not re.search(r"[：:]\s*$", n.text)]
+            if evidence and evidence.details.get("in_cover"):
+                peers = [n for n in peers if n.details.get("in_cover")]
             properties = {**properties, **_majority(peers)}
+        if evidence and evidence.details.get("in_cover"):
+            for rule_id, value in request.overrides.items():
+                rule = rules[rule_id]
+                if rule.scope.get("role") == "table_text" and rule.scope.get("region") == evidence.region:
+                    properties[rule.property] = value
+                    applied_rule_ids.add(rule_id)
         fields.append({"key": field.key, "path": path, "prefix": prefix, "properties": properties})
     removals = []
     if request.remove_template_instructions:
@@ -342,9 +501,15 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
             template_id=candidate.id,
             template_name=candidate.name,
             template_version=candidate.version,
+            meta_fields=candidate.meta_fields,
+            defense_date_field_key=request.defense_date_field_key,
         )
     except ValueError as exc:
         raise ProfileError(str(exc)) from exc
+    content_rules["review"]["manual_items"] = [item for item in content_rules["review"]["manual_items"]
+                                                 if item["rule_id"] not in candidate_ids]
+    content_rules["review_requirements"] = [item for item in content_rules["review_requirements"]
+                                             if (item.get("provenance") or {}).get("rule_id") not in candidate_ids]
     profile = {"compiler_version": PROFILE_VERSION, "control_appearance":"hidden", "source_sha256": spec.source_sha256,
                "preserve_manuscript_structure": request.preserve_manuscript_structure,
                "specification_sha256": spec.specification_sha256, "confirmed_by": actor,
@@ -352,6 +517,12 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
                "removals": removals, "overrides": request.overrides, "accept_recommended": True,
                "content_rule_compiler_version": content_rules["review"]["compiler_version"],
                "confirmed_content_rule_ids": content_rules["confirmed_rule_ids"],
+               "confirmed_digit_font_rule_ids": request.confirmed_digit_font_rule_ids,
+               "inline_label_overrides": {key: value.model_dump(mode="json") for key, value in request.inline_label_overrides.items()},
+               "body_page_number": request.body_page_number.model_dump(mode="json") if request.body_page_number else None,
+               "digit_font_review": {"candidates": digit_candidates},
+               "digit_font_rule": digit_candidates[0] if request.confirmed_digit_font_rule_ids else None,
+               "defense_date_field_key": request.defense_date_field_key,
                "content_rule_review": content_rules["review"],
                "content_requirements": content_rules["review_requirements"],
                "new_object_policy": {"images": "fit_page_preserve_ratio", "tables": "fit_page_repeat_header",
@@ -443,11 +614,26 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
                             "target_key": target["key"], "target_title": target["title"],
                             "source_label": label, "source_page": page_match.group(1),
                             "level": level, "style_id": style_id})
+    # A source directory may repeat the incorrect source style. The confirmed
+    # semantic level, not that cached entry, determines the rebuilt TOC level.
+    for entry in toc_entries:
+        target = next(h for h in headings if h["key"] == entry["target_key"])
+        if not target.get("title_style_id"):
+            continue
+        expected_level = int(target["kind"][-1])
+        if entry["level"] != expected_level:
+            if expected_level not in toc_style_by_level:
+                raise ProfileError("目录缺少已修正标题层级的母版样式：" + target["title"])
+            entry["level"] = expected_level
+            entry["style_id"] = toc_style_by_level[expected_level]
     profile["toc_entries"] = toc_entries
     profile["toc_active"] = toc_active
     profile["toc_style_ids"] = toc_style_ids
     profile["toc_style_by_level"] = toc_style_by_level
     profile["toc_font_requirements"] = sorted(toc_font_requirements)
+    if toc_active:
+        from app.services.toc_appearance import source_toc_appearance
+        profile["toc_appearance_by_level"] = source_toc_appearance(source, profile)
     profile["toc_range_paths"] = toc_range_paths
     profile["toc_container_path"] = toc_container_path
     if unmapped_toc_labels and not request.remove_unmatched_toc_entries:
@@ -456,16 +642,50 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
     profile["removed_toc_entries"] = unmapped_toc_labels if request.remove_unmatched_toc_entries else []
     profile["confirmed_remove_unmatched_toc_entries"] = bool(request.remove_unmatched_toc_entries)
     profile["prepared_source_manifest_sha256"]=digest(package_manifest(source))
-    profile["object_properties"] = {role: (_majority(n for n in spec.nodes if n.role == role and n.region != "cover" and n.text.strip()) or body_properties)
-                                    for role in ("figure_caption","table_caption","table_text")}
+    # Prefer explicit alignment on body figure specimens; absent such evidence,
+    # the confirmed new-object policy places figures in the middle of the page.
+    namespaces = {k: v for element in root.iter() for k, v in element.nsmap.items() if k}
+    image_alignments = []
+    for image in (node for node in spec.nodes if node.part == "word/document.xml" and node.role == "image"):
+        found = root.xpath(image.path, namespaces=namespaces)
+        paragraphs = found[0].xpath("ancestor::w:p[1]", namespaces=namespaces) if found else []
+        if not paragraphs:
+            continue
+        paragraph = paragraphs[0]
+        evidence = source_nodes.get(paragraph.getroottree().getpath(paragraph))
+        align = paragraph.find(f"{qn('w:pPr')}/{qn('w:jc')}")
+        value = align.get(qn("w:val")) if align is not None else None
+        if evidence and evidence.role == "body" and value in {"left", "center", "right"}:
+            image_alignments.append(value)
+    if len(set(image_alignments)) > 1:
+        raise ProfileError("母版正文图片存在不同对齐方式，请先明确统一图版规则")
+    profile["image_alignment"] = image_alignments[0] if image_alignments else "center"
+    from docx import Document
+    from app.services.table_borders import template_table_borders
+    try:
+        profile["table_borders"] = template_table_borders(Document(source_path))
+    except ValueError as exc:
+        raise ProfileError(str(exc)) from exc
+    object_style_keys = {"figure_caption": "figure_caption", "table_caption": "table_caption", "table_text": "table_cell"}
+    profile["object_properties"] = {}
+    for role, style_key in object_style_keys.items():
+        specimens = [n for n in spec.nodes if n.role == role and n.part == "word/document.xml"
+                     and not n.details.get("in_cover") and n.text.strip()]
+        configured = candidate.styles.get(style_key) or DEFAULT_STYLES[style_key]
+        profile["object_properties"][role] = (_majority(specimens) if specimens
+                                                else _configured_object_properties(configured, body_properties))
     for rule_id, value in request.overrides.items():
         role = rules[rule_id].scope.get("role")
-        if role in profile["object_properties"]:
+        if role in profile["object_properties"] and rules[rule_id].scope.get("region") not in cover_table_regions:
             profile["object_properties"][role][rules[rule_id].property] = value
             applied_rule_ids.add(rule_id)
     if set(request.overrides) - applied_rule_ids:
         ignored = [rules[item].property for item in sorted(set(request.overrides) - applied_rule_ids)]
         raise ProfileError("格式覆盖无法绑定到已识别区域：" + "、".join(ignored))
+    from app.services.page_number_policy import compile_page_number_policy
+    with zipfile.ZipFile(io.BytesIO(source)) as archive:
+        profile["body_page_number_policy"] = compile_page_number_policy(
+            archive, root, headings, profile["body_page_number"])
     profile["protected_document_sha256"] = freeze_protected_structure(root, profile)
     candidate.source_execution = sign_profile(profile)
     return candidate
@@ -507,7 +727,7 @@ def trial_profile(template: PaperTemplate, source_path: Path) -> dict:
     from app.services.master_docx_renderer import render_master_docx
     from app.services.docx_output_check import inspect_docx_output
     reports = {}
-    for label, text in (("normal","正文试填。Template validation."),("long","长段落用于验证正文扩展与母版保护。"*250)):
+    for label, text in (("normal","正文试填 123。Template validation 456."),("long","长段落 123 用于验证正文扩展与母版保护。"*250)):
         expandable=next((n.key for n in flatten(template.sections) if n.type.value=="heading1"),"")
         project = WritingProject(id="profile-trial",template_id=template.id,
             meta={field.key:"试填 "+field.label for field in template.meta_fields},

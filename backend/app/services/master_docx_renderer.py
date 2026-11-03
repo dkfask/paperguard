@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import math
 import posixpath
 import re
 import zipfile
@@ -17,6 +18,9 @@ from lxml import etree
 from app.core.extract.xml_utils import NS, load_part, qn
 from app.models.project import BlockType
 from app.services.document_assets import resolve_document_image_path
+from app.services.digit_font_rules import BODY_KINDS, HEADING_KINDS, apply_digit_font
+from app.services.master_layout_anchors import block_bookmark_name
+from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
 from app.services.source_template_profile import ProfileError, verify_profile, commentless_source, package_manifest, digest
 
 REL = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -93,24 +97,6 @@ def apply_page_layout(root, page_layout: dict[str, float] | None):
         for key, tag, attribute in active:
             node = _section_property(section, tag)
             node.set(qn(attribute), str(round(float(layout[key]) * 567)))
-
-
-def apply_run_vertical_alignment(run, value):
-    if value is None:
-        return
-    if value not in {"superscript", "subscript"}:
-        raise ProfileError("论文内容包含不支持的上下标格式")
-    rpr = run.find(qn("w:rPr"))
-    if rpr is None:
-        rpr = OxmlElement("w:rPr")
-        run.insert(0, rpr)
-    vertical_alignments = rpr.findall(qn("w:vertAlign"))
-    if vertical_alignments:
-        vertical_alignments[0].set(qn("w:val"), value)
-        for duplicate in vertical_alignments[1:]:
-            rpr.remove(duplicate)
-    else:
-        child(rpr, "w:vertAlign", val=value)
 
 
 def apply_properties(paragraph, properties: dict):
@@ -198,6 +184,73 @@ def text_paragraph(text: str, properties: dict):
     return paragraph
 
 
+def image_line_spacing(properties: dict) -> dict:
+    """Let an inline picture expand beyond a template's fixed text line."""
+    line = properties.get("paragraph.spacing.line")
+    if line is None:
+        return {"kind": "auto", "unit": "multiple", "value": 1}
+    if not isinstance(line, dict):
+        raise ProfileError("图片段落的行距规则无效")
+    kind = line.get("kind", "auto")
+    value = line.get("value")
+    expected_unit = "multiple" if kind == "auto" else "pt"
+    if (kind not in {"auto", "exact", "atLeast"}
+            or isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value <= 0
+            or line.get("unit", expected_unit) != expected_unit):
+        raise ProfileError("图片段落的行距规则无效")
+    if kind == "auto":
+        # A sub-single multiple may make the graphic's line smaller than its
+        # natural height; use a normal single line for the image only.
+        return {"kind": "auto", "unit": "multiple", "value": max(1, value)}
+    if round(value * 20) < 1:
+        raise ProfileError("图片段落的行距规则无效")
+    return {"kind": "atLeast", "unit": "pt", "value": value}
+
+
+def make_generated_content_visible(root):
+    """Override hidden formatting on student-owned content, not the source master."""
+    controls = root.xpath(
+        ".//w:sdt[starts-with(w:sdtPr/w:tag/@w:val,'pg-field:') "
+        "or starts-with(w:sdtPr/w:tag/@w:val,'pg-block:')]/w:sdtContent",
+        namespaces=NS,
+    )
+    for content in controls:
+        for run in content.iter(qn("w:r")):
+            if not any(run.find(qn("w:" + tag)) is not None for tag in ("t", "drawing", "pict")):
+                continue
+            properties = run.find(qn("w:rPr"))
+            if properties is None:
+                properties = etree.Element(qn("w:rPr"))
+                run.insert(0, properties)
+            for name in ("vanish", "webHidden"):
+                for old in properties.findall(qn("w:" + name)):
+                    properties.remove(old)
+                child(properties, "w:" + name, val="0")
+
+
+def apply_content_decoration(run, block, inline=None):
+    rpr = run.find(qn("w:rPr"))
+    for flag, tag in (("bold", "b"), ("italic", "i"), ("underline", "u")):
+        if getattr(block, flag, False) or (inline is not None and getattr(inline, flag, False)):
+            child(rpr, "w:" + tag, val="single" if tag == "u" else "1")
+    highlight = inline.highlight if inline is not None and inline.highlight is not None else block.highlight
+    if highlight is not None:
+        names = {name.lower(): name for name in (
+            "yellow", "green", "cyan", "magenta", "red", "blue", "darkBlue", "darkCyan", "darkGreen",
+            "darkMagenta", "darkRed", "darkYellow", "lightGray", "darkGray", "black",
+        )}
+        value = names.get(highlight.lower())
+        if value is None:
+            raise ProfileError("段落包含不支持的文字高亮颜色")
+        child(rpr, "w:highlight", val=value)
+    vertical = inline.vert_align if inline is not None and inline.vert_align is not None else block.vert_align
+    if vertical is not None:
+        if vertical not in {"superscript", "subscript"}:
+            raise ProfileError("段落包含不支持的上下标格式")
+        child(rpr, "w:vertAlign", val=vertical)
+
+
 def control(tag: str, nodes):
     sdt = etree.Element(qn("w:sdt"), nsmap={"w15":W15,"mc":MC})
     pr = etree.SubElement(sdt, qn("w:sdtPr"))
@@ -211,9 +264,72 @@ def control(tag: str, nodes):
     return sdt
 
 
+def add_block_bookmarks(root, project, profile):
+    """Place zero-width anchors on each block boundary and its caption."""
+    blocks = [block for section in project.sections for block in section.paragraphs]
+    if len({block.id for block in blocks}) != len(blocks):
+        raise ProfileError("项目内容块 ID 重复，无法建立稳定锚点")
+    existing = root.findall(".//" + qn("w:bookmarkStart"))
+    existing_names = {item.get(qn("w:name"), "").casefold() for item in existing}
+    ids = [int(item.get(qn("w:id"))) for item in root.xpath(
+        ".//w:bookmarkStart | .//w:bookmarkEnd", namespaces=NS
+    ) if (item.get(qn("w:id")) or "").isdigit()]
+    next_id = max(ids + [-1]) + 1
+    headings = {heading["key"]: heading for heading in profile["headings"]}
+    controls = {}
+    for content in root.xpath(".//w:sdt[w:sdtPr/w:tag]/w:sdtContent", namespaces=NS):
+        tag = content.getparent().find(f"{qn('w:sdtPr')}/{qn('w:tag')}").get(qn("w:val"), "")
+        if tag.startswith("pg-block:"):
+            controls.setdefault(tag, []).append(content)
+
+    def put(parent, role, block_id, *, at_end=False):
+        nonlocal next_id
+        name = block_bookmark_name(block_id, role)
+        if name.casefold() in existing_names or next_id > 2147483647:
+            raise ProfileError("内容锚点与现有书签冲突")
+        existing_names.add(name.casefold())
+        start = OxmlElement("w:bookmarkStart")
+        start.set(qn("w:id"), str(next_id)); start.set(qn("w:name"), name)
+        end = OxmlElement("w:bookmarkEnd"); end.set(qn("w:id"), str(next_id))
+        next_id += 1
+        position = len(parent) if at_end else (1 if parent.find(qn("w:pPr")) is not None else 0)
+        parent.insert(position, start); parent.insert(position + 1, end)
+
+    for section in project.sections:
+        heading = headings.get(section.key)
+        if heading is None or heading["kind"] == "toc":
+            continue
+        for block in section.paragraphs:
+            matches = controls.get("pg-block:" + block.id, [])
+            if len(matches) != 1:
+                raise ProfileError("无法定位内容块以建立稳定锚点")
+            content = matches[0]
+            nodes = list(content)
+            caption = None
+            if heading.get("inline"):
+                first = last = content
+            elif block.type in {BlockType.PARAGRAPH, BlockType.IMAGE, BlockType.EQUATION}:
+                first = last = nodes[0]
+                if block.type == BlockType.IMAGE and block.image:
+                    caption = nodes[-1]
+            elif block.type == BlockType.TABLE and block.table:
+                table = next((node for node in nodes if node.tag == qn("w:tbl")), None)
+                paragraphs = table.findall(".//" + qn("w:p")) if table is not None else []
+                if not paragraphs:
+                    raise ProfileError("表格缺少可定位的单元格")
+                first, last = paragraphs[0], paragraphs[-1]
+                caption = nodes[0]
+            else:
+                raise ProfileError("当前内容类型不支持建立稳定锚点")
+            put(first, "start", block.id)
+            put(last, "end", block.id, at_end=True)
+            if caption is not None:
+                put(caption, "caption", block.id)
+
+
 def prepare_source(root, profile, meta=None):
-    apply_page_layout(root, profile.get("policy_layout_overrides"))
     """Apply the approved editable boundaries; all other source nodes stay in order."""
+    apply_page_layout(root, profile.get("policy_layout_overrides"))
     body = root.find(qn("w:body"))
     original = list(body)
     ns = {k: v for element in root.iter() for k, v in element.nsmap.items() if k}
@@ -322,16 +438,32 @@ def prepare_source(root, profile, meta=None):
                 if old.tag != qn("w:pPr"):
                     node.remove(old)
             apply_properties(node,heading["properties"])
-            prefix=text_paragraph(heading["title"],heading["title_properties"])
-            delimiter=text_paragraph(heading["separator"],heading["properties"])
+            prefix=text_paragraph(heading.get("display_label", heading["title"]),heading["title_properties"])
+            delimiter=text_paragraph(heading["separator"],heading.get("separator_properties", heading["properties"]))
             node.extend(prefix.findall(qn("w:r")));node.extend(delimiter.findall(qn("w:r")))
             node.append(control("pg-region:"+heading["key"],[]))
             continue
         if heading["kind"] == "toc":
             continue
+        # A source heading whose explicit number corrected its level uses a
+        # source-bound sample of that level, including Word's outline level.
+        if heading.get("title_style_id"):
+            ppr = node.find(qn("w:pPr"))
+            if ppr is None:
+                ppr = OxmlElement("w:pPr"); node.insert(0, ppr)
+            style = ppr.find(qn("w:pStyle"))
+            if style is None:
+                style = OxmlElement("w:pStyle"); ppr.insert(0, style)
+            style.set(qn("w:val"), heading["title_style_id"])
+            outline = ppr.find(qn("w:outlineLvl"))
+            if outline is None:
+                outline = OxmlElement("w:outlineLvl"); ppr.append(outline)
+            outline.set(qn("w:val"), str(int(heading["kind"][-1]) - 1))
         # Do not rewrite original heading formatting unless explicitly overridden.
         if heading.get("title_overridden"):
             apply_properties(node, heading["title_properties"])
+        if heading["kind"] in HEADING_KINDS and profile.get("digit_font_rule"):
+            apply_digit_font(node, profile["digit_font_rule"]["font"])
         for old in original[index+1:end]:
             if old.tag == qn("w:sectPr"):
                 continue
@@ -363,6 +495,8 @@ def prepare_source(root, profile, meta=None):
         ppr = paragraph.find(qn("w:pPr"))
         paragraph.insert(paragraph.index(ppr)+1 if ppr is not None else 0,start)
         paragraph.append(end)
+    from app.services.page_number_policy import apply_page_number_sections
+    apply_page_number_sections(root, profile.get("body_page_number_policy"))
     return root
 
 
@@ -413,32 +547,40 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
         region = root.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val=$tag]/w:sdtContent", namespaces=NS, tag="pg-region:"+heading["key"])[0]
         props = heading["properties"]
         width, height = boxes[heading["key"]]
+        reference_number = 0
         for block in sections[heading["key"]].paragraphs:
             if heading.get("inline") and (block.type != BlockType.PARAGRAPH or len(sections[heading["key"]].paragraphs)!=1 or '\n' in block.text or block.inline_runs):
                 raise ProfileError("关键词区域只接受一段关键词文字")
             nodes = []
             if block.type == BlockType.PARAGRAPH:
-                if block.inline_runs:
+                is_reference = heading["kind"] == "references" and bool(reference_block_text(block).strip())
+                if is_reference:
+                    reference_number += 1
+                text = reference_block_text(block, reference_number_for(block, reference_number) if is_reference else None)
+                if block.inline_runs and "".join(run.text for run in block.inline_runs) != block.text:
+                    raise ProfileError("行内格式与段落文字不一致，无法保留原文")
+                try:
+                    inline_runs = reference_inline_runs(block, reference_number_for(block, reference_number)) if is_reference and block.inline_runs else block.inline_runs
+                except ReferenceInlineMappingError as exc:
+                    raise ProfileError(str(exc)) from exc
+                if inline_runs:
                     p = OxmlElement("w:p")
-                    for inline in block.inline_runs:
+                    for inline in inline_runs:
                         fragment = text_paragraph(inline.text, props)
                         for run in fragment.findall(qn("w:r")):
                             p.append(run)
-                            for flag, tag in (("bold", "b"), ("italic", "i"), ("underline", "u")):
-                                if getattr(inline, flag, False):
-                                    child(run.find(qn("w:rPr")), "w:"+tag, val="single" if tag=="u" else "1")
-                            apply_run_vertical_alignment(run, inline.vert_align or block.vert_align)
+                            apply_content_decoration(run, block, inline)
                     # Paragraph properties apply before the explicit inline emphasis.
                     ppr = text_paragraph("", props).find(qn("w:pPr")); p.insert(0,ppr)
                 else:
-                    p = text_paragraph(block.text, props)
+                    p = text_paragraph(text, props)
                     for run in p.findall(qn("w:r")):
-                        for flag, tag in (("bold", "b"), ("italic", "i"), ("underline", "u")):
-                            if getattr(block, flag, False):
-                                child(run.find(qn("w:rPr")), "w:"+tag, val="single" if tag=="u" else "1")
-                        apply_run_vertical_alignment(run, block.vert_align)
+                        apply_content_decoration(run, block)
+                if heading["kind"] in BODY_KINDS and profile.get("digit_font_rule"):
+                    apply_digit_font(p, profile["digit_font_rule"]["font"])
                 nodes = [p]
             elif block.type == BlockType.IMAGE and block.image:
+                figure += 1
                 path = resolve_document_image_path(project.id, block.image.url)
                 if path is None:
                     raise ProfileError("图片不属于当前项目或文件不存在")
@@ -455,22 +597,31 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                 scale = min(1, width/image_w, height/image_h)
                 shape.width, shape.height = Cm(image_w*scale), Cm(image_h*scale)
                 p = paragraph._p
-                apply_properties(p, {**props, "paragraph.align": block.image.alignment or "center", "paragraph.indent.first_line": {"value":0,"unit":"character"}})
+                image_props = {k: v for k, v in props.items() if k != "paragraph.indent.hanging"}
+                apply_properties(p, {**image_props, "paragraph.spacing.line": image_line_spacing(props),
+                                     "paragraph.align": profile.get("image_alignment", "center"),
+                                     "paragraph.indent.first_line": {"value":0,"unit":"character"},
+                                     "paragraph.indent.left": {"value":0,"unit":"pt"},
+                                     "paragraph.indent.right": {"value":0,"unit":"pt"}, "paragraph.keep_next": True})
                 nodes.append(copy.deepcopy(p))
-                if block.image.caption:
-                    figure += 1
-                    caption = re.sub(r"^图\s*\d+(?:[.\-]\d+)*\s*", "", block.image.caption)
-                    nodes.append(text_paragraph(f"图 {chapter}.{figure} {caption}", {**profile["object_properties"]["figure_caption"],"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"}}))
+                caption = re.sub(r"^图\s*\d+(?:[.\-]\d+)*\s*", "", block.image.caption).strip()
+                nodes.append(text_paragraph(f"图 {chapter}.{figure} {caption}".rstrip(), {**{k:v for k,v in profile["object_properties"]["figure_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_lines":True}))
             elif block.type == BlockType.TABLE and block.table:
+                table_number += 1
                 data = block.table
                 if data.rows < 1 or data.cols < 1 or len(data.cells) != data.rows or any(len(row) != data.cols for row in data.cells):
                     raise ProfileError("表格行列与单元格数据不一致")
-                if data.caption:
-                    table_number += 1
-                    caption = re.sub(r"^表\s*\d+(?:[.\-]\d+)*\s*", "", data.caption)
-                    nodes.append(text_paragraph(f"表 {chapter}.{table_number} {caption}", {**profile["object_properties"]["table_caption"],"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"}}))
+                caption = re.sub(r"^表\s*\d+(?:[.\-]\d+)*\s*", "", data.caption).strip()
+                nodes.append(text_paragraph(f"表 {chapter}.{table_number} {caption}".rstrip(), {**{k:v for k,v in profile["object_properties"]["table_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_next":True,"paragraph.keep_lines":True}))
                 table = scratch.add_table(rows=data.rows, cols=data.cols)
                 table.autofit = False
+                child(table._tbl.tblPr, "w:jc", val="center")
+                from app.services.table_borders import EDGES, default_table_borders
+                edges = profile.get("table_borders") or (data.borders.model_dump() if data.borders else None) or default_table_borders()
+                borders = child(table._tbl.tblPr, "w:tblBorders")
+                for edge in EDGES:
+                    rule = edges[edge]
+                    child(borders, "w:" + edge, val=rule["style"], color=rule["color"], sz=rule["size"], space=rule["space"])
                 total = round(width*567)
                 child(table._tbl.tblPr, "w:tblW", w=total, type="dxa")
                 for c, column in enumerate(table.columns):
@@ -500,6 +651,8 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
             tagged = control("pg-block:"+block.id, nodes)
             region.append(tagged)
             blocks.extend(nodes)
+    add_block_bookmarks(root, project, profile)
+    make_generated_content_visible(root)
     # The scratch document only supplies new images; existing source relationships remain untouched.
     buffer = io.BytesIO(); scratch.save(buffer)
     rels = etree.fromstring(parts["word/_rels/document.xml.rels"])
@@ -533,6 +686,16 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
     for node in blocks:
         for docpr in node.iter("{"+WP+"}docPr"):
             maximum += 1; docpr.set("id",str(maximum))
+    policy = profile.get("body_page_number_policy")
+    if policy:
+        from app.services.page_number_policy import CONTENT_TYPE, PART, REL_ID, REL_TYPE, footer_bytes
+        footer = footer_bytes(policy["settings"])
+        if (policy["part"] != PART or policy["relationship_id"] != REL_ID
+                or hashlib.sha256(footer).hexdigest() != policy["footer_sha256"]):
+            raise ProfileError("正文页码配置与已确认规则不一致")
+        parts[PART] = footer
+        etree.SubElement(rels, "{"+REL+"}Relationship", Id=REL_ID, Type=REL_TYPE, Target=PART.removeprefix("word/"))
+        etree.SubElement(content_types, "{"+CT+"}Override", PartName="/"+PART, ContentType=CONTENT_TYPE)
     parts["word/document.xml"] = xml_bytes(root)
     parts["word/_rels/document.xml.rels"] = xml_bytes(rels)
     parts["[Content_Types].xml"] = xml_bytes(content_types)

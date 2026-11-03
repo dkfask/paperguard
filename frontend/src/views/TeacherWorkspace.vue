@@ -25,7 +25,7 @@
 import ScreenCollection from '../components/ScreenCollection.vue'
 import ScreenDeck from '../components/ScreenDeck.vue'
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { auth } from '../auth'
 import { fetchMyTasks, fetchProcessRecordInbox, fetchWorkflowNotifications, markWorkflowNotificationRead } from '../api'
 import AsyncState from '../components/AsyncState.vue'
@@ -36,6 +36,7 @@ import TaskCard from '../components/TaskCard.vue'
 import { useI18n } from '../i18n'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const loading = ref(true)
 const error = ref('')
@@ -55,8 +56,19 @@ async function load() {
 }
 
 async function readNotification(item) {
-  if (item.read_at) return
-  try { await markWorkflowNotificationRead(item.id); notifications.value = await fetchWorkflowNotifications() } catch (exception) { error.value = exception.message }
+  error.value = ''
+  const markRead = item.read_at ? Promise.resolve('') : Promise.resolve()
+    .then(() => markWorkflowNotificationRead(item.id))
+    .then(() => fetchWorkflowNotifications())
+    .then((result) => { notifications.value = result; return '' })
+    .catch((exception) => exception.message)
+  if (item.resource_type === 'submission') {
+    try { await router.push({ path: '/workflow', query: { panel: 'review', submission: item.resource_id } }) } catch (exception) { error.value = exception.message }
+  } else if (item.resource_type === 'archive') {
+    try { await router.push({ path: '/workflow', query: { panel: 'archives' } }) } catch (exception) { error.value = exception.message }
+  }
+  const notificationError = await markRead
+  if (notificationError && !error.value) error.value = notificationError
 }
 
 onMounted(load)

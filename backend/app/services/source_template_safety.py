@@ -16,7 +16,7 @@ from app.services.source_template_profile import ProfileError
 
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 HYPERLINK = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
-_DANGEROUS_PART_PREFIXES = ("word/vbaProject", "word/activeX/", "word/embeddings/")
+_DANGEROUS_PART_PREFIXES = ("word/vbaproject", "word/activex/", "word/embeddings/")
 _DANGEROUS_FIELDS = {
     "dde", "ddeauto", "includetext", "includepicture", "link", "database",
     "macrobutton", "autotext", "autotextlist", "gotobutton", "rd", "ask",
@@ -56,8 +56,7 @@ def _field_instructions(root) -> list[str]:
     return values
 
 
-def audit_source_package(source: bytes) -> None:
-    """Reject executable/active content and dangerous field instructions."""
+def _audit_package(source: bytes, *, allow_generated_bindings: bool) -> None:
     if len(source) > 80 * 1024 * 1024:
         raise ProfileError("Word 母版超过 80 MB 安全上限")
     try:
@@ -93,11 +92,26 @@ def audit_source_package(source: bytes) -> None:
             for rel in root:
                 if rel.get("TargetMode") == "External" and rel.get("Type") != HYPERLINK:
                     raise ProfileError("母版包含非超链接外部关系，无法安全排版")
-    # A pre-existing PaperGuard tag/receipt would make bindings ambiguous.
-    for name in names:
-        if name.startswith("word/") and name.endswith(".xml"):
-            root = _xml(archive.read(name), name)
-            if root.xpath(".//w:tag[starts-with(@w:val, 'pg-')]", namespaces=NS):
-                raise ProfileError("母版已包含保留的 PaperGuard 填充标记，请先使用原始母版")
-    if "customXml/paperguard-layout.json" in names:
-        raise ProfileError("母版已包含排版证据，不能重复作为新母版")
+    if not allow_generated_bindings:
+        # A pre-existing PaperGuard tag/receipt would make source bindings ambiguous.
+        for name in names:
+            if name.startswith("word/") and name.endswith(".xml"):
+                root = _xml(archive.read(name), name)
+                if root.xpath(".//w:tag[starts-with(@w:val, 'pg-')]", namespaces=NS):
+                    raise ProfileError("母版已包含保留的 PaperGuard 填充标记，请先使用原始母版")
+        if "customXml/paperguard-layout.json" in names:
+            raise ProfileError("母版已包含排版证据，不能重复作为新母版")
+
+
+def audit_source_package(source: bytes) -> None:
+    """Reject active content and reserved bindings in an uploaded master."""
+    _audit_package(source, allow_generated_bindings=False)
+
+
+def audit_generated_package(source: bytes) -> None:
+    """Apply the same active-content checks to a generated document.
+
+    Generated bindings are permitted here, but do not establish document
+    authenticity or grant delivery eligibility.
+    """
+    _audit_package(source, allow_generated_bindings=True)

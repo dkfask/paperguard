@@ -1,5 +1,7 @@
 from app.models.project import ParagraphBlock, ProjectSection, TableBlock, WritingProject
-from app.models.template import SectionType, TemplateSection
+import pytest
+
+from app.models.template import MetaField, SectionType, TemplateSection
 from app.models.writing_specification import SpecificationEvidence, WritingRule, WritingSpecification
 from app.services.requirement_check import check_requirements
 from app.services.template_content_rules import (
@@ -105,3 +107,23 @@ def test_keyword_entry_count_compiles_only_for_explicit_item_unit():
     )
     assert result["requirements"][0]["checker"] == "keywords.count"
     assert result["requirements"][0]["params"] == {"min": 3, "count_mode": "entries"}
+
+
+def test_reference_quality_rule_requires_a_confirmed_cover_field_and_remains_soft():
+    specification = _specification("参考文献总体样本：（至少15篇近3年，其中5篇是英文）", region_title="参考文献")
+    sections = [TemplateSection(key="references", type=SectionType.REFERENCES, title="参考文献")]
+    args = {"template_id": "tpl-1", "template_name": "学校模板", "template_version": "1",
+            "meta_fields": [MetaField(key="date", label="日期")]}
+    preview = compile_confirmed_content_requirements(specification, sections, [], **args)
+    candidate = preview["review"]["candidates"][0]
+    assert candidate["requires_defense_date_field"] is True
+    assert candidate["checker"] == "references.recent_language_summary"
+    with pytest.raises(ValueError, match="答辩日期"):
+        compile_confirmed_content_requirements(specification, sections, ["rule-1"], **args)
+    with pytest.raises(ValueError, match="答辩日期"):
+        compile_confirmed_content_requirements(specification, sections, ["rule-1"], defense_date_field_key="unknown", **args)
+    result = compile_confirmed_content_requirements(specification, sections, ["rule-1"], defense_date_field_key="date", **args)
+    item = result["requirements"][0]
+    assert item["params"] == {"defense_date_field_key": "date"}
+    assert item["enforce"] == "soft" and item["severity"] == "info"
+    assert item["provenance"]["source_text"] == specification.rules[0].expected

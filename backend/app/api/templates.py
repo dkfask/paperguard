@@ -190,7 +190,9 @@ def propose_writing_profile(tpl_id: str, request: ConfirmWritingProfile,
         proposed.version = template.version.split("+word.")[0]+"+word."+new_id("version").rsplit("-",1)[-1]
         reviewed = request.model_copy(update={"accept_recommended":True,"accept_new_object_defaults":True,"remove_template_instructions":True})
         proposed = compile_profile(proposed,path,reviewed,actor=manager["id"])
-        trials = trial_profile(proposed,path)
+        pending_digits = bool(proposed.source_execution.get("digit_font_review", {}).get("candidates")
+                              and not proposed.source_execution.get("digit_font_rule"))
+        trials = None if pending_digits else trial_profile(proposed,path)
     except ProfileError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     proposal_id = new_id("writingprofile")
@@ -215,6 +217,14 @@ def publish_writing_profile(tpl_id: str, request: ConfirmWritingProfile,
         raise HTTPException(status_code=404,detail="模板不存在")
     if sorted(request.confirmed_content_rule_ids) != sorted(published.source_execution.get("confirmed_content_rule_ids") or []):
         raise HTTPException(status_code=409,detail="内容规则确认项与预览不同，请重新预览")
+    if sorted(request.confirmed_digit_font_rule_ids) != sorted(published.source_execution.get("confirmed_digit_font_rule_ids") or []):
+        raise HTTPException(status_code=409,detail="数字字体确认项与预览不同，请重新预览")
+    if {key: value.model_dump(mode="json") for key, value in request.inline_label_overrides.items()} != published.source_execution.get("inline_label_overrides", {}):
+        raise HTTPException(status_code=409,detail="关键词标签与预览不同，请重新预览")
+    if (request.body_page_number.model_dump(mode="json") if request.body_page_number else None) != published.source_execution.get("body_page_number"):
+        raise HTTPException(status_code=409,detail="正文页码设置与预览不同，请重新预览")
+    if request.defense_date_field_key != str(published.source_execution.get("defense_date_field_key") or ""):
+        raise HTTPException(status_code=409,detail="答辩日期字段与预览不同，请重新预览")
     if request.preserve_manuscript_structure != bool(published.source_execution.get("preserve_manuscript_structure")):
         raise HTTPException(status_code=409, detail="章节结构方式与预览不同，请重新预览")
     if current.source_execution.get("profile_sha256") == published.source_execution["profile_sha256"]:
@@ -446,7 +456,11 @@ def prepare_candidate_writing_profile(payload: CandidateWritingProfileRequest,
         request = request.model_copy(update={"accept_recommended":True,"accept_new_object_defaults":True,"remove_template_instructions":True})
     try:
         paper = compile_profile(paper_from_definition(bound.template_id,bound.version,bound.definition),path,request,actor=manager["id"])
-        trials = trial_profile(paper,path)
+        pending_digits = bool(paper.source_execution.get("digit_font_review", {}).get("candidates")
+                              and not paper.source_execution.get("digit_font_rule"))
+        if pending_digits and not payload.preview_only:
+            raise ProfileError("请确认模板中的数字字体规则并重新预览")
+        trials = None if pending_digits else trial_profile(paper,path)
     except ProfileError as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
     from app.domain.documents.schemas import StyleDefinition

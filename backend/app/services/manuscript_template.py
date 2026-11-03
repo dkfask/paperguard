@@ -141,9 +141,12 @@ def derive_manuscript_template(template, source_path, imported, *, actor):
         candidate.writing_specification = specification
         request = ConfirmWritingProfile(expected_specification_sha256=specification.specification_sha256,
             accept_recommended=True, accept_new_object_defaults=True, remove_template_instructions=True,
-            remove_unmatched_toc_entries=True, preserve_manuscript_structure=True)
+            remove_unmatched_toc_entries=True, preserve_manuscript_structure=True,
+            body_page_number=parent.get("body_page_number"))
         candidate = compile_profile(candidate, path, request, actor=actor)
     profile = candidate.source_execution
+    inherited_labels = {}
+    inherited_label_sources = set()
     for heading in profile["headings"]:
         if heading["kind"] in {"heading1", "heading2", "heading3"}:
             style_source = palette[int(heading["kind"][-1])]
@@ -152,10 +155,21 @@ def derive_manuscript_template(template, source_path, imported, *, actor):
         if style_source:
             for key in ("properties", "title_properties", "title_overridden"):
                 heading[key] = copy.deepcopy(style_source[key])
+            if heading.get("inline"):
+                for key in ("display_label", "separator", "separator_properties"):
+                    if key in style_source:
+                        heading[key] = copy.deepcopy(style_source[key])
+                prior_label = (parent.get("inline_label_overrides") or {}).get(style_source["key"])
+                if prior_label:
+                    inherited_labels[heading["key"]] = copy.deepcopy(prior_label)
+                    inherited_label_sources.add(style_source["key"])
+    if set(parent.get("inline_label_overrides") or {}) != inherited_label_sources:
+        raise ProfileError("已确认的关键词标签无法映射到导入论文模板，请重新确认")
+    profile["inline_label_overrides"] = inherited_labels
     for field in profile["fields"]:
         prior = next((f for f in parent["fields"] if f["key"] == field["key"]), None)
         if prior: field["properties"] = copy.deepcopy(prior["properties"])
-    for key in ("object_properties", "new_object_policy", "body_properties"):
+    for key in ("object_properties", "new_object_policy", "body_properties", "table_borders", "image_alignment"):
         profile[key] = copy.deepcopy(parent[key])
     if profile.get("toc_active"):
         # All imported headings are mandatory directory targets. Matching only
@@ -180,6 +194,8 @@ def derive_manuscript_template(template, source_path, imported, *, actor):
     for heading in profile["headings"]:
         sections_by_key[heading["key"]].style = as_text_style(heading["properties"], candidate.styles.get("body"))
     profile["template_basis_sha256"] = digest(execution_basis(candidate))
+    for key in ("digit_font_review", "digit_font_rule", "confirmed_digit_font_rule_ids"):
+        profile[key] = copy.deepcopy(parent.get(key))
     profile["protected_document_sha256"] = freeze_protected_structure(root, profile)
     # Keep the teacher's original content requirements and their original
     # provenance. Changed chapter numbers must not redirect a hard rule.

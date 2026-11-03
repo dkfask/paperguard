@@ -1,8 +1,9 @@
 <template>
   <div>
     <div v-if="uploadError" class="error-banner" role="alert">⚠ {{ uploadError }}</div>
+    <div v-if="pasteError" class="error-banner" role="alert">⚠ {{ pasteError }}</div>
     <input ref="imgInput" type="file" accept=".png,.jpg,.jpeg,.gif,image/png,image/jpeg,image/gif" hidden @change="onImagePicked" />
-    <div v-for="(par, i) in paragraphs" :key="par.id" class="para-block">
+    <div v-for="(par, i) in paragraphs" :key="par.id" class="para-block" :data-review-block-id="par.id">
       <div class="para-toolbar">
         <span class="para-no">{{ t('blockList.block', { number: i + 1 }) }}</span>
 
@@ -29,15 +30,16 @@
 
       <!-- 文本段落 -->
       <textarea v-if="!['image', 'table', 'equation'].includes(par.type)"
-                v-model="par.text" rows="4" class="para-text" :class="styleClass"
+                :value="par.text" rows="4" class="para-text" :class="styleClass"
                 :style="styleVars"
-                :placeholder="t('blockList.paragraphPlaceholder', { number: i + 1 })" @input="emitChange" @paste="onTextPaste($event, i)" />
+                :placeholder="t('blockList.paragraphPlaceholder', { number: i + 1 })" @input="onParagraphInput(par, $event)" @paste="onTextPaste($event, i)" />
 
       <!-- 图片块 -->
-      <div v-else-if="par.type === 'image'" class="image-block">
+      <div v-else-if="par.type === 'image'" class="image-block" tabindex="0" @paste="onImagePaste($event, par)">
         <div v-if="par.image && par.image.url" class="image-preview">
           <img :src="imageSrc(par.image.url)" :alt="t('blockList.image')" />
           <button class="tiny" :disabled="uploading" @click="replaceImage(par)">🔄 {{ uploading ? t('blockList.uploading') : t('blockList.replaceImage') }}</button>
+          <span class="hint-sm">{{ t('blockList.pasteToReplaceImage') }}</span>
         </div>
         <div v-else class="image-upload" :class="{ disabled: uploading }" @click="uploadFor(par)">
           <div class="icon">🖼</div>
@@ -60,7 +62,8 @@
         <table class="cell-grid">
           <tr v-for="(row, r) in par.table.cells" :key="r">
             <td v-for="(cell, c) in row" :key="c">
-              <input v-model="par.table.cells[r][c]" placeholder="" @input="emitChange" />
+              <input v-model="par.table.cells[r][c]" placeholder="" @input="emitChange"
+                     @paste="onTablePaste($event, par, r, c)" />
             </td>
           </tr>
         </table>
@@ -91,6 +94,9 @@
 import { ref, reactive, onBeforeUnmount } from 'vue'
 import { getPrivateImageUrl, uploadProjectImage } from '../api'
 import { useI18n } from '../i18n'
+import { newParagraphId } from '../utils/sectionDocument'
+import { reconcileInlineRuns } from '../utils/inlineRuns'
+import { appendClipboardRun, parseClipboardContent, sliceParagraphRuns } from '../utils/clipboardContent'
 
 const { t } = useI18n()
 
@@ -101,6 +107,8 @@ const props = defineProps({
   styleVars: { type: Object, default: () => ({}) },
   sectionTitle: { type: String, default: '' },
   chapter: { type: Number, default: 0 },   // 所属章号(题注自动编号用)
+  figureOffset: { type: Number, default: 0 },
+  tableOffset: { type: Number, default: 0 },
   aiEnabled: { type: Boolean, default: false },
   aiBusy: { type: Object, default: null }, // { index, action } 当前 AI 处理中的块
 })
@@ -109,8 +117,10 @@ const emit = defineEmits(['change', 'ai'])
 const imgInput = ref(null)
 const imageUrls = reactive(new Map())
 const uploadError = ref('')
+const pasteError = ref('')
 const uploading = ref(false)
 let pendingTarget = null
+let disposed = false
 
 function imageSrc(path) {
   if (!path || !path.startsWith('/media/')) return path
@@ -125,7 +135,7 @@ function imageSrc(path) {
 
 /** 该块在本章中的图序号(第几个图) */
 function figureIndex(i) {
-  let n = 0
+  let n = props.figureOffset
   for (let k = 0; k <= i; k++) {
     if (props.paragraphs[k]?.type === 'image') n += 1
   }
@@ -134,7 +144,7 @@ function figureIndex(i) {
 
 /** 该块在本章中的表序号 */
 function tableIndex(i) {
-  let n = 0
+  let n = props.tableOffset
   for (let k = 0; k <= i; k++) {
     if (props.paragraphs[k]?.type === 'table') n += 1
   }
@@ -142,6 +152,20 @@ function tableIndex(i) {
 }
 
 function emitChange() { emit('change') }
+
+function onParagraphInput(paragraph, event) {
+  const nextText = event.target.value
+  try {
+    const runs = reconcileInlineRuns(paragraph.inline_runs, paragraph.text || '', nextText)
+    if (paragraph.inline_runs?.length) paragraph.inline_runs = runs
+    paragraph.text = nextText
+    pasteError.value = ''
+    emitChange()
+  } catch {
+    event.target.value = paragraph.text || ''
+    pasteError.value = t('blockList.inlineFormatInvalid')
+  }
+}
 
 function toggle(par, field) { par[field] = !par[field]; emit('change') }
 
@@ -157,7 +181,7 @@ function remove(i) { props.paragraphs.splice(i, 1); emit('change') }
 
 function addParagraph() {
   props.paragraphs.push({
-    id: `p${Date.now()}`, type: 'paragraph', text: '',
+    id: newParagraphId(), type: 'paragraph', text: '',
     bold: false, italic: false, underline: false,
   })
   emit('change')
@@ -169,15 +193,7 @@ function addImage() {
 }
 
 function addTable() {
-  const rows = 3, cols = 3
-  props.paragraphs.push({
-    id: `tbl${Date.now()}`, type: 'table',
-    table: {
-      rows, cols,
-      cells: Array.from({ length: rows }, () => Array(cols).fill('')),
-      caption: '',
-    },
-  })
+  props.paragraphs.push(tableBlock())
   emit('change')
 }
 
@@ -237,28 +253,212 @@ function imageBlock() {
 }
 
 async function onTextPaste(e, index) {
-  const items = Array.from(e.clipboardData?.items || [])
-  const files = items
-    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
-    .map((item) => item.getAsFile())
-    .filter(Boolean)
-  if (!files.length) return
-
+  let content
+  try {
+    content = parseClipboardContent(e.clipboardData)
+  } catch {
+    e.preventDefault()
+    pasteError.value = t('blockList.pasteUnsupported')
+    return
+  }
+  if (content.native) return
   e.preventDefault()
-  const blocks = files.map(() => imageBlock())
-  props.paragraphs.splice(index + 1, 0, ...blocks)
-  emitChange()
-  for (let i = 0; i < files.length; i += 1) {
-    const uploaded = await uploadImage(files[i], blocks[i])
-    if (!uploaded) {
-      const blockIndex = props.paragraphs.indexOf(blocks[i])
-      if (blockIndex !== -1) props.paragraphs.splice(blockIndex, 1)
-      emitChange()
+  pasteError.value = ''
+  if (uploading.value) {
+    pasteError.value = t('blockList.pasteBusy')
+    return
+  }
+  if (content.items.some(item => item.type === 'table' && !tableMatrixFits(item.matrix))) {
+    pasteError.value = t('blockList.tablePasteLimit', { rows: 50, columns: 20 })
+    return
+  }
+  const original = props.paragraphs[index]
+  if (!original) return
+  const snapshot = JSON.stringify(original)
+  let blocks
+  try {
+    blocks = pastedBlocks(original, content.items, e.target.selectionStart, e.target.selectionEnd)
+  } catch {
+    pasteError.value = t('blockList.inlineFormatInvalid')
+    return
+  }
+  const pending = blocks.filter(block => block.pendingFile)
+  if (pending.length) {
+    uploadError.value = ''
+    uploading.value = true
+    try {
+      for (const block of pending) {
+        const { url } = await uploadProjectImage(props.projectId, block.pendingFile)
+        block.image.url = url
+        delete block.pendingFile
+      }
+    } catch (err) {
+      uploadError.value = t('blockList.imageUploadFailed', { message: err.message })
+      return
+    } finally {
+      uploading.value = false
     }
+  }
+  if (disposed) return
+  const currentIndex = props.paragraphs.indexOf(original)
+  if (currentIndex === -1 || JSON.stringify(original) !== snapshot) {
+    pasteError.value = t('blockList.pasteChanged')
+    return
+  }
+  props.paragraphs.splice(currentIndex, 1, ...blocks)
+  emitChange()
+}
+
+function onTablePaste(e, target, row, column) {
+  let content
+  try {
+    content = parseClipboardContent(e.clipboardData)
+  } catch {
+    e.preventDefault()
+    pasteError.value = t('blockList.pasteUnsupported')
+    return
+  }
+  if (content.native || !target?.table) return
+  const [item] = content.items
+  if (content.items.length === 1 && item.type === 'paragraph'
+      && item.runs.every(run => !run.bold && !run.italic && !run.underline && !run.highlight && !run.vert_align && !run.text.includes('\n'))) return
+  e.preventDefault()
+  pasteError.value = ''
+  if (content.items.length !== 1 || item.type !== 'table') {
+    pasteError.value = t('blockList.pasteUnsupported')
+    return
+  }
+  const matrix = item.matrix
+  if (!tableMatrixFits(matrix, row, column)) {
+    pasteError.value = t('blockList.tablePasteLimit', { rows: 50, columns: 20 })
+    return
+  }
+  writeTableMatrix(target.table, matrix, row, column)
+  emitChange()
+}
+
+function pastedBlocks(original, items, start, end) {
+  const text = String(original.text || '')
+  const from = Math.max(0, Math.min(text.length, Number.isInteger(start) ? start : text.length))
+  const to = Math.max(from, Math.min(text.length, Number.isInteger(end) ? end : from))
+  const prefix = sliceParagraphRuns(original, 0, from)
+  const suffix = sliceParagraphRuns(original, to, text.length)
+  const pieces = items.map(item => {
+    if (item.type === 'paragraph') return { type: 'paragraph', runs: item.runs.map(run => ({ ...run })) }
+    if (item.type === 'table') return tableBlock(item.matrix)
+    return { ...imageBlock(), pendingFile: item.file }
+  })
+  if (prefix.length) {
+    if (pieces[0]?.type === 'paragraph') pieces[0].runs.unshift(...prefix)
+    else pieces.unshift({ type: 'paragraph', runs: prefix })
+  }
+  if (suffix.length) {
+    if (pieces.at(-1)?.type === 'paragraph') pieces.at(-1).runs.push(...suffix)
+    else pieces.push({ type: 'paragraph', runs: suffix })
+  }
+  if (!pieces.some(piece => piece.type === 'paragraph')) pieces.unshift({ type: 'paragraph', runs: [] })
+  let usedOriginal = false
+  return pieces.map(piece => {
+    if (piece.type !== 'paragraph') return piece
+    const runs = []
+    piece.runs.forEach(run => appendClipboardRun(runs, run))
+    if (runs.length > 500) throw new Error('too-many-runs')
+    const retained = !usedOriginal
+    usedOriginal = true
+    const hasFormat = runs.some(run => run.bold || run.italic || run.underline || run.highlight || run.vert_align)
+    return { ...(retained ? original : {}), id: retained ? original.id : newParagraphId(), type: 'paragraph',
+      text: runs.map(run => run.text).join(''), bold: false, italic: false, underline: false,
+      highlight: null, vert_align: null, inline_runs: hasFormat ? runs : [] }
+  })
+}
+
+function tableMatrixFits(matrix, startRow = 0, startColumn = 0) {
+  return startRow + matrix.length <= 50
+    && startColumn + Math.max(...matrix.map((line) => line.length), 1) <= 20
+}
+
+function tableBlock(matrix = null) {
+  const rows = matrix ? Math.min(50, matrix.length) : 3
+  const cols = matrix ? Math.min(20, Math.max(...matrix.map((line) => line.length), 1)) : 3
+  return {
+    id: `tbl${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    type: 'table',
+    table: {
+      rows,
+      cols,
+      cells: matrix
+        ? matrix.slice(0, rows).map((line) => Array.from({ length: cols }, (_, index) => line[index] ?? ''))
+        : Array.from({ length: rows }, () => Array(cols).fill('')),
+      caption: '',
+    },
   }
 }
 
+function writeTableMatrix(table, matrix, startRow = 0, startColumn = 0) {
+  const maxRows = Math.max(table.rows || 0, startRow + matrix.length)
+  const maxCols = Math.max(table.cols || 0, startColumn + Math.max(...matrix.map((line) => line.length), 1))
+  table.rows = maxRows
+  table.cols = maxCols
+  table.cells = Array.from({ length: maxRows }, (_, row) =>
+    Array.from({ length: maxCols }, (_, column) => table.cells?.[row]?.[column] ?? ''),
+  )
+  matrix.slice(0, maxRows - startRow).forEach((line, rowOffset) => {
+    line.slice(0, maxCols - startColumn).forEach((value, columnOffset) => {
+      table.cells[startRow + rowOffset][startColumn + columnOffset] = value
+    })
+  })
+}
+
+async function onImagePaste(e, target) {
+  let content
+  try {
+    content = parseClipboardContent(e.clipboardData)
+  } catch {
+    e.preventDefault()
+    pasteError.value = t('blockList.pasteUnsupported')
+    return
+  }
+  if (content.native || !target) return
+  e.preventDefault()
+  if (!content.items.length || content.items.some(item => item.type !== 'image')) {
+    pasteError.value = t('blockList.pasteUnsupported')
+    return
+  }
+  if (uploading.value) {
+    pasteError.value = t('blockList.pasteBusy')
+    return
+  }
+  const files = content.items.map(item => item.file)
+  pasteError.value = ''
+  uploadError.value = ''
+  const snapshot = JSON.stringify(target)
+  const urls = []
+  uploading.value = true
+  try {
+    for (const file of files) {
+      const { url } = await uploadProjectImage(props.projectId, file)
+      urls.push(url)
+    }
+  } catch (err) {
+    uploadError.value = t('blockList.imageUploadFailed', { message: err.message })
+    return
+  } finally {
+    uploading.value = false
+  }
+  if (disposed) return
+  const targetIndex = props.paragraphs.indexOf(target)
+  if (targetIndex === -1 || JSON.stringify(target) !== snapshot) {
+    pasteError.value = t('blockList.pasteChanged')
+    return
+  }
+  target.image.url = urls[0]
+  const blocks = urls.slice(1).map(url => ({ ...imageBlock(), image: { url, caption: '' } }))
+  props.paragraphs.splice(targetIndex + 1, 0, ...blocks)
+  emitChange()
+}
+
 onBeforeUnmount(() => {
+  disposed = true
   for (const url of imageUrls.values()) {
     if (url) URL.revokeObjectURL(url)
   }

@@ -65,6 +65,23 @@ describe('DocumentProjectEditor', () => {
     expect(api.renderDocumentProject).toHaveBeenCalledWith('project-1')
   })
 
+  it('keeps the generic project editable without a delivery action during M1', async () => {
+    const editor = await api.getDocumentProjectEditor()
+    editor.capabilities = { formal_delivery_enabled: false }
+    api.getDocumentProjectEditor.mockResolvedValue(editor)
+    const wrapper = mount(DocumentProjectEditor, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.export-action').exists()).toBe(false)
+    expect(wrapper.find('[data-test="document-manual-review"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="document-field-summary"]').exists()).toBe(true)
+    expect(api.fetchDocumentRenderJobs).not.toHaveBeenCalled()
+    expect(api.renderDocumentProject).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('keeps review candidates separate until download and every item is confirmed', async () => {
     const review = { status: 'required', output_sha256: 'sha-a', checklist: [{ id: 'page', description: '核对分页' }, { id: 'toc', description: '核对目录' }] }
     api.renderDocumentProject.mockRejectedValue(Object.assign(new Error('需要核查'), { manualReview: review }))

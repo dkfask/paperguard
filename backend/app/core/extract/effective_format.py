@@ -148,7 +148,7 @@ class EffectiveFormatResolver:
             target["font.underline"] = underline.get(qn("w:val"), "single")
             sources["font.underline"] = [origin]
 
-    def paragraph(self, paragraph: etree._Element) -> tuple[dict, dict, list[dict], str]:
+    def paragraph(self, paragraph: etree._Element, *, include_whitespace: bool = False) -> tuple[dict, dict, list[dict], str]:
         ppr = paragraph.find(qn("w:pPr"))
         sid = ppr.find(qn("w:pStyle")) if ppr is not None else None
         style_id = sid.get(qn("w:val"), "") if sid is not None else self.default_style
@@ -192,8 +192,14 @@ class EffectiveFormatResolver:
             # Nested text-box paragraphs are visited independently, not as outer paragraph text.
             if run.xpath("ancestor::w:p[1]", namespaces=NS)[0] is not paragraph:
                 continue
-            text = "".join(run.itertext(qn("w:t")))
-            if not text.strip():
+            if include_whitespace:
+                text = "".join(
+                    (node.text or "") if node.tag == qn("w:t") else "\t" if node.tag == qn("w:tab") else "\n"
+                    for node in run.iter() if node.tag in {qn("w:t"), qn("w:tab"), qn("w:br"), qn("w:cr")}
+                )
+            else:
+                text = "".join(run.itertext(qn("w:t")))
+            if not text or (not include_whitespace and not text.strip()):
                 continue
             values = dict(rvalues)
             origins = {k: list(v) for k, v in rsources.items()}
@@ -203,7 +209,7 @@ class EffectiveFormatResolver:
                 for style in self.chain(rstyle.get(qn("w:val"), "")):
                     self._run(values, origins, style.find(qn("w:rPr")), style=True)
             self._run(values, origins, rpr)
-            runs.append({"path": location(run), "text": text[:160], "character_count": len(text),
+            runs.append({"path": location(run), "text": text if include_whitespace else text[:160], "character_count": len(text),
                          "script_character_counts": {"eastAsia": sum('\u3400' <= c <= '\u9fff' for c in text),
                                                      "latin": sum(c.isascii() and c.isalnum() for c in text)},
                          "properties": values, "property_sources": origins})

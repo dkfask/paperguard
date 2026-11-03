@@ -96,3 +96,52 @@ def test_student_force_flag_cannot_skip_template_gates():
         response = client.post(f"/api/projects/{project_id}/{route}?force=true")
         assert response.status_code == 409
         assert response.json()["detail"]["missing"]
+
+
+def _heading(key, level, title=None):
+    return ProjectSection(key=key, type=level, title=title if title is not None else key,
+                          required=False, paragraphs=[ParagraphBlock(id=f'{key}-p', text='正文')])
+
+
+def test_heading_hierarchy_finds_each_missing_parent_without_changing_draft():
+    project = WritingProject(id='hierarchy-paper', template_id='chapter-template', sections=[
+        _heading('orphan-h2', 'heading2'),
+        _heading('orphan-h3', 'heading3'),
+        _heading('chapter', 'heading1'),
+        _heading('jump-a', 'heading3'),
+        _heading('jump-b', 'heading3'),
+        _heading('valid-h2', 'heading2'),
+        _heading('valid-h3', 'heading3'),
+    ])
+    before = project.model_dump(mode='json')
+    issues = validate_project_completeness(project, PaperTemplate(id='chapter-template', name='章节模板'))
+    assert len(issues) == 4
+    assert all(any(key in issue for issue in issues) for key in ('orphan-h2', 'orphan-h3', 'jump-a', 'jump-b'))
+    assert project.model_dump(mode='json') == before
+    project.sections[3].type = 'heading2'
+    project.sections[0].type = 'heading1'
+    project.sections[1].type = 'heading2'
+    assert validate_project_completeness(project, PaperTemplate(id='chapter-template', name='章节模板')) == []
+
+
+def test_heading_hierarchy_handles_special_sections_and_blank_parents():
+    project = WritingProject(id='special-paper', template_id='chapter-template', sections=[
+        _heading('abstract', 'abstract'),
+        _heading('chapter', 'heading1'),
+        _heading('body', 'body'),
+        _heading('section', 'heading2'),
+        _heading('subsection', 'heading3'),
+        _heading('references', 'references'),
+        _heading('after-references', 'heading2'),
+        _heading('new-abstract', 'abstract'),
+        _heading('orphan-after-abstract', 'heading2'),
+        _heading('appendix', 'appendix'),
+        _heading('appendix-section', 'heading2'),
+        _heading('appendix-subsection', 'heading3'),
+        _heading('empty-section', 'heading2', title='  '),
+        _heading('orphan-after-empty', 'heading3'),
+    ])
+    issues = validate_project_completeness(project, PaperTemplate(id='chapter-template', name='章节模板'))
+    assert len(issues) == 2
+    assert any('orphan-after-abstract' in issue for issue in issues)
+    assert any('orphan-after-empty' in issue for issue in issues)

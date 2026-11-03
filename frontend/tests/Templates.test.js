@@ -128,6 +128,33 @@ describe('Templates', () => {
     wrapper.unmount()
   })
 
+  it('does not add default sections that are absent from an imported Word template', async () => {
+    const { wrapper, result } = await importPreview()
+    const cover = { key: 'cover', type: 'cover', title: '封面', children: [] }
+    api.fetchTemplate.mockResolvedValue({ sections: [cover, ...['abstract', 'toc', 'references', 'acknowledgement', 'appendix'].map(type => ({ key: type, type, title: type, children: [] }))], meta_fields: [] })
+    api.saveTemplate.mockResolvedValue({ id: 'imported' })
+
+    await wrapper.get('.import-actions button.primary').trigger('click')
+    await flushPromises()
+
+    expect(api.saveTemplate.mock.calls[0][0].sections).toEqual([cover, { ...result.sections[0], required: true }, result.sections[1]])
+    wrapper.unmount()
+  })
+
+  it('does not invent body sections when no Word headings were recognized', async () => {
+    const { wrapper, result } = await importPreview()
+    result.sections = []
+    const cover = { key: 'cover', type: 'cover', title: '封面', children: [] }
+    api.fetchTemplate.mockResolvedValue({ sections: [cover, { key: 'ch1', type: 'heading1', title: '默认章节', children: [] }], meta_fields: [] })
+    api.saveTemplate.mockResolvedValue({ id: 'imported' })
+
+    await wrapper.get('.import-actions button.primary').trigger('click')
+    await flushPromises()
+
+    expect(api.saveTemplate.mock.calls[0][0].sections).toEqual([cover])
+    wrapper.unmount()
+  })
+
   it('keeps an unsupported imported template as a draft for correction without making it usable', async () => {
     const { wrapper } = await importPreview()
     const blocker = { code: 'cover_table', path: 'cover_blocks[0]', message: '封面表格尚未映射' }

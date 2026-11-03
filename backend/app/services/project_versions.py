@@ -27,6 +27,11 @@ def _omit_empty_project_defaults(value: Any) -> Any:
             if not (key == "inline_runs" and isinstance(item, list) and not item)
             and not (key in {"width_cm", "height_cm", "alignment"} and item is None)
             and not (key == "layout_template_snapshot" and item is None)
+            and not (key in {"reference", "reference_number"} and item is None)
+            and not (key == "original_pasted_text" and item is None)
+            and not (key == "language_fact" and item is None)
+            and not (key == "year_fact" and item is None)
+            and not (key == "reference_number_owners" and not item)
         }
     if isinstance(value, list):
         return [_omit_empty_project_defaults(item) for item in value]
@@ -40,6 +45,19 @@ def project_content_hash(project_or_snapshot: WritingProject | dict[str, Any]) -
     else:
         payload = dict(project_or_snapshot)
     payload = _omit_empty_project_defaults(payload)
+    # Restrict this compatibility rule to real project table blocks. Arbitrary
+    # template/requirement dictionaries may also contain a meaningful key.
+    sections = payload.get("sections")
+    for section in sections if isinstance(sections, list) else []:
+        if not isinstance(section, dict):
+            continue
+        paragraphs = section.get("paragraphs")
+        for block in paragraphs if isinstance(paragraphs, list) else []:
+            if not isinstance(block, dict):
+                continue
+            table = block.get("table")
+            if isinstance(table, dict) and table.get("borders") is None:
+                table.pop("borders", None)
     for key in _NON_CONTENT_FIELDS:
         payload.pop(key, None)
     return hashlib.sha256(

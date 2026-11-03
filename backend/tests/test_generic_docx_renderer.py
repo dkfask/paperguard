@@ -59,41 +59,6 @@ def _simple_anchor_sample(tmp_path, monkeypatch, *, fixed_objects=False):
     return output, project, package, template, version, spec
 
 
-@pytest.mark.parametrize("mutation", [None, "header", "footer", "table"])
-def test_admitted_anchor_static_objects_are_independently_checked(tmp_path, monkeypatch, mutation):
-    from app.services.template_admission import assess_template_definition
-
-    output, project, package, template, version, spec = _simple_anchor_sample(
-        tmp_path, monkeypatch, fixed_objects=True,
-    )
-    admission = assess_template_definition(
-        template_id=template.id, version=version.version,
-        definition=version.definition,
-        source_data=(tmp_path / "simple-anchor.docx").read_bytes(),
-    )
-    assert admission["can_use_for_draft"]
-    assert not admission["can_claim_compliant_delivery"]
-    if mutation:
-        document = Document(output)
-        if mutation == "table":
-            document.tables[0].cell(0, 0).width = Pt(24)
-        else:
-            getattr(document.sections[0], mutation).paragraphs[0].runs[0].font.size = Pt(24)
-        document.save(output)
-    report = inspect_document_project_docx_output(
-        output.read_bytes(), project, package, template, version, spec,
-        context_kind="document-sync",
-    )
-    assert report["status"] == ("fail" if mutation else "pass")
-    if mutation == "table":
-        assert any(item["rule"] == "template.anchor_story_structure" and item["status"] == "fail"
-                   for item in report["checks"])
-    elif mutation:
-        fixed_part = f"word/{mutation}1.xml"
-        assert any(item["rule"] == "template.static_package_preserved" and fixed_part in item["actual"]["changed"]
-                   for item in report["checks"])
-
-
 def test_anchored_report_binds_complete_identity_and_output_bytes(tmp_path, monkeypatch):
     output, project, package, template, version, spec = _simple_anchor_sample(tmp_path, monkeypatch)
     data = output.read_bytes()
@@ -168,6 +133,14 @@ def test_anchor_sync_and_async_api_deliver_checked_files_and_reject_tampering(tm
     assert "filename*=UTF-8''" in downloaded.headers["content-disposition"]
     artifact = get_document_artifact(store, completed["artifact_id"])
     assert verify_report_binding(artifact.output_check, downloaded.content)
+
+    # A successful render is bound to the exact project revision that created it.
+    # Editing the project must invalidate the old artifact before any file read.
+    current_project = store.get_document_project(project.id)
+    changed_project = current_project.model_copy(update={"title": "已修改后的项目标题"})
+    assert store.update_document_project_if_revision(changed_project, current_project.revision) is not None
+    assert client.get(download_url, headers=headers).status_code == 409
+
     artifact_storage().put_bytes(artifact.storage_key, b"changed", artifact.content_type)
     assert client.get(download_url, headers=headers).status_code == 409
 
@@ -456,3 +429,38 @@ def test_anchored_fixture_replaces_dynamic_content_and_preserves_static_package(
     )
     assert bad_report["status"] == "fail"
     assert any(item["rule"] == "content.anchor_field" and item["status"] == "fail" for item in bad_report["checks"])
+
+
+@pytest.mark.parametrize("mutation", [None, "header", "footer", "table"])
+def test_admitted_anchor_static_objects_are_independently_checked(tmp_path, monkeypatch, mutation):
+    from app.services.template_admission import assess_template_definition
+
+    output, project, package, template, version, spec = _simple_anchor_sample(
+        tmp_path, monkeypatch, fixed_objects=True,
+    )
+    admission = assess_template_definition(
+        template_id=template.id, version=version.version,
+        definition=version.definition,
+        source_data=(tmp_path / "simple-anchor.docx").read_bytes(),
+    )
+    assert admission["can_use_for_draft"]
+    assert not admission["can_claim_compliant_delivery"]
+    if mutation:
+        document = Document(output)
+        if mutation == "table":
+            document.tables[0].cell(0, 0).width = Pt(24)
+        else:
+            getattr(document.sections[0], mutation).paragraphs[0].runs[0].font.size = Pt(24)
+        document.save(output)
+    report = inspect_document_project_docx_output(
+        output.read_bytes(), project, package, template, version, spec,
+        context_kind="document-sync",
+    )
+    assert report["status"] == ("fail" if mutation else "pass")
+    if mutation == "table":
+        assert any(item["rule"] == "template.anchor_story_structure" and item["status"] == "fail"
+                   for item in report["checks"])
+    elif mutation:
+        fixed_part = f"word/{mutation}1.xml"
+        assert any(item["rule"] == "template.static_package_preserved" and fixed_part in item["actual"]["changed"]
+                   for item in report["checks"])
