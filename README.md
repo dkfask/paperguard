@@ -224,6 +224,7 @@ docker compose up -d --build
 ```
 
 - 数据(论文项目 SQLite + 上传图片)持久化在 Docker volume `paperguard_data`,重建/升级容器不丢数据
+- 启动时默认保留上传图片，不自动清理无引用文件。经核对和备份后，如需启用启动清理，可由受控环境显式设置 `PAPERGUARD_STARTUP_IMAGE_CLEANUP=true`；仅清理扫描判定为无引用且超过 24 小时的文件。
 - `worker` 容器负责站内通知 outbox 消费和截止提醒调度，与后端共享数据库卷；可用 `PAPERGUARD_WORKER_INTERVAL_SECONDS` 调整周期
 - 首次部署前必须设置强密码环境变量 `PAPERGUARD_ADMIN_PASSWORD`(至少 12 位, 含字母和数字), 不再提供固定默认密码
 - 小程序服务端还需在受控 secrets 中设置 `PAPERGUARD_WECHAT_APP_ID`、`PAPERGUARD_WECHAT_APP_SECRET` 和独立的 `PAPERGUARD_MP_BINDING_SECRET`; 未配置时 MP 登录保持关闭并返回明确错误码

@@ -71,7 +71,7 @@ _load_dotenv()
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    """启动时准备默认数据并清理过期孤儿图片。"""
+    """启动时准备默认数据；图片清理仅在显式启用时执行。"""
     try:
         from app.auth import seed_admin
         from app.db import Store
@@ -86,7 +86,8 @@ async def _lifespan(_app: FastAPI):
         recover_pending_exports(store)
         from app.services.document_render_jobs import recover_pending_document_render_jobs
         recover_pending_document_render_jobs(store)
-        cleanup_orphan_images(store, grace_seconds=24 * 60 * 60)
+        if os.environ.get("PAPERGUARD_STARTUP_IMAGE_CLEANUP", "").strip().lower() in {"1", "true", "yes", "on"}:
+            cleanup_orphan_images(store, grace_seconds=24 * 60 * 60)
     except Exception as exc:
         import logging
         logging.getLogger("paperguard.startup").exception("启动初始化失败: %s", exc)
