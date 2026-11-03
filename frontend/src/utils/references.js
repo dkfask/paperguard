@@ -106,7 +106,7 @@ export function formatReference(reference, number) {
   if (marker === 'J') {
     let tail = value('source') || value('collection')
     if (value('year')) tail += `${tail ? ', ' : ''}${value('year')}`
-    if (value('volume')) tail += `, ${value('volume')}${value('issue') ? `(${value('issue')})` : ''}`
+    if (value('volume') || value('issue')) tail += `, ${value('volume')}${value('issue') ? `(${value('issue')})` : ''}`
     if (value('pages')) tail += `: ${value('pages')}`
     if (tail) parts.push(tail)
   } else if (['M', 'C'].includes(marker)) {
@@ -153,17 +153,18 @@ function extractPastedReference(value) {
   let fullyConsumed = false
   if (kind === 'journal') {
     let tail = match[4].trim()
-    const doi = tail.match(/(?:[.。:：]\s*|\s+)DOI\s*[:：]\s*(10\.\d{4,9}\/\S+?)\s*[.。]?\s*$/i)
+    const doi = tail.match(/(?:[.。:：]\s*|\s+|(?<=\d))DOI\s*[:：]\s*(10\.\d{4,9}\/\S+?)\s*[.。]?\s*$/i)
     if (doi) {
       tail = tail.slice(0, doi.index).trim()
     }
     const candidates = []
-    for (const separator of tail.matchAll(/[,，]\s*(?=(?:19|20)\d{2})/g)) {
+    const yearSeparators = [...tail.matchAll(/[,，]\s*(?=(?:19|20)\d{2}(?=\s*(?:[,，.:：]|$)))/g)]
+    for (const separator of yearSeparators) {
       const source = tail.slice(0, separator.index).trim()
       const journal = tail.slice(separator.index + separator[0].length).match(/^((?:19|20)\d{2})(?:\s*[,，]\s*(?:(\d+)(?:\(([^()]+)\))?|\(([^()]+)\)))?(?:\s*[:：]\s*([a-z]?\d+(?:[-–—][a-z]?\d+)?(?:\s*\+\s*[a-z]?\d+(?:[-–—][a-z]?\d+)?)*)\s*)?\s*[.。]?$/iu)
       if (source && journal) candidates.push({ source, journal })
     }
-    if (candidates.length === 1) {
+    if (candidates.length === 1 && yearSeparators.length === 1) {
       const { source, journal } = candidates[0]
       fields.source = source
       fields.year = journal[1]
@@ -172,6 +173,29 @@ function extractPastedReference(value) {
       if (journal[5]) fields.pages = journal[5]
       if (doi) fields.doi = doi[1]
       const limits = { authors: 2000, title: 2000, source: 2000, year: 32, volume: 100, issue: 100, pages: 200, doi: 500 }
+      fullyConsumed = Object.entries(fields).every(([field, value]) => value.length <= limits[field])
+    }
+  } else if (kind === 'book' || kind === 'thesis') {
+    const tail = match[4].trim()
+    const candidates = []
+    const yearSeparators = [...tail.matchAll(/[,，]\s*(?=(?:19|20)\d{2})/g)]
+    for (const separator of yearSeparators) {
+      const publication = tail.slice(0, separator.index).trim()
+      const remainder = tail.slice(separator.index + separator[0].length)
+        .match(/^((?:19|20)\d{2})(?:\s*[:：]\s*([a-z]?\d+(?:[-–—][a-z]?\d+)?(?:\s*\+\s*[a-z]?\d+(?:[-–—][a-z]?\d+)?)*)\s*)?\s*[.。]?$/iu)
+      const publisherParts = publication.split(/[:：]/).map(part => part.trim())
+      if (remainder && publisherParts.length <= 2 && publisherParts.every(Boolean)) {
+        candidates.push({ publisherParts, remainder })
+      }
+    }
+    if (candidates.length === 1 && yearSeparators.length === 1) {
+      const { publisherParts, remainder } = candidates[0]
+      if (publisherParts.length === 2) fields.place = publisherParts[0]
+      if (kind === 'book') fields.publisher = publisherParts[publisherParts.length - 1]
+      else fields.institution = publisherParts[publisherParts.length - 1]
+      fields.year = remainder[1]
+      if (remainder[2]) fields.pages = remainder[2]
+      const limits = { authors: 2000, title: 2000, place: 500, publisher: 1000, institution: 1000, year: 32, pages: 200 }
       fullyConsumed = Object.entries(fields).every(([field, value]) => value.length <= limits[field])
     }
   }

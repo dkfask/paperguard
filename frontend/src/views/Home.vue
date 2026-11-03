@@ -475,8 +475,12 @@ async function exportProject(p) {
   if (exporting.has(p.id)) return
   exporting.add(p.id)
   exportCheck.value = null
+  error.value = ''
   try { exportCheck.value = await projectsApi.export(p.id) }
-  catch (e) { error.value = e.message }
+  catch (e) {
+    const issues = [...(e.missing || []), ...(e.manualChecks || [])].filter(item => typeof item === 'string' && item.trim())
+    error.value = [e.message, ...issues].filter(Boolean).join('；')
+  }
   finally { exporting.delete(p.id) }
 }
 

@@ -414,6 +414,7 @@ export async function exportProject(projectId, force = false) {
     const message = detailMessage(detail, '导出失败')
     const err = new Error(message)
     err.missing = Array.isArray(detail.detail?.missing) ? detail.detail.missing : []
+    err.manualChecks = Array.isArray(detail.detail?.manual_checks) ? detail.detail.manual_checks : []
     throw err
   }
   const outputCheck = {

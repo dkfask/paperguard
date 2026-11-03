@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const api = vi.hoisted(() => ({
   fetchProject: vi.fn(), fetchProjectCapabilities: vi.fn(), fetchProjectExportJobs: vi.fn(), fetchProjectExportJob: vi.fn(), updateProjectSection: vi.fn(),
-  createProjectExportJob: vi.fn(), retryProjectExportJob: vi.fn(), downloadProjectExportJob: vi.fn(),
+  createProjectExportJob: vi.fn(), retryProjectExportJob: vi.fn(), downloadProjectExportJob: vi.fn(), previewProjectExport: vi.fn(),
 }))
 vi.mock('../src/api.js', async () => {
   const actual = await vi.importActual('../src/api.js')
@@ -35,6 +35,22 @@ async function openAndExport() {
 }
 
 describe('Writer export recovery', () => {
+  it('shows each preflight blocker and disables download in the preview', async () => {
+    api.previewProjectExport.mockResolvedValue({ title: '论文', revision: 3, content_hash: 'a'.repeat(64),
+      can_export: false, missing: ['规范：参考文献排序尚未自动核验', '封面「论文题目」未填写'],
+      counts: { sections: 1, paragraphs: 1, tables: 0, images: 0, equations: 0 }, sections_preview: [] })
+    wrapper = mount(Writer, { global: { stubs: { BaseModal: true, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="writer.preview"]').trigger('click')
+    await flushPromises()
+    const modal = document.body.querySelector('.export-preview-modal')
+    expect(modal).not.toBeNull()
+    expect(modal.querySelector('.notice-banner').textContent).toContain('规范：参考文献排序尚未自动核验')
+    expect(modal.querySelector('.notice-banner').textContent).toContain('封面「论文题目」未填写')
+    expect(modal.querySelector('button.primary').disabled).toBe(true)
+    expect(api.createProjectExportJob).not.toHaveBeenCalled()
+  })
+
   it('saves an edited legacy reference with its inline runs through Writer', async () => {
     const paragraph = { id: 'ref', type: 'paragraph', text: '作者. 学报[J]', inline_runs: [
       { text: '作者. ' }, { text: '学报', italic: true }, { text: '[J]' },

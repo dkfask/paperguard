@@ -130,6 +130,48 @@ def test_reference_format_checker_and_chapter_page_break_checker():
     assert findings == []
 
 
+def test_cover_fields_checker_uses_declared_template_keys_and_reports_each_missing_field():
+    template = default_template().model_copy(deep=True)
+    template.meta_fields = [MetaField(key="title", label="题目"), MetaField(key="author", label="姓名")]
+    project = _project()
+    project.meta = {"title": "合成题目", "author": "  ", "not_a_field": "不可代替姓名"}
+    item = {"id": "cover-fields", "type": "auto", "target": "cover", "checker": "cover.fields_present",
+            "params": {"field_keys": ["title", "author"]}, "severity": "error", "enforce": "hard"}
+    findings, not_checked = check_requirements(project, {"resolved_items": [item]}, template)
+    assert not not_checked
+    assert len(findings) == 1 and findings[0]["actual"] == ["姓名"]
+    project.meta["author"] = "测试学生"
+    assert check_requirements(project, {"resolved_items": [item]}, template) == ([], [])
+    item["params"]["field_keys"].append("department")
+    findings, not_checked = check_requirements(project, {"resolved_items": [item]}, template)
+    assert not findings and not_checked[0]["reason"] == "cover_field_mapping_missing"
+    assert check_requirements(project, {"resolved_items": [item]}, None)[1][0]["reason"] == "cover_field_mapping_missing"
+
+
+def test_reference_list_checker_validates_facts_and_contiguous_list_order():
+    project = _project()
+    section = project.sections[-1]
+    section.paragraphs = [
+        ParagraphBlock(id="one", reference_number=1, reference=ReferenceEntry(
+            kind="journal", authors="张三", title="研究", source="示例期刊", year="2024",
+            original_pasted_text="[8] 张三. 研究[J]. 示例期刊, 2024.")),
+        ParagraphBlock(id="two", reference_number=2, reference=ReferenceEntry(
+            kind="journal", authors="李四", title="另一个研究", source="示例期刊", year="2025")),
+    ]
+    item = {"id": "reference-facts", "type": "auto", "target": "references", "checker": "references.list_facts",
+            "params": {"required": True}, "severity": "error", "enforce": "hard"}
+    assert check_requirements(project, {"resolved_items": [item]}) == ([], [])
+    section.paragraphs[1].reference.year = ""
+    section.paragraphs[1].reference_number = 3
+    findings, not_checked = check_requirements(project, {"resolved_items": [item]})
+    assert not not_checked
+    assert any("缺少年份" in result["message"] for result in findings)
+    assert any("编号为 [3]" in result["message"] for result in findings)
+    section.paragraphs[1] = ParagraphBlock(id="legacy", text="未结构化的旧文献")
+    findings, _ = check_requirements(project, {"resolved_items": [item]})
+    assert any("尚未录入结构化文献事实" in result["message"] for result in findings)
+
+
 def test_markdown_frontmatter_maps_p0_checker_aliases():
     items = items_from_markdown("""---
 rules:

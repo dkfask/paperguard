@@ -457,7 +457,7 @@ def _source_toc_state(root,profile):
         return None
 
 
-def _replace_toc_rows(parts, rows, profile):
+def _replace_toc_rows(parts, rows, profile, *, character_styles_root=None):
     root=etree.fromstring(parts["word/document.xml"])
     placeholder=root.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val='pg-toc:placeholder']",namespaces=NS)
     if len(placeholder)>1:raise ProfileError("母版目录锚点重复")
@@ -489,7 +489,7 @@ def _replace_toc_rows(parts, rows, profile):
         paragraph=copy.deepcopy(row["paragraph"])
         _install_page_reference(paragraph,row["bookmark"],row["page"])
         rule = profile.get("toc_appearance_by_level", {}).get(str(row["level"]))
-        apply_toc_appearance(paragraph, rule, styles)
+        apply_toc_appearance(paragraph, rule, styles, character_styles_root=character_styles_root)
         parent.insert(first+offset,paragraph)
     parts["word/document.xml"]=etree.tostring(root,xml_declaration=True,encoding="UTF-8",standalone=True)
     _preserve_measured_fields(parts)
@@ -988,6 +988,12 @@ def _refresh_master_layout(output_path: Path,project,profile):
             check_export_budget()
             before,after=_pdf_state(run/"before.pdf"),_pdf_state(run/"after.pdf")
             rows,_=_read_toc(run/"updated.docx",profile)
+            # The layout engine may create character styles (e.g. IndexLink)
+            # absent from the master. Resolve them from the measured document,
+            # then flatten them onto the copied TOC runs; never import styles
+            # into the master or change its paragraph-style inheritance.
+            with zipfile.ZipFile(run/"updated.docx") as measured:
+                character_styles = load_part(measured,"word/styles.xml")
             values=_toc_state(rows)
             current_root=etree.fromstring(parts["word/document.xml"])
             has_placeholder=bool(current_root.xpath(".//w:sdtPr/w:tag[@w:val='pg-toc:placeholder']",namespaces=NS))
@@ -995,7 +1001,7 @@ def _refresh_master_layout(output_path: Path,project,profile):
             before_layout=(before["page_count"],before["destinations"])
             after_layout=(after["page_count"],after["destinations"])
             converged=(current is not None and current==values and before_layout==after_layout and previous_layout==after_layout)
-            _replace_toc_rows(parts,rows,profile)
+            _replace_toc_rows(parts,rows,profile,character_styles_root=character_styles)
             final_rows=rows
             stable=bool(converged)
             previous_layout=after_layout

@@ -1236,6 +1236,56 @@ def test_directory_character_style_inheritance_and_whitespace_are_preserved(toc_
     assert etree.tostring(result) == original_result
 
 
+def test_directory_uses_measured_character_styles_without_importing_them(toc_package):
+    from app.services.toc_appearance import toc_appearance_matches
+
+    path, parts, profile = toc_package
+    original_styles = parts['word/styles.xml']
+    measured = Document(path)
+    parent = measured.styles.add_style('Measured character base', WD_STYLE_TYPE.CHARACTER)
+    parent.font.name = 'Tahoma'
+    parent.font.size = Pt(9)
+    generated = measured.styles.add_style('Index Link', WD_STYLE_TYPE.CHARACTER)
+    generated.base_style = parent
+    generated.font.bold = True
+    for run in next(p for p in measured.paragraphs if p.style.name == 'TOC 1').runs:
+        run.style = generated
+    measured.save(path)
+    rows, _ = office_layout._read_toc(path, profile)
+    with zipfile.ZipFile(path) as archive:
+        measured_styles = etree.fromstring(archive.read('word/styles.xml'))
+
+    # Without the measured style definition, the export fails closed.
+    with pytest.raises(ProfileError, match='继承关系无法确定'):
+        office_layout._replace_toc_rows(dict(parts), rows, profile)
+    office_layout._replace_toc_rows(parts, rows, profile, character_styles_root=measured_styles)
+    assert parts['word/styles.xml'] == original_styles
+    root = etree.fromstring(parts['word/document.xml'])
+    row = root.find('.//' + qn('w:hyperlink')).getparent()
+    master_styles = etree.fromstring(original_styles)
+    assert toc_appearance_matches(row, master_styles, profile['toc_appearance_by_level']['1'])
+    assert not row.xpath('.//w:rPr/w:rStyle', namespaces=NS)
+    label = row.xpath('.//w:r[w:t[contains(., "绪论")]]', namespaces=NS)[0]
+    assert label.xpath('./w:rPr/w:rFonts/@w:ascii', namespaces=NS) == ['Tahoma']
+    assert label.xpath('./w:rPr/w:sz/@w:val', namespaces=NS) == ['18']
+
+
+def test_directory_rejects_unresolved_measured_style(toc_package):
+    path, parts, profile = toc_package
+    measured = Document(path)
+    generated = measured.styles.add_style('Index Link', WD_STYLE_TYPE.CHARACTER)
+    generated_id = generated.style_id
+    next(p for p in measured.paragraphs if p.style.name == 'TOC 1').runs[0].style = generated
+    measured.save(path)
+    rows, _ = office_layout._read_toc(path, profile)
+    with zipfile.ZipFile(path) as archive:
+        measured_styles = etree.fromstring(archive.read('word/styles.xml'))
+    measured_styles.remove(next(s for s in measured_styles.findall(qn('w:style'))
+                                if s.get(qn('w:styleId')) == generated_id))
+    with pytest.raises(ProfileError, match='继承关系无法确定'):
+        office_layout._replace_toc_rows(parts, rows, profile, character_styles_root=measured_styles)
+
+
 def test_directory_checker_rejects_character_style_even_with_direct_auto_color(toc_package):
     from app.services.toc_appearance import toc_appearance_matches
 

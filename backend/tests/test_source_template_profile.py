@@ -2419,3 +2419,29 @@ def test_master_inspector_checks_directory_color_and_underline(
     assert checks[0]['status'] == expected_status
     if expected_status == 'fail':
         assert report['status'] == 'fail'
+
+
+def test_master_output_rejects_heading_line_spacing_changed_from_source(master, tmp_path):
+    _, template, _, _ = master
+    heading = next(item for item in template.source_execution['headings'] if item['kind'] == 'heading1')
+
+    def change_heading_spacing(root):
+        paragraphs = root.xpath('.//w:p[.//w:bookmarkStart[@w:name=$name]]',
+                                namespaces=NS, name=heading['bookmark_name'])
+        assert len(paragraphs) == 1
+        paragraph = paragraphs[0]
+        ppr = paragraph.find(qn('w:pPr'))
+        if ppr is None:
+            ppr = OxmlElement('w:pPr')
+            paragraph.insert(0, ppr)
+        spacing = ppr.find(qn('w:spacing'))
+        if spacing is None:
+            spacing = OxmlElement('w:spacing')
+            ppr.append(spacing)
+        spacing.set(qn('w:line'), '999')
+        spacing.set(qn('w:lineRule'), 'auto')
+
+    report = inspect(master, rewrite(rendered(master, tmp_path), 'word/document.xml', change_heading_spacing))
+    assert report['status'] == 'fail'
+    assert any(check['rule'] == 'master.fixed_body_and_sections' and check['status'] == 'fail'
+               for check in report['checks'])

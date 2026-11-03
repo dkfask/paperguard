@@ -39,13 +39,7 @@ def _generic_case(tmp_path, block):
         ProjectSection(key="references", type="references", title="参考文献", paragraphs=[block])])
     output = tmp_path / "refs.docx"
     export_project_to_docx(project, template, str(output))
-    doc = Document(output)
-    for section in doc.sections:
-        for paragraph in section.footer.paragraphs:
-            paragraph.clear()
-    payload = io.BytesIO()
-    doc.save(payload)
-    return project, template, payload.getvalue()
+    return project, template, output.read_bytes()
 
 
 def test_numbered_reference_preserves_format_and_checker_detects_tampering(tmp_path, reference_block):

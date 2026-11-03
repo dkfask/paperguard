@@ -246,7 +246,7 @@ def _base_toggle(paragraph, styles_root, styles, tag):
     return result
 
 
-def _flatten_character_style(run, paragraph, styles_root, styles):
+def _flatten_character_style(run, paragraph, styles_root, styles, character_styles):
     """Keep character formatting without retaining Word's hyperlink style.
 
     Some Office renderers apply a link style to the whole link when *any* run
@@ -261,7 +261,7 @@ def _flatten_character_style(run, paragraph, styles_root, styles):
     style_id = reference.get(qn("w:val"), "")
     if not style_id:
         raise ProfileError("目录字符样式缺少标识")
-    chain = _style_nodes(styles, style_id)
+    chain = _style_nodes(character_styles, style_id)
     if any(style.get(qn("w:type")) != "character" for style in chain):
         raise ProfileError("目录字符样式的继承类型不受支持")
     properties, toggles = {}, {}
@@ -299,11 +299,12 @@ def _flatten_character_style(run, paragraph, styles_root, styles):
             _put_property(rpr, prop)
 
 
-def apply_toc_appearance(paragraph, expected, styles_root):
+def apply_toc_appearance(paragraph, expected, styles_root, *, character_styles_root=None):
     groups = _split([(run, text, None) for run, text in _visible_runs(paragraph, include_whitespace=True)])
     if not groups["label"] or not groups["page"] or not isinstance(expected, dict):
         raise ProfileError("目录文字缺少母版外观规则")
     styles = _styles(styles_root)
+    character_styles = _styles(character_styles_root) if character_styles_root is not None else styles
     assigned = {}
     for role, runs in groups.items():
         rule = expected.get(role, {})
@@ -321,7 +322,7 @@ def apply_toc_appearance(paragraph, expected, styles_root):
             if rpr is None:
                 rpr = etree.Element(qn("w:rPr"))
                 run.insert(0, rpr)
-            _flatten_character_style(run, paragraph, styles_root, styles)
+            _flatten_character_style(run, paragraph, styles_root, styles, character_styles)
             _set_property(rpr, "color", rule["color"])
             _set_property(rpr, "u", rule["underline"])
 

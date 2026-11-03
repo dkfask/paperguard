@@ -19,6 +19,15 @@ def test_structured_journal_reference_formats_and_numbers_fields():
     assert format_reference(entry, 1) == "[1] 张三. 论文题名[J]. 计算机学报, 2024, 10(2): 20-30"
 
 
+def test_structured_journal_reference_keeps_issue_without_volume():
+    entry = ReferenceEntry(
+        kind="journal", authors="李四", title="另一项研究", source="示例期刊",
+        year="2025", issue="17", pages="1-4",
+        original_pasted_text="[2] 李四. 另一项研究[J]. 示例期刊, 2025,(17):1-4.",
+    )
+    assert format_reference(entry, 2) == "[2] 李四. 另一项研究[J]. 示例期刊, 2025, (17): 1-4"
+
+
 def test_online_reference_does_not_render_hidden_fields_from_a_previous_type():
     entry = ReferenceEntry(
         kind="online", authors="张三", title="网页标题", url="https://example.test/article",
@@ -148,6 +157,121 @@ def test_unparsed_pasted_references_block_preflight_but_not_draft_completeness_o
     project.sections[0].paragraphs[0].reference.source = "期刊"
     project.sections[0].paragraphs[0].reference.year = "2024"
     assert any("自动核验" in issue for issue in validate_project_completeness(project, template))
+
+
+@pytest.mark.parametrize("original, facts", [
+    ("[8] 张三. 研究题名[J]. 示例期刊, 2024, 12(3): 1-9.",
+     {"authors": "张三", "title": "研究题名", "source": "示例期刊", "year": "2024", "volume": "12", "issue": "3", "pages": "1-9"}),
+    ("［3］ LI X, WANG Y. A research title[J]. Journal of A, B, 2025,(17): 1-4. DOI: 10.1234/abc.5678.",
+     {"authors": "LI X, WANG Y", "title": "A research title", "source": "Journal of A, B", "year": "2025", "issue": "17", "pages": "1-4", "doi": "10.1234/abc.5678"}),
+    ("[2] 作者. 网络研究[J]. 示例期刊, 2025. DOI: 10.1234/test.1",
+     {"authors": "作者", "title": "网络研究", "source": "示例期刊", "year": "2025", "doi": "10.1234/test.1"}),
+])
+def test_complete_pasted_journal_is_independently_verified_and_exportable(original, facts):
+    from app.services.project_validation import validate_project_completeness
+
+    entry = ReferenceEntry(kind="journal", original_pasted_text=original, unformatted_text=original, **facts)
+    project = WritingProject(id="paper", template_id="tpl", sections=[ProjectSection(
+        key="references", type="references", title="参考文献",
+        paragraphs=[ParagraphBlock(id="ref", reference=entry, reference_number=1)],
+    )])
+    assert validate_project_completeness(project, PaperTemplate(id="tpl", name="模板")) == []
+    assert entry.original_pasted_text == original
+    assert format_reference(entry, 1).startswith("[1] ")
+
+
+@pytest.mark.parametrize("kind, original, facts", [
+    ("book", "[1] 张三. 示例书名[M]. 成都: 示例出版社, 2024: 1-9.",
+     {"authors": "张三", "title": "示例书名", "place": "成都", "publisher": "示例出版社", "year": "2024", "pages": "1-9"}),
+    ("thesis", "[1] 李四. 示例论文[D]. 成都: 示例大学, 2023.",
+     {"authors": "李四", "title": "示例论文", "place": "成都", "institution": "示例大学", "year": "2023"}),
+])
+def test_complete_pasted_book_and_thesis_preserve_source_facts(kind, original, facts):
+    from app.services.references import validate_reference_facts
+
+    entry = ReferenceEntry(kind=kind, original_pasted_text=original, **facts)
+    assert validate_reference_facts(entry) == []
+
+
+def test_reference_gate_reports_missing_facts_source_mismatch_and_lost_fields():
+    from app.services.references import validate_reference_facts
+
+    entry = ReferenceEntry(kind="journal", title="研究", original_pasted_text="张三. 研究[J]. 期刊, 2025: 1-4.")
+    problems = validate_reference_facts(entry)
+    assert any("缺少作者" in item for item in problems)
+    assert any("缺少来源" in item for item in problems)
+    assert any("缺少年份" in item for item in problems)
+    assert any("页码与粘贴原文不一致" in item for item in problems)
+    entry.authors, entry.source, entry.year, entry.pages = "张三", "期刊", "2025", "1-4"
+    assert validate_reference_facts(entry) == []
+    entry.pages = "1-3"
+    assert any("页码与粘贴原文不一致" in item for item in validate_reference_facts(entry))
+    entry.pages = "1-4"
+    entry.publisher = "不应丢弃的出版社"
+    assert any("出版社未能保留" in item for item in validate_reference_facts(entry))
+    entry.publisher = ""
+    entry.collection = "期刊"  # Same text does not make a silently omitted field preserved.
+    assert any("文集未能保留" in item for item in validate_reference_facts(entry))
+
+
+def test_unsupported_pasted_remainder_cannot_be_hidden_by_client_fields():
+    from app.services.references import validate_reference_facts
+
+    entry = ReferenceEntry(kind="journal", authors="张三", title="研究", source="期刊", year="2025",
+                           original_pasted_text="张三. 研究[J]. 期刊, 2025. 未识别的事实")
+    assert any("不能完成自动核验" in item for item in validate_reference_facts(entry))
+    entry.original_pasted_text = "李四. 研究[J]. 期刊, 2025."
+    assert any("作者与粘贴原文不一致" in item for item in validate_reference_facts(entry))
+
+
+@pytest.mark.parametrize("original, extra", [
+    ("张三. 示例[J]", {"source": "示例期刊", "year": "2024"}),
+    ("张三. 示例[J]. 示例期刊.", {"source": "示例期刊", "year": "2024"}),
+])
+def test_missing_pasted_facts_can_be_added_without_discarding_the_original(original, extra):
+    from app.services.references import validate_reference_facts
+
+    entry = ReferenceEntry(kind="journal", authors="张三", title="示例", original_pasted_text=original)
+    assert any("缺少年份" in item for item in validate_reference_facts(entry))
+    for key, value in extra.items():
+        setattr(entry, key, value)
+    assert validate_reference_facts(entry) == []
+    assert entry.original_pasted_text == original
+
+
+def test_unparsed_source_can_be_recovered_by_adding_all_of_its_facts():
+    from app.services.references import validate_reference_facts
+
+    original = "[1] A. Smith. An example[J]. Journal, 2024: 1-4."
+    entry = ReferenceEntry(kind="journal", authors="A. Smith", title="An example", source="Journal", year="2024",
+                           original_pasted_text=original)
+    assert any("不能完成自动核验" in item for item in validate_reference_facts(entry))
+    entry.pages = "1-4"
+    assert validate_reference_facts(entry) == []
+    assert entry.original_pasted_text == original
+    entry.pages = "1-3"
+    assert any("不能完成自动核验" in item for item in validate_reference_facts(entry))
+    entry.pages = "1-4"
+    entry.kind = "book"
+    assert any("不能完成自动核验" in item for item in validate_reference_facts(entry))
+
+
+def test_fallback_does_not_ignore_meaningful_symbols_or_swapped_author_and_title():
+    from app.services.references import validate_reference_facts
+
+    entry = ReferenceEntry(kind="journal", authors="A. Smith", title="C", source="Journal", year="2024",
+                           original_pasted_text="A. Smith. C++[J]. Journal, 2024.")
+    assert any("不能完成自动核验" in item for item in validate_reference_facts(entry))
+    entry.title = "C++"
+    assert validate_reference_facts(entry) == []
+    entry.authors, entry.title = "C++", "A. Smith"
+    assert any("不能完成自动核验" in item for item in validate_reference_facts(entry))
+    entry.authors, entry.title = "A. Smith", "C++"
+    entry.original_pasted_text = "A. Smith. C++[J][J]. Journal, 2024."
+    assert any("不能完成自动核验" in item for item in validate_reference_facts(entry))
+    entry.original_pasted_text = "A. Smith. C++[J]. Journal, 202X."
+    entry.year = "202X"
+    assert any("四位年份" in item for item in validate_reference_facts(entry))
 
 
 def test_reference_numbers_survive_reordering_deletion_and_legacy_collisions():

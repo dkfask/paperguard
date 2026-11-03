@@ -151,6 +151,38 @@ describe('ReferencesEditor', () => {
     wrapper.unmount()
   })
 
+  it('recognizes and keeps the original of a pasted 1101 book entry', async () => {
+    const paragraphs = []
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    const raw = '[1] 张炯.Unix网络编程实用技术与实例分析[M].清华大学出版社，2002.'
+    await wrapper.find('.reference-actions button').trigger('click')
+    await wrapper.get('[data-test="reference-paste-input"]').setValue(raw)
+    await wrapper.get('[data-test="reference-paste-add"]').trigger('click')
+    expect(paragraphs[0].reference).toMatchObject({
+      kind: 'book', authors: '张炯', title: 'Unix网络编程实用技术与实例分析',
+      place: '', publisher: '清华大学出版社', year: '2002', original_pasted_text: raw,
+    })
+    expect(wrapper.findAll('.reference-card')[0].get('details.reference-original pre').text()).toBe(raw)
+    expect(wrapper.emitted('change')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('extracts thesis facts from a pasted entry and keeps the original', async () => {
+    const paragraphs = []
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    const raw = '[1] 王某. 信息系统研究[D]. 示例大学，2004.'
+    await wrapper.find('.reference-actions button').trigger('click')
+    await wrapper.get('[data-test="reference-paste-input"]').setValue(raw)
+    await wrapper.get('[data-test="reference-paste-add"]').trigger('click')
+    expect(paragraphs[0].reference).toMatchObject({
+      kind: 'thesis', authors: '王某', title: '信息系统研究', institution: '示例大学',
+      place: '', year: '2004', original_pasted_text: raw,
+    })
+    expect(wrapper.findAll('.reference-card')[0].get('details.reference-original pre').text()).toBe(raw)
+    expect(wrapper.emitted('change')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('lets the student apply a factual suggestion without overwriting edits or the source', async () => {
     const original = '[1] 张三. 研究题名[J]. 示例期刊, 2024, 12(3): 1-9.'
     const paragraphs = [{ id: 'pasted', type: 'paragraph', text: '', reference: {
