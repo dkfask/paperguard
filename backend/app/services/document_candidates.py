@@ -131,6 +131,13 @@ def bind_candidate_for_confirmation(
     for attribute in ("template_id", "spec_set_id", "source_asset"):
         if hasattr(persisted, attribute):
             immutable[attribute] = getattr(persisted, attribute)
+    persisted_definition = getattr(persisted, "definition", None)
+    submitted_definition = getattr(submitted, "definition", None)
+    if (persisted_definition is not None and submitted_definition is not None
+            and hasattr(persisted_definition, "organization_context")):
+        immutable["definition"] = submitted_definition.model_copy(update={
+            "organization_context": dict(record.get("organization_context") or {}),
+        })
     bound = submitted.model_copy(update=immutable)
     return bound, record
 

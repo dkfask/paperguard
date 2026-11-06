@@ -134,6 +134,41 @@ def test_anchor_sync_and_async_api_deliver_checked_files_and_reject_tampering(tm
     artifact = get_document_artifact(store, completed["artifact_id"])
     assert verify_report_binding(artifact.output_check, downloaded.content)
 
+    # The old report remains immutable in storage; each delivery must pass
+    # the current inspector against the frozen project and original source.
+    from app.api import document_projects as document_api
+    stored = store.get_workflow_record("document_artifact", artifact.id)
+    original_report = stored["output_check"].copy()
+    stored["output_check"]["inspector_version"] = "docx-output-check/5"
+    stored = store.save_workflow_record("document_artifact", stored, expected_revision=stored["revision"])
+    with monkeypatch.context() as check_patch:
+        calls = []
+        current_check = document_api.require_document_project_docx_output
+
+        def check_again(*args, **kwargs):
+            calls.append(kwargs.get("context_kind"))
+            return current_check(*args, **kwargs)
+
+        check_patch.setattr(document_api, "require_document_project_docx_output", check_again)
+        old_download = client.get(download_url, headers=headers)
+        assert old_download.status_code == 200 and old_download.content == downloaded.content
+        assert calls == ["document-async"]
+        def reject_current_check(*_args, **_kwargs):
+            raise ValueError("current check failed")
+
+        check_patch.setattr(document_api, "require_document_project_docx_output", reject_current_check)
+        assert client.get(download_url, headers=headers).status_code == 409
+    source = tmp_path / "simple-anchor.docx"
+    original_source = source.read_bytes()
+    source.write_bytes(original_source + b"changed")
+    assert client.get(download_url, headers=headers).status_code == 409
+    source.write_bytes(original_source)
+    stored["output_check"]["inspector_version"] = "docx-output-check/4"
+    stored = store.save_workflow_record("document_artifact", stored, expected_revision=stored["revision"])
+    assert client.get(download_url, headers=headers).status_code == 409
+    stored["output_check"] = original_report
+    assert store.save_workflow_record("document_artifact", stored, expected_revision=stored["revision"])
+
     # A successful render is bound to the exact project revision that created it.
     # Editing the project must invalidate the old artifact before any file read.
     current_project = store.get_document_project(project.id)

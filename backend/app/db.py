@@ -1826,6 +1826,17 @@ class Store:
             )
         return tpl
 
+    def insert_template_if_absent(self, tpl: PaperTemplate) -> bool:
+        """Create a published template without replacing an existing ID."""
+        tpl.updated_at = _now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO templates (id, data, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(id) DO NOTHING",
+                (tpl.id, tpl.model_dump_json(), tpl.updated_at),
+            )
+        return cursor.rowcount == 1
+
     def get_template(self, tpl_id: str) -> PaperTemplate | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -2767,6 +2778,7 @@ class Store:
         expected_revision: int,
         *,
         reference_number_owners: dict[str, str] | None = None,
+        reference_snapshot_baseline: WritingProject | None = None,
     ) -> WritingProject | None:
         """Compare and save within an existing workflow transaction."""
         if proj.tenant_id or proj.membership_id:
@@ -2777,12 +2789,18 @@ class Store:
         previous = WritingProject.model_validate_json(row["data"])
         if previous.revision != expected_revision or previous.tenant_id or previous.membership_id:
             return None
-        from app.services.references import merge_reference_number_owners, reconcile_reference_numbers
-        if reference_number_owners is not None:
-            previous.reference_number_owners = merge_reference_number_owners(
-                previous.reference_number_owners, reference_number_owners,
-            )
-        reconcile_reference_numbers(previous, proj)
+        from app.services.references import (_reconcile_legacy_reference_numbers,
+                                             merge_reference_number_owners, reconcile_reference_numbers)
+        if reference_snapshot_baseline is not None:
+            # A verified immutable restore uses that snapshot's own number owners;
+            # owners from the current revision belong to a different content state.
+            _reconcile_legacy_reference_numbers(reference_snapshot_baseline, proj)
+        else:
+            if reference_number_owners is not None:
+                previous.reference_number_owners = merge_reference_number_owners(
+                    previous.reference_number_owners, reference_number_owners,
+                )
+            reconcile_reference_numbers(previous, proj)
         next_revision = expected_revision + 1
         proj.revision = next_revision
         proj.updated_at = _now()

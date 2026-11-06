@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clearConfirmedReferenceIntents, createPastedReference, createReference, formatReference, referenceNumber, mergeReferenceNumbers, splitPastedReferences, suggestPastedReference } from '../src/utils/references.js'
+import { clearConfirmedReferenceIntents, createPastedReference, createReference, formatReference, REFERENCE_FIELDS, referenceNumber, mergeReferenceNumbers, splitPastedReferences, suggestPastedReference } from '../src/utils/references.js'
 
 describe('reference formatting', () => {
   it('formats and numbers structured journal entries', () => {
@@ -28,13 +28,24 @@ describe('reference formatting', () => {
       .toBe('[2] 标准[S]. S1，北京: 出版社，2024')
   })
 
+  it('matches exported text for access dates and trailing punctuation', () => {
+    expect(formatReference({
+      kind: 'online', authors: '张三', title: '测试资料', year: '2024',
+      url: 'https://example.test/a', access_date: '2026-11-01',
+    }, 1)).toBe('[1] 张三. 测试资料[EB/OL]. 2024. https://example.test/a（引用日期：2026-11-01）')
+    expect(formatReference({
+      kind: 'journal', authors: '张三', title: '测试资料', source: '期刊',
+      year: '2024', pages: '4-9。',
+    }, 1)).toBe('[1] 张三. 测试资料[J]. 期刊, 2024: 4-9')
+  })
+
   it('uses stored and historical numbers, without guessing new ones from position', () => {
     expect(referenceNumber({ reference_number: 4, text: '旧文献' })).toBe(4)
     expect(referenceNumber({ text: '[7] 旧文献' })).toBe(7)
     expect(referenceNumber({ text: '未编号文献' })).toBeNull()
   })
 
-  it.each(['[8]', '[ 8 ]', '［8］', ' ［ 8 ］ '])('reads and normalizes legacy number %s', prefix => {
+  it.each(['[8]', '[ 8 ]', '［8］', ' ［ 8 ］ ', '[８]', '［８］'])('reads and normalizes legacy number %s', prefix => {
     const text = `${prefix} 李四. 论文乙. 2025.`
     expect(referenceNumber({ text })).toBe(8)
     const reference = { kind: 'unparsed', unformatted_text: text }
@@ -76,6 +87,19 @@ describe('reference formatting', () => {
     expect(() => splitPastedReferences('作者甲', 'numbered')).toThrow('numbering')
     expect(() => splitPastedReferences(Array(201).fill('一条').join('\n'))).toThrow('count')
     expect(() => splitPastedReferences('甲'.repeat(20001))).toThrow('length')
+  })
+
+  it('preserves wrapped references and their source when pasted with fullwidth digits', () => {
+    const first = '［１］ 张三. 第一条[J]. 示例期刊, 2024.\n续行内容'
+    const second = '［２］ 李四. 第二条[J]. 示例期刊, 2025.'
+    const raw = `${first}\n${second}`
+    expect(splitPastedReferences(raw)).toEqual([first, second])
+    expect(splitPastedReferences(raw, 'numbered')).toEqual([first, second])
+    const reference = createPastedReference(first)
+    expect(reference.original_pasted_text).toBe(first)
+    expect(referenceNumber({ reference })).toBeNull()
+    expect(formatReference(reference, 1)).toMatch(/^\[1\] 张三/)
+    expect(formatReference(reference, 1)).not.toContain('［１］')
   })
 
   it('keeps pasted source numbering separate from the assigned number', () => {
@@ -173,5 +197,93 @@ describe('reference formatting', () => {
     for (const raw of values) {
       expect(createPastedReference(raw)).toMatchObject({ kind: 'unparsed', original_pasted_text: raw, unformatted_text: raw })
     }
+  })
+})
+
+describe('pasted abbreviated authors', () => {
+  it.each([
+    ['A. Smith. System study[C]. Proceedings, London: Press, 2024: 1-9. DOI: 10.1234/conf.24',
+      { kind: 'conference', authors: 'A. Smith', title: 'System study', doi: '10.1234/conf.24', pages: '1-9' }],
+    ['A. Smith. Online Study[EB/OL]. Example, 2024-10-01. https://Example.test/Case?q=One（引用日期：2026-11-05）. DOI: 10.1234/Web.26',
+      { kind: 'online', authors: 'A. Smith', title: 'Online Study', doi: '10.1234/Web.26', url: 'https://Example.test/Case?q=One' }],
+    ['A. Group. Standard Name[S]. ISO 1234, London: Press, 2025. DOI: 10.1234/std.25',
+      { kind: 'standard', authors: 'A. Group', title: 'Standard Name', doi: '10.1234/std.25', number: 'ISO 1234' }],
+    ['J. R. R. Tolkien. Example[J]. Some Journal, 2024: 1-9. DOI: 10.1234/j.24',
+      { kind: 'journal', authors: 'J. R. R. Tolkien', title: 'Example', doi: '10.1234/j.24' }],
+    ['A. Smith. Study[D]. London: University, 2023: 1-9. DOI: 10.1234/thesis.23',
+      { kind: 'thesis', authors: 'A. Smith', title: 'Study', doi: '10.1234/thesis.23' }],
+    ['A. Smith. Book[M]. London: Publisher, 2022: 1-9. DOI: 10.1234/book.22',
+      { kind: 'book', authors: 'A. Smith', title: 'Book', doi: '10.1234/book.22' }],
+  ])('retains the author and source facts from %s', (raw, fields) => {
+    expect(createPastedReference(raw)).toMatchObject({ ...fields, original_pasted_text: raw })
+  })
+
+  it('keeps an ambiguous title containing a period unparsed', () => {
+    const raw = 'A. Smith. Mr. Title[J]. Some Journal, 2024: 1-9'
+    expect(createPastedReference(raw)).toMatchObject({ kind: 'unparsed', original_pasted_text: raw })
+  })
+})
+
+describe('pasted conference, online, and standard references', () => {
+  const cases = [
+    ['[1] 张三. 系统研究[C]. 智能会议论文集, 北京: 示例出版社, 2024: 12-18.',
+      { kind: 'conference', authors: '张三', title: '系统研究', collection: '智能会议论文集', place: '北京', publisher: '示例出版社', year: '2024', pages: '12-18' },
+      '[1] 张三. 系统研究[C]. 智能会议论文集，北京: 示例出版社，2024: 12-18'],
+    ['[2] 李四. 学术资料[EB/OL]. 示例机构，2024-10-01. https://example.test/path(a)?x=1.2&y=3（引用日期：2026-11-05）',
+      { kind: 'online', authors: '李四', title: '学术资料', source: '示例机构', publish_date: '2024-10-01', url: 'https://example.test/path(a)?x=1.2&y=3', access_date: '2026-11-05' },
+      '[1] 李四. 学术资料[EB/OL]. 示例机构，2024-10-01. https://example.test/path(a)?x=1.2&y=3（引用日期：2026-11-05）'],
+    ['[3] 文献著录规则[S]. GB/T 7714-2025，北京: 示例出版社，2025.',
+      { kind: 'standard', title: '文献著录规则', number: 'GB/T 7714-2025', place: '北京', publisher: '示例出版社', year: '2025' },
+      '[1] 文献著录规则[S]. GB/T 7714-2025，北京: 示例出版社，2025'],
+  ]
+  it.each(cases)('extracts all verifiable facts and keeps the source: %s', (raw, fields, formatted) => {
+    const reference = createPastedReference(raw)
+    expect(reference).toMatchObject({ ...fields, original_pasted_text: raw, unformatted_text: raw })
+    expect(formatReference(reference, 1)).toBe(formatted)
+  })
+  it.each([
+    '[1] 张三. 系统研究[C]. 智能会议论文集, 北京: 示例出版社, 2024: 12-18. 额外事实',
+    '[2] 李四. 学术资料[EB/OL]. 示例机构，2024-10-01. https://example.test/a 额外事实',
+    '[3] 文献著录规则[S]. GB/T 7714-2025，北京: 示例出版社，2025. 额外事实',
+  ])('keeps unsupported additional information unparsed: %s', raw => {
+    expect(createPastedReference(raw)).toMatchObject({ kind: 'unparsed', original_pasted_text: raw, unformatted_text: raw })
+  })
+})
+
+describe('incomplete supported pasted references', () => {
+  it.each([
+    ['张三. 系统研究[C]. 会议论文集', { kind: 'conference', collection: '会议论文集' }],
+    ['李四. 学术资料[EB/OL].', { kind: 'online', authors: '李四', title: '学术资料' }],
+    ['文献著录规则[S].', { kind: 'standard', title: '文献著录规则' }],
+    ['文献著录规则[S]. GB/T 7714-2025.', { kind: 'standard', number: 'GB/T 7714-2025' }],
+  ])('retains identified facts for student completion: %s', (raw, fields) => {
+    expect(createPastedReference(raw)).toMatchObject({ ...fields, original_pasted_text: raw })
+  })
+})
+
+describe('reference fact fields', () => {
+  it('exposes the author of a standard and DOI when the format supports it', () => {
+    expect(REFERENCE_FIELDS.standard).toContain('authors')
+    for (const kind of ['conference', 'thesis', 'online', 'standard']) expect(REFERENCE_FIELDS[kind]).toContain('doi')
+  })
+})
+
+describe('DOI on pasted non-journal references', () => {
+  it.each([
+    ['张三. 系统研究[C]. 会议录, 北京: 出版社, 2024: 1-9. DOI: 10.1234/conf.24', 'conference'],
+    ['李四. 学位论文[D]. 成都: 大学, 2023: 1-9. DOI: 10.1234/thesis.23', 'thesis'],
+    ['王五. 专著[M]. 成都: 出版社, 2022: 2-5. DOI: 10.1234/book.22', 'book'],
+    ['标准名称[S]. ISO 1234, London: Press, 2025. DOI: 10.1234/std.25', 'standard'],
+    ['李四. 网页[EB/OL]. https://example.test/a（引用日期：2026-11-05）. DOI: 10.1234/web.26', 'online'],
+  ])('keeps DOI and original for %s', (raw, kind) => {
+    const reference = createPastedReference(raw)
+    expect(reference.kind).toBe(kind)
+    expect(reference.original_pasted_text).toBe(raw)
+    expect(reference.doi).toMatch(/^10\.1234\//)
+    expect(formatReference(reference, 1)).toContain(`DOI: ${reference.doi}`)
+  })
+  it('does not treat DOI-looking text within a URL as a separate identifier', () => {
+    const raw = '作者. 网页[EB/OL]. https://example.test/path.DOI:10.1234/value'
+    expect(createPastedReference(raw)).toMatchObject({ kind: 'online', url: 'https://example.test/path.DOI:10.1234/value', doi: '', original_pasted_text: raw })
   })
 })

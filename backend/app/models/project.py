@@ -136,6 +136,8 @@ class ParagraphBlock(BaseModel):
     inline_runs: list[InlineTextRun] = Field(default_factory=list)
     reference: ReferenceEntry | None = None
     reference_number: int | None = Field(default=None, ge=1)
+    # Server-owned: a pasted numeric prefix is source text, not the current display number.
+    reference_number_managed: bool = Field(default=False, json_schema_extra={"readOnly": True})
     image: ImageBlock | None = None
     table: TableBlock | None = None
     equation: EquationBlock | None = None

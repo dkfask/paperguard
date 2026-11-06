@@ -49,10 +49,10 @@ from app.services.generic_docx_renderer import (
 )
 from app.services.docx_output_check import (
     DocxOutputCheckError,
-    output_check_identity,
     safe_output_check_diagnostics,
     source_template_bytes,
     verify_report_binding,
+    verify_report_identity,
     verify_source_template_binding,
 )
 from app.services.manual_output_review import confirm_review, review_identity, review_matches, review_required, review_view
@@ -466,7 +466,7 @@ def _verified_render_output(store: Store, project_id: str, record: dict) -> tupl
     if artifact is None or artifact.project_id != project_id or artifact.render_job_id != record.get("id"):
         raise HTTPException(status_code=404, detail="渲染产物不存在")
     data = read_document_artifact(artifact)
-    if data is None or artifact.checksum != artifact.output_check.get("output_sha256") or not verify_report_binding(artifact.output_check, data):
+    if data is None or artifact.checksum != artifact.output_check.get("output_sha256") or not verify_report_binding(artifact.output_check, data, allow_previous_inspector=True):
         raise HTTPException(status_code=409, detail="核查候选与成品摘要不一致")
     snapshot = record.get("snapshot") or {}
     if record.get("snapshot_hash") != canonical_hash(snapshot):
@@ -503,7 +503,8 @@ def _verified_render_output(store: Store, project_id: str, record: dict) -> tupl
             data, snapshot_project, snapshot_package, snapshot_template,
             snapshot_template_version, snapshot_spec_version, context_kind="document-async",
         )
-        if output_check_identity(artifact.output_check) != output_check_identity(fresh_report):
+        if not verify_report_identity(artifact.output_check, fresh_report,
+                                      allow_previous_inspector=True):
             raise ValueError("output report identity mismatch")
         source_ref = snapshot_template_version.definition.source_docx or ""
         source_path = resolve_template_source(source_ref) if source_ref else None

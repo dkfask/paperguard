@@ -77,7 +77,10 @@ def historical_artifact(request, master, tmp_path, monkeypatch):
         data = rewrite(data, "word/document.xml", shade_body)
 
     current_report = inspect(master, data)
-    assert current_report["status"] == ("pass" if request.param == "visible" else "fail")
+    expected_report_status = "fail" if request.param in {
+        "hidden", "hidden-cover-label", "shaded", "black-highlight",
+    } else "pass"
+    assert current_report["status"] == expected_report_status
     if request.param != "visible":
         expected_rule = {"hidden": "master.content_visibility",
                          "hidden-cover-label": "master.field_label_visibility",
@@ -100,7 +103,16 @@ def historical_artifact(request, master, tmp_path, monkeypatch):
     assert all(item["status"] == "pass" for item in old_report["checks"])
     old_report["status"] = "pass"
     old_report["check_count"] = old_report["passed_count"] = len(old_report["checks"])
-    assert verify_report_binding(old_report, data)
+    old_report["inspector_version"] = "docx-output-check/9-master"
+    for key in ("acceptance_contract", "format_accuracy", "hard_blockers", "acceptance_status"):
+        old_report.pop(key, None)
+    for key in ("rule_accuracy", "failed_checks", "unverifiable_checks", "excluded_checks"):
+        old_report.pop(key, None)
+    for item in old_report["checks"]:
+        item.pop("check_id", None)
+        item.pop("classification", None)
+    assert not verify_report_binding(old_report, data)
+    assert verify_report_binding(old_report, data, allow_previous_inspector=True)
 
     artifact_path = tmp_path / "historical.docx"
     artifact_path.write_bytes(data)
@@ -125,7 +137,7 @@ def historical_artifact(request, master, tmp_path, monkeypatch):
 
 def test_historical_candidate_is_rechecked_with_current_visibility_rules(historical_artifact):
     case, _source, data, _old_report, candidate, version = historical_artifact
-    if case != "visible":
+    if case in {"hidden", "hidden-cover-label", "shaded", "black-highlight"}:
         with pytest.raises(DocxOutputCheckError):
             workflow._verified_candidate_artifact(None, candidate, version)
     else:
@@ -158,10 +170,43 @@ def test_historical_archive_is_rechecked_with_current_visibility_rules(historica
     }
     monkeypatch.setattr(workflow, "_archive_dir", lambda: tmp_path)
 
-    if case != "visible":
+    if case in {"hidden", "hidden-cover-label", "shaded", "black-highlight"}:
         with pytest.raises(DocxOutputCheckError):
             workflow._verified_archive_output(store, archive["id"], archive)
     else:
         _archive_bytes, checked, report = workflow._verified_archive_output(store, archive["id"], archive)
         assert checked == data
         assert report["visibility_check_version"] == "word-run-visibility/1"
+
+
+@pytest.mark.parametrize("historical_artifact", ["visible"], indirect=True)
+def test_previous_master_report_rejects_unknown_version_and_changed_files(historical_artifact, tmp_path):
+    _case, source, data, old_report, candidate, version = historical_artifact
+    artifact_path = tmp_path / "historical.docx"
+    checked, fresh = workflow._verified_candidate_artifact(None, candidate, version)
+    assert checked == data
+    assert fresh["inspector_version"] == "docx-output-check/10-master"
+    assert old_report["inspector_version"] == "docx-output-check/9-master"
+
+    original_profile = old_report["source_profile_sha256"]
+    old_report["source_profile_sha256"] = "f" * 64
+    with pytest.raises(ValueError):
+        workflow._verified_candidate_artifact(None, candidate, version)
+    old_report["source_profile_sha256"] = original_profile
+
+    old_report["inspector_version"] = "docx-output-check/7-master"
+    with pytest.raises(ValueError):
+        workflow._verified_candidate_artifact(None, candidate, version)
+    old_report["inspector_version"] = "docx-output-check/9-master"
+
+    artifact_path.write_bytes(data + b"tampered")
+    with pytest.raises(ValueError):
+        workflow._verified_candidate_artifact(None, candidate, version)
+    artifact_path.write_bytes(data)
+
+    original_source = source.read_bytes()
+    source.write_bytes(original_source + b"tampered")
+    with pytest.raises(ValueError):
+        workflow._verified_candidate_artifact(None, candidate, version)
+    source.write_bytes(original_source)
+    assert workflow._verified_candidate_artifact(None, candidate, version)[0] == data

@@ -22,7 +22,7 @@ _TYPE_MARKERS = {
 }
 
 _PASTED_HEADER = re.compile(
-    r"^([^。.]+)[.。]\s*([^。.]+?)\s*\[(J|M|D)\](?:\s*[.。]\s*|\s*$)(.*)$",
+    r"^([^。.]+)[.。]\s*([^。.]+?)\s*\[(EB/OL|J|M|D|C|S)\](?:\s*[.。]\s*|\s*$)(.*)$",
     re.IGNORECASE,
 )
 _PASTED_PAGES = r"[a-z]?\d+(?:[-–—][a-z]?\d+)?(?:\s*\+\s*[a-z]?\d+(?:[-–—][a-z]?\d+)?)*"
@@ -59,14 +59,32 @@ def _parse_pasted_reference(text: str) -> tuple[str, dict[str, str]] | None:
     source_text = _REFERENCE_NUMBER_PREFIX.sub("", text or "", count=1)
     source_text = re.sub(r"\s*\n\s*", " ", source_text.replace("\r\n", "\n").replace("\r", "\n")).strip()
     header = _PASTED_HEADER.fullmatch(source_text)
-    if not header:
+    standard_only = None if header else re.fullmatch(
+        r"([^。.]+?)\s*\[(S)\](?:\s*[.。]\s*|\s*$)(.*)", source_text, re.I,
+    )
+    if standard_only:
+        title, marker, tail = standard_only.groups()
+        fields = {"title": title.strip()}
+    elif header:
+        authors, title, marker, tail = header.groups()
+        fields = {"authors": authors.strip(), "title": title.strip()}
+    else:
         return None
-    authors, title, marker, tail = header.groups()
-    fields = {"authors": authors.strip(), "title": title.strip()}
     if not all(fields.values()):
         return None
-    kind = {"J": "journal", "M": "book", "D": "thesis"}[marker.upper()]
+    kind = {"J": "journal", "M": "book", "D": "thesis", "C": "conference",
+            "EB/OL": "online", "S": "standard"}[marker.upper()]
     tail = tail.strip()
+    if kind != "journal":
+        doi = re.search(r"(?:[.。]\s*|\s+)DOI\s*[:：]\s*(10\.\d{4,9}/\S+?)\s*[.。]?\s*$", tail, re.I)
+        if doi:
+            before = tail[:doi.start()].strip()
+            safe_online_separator = doi.group(0)[0].isspace() or re.search(
+                r"（引用日期[:：]\s*\d{4}-\d{2}-\d{2}）$", before,
+            )
+            if kind != "online" or safe_online_separator:
+                fields["doi"] = doi.group(1)
+                tail = before
     # A source may omit publication facts altogether. Those facts can then be
     # supplied by the student without changing or discarding the pasted text.
     if not tail:
@@ -95,6 +113,57 @@ def _parse_pasted_reference(text: str) -> tuple[str, dict[str, str]] | None:
                            ("pages", journal.group(5))):
             if value:
                 fields[key] = value.strip()
+    elif kind == "conference":
+        parts = re.fullmatch(
+            rf"([^,，.。:：]+)\s*[,，]\s*([^,，.。:：]+)\s*[:：]\s*([^,，.。:：]+)"
+            rf"\s*[,，]\s*((?:19|20)\d{{2}})(?:\s*[:：]\s*({_PASTED_PAGES})\s*)?\s*[.。]?", tail, re.I,
+        )
+        if parts:
+            fields.update(collection=parts.group(1).strip(), place=parts.group(2).strip(),
+                          publisher=parts.group(3).strip(), year=parts.group(4))
+            if not all(fields[key] for key in ("collection", "place", "publisher")):
+                return None
+            if parts.group(5):
+                fields["pages"] = parts.group(5).strip()
+        elif not re.search(r"[\d,，:：\[\].。]", tail):
+            fields["collection"] = tail
+        else:
+            return None
+    elif kind == "online":
+        parts = re.fullmatch(
+            r"(?:([^。.]+?)[.。]\s*)?(https?://[^\s（）]+?)(?:（引用日期[:：]\s*(\d{4}-\d{2}-\d{2})）)?",
+            tail, re.I,
+        )
+        if not parts or parts.group(2).endswith((".", "。")):
+            return None
+        prefix = (parts.group(1) or "").strip()
+        dated = re.fullmatch(r"([^,，]+?)[,，]\s*(\d{4}(?:-\d{2}(?:-\d{2})?)?)", prefix)
+        if dated:
+            fields.update(source=dated.group(1).strip(), publish_date=dated.group(2))
+        elif re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?", prefix):
+            fields["publish_date"] = prefix
+        elif prefix and not re.search(r"[,，]", prefix):
+            fields["source"] = prefix
+        elif prefix:
+            return None
+        fields["url"] = parts.group(2)
+        if parts.group(3):
+            fields["access_date"] = parts.group(3)
+    elif kind == "standard":
+        parts = re.fullmatch(
+            r"([A-Za-z][A-Za-z0-9/.\s-]*\d(?:[A-Za-z0-9/.-]*[A-Za-z0-9])?)"
+            r"(?:\s*[,，]\s*([^,，.。:：]+)\s*[:：]\s*([^,，.。:：]+))?"
+            r"(?:\s*[,，]\s*((?:19|20)\d{2}))?\s*[.。]?", tail,
+        )
+        if not parts:
+            return None
+        fields["number"] = parts.group(1).strip()
+        if parts.group(2):
+            fields.update(place=parts.group(2).strip(), publisher=parts.group(3).strip())
+            if not fields["place"] or not fields["publisher"]:
+                return None
+        if parts.group(4):
+            fields["year"] = parts.group(4)
     else:
         separators = list(re.finditer(r"[,，]\s*(?=(?:19|20)\d{2})", tail))
         if not separators and not re.search(r"\d|[,，\[\]]", tail):
@@ -124,8 +193,28 @@ def _parse_pasted_reference(text: str) -> tuple[str, dict[str, str]] | None:
 def _pasted_facts_preserved(entry: Any, original: str) -> bool:
     """Match the supplied header, then parse remaining source facts by position."""
     kind = getattr(entry, "kind", "")
-    if kind not in {"journal", "book", "thesis"}:
+    if kind not in _TYPE_MARKERS:
         return False
+
+    # Preserve the original URL and other source facts exactly for these types:
+    # URL paths and query values can be case-sensitive.
+    if kind in {"conference", "online", "standard"}:
+        text = _REFERENCE_NUMBER_PREFIX.sub("", original, count=1)
+        text = re.sub(r"\s*\n\s*", " ", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
+        authors = str(getattr(entry, "authors", "") or "").strip(" .。")
+        title = str(getattr(entry, "title", "") or "").strip(" .。")
+        if not authors or not title:
+            return False
+        marker = _TYPE_MARKERS[kind]
+        header = re.match(re.escape(authors) + r"\s*[.。]\s*" + re.escape(title)
+                          + r"\s*\[\s*" + re.escape(marker) + r"\s*\]", text, re.I)
+        if not header:
+            return False
+        parsed = _parse_pasted_reference(f"author. title[{marker}]{text[header.end():]}")
+        if parsed is None or parsed[0] != kind:
+            return False
+        return all(str(getattr(entry, field, "") or "").strip() == value
+                   for field, value in parsed[1].items() if field not in {"authors", "title"})
 
     def normalized(value: str) -> str:
         return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value).casefold()).strip(" .。")
@@ -481,7 +570,7 @@ def _legacy_number(block: Any) -> int | None:
 def _explicit_number(block: Any) -> int | None:
     stored = getattr(block, "reference_number", None)
     legacy = _legacy_number(block)
-    if stored is not None and legacy is not None and stored != legacy:
+    if stored is not None and legacy is not None and stored != legacy and not getattr(block, "reference_number_managed", False):
         raise ReferenceNumberError(f"参考文献 [{stored}] 的旧文本编号为 [{legacy}]，请核对正文引用后修正")
     return stored or legacy
 
@@ -492,8 +581,20 @@ def reference_number_for(block: Any, position: int) -> int:
 
 
 def validate_reference_numbers(project: Any) -> None:
-    """Reject ambiguous legacy numbering without changing the frozen project."""
-    reconcile_reference_numbers(project, project.model_copy(deep=True))
+    """Reject ambiguous ownership and, when configured, nonconsecutive output."""
+    _reconcile_legacy_reference_numbers(project, project.model_copy(deep=True))
+    if uses_sequential_reference_numbering(project):
+        blocks = [block for block in _reference_blocks(project) if reference_block_text(block).strip()]
+        numbers = [reference_number_for(block, index) for index, block in enumerate(blocks, 1)]
+        if numbers != list(range(1, len(numbers) + 1)):
+            locations = possible_numeric_citation_locations(project)
+            if locations:
+                raise ReferenceNumberError("参考文献编号不能安全重排；请检查 " + "、".join(locations[:5])
+                    + " 中可能受影响的引用，修正后重新保存参考文献。")
+            raise ReferenceNumberError("参考文献编号不连续，请重新保存参考文献后再导出。")
+        missing = missing_numeric_citation_locations(project, set(numbers))
+        if missing:
+            raise ReferenceNumberError("正文中存在无法对应参考文献的数字标记，请检查 " + "、".join(missing[:5]) + " 后再导出。")
 
 
 def merge_reference_number_owners(*reservations: dict[str, str]) -> dict[str, str]:
@@ -513,7 +614,7 @@ def merge_reference_number_owners(*reservations: dict[str, str]) -> dict[str, st
     return merged
 
 
-def reconcile_reference_numbers(previous: Any, updated: Any) -> None:
+def _reconcile_legacy_reference_numbers(previous: Any, updated: Any) -> None:
     """Keep citation numbers owned by the same block, including after deletion."""
     owners: dict[str, str] = dict(getattr(previous, "reference_number_owners", {}) or {})
     by_id: dict[str, int] = {}
@@ -563,3 +664,152 @@ def reconcile_reference_numbers(previous: Any, updated: Any) -> None:
             reserve(block, number)
             block.reference_number = number
     updated.reference_number_owners = owners
+
+
+def uses_sequential_reference_numbering(project: Any) -> bool:
+    """Only the frozen, explicitly configured pilot rule opts into renumbering."""
+    snapshot = getattr(project, "requirement_snapshot", None) or {}
+    items = snapshot.get("resolved_items", []) if isinstance(snapshot, dict) else []
+    return any(isinstance(item, dict) and item.get("checker") == "references.list_facts"
+               and isinstance(item.get("params"), dict)
+               and item["params"].get("numbering") == "sequential" for item in items)
+
+
+_POSSIBLE_NUMERIC_CITATION = re.compile(r"[\[【]\s*\d+(?:\s*[,，;；、\-–—~～]\s*\d+)*\s*[\]】]")
+_SUPERSCRIPT_DIGITS = re.compile(r"[⁰¹²³⁴⁵⁶⁷⁸⁹]+")
+_MEASURED_LENGTH_UNIT = re.compile(r"(?<![A-Za-z0-9_.])(?:\d+(?:\.\d+)?|\.\d+)\s*(?:km|cm|mm|m)\s*$")
+_MATH_VARIABLE = re.compile(r"(?<![A-Za-z0-9_])[A-Za-zα-ωΑ-Ω]\s*$")
+_MATH_CONTEXT_BEFORE = re.compile(r"(?:计算|变量|函数|表达式|公式|方程|求解|解得|代入|设|令|[=+*/×÷−(（])\s*$")
+_MATH_CONTEXT_AFTER = re.compile(r"^\s*[=+*/×÷−]")
+
+
+def _numeric_citation_evidence(project: Any, protected_numbers: set[int] | None = None) -> list[tuple[str, set[int] | None]]:
+    """Inspect editable text; bitmap pixels and other opaque payloads are outside this scan."""
+    evidence = []
+    if protected_numbers is None:
+        protected_numbers = {int(number) for number in (getattr(project, "reference_number_owners", {}) or {})
+                             if isinstance(number, str) and number.isdigit()}
+
+    def numbers(expression: str, location: str) -> None:
+        expression = unicodedata.normalize("NFKC", expression)
+        values = {int(item) for item in re.findall(r"\d+", expression)}
+        if not values:
+            return
+        for start, end in re.findall(r"(\d+)\s*[-–—~～]\s*(\d+)", expression):
+            left, right = int(start), int(end)
+            if right < left or right - left > 1000:
+                evidence.append((location, None))
+                return
+            values.update(range(left, right + 1))
+        evidence.append((location, values))
+
+    def mathematical_exponent(before: str, exponent: str, after: str) -> bool:
+        digits = unicodedata.normalize("NFKC", exponent)
+        if not digits.isdigit():
+            return False
+        if digits in {"2", "3"} and _MEASURED_LENGTH_UNIT.search(before):
+            return int(digits) not in protected_numbers
+        variable = _MATH_VARIABLE.search(before)
+        if variable is None:
+            return False
+        prefix = before[:variable.start()]
+        mathematical_context = (_MATH_CONTEXT_BEFORE.search(prefix) or _MATH_CONTEXT_AFTER.match(after)
+                                or (not prefix.strip() and not after.strip()))
+        # A number that already belonged to a reference must not silently change owners.
+        return bool(mathematical_context and int(digits) not in protected_numbers)
+
+    def examine(text: str, location: str) -> None:
+        original = str(text or "")
+        normalized = unicodedata.normalize("NFKC", original)
+        for match in _POSSIBLE_NUMERIC_CITATION.finditer(normalized):
+            numbers(match.group()[1:-1], location)
+        for match in _SUPERSCRIPT_DIGITS.finditer(original):
+            if not mathematical_exponent(original[:match.start()], match.group(), original[match.end():]):
+                numbers(match.group(), location)
+
+    for key, value in (getattr(project, "meta", {}) or {}).items():
+        examine(value, f"封面字段 {key}")
+    for section in project.sections:
+        if str(getattr(section.type, "value", section.type)) == "references" or section.key == "references":
+            continue
+        examine(section.title, f"章节 {section.key} 标题")
+        for block in section.paragraphs:
+            location = f"章节 {section.key} 内容块 {block.id}"
+            kind = str(getattr(block.type, "value", block.type))
+            if kind == "paragraph":
+                examine(block.text, location)
+                if block.inline_runs:
+                    if "".join(run.text for run in block.inline_runs) != block.text:
+                        evidence.append((location + "（行内文本不一致）", None))
+                    superscript = ""
+                    super_start = 0
+                    position = 0
+                    for run in block.inline_runs:
+                        if (run.vert_align if run.vert_align is not None else block.vert_align) == "superscript":
+                            if not superscript:
+                                super_start = position
+                            superscript += run.text
+                        elif superscript:
+                            if not mathematical_exponent(block.text[:super_start], superscript, block.text[position:]):
+                                numbers(superscript, location + "（上标数字）")
+                            superscript = ""
+                        position += len(run.text)
+                    if superscript and not mathematical_exponent(block.text[:super_start], superscript, ""):
+                        numbers(superscript, location + "（上标数字）")
+                elif block.vert_align == "superscript":
+                    numbers(block.text, location + "（上标数字）")
+            elif kind == "image" and block.image:
+                examine(block.image.caption, location + " 图题")
+            elif kind == "table" and block.table:
+                examine(block.table.caption, location + " 表题")
+                for row, cells in enumerate(block.table.cells):
+                    for column, text in enumerate(cells):
+                        examine(text, f"{location} 表格第 {row + 1} 行第 {column + 1} 列")
+                if block.table.source_xml:
+                    evidence.append((location + "（原始表格结构待核验）", None))
+            elif kind == "equation":
+                evidence.append((location + "（公式内容待核验）", None))
+            else:
+                evidence.append((location + "（内容类型待核验）", None))
+    return evidence
+
+
+def possible_numeric_citation_locations(project: Any) -> list[str]:
+    return list(dict.fromkeys(location for location, _ in _numeric_citation_evidence(project)))
+
+
+def missing_numeric_citation_locations(project: Any, known_numbers: set[int]) -> list[str]:
+    return list(dict.fromkeys(location for location, numbers in _numeric_citation_evidence(project)
+                              if numbers is None or not numbers.issubset(known_numbers)))
+
+
+def reconcile_reference_numbers(previous: Any, updated: Any) -> None:
+    if not uses_sequential_reference_numbering(updated):
+        _reconcile_legacy_reference_numbers(previous, updated)
+        return
+    canonical = previous.model_copy(deep=True)
+    _reconcile_legacy_reference_numbers(previous, canonical)
+    old_blocks = {block.id: block for block in _reference_blocks(canonical)}
+    blocks = _reference_blocks(updated)
+    if len({block.id for block in blocks}) != len(blocks):
+        raise ReferenceNumberError("参考文献存在重复条目标识，请核对后再保存")
+    for block in blocks:
+        old = old_blocks.get(block.id)
+        if old is not None and block.reference_number is not None and block.reference_number != old.reference_number:
+            raise ReferenceNumberError(f"参考文献 {block.id} 的编号被修改，请刷新后重试")
+        if old is None and block.reference_number is not None:
+            raise ReferenceNumberError(f"新参考文献 {block.id} 的编号由系统分配，请刷新后重试")
+    active = [block for block in blocks if reference_block_text(block).strip()]
+    protected_numbers = {int(number) for number in canonical.reference_number_owners}
+    if _numeric_citation_evidence(updated, protected_numbers):
+        _reconcile_legacy_reference_numbers(canonical, updated)
+        return
+    updated.reference_number_owners = {}
+    for index, block in enumerate(active, 1):
+        block.reference_number = index
+        block.reference_number_managed = True
+        updated.reference_number_owners[str(index)] = block.id
+    for block in blocks:
+        if block not in active:
+            block.reference_number = None
+            block.reference_number_managed = False

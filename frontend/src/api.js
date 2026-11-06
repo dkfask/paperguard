@@ -717,10 +717,21 @@ export async function updateUserOrganizationContext(userId, organizationContext)
 
 // ---------- 论文指导业务闭环 ----------
 
-async function workflowJson(url, options = {}, fallback = '操作失败') {
-  const resp = await api(url, options)
+async function workflowJson(url, options = {}, fallback = '操作失败', networkErrorKey = '') {
+  let resp
+  try {
+    resp = await api(url, options)
+  } catch (error) {
+    if (networkErrorKey && error instanceof TypeError) throw new Error(translate(networkErrorKey), { cause: error })
+    throw error
+  }
   if (!resp.ok) throw await responseError(resp, fallback)
-  return resp.json()
+  try {
+    return await resp.json()
+  } catch (error) {
+    if (networkErrorKey && (error instanceof TypeError || error instanceof SyntaxError)) throw new Error(translate(networkErrorKey), { cause: error })
+    throw error
+  }
 }
 
 export async function fetchCohorts() {
@@ -900,13 +911,13 @@ export async function extendTaskDeadline(participantId, payload) {
 export async function createSubmissionCandidate(payload) {
   return workflowJson(`${API_BASE}/submission-candidates`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-  }, '准备提交失败')
+  }, '准备提交失败', 'workflow.precheckNetworkError')
 }
 
 export async function confirmSubmission(payload) {
   return workflowJson(`${API_BASE}/submissions`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-  }, '确认提交失败')
+  }, '确认提交失败', 'workflow.submissionNetworkError')
 }
 
 export async function fetchSubmissions() {
@@ -1375,6 +1386,16 @@ export async function confirmDocumentTemplateCandidate(candidate) {
     body: JSON.stringify(candidate),
   })
   if (!resp.ok) throw await responseError(resp, '确认 Word 模板失败')
+  return resp.json()
+}
+
+export async function publishPaperTemplateFromCandidate(candidateId) {
+  const resp = await api(`${API_BASE}/templates/parse/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ candidate_id: candidateId }),
+  })
+  if (!resp.ok) throw await responseError(resp, '发布论文模板失败')
   return resp.json()
 }
 

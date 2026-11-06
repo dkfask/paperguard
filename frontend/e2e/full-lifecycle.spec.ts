@@ -1,4 +1,5 @@
 import { expect, request, test, type Page } from '@playwright/test'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -13,7 +14,7 @@ const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD
 
 const files = {
   paper: path.join(DATA_ROOT, '其他过程材料', '22016022205+王俞尹+毕业论文-计软学院-4.7.docx'),
-  template: path.join(TEMPLATE_ROOT, '阅读7-成都东软学院本科毕业设计报告样例.docx'),
+  template: path.join(TEMPLATE_ROOT, '..', '毕业设计（论文）毕业论文（报告）-物联网工程-软硬件结合项目内容参考模板 - 1101.docx'),
   policy: path.join(TEMPLATE_ROOT, '阅读4-成都东软学院本科生毕业设计报告（论文）撰写规范.pdf'),
   taskBook: path.join(DATA_ROOT, '22016022205+王俞尹+任务书-计软学院.docx'),
   openingReport: path.join(DATA_ROOT, '22016022205-王俞尹-开题报告-计软学院.docx'),
@@ -22,6 +23,10 @@ const files = {
 
 function suffix() {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+}
+
+function sha256(data: Buffer | string) {
+  return createHash('sha256').update(data).digest('hex')
 }
 
 function futureLocalDate(hours: number) {
@@ -112,9 +117,16 @@ async function submitMaterial(page: Page, artifactType: string, title: string, a
 async function completeRequiredWriterGates(page: Page, thesisTitle: string) {
   const requiredSections = [
     { pattern: /摘\s*要/, text: '本文根据学校毕业设计论文模板完成格式与流程回归测试，验证论文结构、过程材料和导出结果。' },
+    { pattern: /关键词/, text: '物联网；论文格式；系统测试' },
     { pattern: /Abstract/i, text: 'This regression test validates the thesis workflow, required sections, process materials, and template based export.' },
-    { pattern: /关键技术介绍/, text: '本章补充关键技术介绍，用于验证模板要求章节的编辑、保存和检查流程。' },
+    { pattern: /Key\s*Words/i, text: 'Internet of Things; thesis format; system testing' },
+    { pattern: /绪论/, text: '本章介绍课题背景和研究目标。' },
+    { pattern: /关键技术/, text: '本章介绍系统采用的关键技术。' },
+    { pattern: /系统分析/, text: '本章分析系统的主要功能和使用需求。' },
+    { pattern: /系统设计/, text: '本章介绍系统总体设计及主要模块。' },
+    { pattern: /系统实现/, text: '本章介绍系统主要功能的实现。' },
     { pattern: /系统测试/, text: '本章补充系统测试内容，用于验证完整论文导出前的必填门禁。' },
+    { pattern: /结论/, text: '本文总结系统设计、实现及测试结果。' },
   ]
 
   for (const section of requiredSections) {
@@ -140,6 +152,52 @@ async function completeRequiredWriterGates(page: Page, thesisTitle: string) {
     await expect(page.locator('.writer-save-status')).not.toHaveClass(/pending/)
   }
 
+  // The 1101 master also contains optional second- and third-level headings.
+  // Populate them so the sample exercises complete sections, including the
+  // Word check that a heading stays with its following content.
+  const projectId = new URL(page.url()).pathname.split('/').pop()
+  const token = await page.evaluate(() => sessionStorage.getItem('pg_token'))
+  const projectResponse = await page.request.get(`/api/projects/${projectId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  expect(projectResponse.ok()).toBeTruthy()
+  const project = await projectResponse.json()
+  for (const section of project.sections.filter((item: { type: string }) => ['heading2', 'heading3'].includes(item.type))) {
+    await page.getByRole('button', { name: '章节大纲', exact: true }).click()
+    const row = page.locator('.nav-row').filter({ has: page.getByText(section.title, { exact: true }) })
+    await expect(row).toHaveCount(1)
+    await row.click()
+    let paragraph = page.locator('textarea.para-text').first()
+    if (!await paragraph.count()) {
+      await page.locator('.insert-row button.primary').first().click()
+      paragraph = page.locator('textarea.para-text').first()
+    }
+    await paragraph.fill('本节介绍相关设计和实现，用于验证论文写作与格式导出。')
+    await expect(page.locator('.writer-save-status')).not.toHaveClass(/pending/)
+  }
+
+  await page.getByRole('button', { name: '章节大纲', exact: true }).click()
+  await page.locator('.nav-row').filter({ hasText: /参考文献/ }).first().click()
+  const references = page.locator('[data-test="references-editor"]')
+  await references.getByRole('button', { name: /添加文献/ }).click()
+  const reference = references.locator('.reference-card').last()
+  for (const [field, value] of Object.entries({ authors: '张三', title: '物联网系统测试方法', source: '计算机应用研究', year: '2026' })) {
+    await reference.locator(`[data-test="reference-field-${field}"]`).fill(value)
+  }
+  await expect(page.locator('.writer-save-status')).not.toHaveClass(/pending/)
+
+  await page.getByRole('button', { name: '章节大纲', exact: true }).click()
+  await page.locator('.nav-row').filter({ hasText: /系统设计/ }).first().click()
+  await page.locator('.insert-row button').nth(1).click()
+  await page.locator('.image-block .image-upload').click()
+  await page.locator('input[type=file][accept*="image/png"]').setInputFiles(path.resolve('public/icon-shield.png'))
+  await expect(page.locator('.image-block .image-preview img')).toBeVisible()
+  await page.locator('.image-block .caption-input').fill('系统结构示意图')
+  await page.locator('.insert-row button').nth(2).click()
+  await page.locator('.table-block .cell-grid input').first().fill('测试项目')
+  await page.locator('.table-block .caption-input').fill('系统设计测试表')
+  await expect(page.locator('.writer-save-status')).not.toHaveClass(/pending/)
+
   await page.getByRole('button', { name: '章节大纲', exact: true }).click()
   const coverRow = page.locator('.nav-row').filter({ hasText: /封面/ }).first()
   await expect(coverRow).toHaveCount(1)
@@ -156,7 +214,7 @@ async function completeRequiredWriterGates(page: Page, thesisTitle: string) {
 test.describe('PaperGuard browser lifecycle', () => {
   test('admin teacher student complete lifecycle with real thesis files', async ({ browser }, testInfo) => {
     // Includes two submissions, return/revision, and an actual archive worker/download.
-    test.setTimeout(300_000)
+    test.setTimeout(1_800_000)
     test.skip(testInfo.project.name !== 'chromium', 'Full lifecycle is intentionally desktop-only; responsive shell is covered below.')
     if (!ADMIN_PASSWORD) throw new Error('E2E_ADMIN_PASSWORD is required')
     for (const file of Object.values(files)) expect(fs.existsSync(file), `missing test file: ${file}`).toBeTruthy()
@@ -204,19 +262,18 @@ test.describe('PaperGuard browser lifecycle', () => {
     }
 
     try {
-      await new LoginPage(teacher).createFixtureAccount(teacherUsername, teacherPassword, teacherDisplay, 'teacher')
+      const teacherRegistration = await teacher.request.post('/api/auth/register', {
+        data: { username: teacherUsername, password: teacherPassword, display_name: teacherDisplay, role: 'teacher' },
+      })
+      expect(teacherRegistration.status()).toBe(201)
+      expect((await teacherRegistration.json()).role).toBe('user')
 
       adminPasswordMayHaveChanged = true
       await new LoginPage(admin).login('admin', ADMIN_PASSWORD, adminReplacementPassword)
       await admin.goto('/admin/users')
       const directory = new PaperGuardPage(admin)
-      const teacherDialog = await directory.openUserDetails(teacherUsername)
-      await new PaperGuardPage(admin).waitForMutation('/role-status', async () => {
-        await teacherDialog.getByRole('button', { name: '通过认证' }).click()
-      }, 'PUT')
-      await directory.closeDetails()
-      await expect(await directory.userRow(teacherUsername)).toContainText('已认证')
-      await checkpoint('administrator-certified-teacher', admin)
+      await directory.assignBusinessRole(teacherUsername, 'teacher')
+      await checkpoint('administrator-assigned-teacher', admin)
 
       await admin.goto('/organizations')
       await admin.getByRole('button', { name: '新建组织' }).click()
@@ -240,7 +297,7 @@ test.describe('PaperGuard browser lifecycle', () => {
 
       await new LoginPage(teacher).login(teacherUsername, teacherPassword)
       await teacher.goto('/templates')
-      await new PaperGuardPage(teacher).waitForMutation('/templates/import', async () => {
+      await new PaperGuardPage(teacher).waitForMutation('/templates/parse', async () => {
         await teacher.locator('input[type=file]').first().setInputFiles(files.template)
       })
       await expect(teacher.getByText(/识别结果/)).toBeVisible()
@@ -250,9 +307,44 @@ test.describe('PaperGuard browser lifecycle', () => {
       for (const label of ['英文摘要', '中文关键词', '英文关键词']) await expect(otherStyles.locator('summary').filter({ hasText: label })).toHaveCount(1)
       await expect(teacher.getByRole('dialog')).not.toContainText(/english_abstract|english_keywords|\bkeywords\b/)
       await checkpoint('teacher-imported-style-preview', teacher)
-      await new PaperGuardPage(teacher).waitForMutation('/api/templates', async () => {
-        await teacher.getByRole('button', { name: '确认并创建模板' }).click()
-      })
+
+      const profile = teacher.locator('[data-test="writing-profile-confirmation"]')
+      await profile.getByRole('checkbox', { name: /如果目录条目没有对应正文标题/ }).check()
+      await profile.getByRole('button', { name: '预览执行配置', exact: true }).click()
+      await expect(profile.locator('[data-test="writing-profile-plan"]')).toBeVisible()
+      const removedToc = profile.locator('[data-test="writing-profile-plan"] details').filter({ hasText: '将清理的失配目录项' })
+      for (const entry of [/2\.4\s*物联网安全技术/, /3\.3\s*物联网系统数据分析/, /附\s*录/]) {
+        await expect(removedToc).toContainText(entry)
+      }
+      const digitRules = profile.locator('[data-test="digit-font-review"] input[type="checkbox"]')
+      for (const rule of await digitRules.all()) await rule.check()
+      if (await digitRules.count()) {
+        const digitPreviewResponse = teacher.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return url.pathname === '/api/templates/parse/writing-profile'
+            && response.request().method() === 'POST'
+        }, { timeout: 600_000 })
+        await profile.getByRole('button', { name: '预览执行配置', exact: true }).click()
+        const response = await digitPreviewResponse
+        expect(response.ok(), await response.text()).toBeTruthy()
+        await expect(profile.locator('[data-test="writing-profile-plan"]')).toBeVisible()
+      }
+      for (const [labelText, expected] of [
+        ['已核对原文要求、差异项和上述执行格式；采用此配置并冻结章节结构。', true],
+        ['从学生成品移除已识别的模板填写说明和示例正文。', true],
+        ['采用上述图表样式和按章编号；新增图片适应版心并保持比例，表格适应版心并重复表头。未从示例推断全局固定大小。', true],
+      ] as const) {
+        await profile.locator('label.ack').filter({ hasText: labelText }).locator('input[type="checkbox"]').setChecked(expected)
+      }
+      await checkpoint('teacher-reviewed-1101-writing-profile', teacher)
+      const confirmResponse = teacher.waitForResponse((response) => {
+        const url = new URL(response.url())
+        return url.pathname === '/api/templates/parse/confirm'
+          && response.request().method() === 'POST'
+      }, { timeout: 600_000 })
+      await profile.getByRole('button', { name: '确认并发布此版本', exact: true }).click()
+      const confirmed = await confirmResponse
+      expect(confirmed.ok(), await confirmed.text()).toBeTruthy()
       await expect(teacher).toHaveURL(/\/templates\/[^/]+\/edit/)
       const importedTemplateId = new URL(teacher.url()).pathname.split('/')[2]
       const importedTemplate = await teacher.request.get(`/api/templates/${importedTemplateId}`, {
@@ -260,6 +352,19 @@ test.describe('PaperGuard browser lifecycle', () => {
       })
       expect(importedTemplate.ok()).toBeTruthy()
       const importedDefinition = await importedTemplate.json()
+      const templateSourceSha256 = sha256(fs.readFileSync(files.template))
+      expect(importedDefinition.admission_provenance.source_docx_sha256).toBe(templateSourceSha256)
+      expect(importedDefinition.admission_provenance.candidate_id).toMatch(/^tplcand-/)
+      expect(importedDefinition.admission_provenance.trial_evidence_sha256).toMatch(/^[a-f0-9]{64}$/)
+      const admissionResponse = await teacher.request.post('/api/templates/admission/assess', {
+        headers: { Authorization: `Bearer ${await teacher.evaluate(() => sessionStorage.getItem('pg_token'))}` },
+        data: importedDefinition,
+      })
+      expect(admissionResponse.ok(), await admissionResponse.text()).toBeTruthy()
+      const admission = await admissionResponse.json()
+      expect(admission.source_docx_sha256).toBe(templateSourceSha256)
+      expect(admission.can_use_for_draft).toBe(true)
+      expect(admission.blockers).toEqual([])
       expect(importedDefinition.sections.find((section: { type: string }) => section.type === 'english_abstract').title).toBe('Abstract')
       const flattenSections = (sections: any[]): any[] => sections.flatMap(section => [section, ...flattenSections(section.children || [])])
       expect(flattenSections(importedDefinition.sections).filter(section => section.type.startsWith('heading') && /abstract|keywords?|关键词/i.test(section.title))).toEqual([])
@@ -297,7 +402,14 @@ test.describe('PaperGuard browser lifecycle', () => {
       await expect(policyEditor).toContainText('已发布')
       await checkpoint('teacher-published-policy')
 
-      await new LoginPage(student).createFixtureAccount(studentUsername, studentPassword, studentDisplay, 'student')
+      const studentRegistration = await student.request.post('/api/auth/register', {
+        data: { username: studentUsername, password: studentPassword, display_name: studentDisplay, role: 'student' },
+      })
+      expect(studentRegistration.status()).toBe(201)
+      expect((await studentRegistration.json()).role).toBe('user')
+      await admin.goto('/admin/users')
+      await directory.assignBusinessRole(studentUsername, 'student')
+      await checkpoint('administrator-assigned-student', admin)
       await teacher.goto('/workflow')
       const workflow = new PaperGuardPage(teacher)
       await expect(teacher.locator('.workflow-sync-state')).toHaveCount(0)
@@ -417,13 +529,7 @@ test.describe('PaperGuard browser lifecycle', () => {
       await taskAfterMaterials.getByRole('link', { name: '继续写作' }).click()
       await expect(student).toHaveURL(/\/write\//)
       await expect(student.locator('.writer-shell')).toBeVisible()
-      await new PaperGuardPage(student).waitForMutation('/import-docx', async () => {
-        await student.locator('input[type=file][accept=".docx"]').setInputFiles(files.paper)
-      })
-      await expect(student.locator('.import-modal')).toBeVisible()
-      await new PaperGuardPage(student).waitForMutation('/import-docx', async () => {
-        await student.locator('.import-modal').getByRole('button', { name: '应用到当前草稿' }).click()
-      })
+      // 主写作路径必须由学生在系统内完成；整篇 DOCX 迁移留作独立可选入口。
       await expect(student.locator('.writer-shell')).toBeVisible()
       await student.getByRole('button', { name: '检查', exact: true }).click()
       await expect(student.locator('.check-panel')).toBeVisible({ timeout: 60_000 })
@@ -432,7 +538,7 @@ test.describe('PaperGuard browser lifecycle', () => {
 
       // 学生须完成模板门禁后正常导出；空稿阻断由 simple-writing-loop 覆盖。
       await completeRequiredWriterGates(student, thesisTitle)
-      const exporting = student.waitForEvent('download', { timeout: 45_000 })
+      const exporting = student.waitForEvent('download', { timeout: 300_000 })
       await student.locator('.writer-export-action').click()
       const download = await exporting
       expect(download).toBeTruthy()
@@ -443,11 +549,36 @@ test.describe('PaperGuard browser lifecycle', () => {
 
       await student.goto('/workflow')
       const finalTask = await studentWorkflow.openStudentTask(cohortName)
-      await studentWorkflow.submitTask(finalTask)
+      const firstSubmissionResult = await studentWorkflow.submitTask(finalTask)
+      const firstCandidate = firstSubmissionResult.candidate
+      const firstSubmission = firstSubmissionResult.result.submission
+      expect(firstCandidate.status).toBe('ready')
+      expect(firstCandidate.artifact.docx_sha256).toMatch(/^[a-f0-9]{64}$/)
+      expect(firstSubmission.candidate_id).toBe(firstCandidate.id)
+      expect(firstSubmission.project_version_id).toBe(firstCandidate.project_version_id)
+      expect(firstSubmissionResult.result.candidate.content_hash).toBe(firstCandidate.content_hash)
       await checkpoint('student-first-submission', student)
       await student.waitForLoadState('networkidle')
 
       let reviewPanel = await teacherWorkflow.openReview(thesisTitle)
+      const teacherToken = await teacher.evaluate(() => sessionStorage.getItem('pg_token'))
+      const firstSubmissionDetailResponse = await teacher.request.get(`/api/submissions/${firstSubmission.id}`, {
+        headers: { Authorization: `Bearer ${teacherToken}` },
+      })
+      expect(firstSubmissionDetailResponse.ok()).toBeTruthy()
+      const firstSubmissionDetail = await firstSubmissionDetailResponse.json()
+      expect(firstSubmissionDetail.version.id).toBe(firstCandidate.project_version_id)
+      expect(firstSubmissionDetail.version.content_hash).toBe(firstCandidate.content_hash)
+      expect(firstSubmissionDetail.candidate.artifact.docx_sha256).toBe(firstCandidate.artifact.docx_sha256)
+      const firstSubmissionBlockIds = firstSubmissionDetail.version.content_snapshot.sections
+        .flatMap((section: any) => section.paragraphs || [])
+        .map((block: any) => block.id)
+        .filter(Boolean)
+      const firstDocxDownload = teacher.waitForEvent('download')
+      await reviewPanel.locator('[data-test="download-submission-document"]').click()
+      const firstDocxPath = await (await firstDocxDownload).path()
+      expect(firstDocxPath).toBeTruthy()
+      expect(sha256(fs.readFileSync(firstDocxPath!))).toBe(firstCandidate.artifact.docx_sha256)
       await checkpoint('teacher-review-open', teacher)
       const reviewDialog = teacher.getByRole('dialog')
       const keyboardDecisions = new Set<string>()
@@ -463,10 +594,21 @@ test.describe('PaperGuard browser lifecycle', () => {
       // Validation and feedback are tested before the actual return.
       await reviewPanel.getByRole('button', { name: '退回修改', exact: true }).click()
       await expect(teacher.locator('.error-banner')).toContainText('退回必须填写原因')
+      const selectedBlock = reviewPanel.locator('[data-test="select-review-block"]').first()
+      await selectedBlock.click()
+      await expect(selectedBlock).toHaveAttribute('aria-pressed', 'true')
       await reviewPanel.locator('.review-compose textarea').fill('请补充系统测试结论')
-      await new PaperGuardPage(teacher).waitForMutation('/comments', async () => {
+      const firstCommentResponse = teacher.waitForResponse((response) => {
+        const url = new URL(response.url())
+        return url.pathname === `/api/submissions/${firstSubmission.id}/comments`
+          && response.request().method() === 'POST'
+      })
+      await new PaperGuardPage(teacher).waitForMutation(`/api/submissions/${firstSubmission.id}/comments`, async () => {
         await reviewPanel.getByRole('button', { name: '新增批注', exact: true }).click()
       })
+      const firstComment = await (await firstCommentResponse).json()
+      expect(firstComment.block_id).toBeTruthy()
+      expect(firstSubmissionBlockIds).toContain(firstComment.block_id)
       await reviewPanel.locator('.review-decision textarea').fill('请补充系统测试结论后重新提交')
       await new PaperGuardPage(teacher).waitForMutation('/review', async () => {
         await reviewPanel.getByRole('button', { name: '退回修改', exact: true }).click()
@@ -537,7 +679,16 @@ test.describe('PaperGuard browser lifecycle', () => {
       await checkpoint('student-revision-persisted')
       await student.goto('/workflow')
       const resubmitTask = await studentWorkflow.openStudentTask(cohortName)
-      await studentWorkflow.submitTask(resubmitTask)
+      const secondSubmissionResult = await studentWorkflow.submitTask(resubmitTask)
+      const secondCandidate = secondSubmissionResult.candidate
+      const secondSubmission = secondSubmissionResult.result.submission
+      expect(secondCandidate.status).toBe('ready')
+      expect(secondCandidate.prior_submission_id).toBe(firstSubmission.id)
+      expect(secondCandidate.artifact.docx_sha256).toMatch(/^[a-f0-9]{64}$/)
+      expect(secondSubmission.candidate_id).toBe(secondCandidate.id)
+      expect(secondSubmission.project_version_id).toBe(secondCandidate.project_version_id)
+      expect(secondSubmission.project_version_id).not.toBe(firstSubmission.project_version_id)
+      expect(secondSubmissionResult.result.candidate.content_hash).toBe(secondCandidate.content_hash)
       await checkpoint('student-second-submission')
       await student.goto('/workflow?panel=submissions')
       await expect(student.locator('.screen-collection').filter({ has: student.locator('.history-row') }).first()).toContainText('共 2 项')
@@ -547,12 +698,62 @@ test.describe('PaperGuard browser lifecycle', () => {
       await expect(student.locator('.history-detail')).toContainText(firstSubmissionNumber)
       await expect(student.locator('.history-detail')).toContainText('请补充系统测试结论后重新提交')
       await expect(student.locator('.history-detail')).toContainText('收到，正在补充系统测试结论。')
+      const firstSubmissionAfterResubmit = await teacher.request.get(`/api/submissions/${firstSubmission.id}`, {
+        headers: { Authorization: `Bearer ${teacherToken}` },
+      })
+      expect(firstSubmissionAfterResubmit.ok()).toBeTruthy()
+      const firstSubmissionAfterResubmitBody = await firstSubmissionAfterResubmit.json()
+      expect(firstSubmissionAfterResubmitBody.version.id).toBe(firstCandidate.project_version_id)
+      expect(firstSubmissionAfterResubmitBody.version.content_hash).toBe(firstCandidate.content_hash)
+      expect(firstSubmissionAfterResubmitBody.candidate.artifact.docx_sha256).toBe(firstCandidate.artifact.docx_sha256)
       await checkpoint('student-older-history-action', student)
 
       reviewPanel = await teacherWorkflow.openReview(thesisTitle)
-      await new PaperGuardPage(teacher).waitForMutation('/review', async () => {
+      const secondSubmissionDetailResponse = await teacher.request.get(`/api/submissions/${secondSubmission.id}`, {
+        headers: { Authorization: `Bearer ${teacherToken}` },
+      })
+      expect(secondSubmissionDetailResponse.ok()).toBeTruthy()
+      const secondSubmissionDetail = await secondSubmissionDetailResponse.json()
+      expect(secondSubmissionDetail.version.id).toBe(secondCandidate.project_version_id)
+      expect(secondSubmissionDetail.version.content_hash).toBe(secondCandidate.content_hash)
+      expect(secondSubmissionDetail.candidate.artifact.docx_sha256).toBe(secondCandidate.artifact.docx_sha256)
+      const secondSubmissionBlockIds = secondSubmissionDetail.version.content_snapshot.sections
+        .flatMap((section: any) => section.paragraphs || [])
+        .map((block: any) => block.id)
+        .filter(Boolean)
+      const secondDocxDownload = teacher.waitForEvent('download')
+      await reviewPanel.locator('[data-test="download-submission-document"]').click()
+      const secondDocxPath = await (await secondDocxDownload).path()
+      expect(secondDocxPath).toBeTruthy()
+      expect(sha256(fs.readFileSync(secondDocxPath!))).toBe(secondCandidate.artifact.docx_sha256)
+      const secondSelectedBlock = reviewPanel.locator('[data-test="select-review-block"]').first()
+      await secondSelectedBlock.click()
+      await expect(secondSelectedBlock).toHaveAttribute('aria-pressed', 'true')
+      await reviewPanel.locator('.review-compose textarea').fill('已核对修订版，正文内容符合要求。')
+      const secondCommentResponse = teacher.waitForResponse((response) => {
+        const url = new URL(response.url())
+        return url.pathname === `/api/submissions/${secondSubmission.id}/comments`
+          && response.request().method() === 'POST'
+      })
+      await new PaperGuardPage(teacher).waitForMutation(`/api/submissions/${secondSubmission.id}/comments`, async () => {
+        await reviewPanel.getByRole('button', { name: '新增批注', exact: true }).click()
+      })
+      const secondComment = await (await secondCommentResponse).json()
+      expect(secondComment.block_id).toBeTruthy()
+      expect(secondSubmissionBlockIds).toContain(secondComment.block_id)
+      const secondReviewResponse = teacher.waitForResponse((response) => {
+        const url = new URL(response.url())
+        return url.pathname === `/api/submissions/${secondSubmission.id}/reviews`
+          && response.request().method() === 'POST'
+      })
+      await new PaperGuardPage(teacher).waitForMutation(`/api/submissions/${secondSubmission.id}/reviews`, async () => {
         await reviewPanel.getByRole('button', { name: '通过提交' }).click()
       })
+      const approvedReview = await (await secondReviewResponse).json()
+      expect(approvedReview.submission.id).toBe(secondSubmission.id)
+      expect(approvedReview.submission.project_version_id).toBe(secondCandidate.project_version_id)
+      expect(approvedReview.archive.submission_id).toBe(secondSubmission.id)
+      expect(approvedReview.archive.job_id).toBeTruthy()
       await expect(teacher.locator('.ok-banner')).toContainText('提交已通过')
       await checkpoint('teacher-approved-revision')
       await teacher.waitForLoadState('networkidle')
@@ -561,11 +762,24 @@ test.describe('PaperGuard browser lifecycle', () => {
       await expect(admin.locator('.workflow-page')).toBeVisible()
       await expect(admin.locator('.workflow-sync-state')).toHaveCount(0)
       await admin.waitForLoadState('networkidle')
-      await expect(admin.locator('body')).toContainText(/生成归档|暂无提交或归档记录/)
-      await new PaperGuardPage(admin).waitForMutation('/api/archives', async () => {
-        await admin.locator('.archive-row').filter({ hasText: thesisTitle }).getByRole('button', { name: '生成归档', exact: true }).click()
-      })
-      await checkpoint('administrator-archive-queued')
+      await expect(admin.locator('body')).toContainText(/归档|暂无提交或归档记录/)
+      // 终稿接受后由后台 worker 自动排队，验收路径不再手动创建归档。
+      await checkpoint('administrator-archive-auto-queued')
+      const adminToken = await admin.evaluate(() => sessionStorage.getItem('pg_token'))
+      await expect.poll(async () => {
+        const response = await admin.request.get(`/api/jobs/${approvedReview.archive.job_id}`, {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        })
+        if (!response.ok()) return ''
+        const job = await response.json()
+        expect(job.id).toBe(approvedReview.archive.job_id)
+        expect(job.job_type).toBe('archive.generate')
+        expect(job.resource_type).toBe('archive')
+        expect(job.resource_id).toBe(approvedReview.archive.id)
+        expect(job.archive.submission_id).toBe(secondSubmission.id)
+        if (job.state === 'succeeded') expect(job.archive.status).toBe('succeeded')
+        return job.state
+      }, { timeout: 60_000, intervals: [1000, 2000, 5000] }).toBe('succeeded')
       await expect.poll(async () => {
         await admin.reload()
         await expect(admin.locator('.workflow-page')).toBeVisible()
@@ -578,12 +792,18 @@ test.describe('PaperGuard browser lifecycle', () => {
       expect(archivePath).toBeTruthy()
       const python = process.env.E2E_PYTHON_BIN || 'python'
       const archiveCheck = JSON.parse(execFileSync(python, ['-c',
-        'import zipfile,json,sys,hashlib; z=zipfile.ZipFile(sys.argv[1]); m=json.loads(z.read("manifest.json")); print(json.dumps({"bad_file":z.testzip(),"names":z.namelist(),"hashes_match":all(hashlib.sha256(z.read(f["name"])).hexdigest()==f["sha256"] for f in m["files"])}))',
+        'import zipfile,json,sys,hashlib; z=zipfile.ZipFile(sys.argv[1]); m=json.loads(z.read("manifest.json")); final=z.read("final.docx"); entry=next(f for f in m["files"] if f["name"]=="final.docx"); print(json.dumps({"bad_file":z.testzip(),"names":z.namelist(),"hashes_match":all(hashlib.sha256(z.read(f["name"])).hexdigest()==f["sha256"] for f in m["files"]),"archive_id":m["archive_id"],"submission_id":m["submission_id"],"project_version_id":m["project_version_id"],"content_hash":m["content_hash"],"final_sha256":hashlib.sha256(final).hexdigest(),"manifest_final_sha256":entry["sha256"]}))',
         archivePath!,
       ], { encoding: 'utf8' }))
       expect(archiveCheck.bad_file).toBeNull()
       expect(archiveCheck.names).toEqual(expect.arrayContaining(['final.docx', 'content.json', 'submission.json', 'reviews.json', 'materials.json', 'manifest.json']))
       expect(archiveCheck.hashes_match).toBe(true)
+      expect(archiveCheck.archive_id).toBe(approvedReview.archive.id)
+      expect(archiveCheck.submission_id).toBe(secondSubmission.id)
+      expect(archiveCheck.project_version_id).toBe(secondCandidate.project_version_id)
+      expect(archiveCheck.content_hash).toBe(secondCandidate.content_hash)
+      expect(archiveCheck.final_sha256).toBe(archiveCheck.manifest_final_sha256)
+      expect(archiveCheck.final_sha256).toBe(secondCandidate.artifact.docx_sha256)
       await checkpoint('administrator-archive-downloaded-and-verified', admin)
       await admin.goto('/workspace')
       await expect(admin.locator('.workspace-stats')).toBeVisible()

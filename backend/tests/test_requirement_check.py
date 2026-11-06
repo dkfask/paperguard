@@ -172,6 +172,123 @@ def test_reference_list_checker_validates_facts_and_stable_numbers():
     assert any("尚未录入结构化文献事实" in result["message"] for result in findings)
 
 
+def test_reference_list_checker_enforces_sequential_square_numbers_and_confirmed_language_order():
+    project = _project()
+    section = project.sections[-1]
+    confirmed_zh = ReferenceLanguageFact(languages=["zh"], status="confirmed", confirmed_by="student", confirmed_at="2026-11-05T00:00:00Z")
+    confirmed_en = ReferenceLanguageFact(languages=["en"], status="confirmed", confirmed_by="student", confirmed_at="2026-11-05T00:00:00Z")
+    section.paragraphs = [
+        ParagraphBlock(id="zh", reference_number=1, reference=ReferenceEntry(
+            kind="journal", authors="张三", title="中文研究", source="中文期刊", year="2024",
+            language_fact=confirmed_zh)),
+        ParagraphBlock(id="en", reference_number=2, reference=ReferenceEntry(
+            kind="journal", authors="Smith", title="English Study", source="Journal", year="2025",
+            language_fact=confirmed_en)),
+    ]
+    item = {"id": "pilot-references", "type": "auto", "target": "references", "checker": "references.list_facts",
+            "params": {"required": True, "numbering": "sequential", "bracket_style": "square",
+                        "language_order": "zh_before_en"}, "severity": "error", "enforce": "hard"}
+
+    assert check_requirements(project, {"resolved_items": [item]}) == ([], [])
+
+    section.paragraphs.reverse()
+    findings, not_checked = check_requirements(project, {"resolved_items": [item]})
+    assert not not_checked
+    assert any("违反中文在前、英文在后的顺序" in result["message"] for result in findings)
+    assert any("编号不连续" in result["message"] for result in findings)
+
+    section.paragraphs[1].reference.language_fact = ReferenceLanguageFact(languages=["en"])
+    findings, _ = check_requirements(project, {"resolved_items": [item]})
+    assert any("语种未确认" in result["message"] for result in findings)
+
+
+def test_exact_legacy_1101_cover_rule_uses_automatic_field_check_and_still_requires_template_mapping():
+    project = _project()
+    project.meta = {
+        "title": "测试题目", "college": "测试学院", "department": "测试系",
+        "major": "测试专业", "class_name": "测试班级", "author": "测试学生",
+        "student_id": "20260001", "advisor": "测试教师", "date": "2026年5月",
+    }
+    template = default_template().model_copy(deep=True)
+    field_keys = ["title", "college", "department", "major", "class_name", "author", "student_id", "advisor", "date"]
+    template.meta_fields = [MetaField(key=key, label=key) for key in field_keys]
+    legacy = {
+        "id": "cover_required_fields", "type": "manual", "target": "cover", "checker": "",
+        "params": {"min": 0, "max": 35},
+        "description": "封面须包含题目、学生所在学院、系别、专业、班级、姓名、学号、指导教师、提交日期",
+        "severity": "error", "enforce": "hard",
+    }
+
+    assert check_requirements(project, {"resolved_items": [legacy]}, template) == ([], [])
+
+    template.meta_fields = [field for field in template.meta_fields if field.key != "department"]
+    findings, not_checked = check_requirements(project, {"resolved_items": [legacy]}, template)
+    assert findings == []
+    assert not_checked[0]["reason"] == "cover_field_mapping_missing"
+    assert not_checked[0]["enforce"] == "hard"
+
+
+def test_exact_legacy_1101_reference_rule_checks_order_and_preserves_fail_closed_near_misses():
+    project = _project()
+    section = project.sections[-1]
+    section.paragraphs = [
+        ParagraphBlock(id="zh", reference_number=1, reference=ReferenceEntry(
+            kind="journal", authors="张三", title="中文研究", source="中文期刊", year="2024",
+            language_fact=ReferenceLanguageFact(
+                languages=["zh"], status="confirmed", confirmed_by="student", confirmed_at="2026-11-05T00:00:00Z",
+            ),
+        )),
+        ParagraphBlock(id="en", reference_number=2, reference=ReferenceEntry(
+            kind="journal", authors="Smith", title="English Study", source="Journal", year="2025",
+            language_fact=ReferenceLanguageFact(
+                languages=["en"], status="confirmed", confirmed_by="student", confirmed_at="2026-11-05T00:00:00Z",
+            ),
+        )),
+    ]
+    legacy = {
+        "id": "references_format", "type": "manual", "target": "references", "checker": "",
+        "params": {
+            "order": "sequential", "bracket": "square", "style": "顺序编码制",
+            "language_order": "中文在前，英文在后",
+        },
+        "description": "参考文献按引用或参考先后顺序编号，中文文献在前英文文献在后，序号用[1][2]...格式",
+        "severity": "error", "enforce": "hard",
+    }
+
+    assert check_requirements(project, {"resolved_items": [legacy]}) == ([], [])
+
+    section.paragraphs[1].reference.language_fact.status = "unconfirmed"
+    findings, not_checked = check_requirements(project, {"resolved_items": [legacy]})
+    assert not not_checked
+    assert any("语种未确认" in result["message"] for result in findings)
+
+    section.paragraphs[1].reference.language_fact.status = "confirmed"
+    section.paragraphs.reverse()
+    findings, not_checked = check_requirements(project, {"resolved_items": [legacy]})
+    assert not not_checked
+    assert any("编号不连续" in result["message"] for result in findings)
+    assert any("违反中文在前、英文在后的顺序" in result["message"] for result in findings)
+
+    legacy["params"]["style"] = "未确认的制度"
+    findings, not_checked = check_requirements(project, {"resolved_items": [legacy]})
+    assert findings == []
+    assert not_checked[0]["reason"] == "manual"
+    assert not_checked[0]["enforce"] == "hard"
+
+
+def test_reference_list_checker_keeps_invalid_parameters_unchecked():
+    project = _project()
+    item = {"id": "bad-reference-rule", "type": "auto", "target": "references", "checker": "references.list_facts",
+            "params": {"numbering": "sort-by-author"}, "severity": "error", "enforce": "hard"}
+
+    findings, not_checked = check_requirements(project, {"resolved_items": [item]})
+
+    assert findings == []
+    assert len(not_checked) == 1
+    assert not_checked[0]["reason"] == "unsupported_checker_parameters"
+    assert not_checked[0]["enforce"] == "hard"
+
+
 def test_markdown_frontmatter_maps_p0_checker_aliases():
     items = items_from_markdown("""---
 rules:
@@ -181,9 +298,26 @@ rules:
   - id: chapter-break
     type: chapter_page_break
     target: ch1
+  - id: cover-fields
+    type: cover_required_fields
+    target: cover
+    params:
+      field_keys: [title, college]
+  - id: references-list
+    type: references_list_facts
+    target: references
+    params:
+      required: true
+      numbering: sequential
+      bracket_style: square
+      language_order: zh_before_en
 ---
 """)
-    assert [item.checker for item in items] == ["references.format", "chapter.page_break"]
+    assert [item.checker for item in items] == [
+        "references.format", "chapter.page_break", "cover.fields_present", "references.list_facts",
+    ]
+    assert items[2].params["field_keys"] == ["title", "college"]
+    assert items[3].params["language_order"] == "zh_before_en"
 
 
 def _quality_reference(index: int, year: str, languages=("zh",), confirmed=True) -> ParagraphBlock:

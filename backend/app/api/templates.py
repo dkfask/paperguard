@@ -19,7 +19,7 @@ from app.core.extract.specification import extract_writing_specification, render
 
 from app.db import Store, new_id
 from app.domain.documents.schemas import TemplateAsset
-from app.models.template import PaperTemplate
+from app.models.template import CoverBlock, PaperTemplate
 from app.models.writing_specification import WritingSpecification
 from app.services.document_candidates import (
     CandidateBindingError,
@@ -27,9 +27,11 @@ from app.services.document_candidates import (
     bind_candidate_for_confirmation,
     list_candidates,
     load_candidate,
+    load_confirmed_candidate_with_record,
     save_confirmed_candidate,
     save_parsed_candidate,
 )
+from app.services.document_access import can_access_template
 from app.services.docx_package_fixer import strip_comments_from_docx
 from app.services.import_template import (
     extract_cover_blocks,
@@ -72,6 +74,15 @@ def template_admission(template: PaperTemplate) -> dict:
     source_path = resolve_template_source(template.source_docx) if template.source_docx else None
     source_data = source_path.read_bytes() if source_path is not None else None
     return assess_paper_template(template, source_data)
+
+
+def require_template_access(store: Store, user: dict, template: PaperTemplate) -> None:
+    if not can_access_template(store, user, template):
+        raise HTTPException(status_code=404, detail="模板不存在")
+
+
+def is_candidate_published_template(template: PaperTemplate) -> bool:
+    return (template.admission_provenance or {}).get("source") == "document_template_candidate"
 
 
 def _extract_source_specification(path: Path) -> WritingSpecification:
@@ -121,15 +132,23 @@ def list_templates(
             "admission": template_admission(t),
         }
         for t in store.list_templates()
+        if can_access_template(store, user, t)
     ]
 
 
 @router.post("/admission/assess")
 def assess_template_before_save(
     payload: PaperTemplate,
-    _: dict = Depends(require_template_manager),
+    user: dict = Depends(require_template_manager),
+    store: Store = Depends(get_store),
 ) -> dict:
     """Assess the submitted template without saving or changing any version."""
+    existing = store.get_template(payload.id)
+    if (existing is not None and can_access_template(store, user, existing)
+            and payload.model_dump(mode="json") == existing.model_dump(mode="json")):
+        # Restore signed numbers from the saved version after a browser JSON
+        # round trip; an edited payload is always assessed as submitted.
+        payload = existing
     return template_admission(payload)
 
 
@@ -142,6 +161,7 @@ def get_template(
     tpl = store.get_template(tpl_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")
+    require_template_access(store, user, tpl)
     return tpl
 
 
@@ -182,6 +202,9 @@ def propose_writing_profile(tpl_id: str, request: ConfirmWritingProfile,
     template = store.get_template(tpl_id)
     if template is None:
         raise HTTPException(status_code=404, detail="模板不存在")
+    require_template_access(store, manager, template)
+    if is_candidate_published_template(template):
+        raise HTTPException(status_code=409, detail="正式准入模板为不可变版本，请创建新版本并重新准入")
     path = resolve_template_source(template.source_docx)
     if path is None:
         raise HTTPException(status_code=409, detail="Word 母版不存在，请重新导入")
@@ -215,6 +238,9 @@ def publish_writing_profile(tpl_id: str, request: ConfirmWritingProfile,
     current = store.get_template(tpl_id)
     if current is None:
         raise HTTPException(status_code=404,detail="模板不存在")
+    require_template_access(store, manager, current)
+    if is_candidate_published_template(current):
+        raise HTTPException(status_code=409, detail="正式准入模板为不可变版本，请创建新版本并重新准入")
     if sorted(request.confirmed_content_rule_ids) != sorted(published.source_execution.get("confirmed_content_rule_ids") or []):
         raise HTTPException(status_code=409,detail="内容规则确认项与预览不同，请重新预览")
     if sorted(request.confirmed_digit_font_rule_ids) != sorted(published.source_execution.get("confirmed_digit_font_rule_ids") or []):
@@ -248,7 +274,7 @@ def publish_writing_profile(tpl_id: str, request: ConfirmWritingProfile,
 
 @router.post("", status_code=201)
 def create_template(payload: dict, store: Store = Depends(get_store),
-                  _: dict = Depends(require_template_manager)) -> PaperTemplate:
+                  manager: dict = Depends(require_template_manager)) -> PaperTemplate:
     """创建模板。id 未指定时由服务端生成。"""
     data = dict(payload)
     if not str(data.get("id") or "").strip():
@@ -258,9 +284,14 @@ def create_template(payload: dict, store: Store = Depends(get_store),
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"模板数据无效: {exc}") from exc
     _validate_template_structure(template)
-    if store.get_template(template.id):
+    if manager.get("role") == "teacher":
+        organization_context = dict(manager.get("organization_context") or {})
+        if not organization_context:
+            raise HTTPException(status_code=422, detail="教师创建模板前必须绑定学校或组织范围")
+        template.organization_context = organization_context
+    if not store.insert_template_if_absent(template):
         raise HTTPException(status_code=409, detail="模板 id 已存在")
-    return store.save_template(template)
+    return template
 
 
 @router.post("/default")
@@ -268,6 +299,17 @@ def create_default_template(store: Store = Depends(get_store),
                         _: dict = Depends(require_template_manager)) -> PaperTemplate:
     """内置模板存库(幂等)。"""
     tpl = default_template()
+    existing = store.get_template(tpl.id)
+    if existing and is_candidate_published_template(existing):
+        raise HTTPException(status_code=409, detail="正式准入模板为不可变版本，不能重置覆盖")
+    if existing is None and store.insert_template_if_absent(tpl):
+        return tpl
+    if existing is None:
+        existing = store.get_template(tpl.id)
+        if existing and is_candidate_published_template(existing):
+            raise HTTPException(status_code=409, detail="正式准入模板为不可变版本，不能重置覆盖")
+        if existing is None:
+            raise HTTPException(status_code=409, detail="模板 ID 已被占用，请重试")
     store.save_template(tpl)
     return tpl
 
@@ -404,6 +446,23 @@ def _refresh_candidate_admission(candidate: TemplateParseCandidate) -> TemplateP
     return refreshed.model_copy(update={"admission_assessment": assess_template_candidate(refreshed)})
 
 
+def _paper_from_candidate(candidate: TemplateParseCandidate, record: dict) -> PaperTemplate:
+    paper = paper_from_definition(candidate.template_id, candidate.version, candidate.definition)
+    paper.name = candidate.name
+    paper.cover_blocks = [CoverBlock.model_validate(block) for block in candidate.definition.cover_blocks]
+    paper.organization_context = dict(record.get("organization_context") or {})
+    specification = candidate.definition.extensions.get("writing_specification")
+    if specification:
+        paper.writing_specification = WritingSpecification.model_validate(specification)
+    return paper
+
+
+def _published_template_sha256(template: PaperTemplate) -> str:
+    payload = template.model_dump(mode="json")
+    payload.pop("updated_at", None)
+    return digest(payload)
+
+
 @router.get("/parse/candidates/{candidate_id}", response_model=TemplateParseCandidate, dependencies=[Depends(require_general_document_platform)])
 def get_docx_template_candidate(
     candidate_id: str,
@@ -445,9 +504,11 @@ class CandidateWritingProfileRequest(BaseModel):
 def prepare_candidate_writing_profile(payload: CandidateWritingProfileRequest,
                                       manager: dict = Depends(require_manager), store: Store = Depends(get_store)) -> dict:
     try:
-        bound, _ = bind_candidate_for_confirmation(store,TEMPLATE_CANDIDATE_KIND,payload.candidate,TemplateParseCandidate,manager)
+        bound, record = bind_candidate_for_confirmation(store,TEMPLATE_CANDIDATE_KIND,payload.candidate,TemplateParseCandidate,manager)
     except CandidateBindingError as exc:
         raise HTTPException(status_code=404,detail="模板候选不存在或无权访问") from exc
+    if bound.status == "confirmed":
+        raise HTTPException(status_code=409, detail="已确认的模板候选不可再修改，请重新导入新版本")
     path = resolve_template_source(bound.source_asset.storage_key) if bound.source_asset else None
     if path is None or hashlib.sha256(path.read_bytes()).hexdigest() != bound.source_asset.checksum:
         raise HTTPException(status_code=409,detail="候选母版摘要变化，请重新导入")
@@ -455,7 +516,7 @@ def prepare_candidate_writing_profile(payload: CandidateWritingProfileRequest,
     if payload.preview_only:
         request = request.model_copy(update={"accept_recommended":True,"accept_new_object_defaults":True,"remove_template_instructions":True})
     try:
-        paper = compile_profile(paper_from_definition(bound.template_id,bound.version,bound.definition),path,request,actor=manager["id"])
+        paper = compile_profile(_paper_from_candidate(bound, record),path,request,actor=manager["id"])
         pending_digits = bool(paper.source_execution.get("digit_font_review", {}).get("candidates")
                               and not paper.source_execution.get("digit_font_rule"))
         if pending_digits and not payload.preview_only:
@@ -495,7 +556,215 @@ def prepare_candidate_writing_profile(payload: CandidateWritingProfileRequest,
         bound.definition.extensions["source_execution"].pop("signature",None)
         paper.source_execution.pop("signature",None)
     bound = _refresh_candidate_admission(bound)
+    if not payload.preview_only:
+        if bound.admission_assessment.get("blockers"):
+            raise HTTPException(status_code=422, detail={
+                "message": "模板存在未解决的准入阻断项，不能保存正式试排证据。",
+                "admission": bound.admission_assessment,
+            })
+        if not trials or any(report.get("status") != "pass" for report in trials.values()):
+            raise HTTPException(status_code=422, detail="非预览试排未完整通过，不能保存候选配置")
+        evidence = {
+            "candidate_id": bound.candidate_id,
+            "candidate_definition_sha256": digest(bound.definition.model_dump(mode="json")),
+            "source_docx_sha256": bound.source_asset.checksum,
+            "source_profile_sha256": paper.source_execution.get("profile_sha256", ""),
+            "trial_reports": trials,
+            "trial_reports_sha256": digest(trials),
+            "template_snapshot": paper.model_dump(mode="json"),
+            "prepared_at": _now(),
+            "prepared_by": str(manager.get("id") or ""),
+        }
+        evidence["evidence_sha256"] = digest(evidence)
+        updated_record = dict(record)
+        updated_record["candidate"] = bound.model_dump(mode="json")
+        updated_record["prepared_trial_evidence"] = evidence
+        if store.save_workflow_record(
+            TEMPLATE_CANDIDATE_KIND,
+            updated_record,
+            expected_revision=int(record.get("revision", 0)),
+        ) is None:
+            raise HTTPException(status_code=409, detail="模板候选已变化，请重新加载后试排")
     return {"candidate":bound.model_dump(mode="json"),"template":paper.model_dump(mode="json"),"trials":trials}
+
+
+class CandidatePublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_id: str
+
+
+@router.post("/parse/publish", dependencies=[Depends(require_general_document_platform)])
+def publish_docx_template_candidate(
+    payload: CandidatePublishRequest,
+    manager: dict = Depends(require_manager),
+    store: Store = Depends(get_store),
+) -> dict:
+    try:
+        candidate, record = load_confirmed_candidate_with_record(
+            store, TEMPLATE_CANDIDATE_KIND, payload, TemplateParseCandidate, manager
+        )
+    except CandidateBindingError as exc:
+        raise HTTPException(status_code=404, detail="模板候选不存在、尚未确认或无权访问") from exc
+
+    evidence = record.get("prepared_trial_evidence")
+    if not isinstance(evidence, dict):
+        raise HTTPException(status_code=409, detail="缺少非预览试排证据，不能发布模板")
+    evidence_body = {key: value for key, value in evidence.items() if key != "evidence_sha256"}
+    if evidence.get("evidence_sha256") != digest(evidence_body):
+        raise HTTPException(status_code=409, detail="候选试排证据摘要无效，请重新试排")
+    if evidence.get("candidate_id") != candidate.candidate_id:
+        raise HTTPException(status_code=409, detail="试排证据与候选身份不匹配")
+    if evidence.get("candidate_definition_sha256") != digest(candidate.definition.model_dump(mode="json")):
+        raise HTTPException(status_code=409, detail="候选内容在试排后发生变化，请重新试排")
+    if digest(evidence.get("trial_reports") or {}) != evidence.get("trial_reports_sha256"):
+        raise HTTPException(status_code=409, detail="试排报告摘要无效，请重新试排")
+
+    asset = candidate.source_asset
+    source_path = resolve_template_source(asset.storage_key) if asset else None
+    if (asset is None or source_path is None
+            or candidate.definition.source_docx != asset.storage_key
+            or hashlib.sha256(source_path.read_bytes()).hexdigest() != asset.checksum
+            or evidence.get("source_docx_sha256") != asset.checksum):
+        raise HTTPException(status_code=409, detail="模板源文件缺失或摘要已变化，请重新导入")
+    trials = evidence.get("trial_reports")
+    if (not isinstance(trials, dict) or set(trials) != {"normal", "long"}
+            or any(not isinstance(report, dict)
+                   or report.get("status") != "pass"
+                   or report.get("source_profile_sha256") != evidence.get("source_profile_sha256")
+                   or not report.get("output_sha256")
+                   or int(report.get("check_count", 0)) <= 0
+                   for report in trials.values())):
+        raise HTTPException(status_code=409, detail="正常稿或长内容稿试排未通过，请重新试排")
+
+    try:
+        template = PaperTemplate.model_validate(evidence.get("template_snapshot") or {})
+        profile = verify_profile(template, source_path.read_bytes())
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail="签名执行配置或试排模板快照无效，请重新确认") from exc
+    if (template.id != candidate.template_id
+            or template.version != candidate.version
+            or template.source_docx != asset.storage_key
+            or template.source_execution != candidate.definition.extensions.get("source_execution")
+            or profile.get("profile_sha256") != evidence.get("source_profile_sha256")):
+        raise HTTPException(status_code=409, detail="试排模板与已确认候选或源文件不一致")
+
+    refreshed = _refresh_candidate_admission(candidate)
+    if refreshed.admission_assessment.get("blockers"):
+        raise HTTPException(status_code=422, detail={
+            "message": "模板仍有未解决的准入阻断项，不能发布。",
+            "admission": refreshed.admission_assessment,
+        })
+    admission = template_admission(template)
+    if admission.get("blockers") or not admission.get("can_use_for_draft"):
+        raise HTTPException(status_code=422, detail={
+            "message": "模板发布后的准入复核未通过。",
+            "admission": admission,
+        })
+
+    publication = record.get("publication")
+    if publication and publication.get("status") == "published":
+        existing = store.get_template(candidate.template_id)
+        if (existing is None
+                or publication.get("template_sha256") != _published_template_sha256(existing)):
+            raise HTTPException(status_code=409, detail="已发布模板与发布记录不一致，需管理员复核")
+        return {"template": existing.model_dump(mode="json"), "admission": template_admission(existing)}
+    if publication and publication.get("status") != "publishing":
+        raise HTTPException(status_code=409, detail="候选发布状态异常，请管理员复核")
+
+    existing = store.get_template(candidate.template_id)
+    if publication is None and existing is not None:
+        raise HTTPException(status_code=409, detail="模板 ID 已被其他模板占用，不能覆盖")
+    if manager.get("role") != "admin" and not template.organization_context:
+        raise HTTPException(status_code=422, detail="教师发布模板前必须绑定学校或组织范围")
+
+    if publication is None:
+        publication = {
+            "status": "publishing",
+            "template_id": candidate.template_id,
+            "published_by": str(manager.get("id") or manager.get("username") or ""),
+            "published_at": _now(),
+        }
+        template.created_at = publication["published_at"]
+    else:
+        if publication.get("template_id") != candidate.template_id:
+            raise HTTPException(status_code=409, detail="发布记录指向不同模板，需管理员复核")
+        template.created_at = publication.get("published_at", "")
+
+    template.admission_provenance = {
+        "source": "document_template_candidate",
+        "visibility": "global" if manager.get("role") == "admin" and not template.organization_context else "organization",
+        "published_by_id": str(manager.get("id") or ""),
+        "candidate_id": candidate.candidate_id,
+        "candidate_version": candidate.version,
+        "source_docx_sha256": asset.checksum,
+        "profile_sha256": profile["profile_sha256"],
+        "assessment_hash": admission.get("assessment_hash", ""),
+        "trial_evidence_sha256": evidence["evidence_sha256"],
+        "confirmed_by": candidate.confirmed_by,
+        "confirmed_at": candidate.confirmed_at,
+        "published_by": publication["published_by"],
+        "published_at": publication["published_at"],
+    }
+    template_sha256 = _published_template_sha256(template)
+    if publication.get("template_sha256") not in (None, template_sha256):
+        raise HTTPException(status_code=409, detail="发布模板快照摘要发生变化，需管理员复核")
+    publication["template_sha256"] = template_sha256
+
+    if record.get("publication") is None:
+        updated_record = dict(record)
+        updated_record["publication"] = publication
+        record = store.save_workflow_record(
+            TEMPLATE_CANDIDATE_KIND,
+            updated_record,
+            expected_revision=int(record.get("revision", 0)),
+        )
+        if record is None:
+            raise HTTPException(status_code=409, detail="候选已由其他操作更新，请重试")
+
+    if store.insert_template_if_absent(template):
+        saved_template = template
+    else:
+        existing = store.get_template(candidate.template_id)
+        if existing is None or _published_template_sha256(existing) != template_sha256:
+            rollback_record = dict(record)
+            rollback_record.pop("publication", None)
+            store.save_workflow_record(
+                TEMPLATE_CANDIDATE_KIND,
+                rollback_record,
+                expected_revision=int(record.get("revision", 0)),
+            )
+            raise HTTPException(status_code=409, detail="模板 ID 在发布期间被占用，未覆盖现有模板；请重新导入后重试")
+        saved_template = existing
+    if _published_template_sha256(saved_template) != template_sha256:
+        raise HTTPException(status_code=409, detail="模板写入后摘要不一致，发布保持待复核")
+
+    admission = template_admission(saved_template)
+    if admission.get("blockers") or not admission.get("can_use_for_draft"):
+        raise HTTPException(status_code=409, detail={
+            "message": "模板持久化后的复核未通过，发布保持待复核。",
+            "admission": admission,
+        })
+
+    updated_record = dict(record)
+    updated_record["publication"] = {**publication, "status": "published"}
+    if store.save_workflow_record(
+        TEMPLATE_CANDIDATE_KIND,
+        updated_record,
+        expected_revision=int(record.get("revision", 0)),
+    ) is None:
+        raise HTTPException(status_code=409, detail="模板已写入，发布状态待复核；请重试以完成对账")
+
+    store.save_audit_event({
+        "id": new_id("audit"),
+        "actor_id": str(manager.get("id") or ""),
+        "action": "template.candidate.published",
+        "resource_type": "template_candidate",
+        "resource_id": candidate.candidate_id,
+        "organization_id": str((manager.get("organization_context") or {}).get("school_id") or ""),
+        "result": "success",
+        "created_at": publication["published_at"],
+    })
+    return {"template": saved_template.model_dump(mode="json"), "admission": admission}
 
 
 @router.post("/parse/confirm", response_model=TemplateParseCandidate, dependencies=[Depends(require_general_document_platform)])
@@ -511,6 +780,15 @@ def confirm_docx_template_candidate(candidate: TemplateParseCandidate,
             TemplateParseCandidate,
             manager,
         )
+        # JavaScript serializes integral floats as integers. Restore the
+        # server-owned, trialled definition when the submitted values are
+        # equal, so that this harmless JSON round trip does not invalidate its
+        # signed profile or the bound definition digest. Real changes still
+        # go through the normal admission and publication checks.
+        if record.get("prepared_trial_evidence"):
+            prepared = TemplateParseCandidate.model_validate(record.get("candidate") or {})
+            if bound.definition.model_dump(mode="json") == prepared.definition.model_dump(mode="json"):
+                bound = bound.model_copy(update={"definition": prepared.definition})
         bound = _refresh_candidate_admission(bound)
         admission = bound.admission_assessment
         if admission.get("blockers"):
@@ -619,11 +897,12 @@ async def import_docx_template(file: UploadFile = File(...),
 
 @router.get("/{tpl_id}/writing-specification")
 def get_writing_specification(tpl_id: str, store: Store = Depends(get_store),
-                              _: dict = Depends(current_user)) -> dict:
+                              user: dict = Depends(current_user)) -> dict:
     """Return source evidence and its readable projection, never an approval claim."""
     template = store.get_template(tpl_id)
     if template is None:
         raise HTTPException(status_code=404, detail="模板不存在")
+    require_template_access(store, user, template)
     source = resolve_template_source(template.source_docx) if template.source_docx else None
     if source is None:
         raise HTTPException(status_code=409, detail="此模板没有可解析的 Word 母版，请先上传 Word 模板")
@@ -639,20 +918,29 @@ def get_writing_specification(tpl_id: str, store: Store = Depends(get_store),
 @router.put("/{tpl_id}")
 def update_template(tpl_id: str, payload: PaperTemplate,
                     store: Store = Depends(get_store),
-                    _: dict = Depends(require_template_manager)) -> PaperTemplate:
-    _validate_template_structure(payload)
-    if store.get_template(tpl_id) is None:
+                    manager: dict = Depends(require_template_manager)) -> PaperTemplate:
+    existing = store.get_template(tpl_id)
+    if existing is None:
         raise HTTPException(status_code=404, detail="模板不存在")
+    require_template_access(store, manager, existing)
+    if is_candidate_published_template(existing):
+        raise HTTPException(status_code=409, detail="正式准入模板为不可变版本，请创建新版本并重新准入")
+    _validate_template_structure(payload)
     payload.id = tpl_id
+    payload.organization_context = existing.organization_context
+    payload.admission_provenance = existing.admission_provenance
     return store.save_template(payload)
 
 
 @router.delete("/{tpl_id}", status_code=204)
 def delete_template(tpl_id: str, store: Store = Depends(get_store),
-                    _: dict = Depends(require_template_manager)) -> None:
+                    manager: dict = Depends(require_template_manager)) -> None:
     tpl = store.get_template(tpl_id)
     if tpl is None:
         raise HTTPException(status_code=404, detail="模板不存在")
+    require_template_access(store, manager, tpl)
+    if is_candidate_published_template(tpl):
+        raise HTTPException(status_code=409, detail="正式准入模板不能删除，请创建新版本并重新准入")
     if any(project.template_id == tpl_id for project in store.list_projects()):
         raise HTTPException(status_code=409, detail="模板仍被论文项目使用, 无法删除")
     if not store.delete_template(tpl_id):

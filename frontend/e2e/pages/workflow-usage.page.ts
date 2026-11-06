@@ -65,14 +65,28 @@ export class WorkflowUsagePage extends PaperGuardPage {
   }
 
   async submitTask(task: ReturnType<Page['locator']>) {
+    const candidateResponse = this.page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return url.pathname.endsWith('/api/submission-candidates') && response.request().method() === 'POST'
+    }, { timeout: 300_000 })
     await task.getByRole('button', { name: '提交预检', exact: true }).click()
-    const candidate = this.page.locator('.candidate-box').filter({ has: this.page.getByRole('button', { name: '确认正式提交', exact: true }) })
-    await expect(candidate).toBeVisible()
-    const warning = candidate.locator('input[type=checkbox]')
+    const candidateResponseResult = await candidateResponse
+    if (!candidateResponseResult.ok()) throw new Error(`candidate creation failed: ${candidateResponseResult.status()}`)
+    const candidateResult = await candidateResponseResult.json()
+    const candidateBox = this.page.locator('.candidate-box').filter({ has: this.page.getByRole('button', { name: '确认正式提交', exact: true }) })
+    await expect(candidateBox).toBeVisible()
+    const warning = candidateBox.locator('input[type=checkbox]')
     if (await warning.count()) await warning.check()
+    const submissionResponse = this.page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return url.pathname.endsWith('/api/submissions') && response.request().method() === 'POST'
+    })
     await this.waitForMutation('/api/submissions', async () => {
-      await candidate.getByRole('button', { name: '确认正式提交', exact: true }).click()
+      await candidateBox.getByRole('button', { name: '确认正式提交', exact: true }).click()
     })
     await expect(this.page.locator('.ok-banner')).toContainText('提交成功')
+    const response = await submissionResponse
+    if (!response.ok()) throw new Error(`submission confirmation failed: ${response.status()}`)
+    return { candidate: candidateResult, result: await response.json() }
   }
 }

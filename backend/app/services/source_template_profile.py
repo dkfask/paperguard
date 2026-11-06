@@ -49,6 +49,21 @@ class BodyPageNumberSettings(BaseModel):
         return value
 
 
+class CoverPaginationSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # An offset of 1 means the page immediately before the first content heading.
+    allowed_blank_offsets: list[int] = Field(default_factory=list, max_length=64)
+    require_boundary_new_page: bool = True
+
+    @field_validator("allowed_blank_offsets", mode="before")
+    @classmethod
+    def valid_blank_offsets(cls, value):
+        if (not isinstance(value, list) or any(type(item) is not int or not 1 <= item <= 63 for item in value)
+                or len(set(value)) != len(value)):
+            raise ValueError("允许留白页的相对位置无效或重复")
+        return sorted(value)
+
+
 class ConfirmWritingProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_specification_sha256: str
@@ -61,6 +76,7 @@ class ConfirmWritingProfile(BaseModel):
     confirmed_digit_font_rule_ids: list[str] = Field(default_factory=list)
     inline_label_overrides: dict[str, InlineLabelOverride] = Field(default_factory=dict)
     body_page_number: BodyPageNumberSettings | None = None
+    cover_pagination: CoverPaginationSettings | None = None
     defense_date_field_key: str = ""
     # New objects have no universal dimensions inferred from a single source example.
     accept_new_object_defaults: bool = False
@@ -101,6 +117,47 @@ def sign_profile(profile: dict) -> dict:
     return result
 
 
+def _heading_instruction(paragraph):
+    """Find an explicitly red, imperative suffix in a source heading."""
+    text = _text(paragraph)
+    match = re.search(
+        r"[（(]\s*(?:(?:按|按照|根据)[^（）()]{0,36}(?:进行|予以)(?:描述|填写|编写|撰写)"
+        r"|(?:请|此处请)(?:填写|描述|编写|撰写)[^（）()]{0,30})\s*[）)]\s*$", text)
+    if not match or not text[:match.start()].strip():
+        return None
+    offset = 0
+    red = False
+    for node in paragraph.findall(".//" + qn("w:t")):
+        parents = node.xpath("ancestor::w:p[1]", namespaces=NS)
+        if not parents or parents[0] is not paragraph:
+            continue
+        value = node.text or ""
+        if offset + len(value) > match.start() and value.strip():
+            runs = node.xpath("ancestor::w:r[1]", namespaces=NS)
+            color = runs[0].find(f"{qn('w:rPr')}/{qn('w:color')}") if runs else None
+            red |= color is not None and color.get(qn("w:val"), "").upper() == "FF0000"
+        offset += len(value)
+    if not red:
+        return None
+    kept = text[:match.start()].rstrip()
+    return {"source_text": text, "kept_text": kept, "removed_text": text[len(kept):]}
+
+
+def _cover_table_overrides(spec, overrides):
+    """Bind confirmed table-text overrides to the observed cover paragraphs."""
+    rules = {rule.id: rule for rule in spec.rules}
+    targets = {}
+    for rule_id, value in overrides.items():
+        rule = rules.get(rule_id)
+        if not rule or rule.scope.get("role") != "table_text":
+            continue
+        for node in spec.nodes:
+            if (node.part == "word/document.xml" and node.role == "table_text"
+                    and node.details.get("in_cover") and node.region == rule.scope.get("region")):
+                targets.setdefault(node.path, {})[rule.property] = value
+    return [{"path": path, "properties": targets[path]} for path in sorted(targets)]
+
+
 def verify_profile(template: PaperTemplate, source: bytes | None) -> dict:
     profile = template.source_execution
     if not profile:
@@ -114,6 +171,69 @@ def verify_profile(template: PaperTemplate, source: bytes | None) -> dict:
         raise ProfileError("母版文件摘要变化，请重新导入并确认")
     if digest(execution_basis(template)) != profile.get("template_basis_sha256"):
         raise ProfileError("模板格式或章节已变化，请重新确认此版本")
+    # A previously signed profile may have frozen a red template instruction as
+    # heading text. Check the bound source before allowing it to certify output.
+    with zipfile.ZipFile(io.BytesIO(source)) as archive:
+        root = load_part(archive, "word/document.xml")
+        if profile.get("inline_content_format_version") != "source-content-runs/1":
+            from app.core.extract.effective_format import EffectiveFormatResolver
+            inline_resolver = EffectiveFormatResolver(load_part(archive, "word/styles.xml"),
+                load_part(archive, "word/theme/theme1.xml"), load_part(archive, "word/settings.xml"))
+        else:
+            inline_resolver = None
+    body = root.find(qn("w:body")) if root is not None else None
+    children = list(body) if body is not None else []
+    if inline_resolver is not None:
+        for heading in profile.get("headings", []):
+            if not heading.get("inline") or heading.get("properties", {}).get("font.bold") is not True:
+                continue
+            index = heading.get("index")
+            if type(index) is not int or not 0 <= index < len(children) or children[index].tag != qn("w:p"):
+                raise ProfileError("关键词母版位置已失效，请联系系统团队重新适配")
+            _, _, runs, _ = inline_resolver.paragraph(children[index], include_whitespace=True)
+            text = "".join(run["text"] for run in runs)
+            separator = re.search(r"[：:]\s*", text)
+            if separator:
+                offset = 0
+                content_runs = []
+                for run in runs:
+                    start = max(0, separator.end() - offset)
+                    if run["text"][start:].strip():
+                        content_runs.append(run)
+                    offset += len(run["text"])
+                if content_runs and not content_runs[-1]["properties"].get("font.bold", False):
+                    spec = template.writing_specification
+                    bound_spec = (spec is not None and spec.source_sha256 == profile.get("source_sha256")
+                                  and spec.specification_sha256 == profile.get("specification_sha256")
+                                  and digest(spec.model_dump(mode="json", exclude={"specification_sha256"})) == spec.specification_sha256)
+                    source_path = children[index].getroottree().getpath(children[index])
+                    nodes = ([node for node in spec.nodes if node.part == "word/document.xml"
+                              and node.path == source_path and node.role == heading.get("kind")]
+                             if bound_spec else [])
+                    explicitly_bold = (len(nodes) == 1 and any(
+                        rule.scope.get("role") == heading.get("kind")
+                        and rule.scope.get("region") == nodes[0].region
+                        and rule.property == "font.bold"
+                        and profile.get("overrides", {}).get(rule.id) is True
+                        for rule in spec.rules))
+                    if not explicitly_bold:
+                        raise ProfileError("模板关键词内容格式需要重新适配，请联系系统团队")
+    for heading in profile.get("headings", []):
+        if heading.get("kind") not in {"heading1", "heading2", "heading3"}:
+            continue
+        index = heading.get("index")
+        if type(index) is not int or not 0 <= index < len(children):
+            raise ProfileError("模板标题的母版位置已失效，请重新确认")
+        observed = _heading_instruction(children[index])
+        removal = heading.get("instruction_removal")
+        if removal:
+            if (not observed or any(removal.get(key) != value for key, value in observed.items())
+                    or removal.get("source_path") != children[index].getroottree().getpath(children[index])
+                    or not removal.get("source_node_id")
+                    or removal.get("source_title", "").rstrip() != heading["title"] + observed["removed_text"].rstrip()):
+                raise ProfileError("模板标题说明的移除记录与母版不一致，请重新确认")
+        elif observed and not profile.get("manuscript_headings_sha256"):
+            raise ProfileError("模板标题仍含填写说明，请重新确认并移除后交付")
     # Older signed profiles may have omitted logical table borders. Re-read
     # the digest-bound source so they cannot certify an unverified layout.
     from docx import Document
@@ -164,6 +284,26 @@ def verify_profile(template: PaperTemplate, source: bytes | None) -> dict:
                 raise ProfileError("未确认的内容规则不能启用为硬性检查")
         if not confirmed_ids.issubset(seen_ids):
             raise ProfileError("模板内容规则确认项与编译结果不匹配")
+    if "cover_table_overrides" not in profile and profile.get("overrides"):
+        # Old signed profiles can be upgraded in memory only when the bound
+        # specification proves the exact cover targets and the old frozen
+        # structure still reproduces. The stored signature and old files stay
+        # unchanged; new outputs are checked against the derived structure.
+        spec = template.writing_specification
+        if (spec is None or spec.source_sha256 != profile.get("source_sha256")
+                or spec.specification_sha256 != profile.get("specification_sha256")
+                or digest(spec.model_dump(mode="json", exclude={"specification_sha256"})) != spec.specification_sha256):
+            raise ProfileError("旧模板格式覆盖缺少可验证的源规范，请重新确认模板")
+        cover_overrides = _cover_table_overrides(spec, profile["overrides"])
+        if cover_overrides:
+            with zipfile.ZipFile(io.BytesIO(commentless_source(source))) as archive:
+                original_root = load_part(archive, "word/document.xml")
+            if (original_root is None or freeze_protected_structure(original_root, copy.deepcopy(profile))
+                    != profile.get("protected_document_sha256")):
+                raise ProfileError("旧模板受保护结构无法重现，请重新确认模板")
+            profile = copy.deepcopy(profile)
+            profile["cover_table_overrides"] = cover_overrides
+            profile["protected_document_sha256"] = freeze_protected_structure(original_root, copy.deepcopy(profile))
     if profile.get("toc_active"):
         # The source digest is already signed. Derive this rule for older
         # profiles too, so a formatting repair does not invalidate templates.
@@ -255,7 +395,95 @@ def _configured_object_properties(style: TextStyle, inherited: dict) -> dict:
     return properties
 
 
-def compile_profile(template: PaperTemplate, source_path: Path, request: ConfirmWritingProfile, *, actor: str) -> PaperTemplate:
+
+def _automatic_heading_evidence(source: bytes, source_nodes: dict) -> tuple[dict, dict, set[int]]:
+    """Recover only decimal numbering whose complete Word counter is observable."""
+    from docx import Document
+    from docx.text.paragraph import Paragraph
+    from app.services.docx_project_import import _HeadingNumbering
+
+    document = Document(io.BytesIO(source))
+    body = document.element.body
+    records = []
+    numbered_heading_indexes = set()
+    for element in body.iter(qn("w:p")):
+        paragraph = Paragraph(element, document)
+        direct = element.find(f"{qn('w:pPr')}/{qn('w:numPr')}")
+        style = paragraph.style
+        inherited = []
+        seen = set()
+        while style is not None and style.style_id not in seen:
+            seen.add(style.style_id)
+            properties = style.element.find(f"{qn('w:pPr')}/{qn('w:numPr')}")
+            if properties is not None:
+                inherited.append(properties)
+            style = style.base_style
+        number = direct if direct is not None else next(iter(inherited), None)
+        if number is None:
+            continue
+        num_id = number.find(qn("w:numId"))
+        if num_id is None:
+            # A partial numPr can inherit its numbering ID from an ancestor style.
+            num_id = next((item.find(qn("w:numId")) for item in inherited
+                           if item.find(qn("w:numId")) is not None), None)
+        value = num_id.get(qn("w:val"), "") if num_id is not None else ""
+        evidence = source_nodes.get(element.getroottree().getpath(element))
+        if (value != "0" and element.getparent() is body and evidence
+                and evidence.role in {"heading1", "heading2", "heading3"}):
+            numbered_heading_indexes.add(body.index(element))
+        if not re.fullmatch(r"[1-9][0-9]{0,9}", value):
+            continue
+        level = number.find(qn("w:ilvl"))
+        complete = direct is not None and direct.find(qn("w:numId")) is not None and level is not None
+        records.append((element, paragraph, value, complete, element.getparent() is body))
+
+    heading_ids = set()
+    for element, _, num_id, complete, top_level in records:
+        evidence = source_nodes.get(element.getroottree().getpath(element))
+        if complete and top_level and evidence and evidence.role in {"heading1", "heading2", "heading3"}:
+            heading_ids.add(num_id)
+    labels, uses = {}, {}
+    numbering = _HeadingNumbering(document)
+    if numbering.root is None:
+        return labels, uses, numbered_heading_indexes
+    for num_id in heading_ids:
+        numbered = [(e, p, complete, top) for e, p, ident, complete, top in records if ident == num_id]
+        if any(not complete or not top for _, _, complete, top in numbered):
+            continue
+        nums = numbering.root.xpath(f'./w:num[@w:numId="{num_id}"]')
+        if len(nums) != 1 or nums[0].xpath('./w:lvlOverride/w:lvl'):
+            continue
+        abstract_ref = nums[0].find(qn("w:abstractNumId"))
+        abstract_id = abstract_ref.get(qn("w:val"), "") if abstract_ref is not None else ""
+        if not re.fullmatch(r"[0-9]{1,10}", abstract_id):
+            continue
+        abstracts = numbering.root.xpath(f'./w:abstractNum[@w:abstractNumId="{abstract_id}"]')
+        if len(abstracts) != 1:
+            continue
+        abstract = abstracts[0]
+        restart = abstract.get("{http://schemas.microsoft.com/office/word/2012/wordml}restartNumberingAfterBreak", "0")
+        if (restart not in {"0", "false", "off"}
+                or abstract.find(qn("w:numStyleLink")) is not None
+                or abstract.findall(f"{qn('w:lvl')}/{qn('w:lvlRestart')}")):
+            continue
+        pending = {}
+        try:
+            for element, paragraph, _, _ in numbered:
+                evidence = source_nodes.get(element.getroottree().getpath(element))
+                is_heading = bool(evidence and evidence.role in {"heading1", "heading2", "heading3"})
+                text = evidence.text if evidence is not None else paragraph.text
+                visible = numbering.text(paragraph, text, is_heading)
+                if is_heading and norm(visible) != norm(text):
+                    pending[body.index(element)] = (visible, num_id)
+        except (ValueError, TypeError, KeyError, IndexError):
+            continue
+        labels.update(pending)
+        uses[num_id] = {body.index(element) for element, _, _, _ in numbered}
+    return labels, uses, numbered_heading_indexes
+
+
+def compile_profile(template: PaperTemplate, source_path: Path, request: ConfirmWritingProfile, *, actor: str,
+                    preserve_manuscript_heading_text: bool = False) -> PaperTemplate:
     if not request.accept_recommended or not request.accept_new_object_defaults:
         raise ProfileError("请确认采用的格式、冲突建议与新增图表的版心约束")
     from app.services.source_template_safety import audit_source_package
@@ -311,6 +539,8 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
                                     and not n.details.get("in_cover") and n.text.strip())
     if not body_properties:
         raise ProfileError("未找到可复用的正文格式，请先补充正文示例")
+    automatic_headings, numbering_uses, numbered_heading_indexes = _automatic_heading_evidence(source, source_nodes)
+    matched_automatic_ids: set[str] = set()
     applied_rule_ids: set[str] = set()
     for rule_id, value in request.overrides.items():
         rule = rules[rule_id]
@@ -333,7 +563,16 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
         if rule.scope.get("role") == "body":
             body_properties[rule.property] = value
             applied_rule_ids.add(rule_id)
-    for section in flatten(candidate.sections):
+    section_parents = {}
+    def remember_parents(nodes, parent=None):
+        for node in nodes:
+            section_parents[node.key] = parent
+            remember_parents(node.children, node)
+    remember_parents(candidate.sections)
+    ordered_sections = list(flatten(candidate.sections))
+    semantic_corrections = []
+    last_heading2 = None
+    for section in ordered_sections:
         if section.type == SectionType.COVER:
             continue
         inline = section.type.value in {"keywords","english_keywords"}
@@ -341,14 +580,60 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
                    and ((norm(_text(children[i])).startswith(norm(section.title)+"：") or norm(_text(children[i])).startswith(norm(section.title)+":")) if inline else norm(_text(children[i]))==norm(section.title))
                    and source_nodes.get(children[i].getroottree().getpath(children[i]))
                    and source_nodes[children[i].getroottree().getpath(children[i])].role != "toc_entry"]
+        automatic_matches = [i for i, (text, _) in automatic_headings.items()
+                             if i >= cursor and not inline and section.type.value.startswith("heading")
+                             and norm(text) == norm(section.title)
+                             and source_nodes[children[i].getroottree().getpath(children[i])].role == section.type.value]
+        matches = sorted(set(matches + automatic_matches))
         if not matches:
             raise ProfileError(f"章节未能映射到母版：{section.title}。请采用 Word 中实际存在的章节。")
+        if automatic_matches and len(matches) != 1:
+            raise ProfileError("自动编号章节存在多个匹配位置，请先消除歧义：" + section.title)
         index = matches[0]
+        if index in numbered_heading_indexes:
+            if index not in automatic_headings:
+                raise ProfileError("章节自动编号的完整计数无法验证：" + section.title)
+            matched_automatic_ids.add(automatic_headings[index][1])
         cursor = index + 1
         evidence = source_nodes[children[index].getroottree().getpath(children[index])]
         if (section.type.value.startswith("heading") and evidence.role in {"heading1", "heading2", "heading3"}
                 and section.type.value != evidence.role):
-            raise ProfileError("章节层级与 Word 母版不一致，请重新读取章节后确认：" + section.title)
+            source_level = evidence.details.get("source_heading_level")
+            semantic_level = evidence.details.get("semantic_heading_level")
+            child_number = re.match(r"^\s*(\d+\.\d+)\.\d+(?:\s|$)", section.title)
+            parent_number = re.match(r"^\s*(\d+\.\d+)(?!\.)", last_heading2.title) if last_heading2 else None
+            old_parent = section_parents[section.key]
+            if not (section.type == SectionType.HEADING2 and evidence.role == "heading3"
+                    and source_level == 2 and semantic_level == 3 and child_number and parent_number
+                    and child_number.group(1) == parent_number.group(1) and not section.children
+                    and old_parent is section_parents[last_heading2.key]):
+                raise ProfileError("章节层级与 Word 母版不一致，请重新读取章节后确认：" + section.title)
+            container = old_parent.children if old_parent is not None else candidate.sections
+            container.remove(section)
+            last_heading2.children.append(section)
+            section_parents[section.key] = last_heading2
+            section.type = SectionType.HEADING3
+            semantic_corrections.append({"key": section.key, "title": section.title,
+                "from": "heading2", "to": "heading3", "parent_key": last_heading2.key,
+                "source_node_id": evidence.node_id})
+        instruction_removal = None
+        observed_instruction = (_heading_instruction(children[index])
+                                if section.type.value in {"heading1", "heading2", "heading3"}
+                                and not preserve_manuscript_heading_text else None)
+        if observed_instruction:
+            if not request.remove_template_instructions:
+                raise ProfileError("模板标题包含填写说明，请确认是否从学生成品移除")
+            suffix = observed_instruction["removed_text"].rstrip()
+            source_title = section.title.rstrip()
+            if not source_title.endswith(suffix):
+                raise ProfileError("模板标题说明无法绑定到章节原文，请重新读取母版")
+            section.title = source_title[:-len(suffix)].rstrip()
+            instruction_removal = {**observed_instruction, "source_title": source_title,
+                                   "source_path": evidence.path, "source_node_id": evidence.node_id}
+        if section.type == SectionType.HEADING1:
+            last_heading2 = None
+        elif section.type == SectionType.HEADING2:
+            last_heading2 = section
         region_nodes = [n for n in spec.nodes if n.region == evidence.region and n.role in {"body", "abstract", "english_abstract", "references", "acknowledgement", "appendix"} and n.text.strip()]
         if section.type.value.startswith("heading"):
             # Short lists and instructions often differ from regular prose.
@@ -360,7 +645,10 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
         properties = {**body_properties, **_majority(region_nodes)}
         if inline:
             values = [r["properties"] for r in evidence.details.get("runs",[]) if r.get("text","").strip()]
-            properties = {**evidence.properties, **(values[-1] if values else {})}
+            # Paragraph observations may contain the bold label's run properties.
+            # Take character formatting from the content sample, not that aggregate.
+            properties = {**{k: v for k, v in evidence.properties.items() if k.startswith("paragraph.")},
+                          **(values[-1] if values else evidence.properties)}
             properties = {k:v for k,v in properties.items() if k.startswith(("font.","paragraph."))}
         for rule_id, value in request.overrides.items():
             rule = rules[rule_id]
@@ -421,7 +709,11 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
                          "title_style_id":title_style_id, "title_style_source_node_id":title_style_source_node_id,
                          "bookmark_name":"PGH"+hashlib.sha256(section.key.encode()).hexdigest()[:16],
                          "separator":label_override.separator if label_override else (separator.group() if inline and separator else "："),
-                         "index": index, "properties": properties, "title_properties": title_properties})
+                         "index": index, "properties": properties, "title_properties": title_properties,
+                         **({"instruction_removal": instruction_removal} if instruction_removal else {})})
+    retained_heading_indexes = {heading["index"] for heading in headings}
+    if any(not numbering_uses[num_id] <= retained_heading_indexes for num_id in matched_automatic_ids):
+        raise ProfileError("自动编号还用于未保留的段落，无法保证导出编号一致")
     if not headings:
         raise ProfileError("模板需要至少一个明确的正文或表单区域")
     if set(request.inline_label_overrides) - {h["key"] for h in headings if h["inline"]}:
@@ -430,7 +722,7 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
     fields = []
     mapped_targets: dict[str, str] = {}
     aliases = {"title": r"(?:论文)?题目", "author": r"(?:学生)?姓名", "student_id": r"(?:学生)?学号",
-               "college": "学院(?:[（(]系[）)])?", "major": "专业", "class_name": "班级", "advisor": "指导教师|导师", "school": "学校名称|学校", "date": "日期"}
+               "college": "学院(?:[（(]系[）)])?", "department": "系别|系部", "major": "专业", "class_name": "班级", "advisor": "指导教师|导师", "school": "学校名称|学校", "date": "日期"}
     before = children[:headings[0]["index"]]
     for field in candidate.meta_fields:
         targets: dict[str, tuple[Any, str]] = {}
@@ -510,10 +802,13 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
                                                  if item["rule_id"] not in candidate_ids]
     content_rules["review_requirements"] = [item for item in content_rules["review_requirements"]
                                              if (item.get("provenance") or {}).get("rule_id") not in candidate_ids]
-    profile = {"compiler_version": PROFILE_VERSION, "control_appearance":"hidden", "source_sha256": spec.source_sha256,
+    profile = {"compiler_version": PROFILE_VERSION, "inline_content_format_version": "source-content-runs/1",
+               "control_appearance":"hidden", "source_sha256": spec.source_sha256,
                "preserve_manuscript_structure": request.preserve_manuscript_structure,
                "specification_sha256": spec.specification_sha256, "confirmed_by": actor,
                "confirmed_at": datetime.now(timezone.utc).isoformat(), "headings": headings, "fields": fields,
+               "cover_table_overrides": _cover_table_overrides(spec, request.overrides),
+               "heading_semantic_corrections": semantic_corrections,
                "removals": removals, "overrides": request.overrides, "accept_recommended": True,
                "content_rule_compiler_version": content_rules["review"]["compiler_version"],
                "confirmed_content_rule_ids": content_rules["confirmed_rule_ids"],
@@ -604,7 +899,10 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
                 toc_font_requirements.add(props["font.eastAsia"])
             if counts.get("latin") and isinstance(props.get("font.ascii"), str):
                 toc_font_requirements.add(props["font.ascii"])
-        targets = [h for h in headings if h["kind"] != "toc" and heading_matches(label, h["title"])]
+        targets = [h for h in headings if h["kind"] != "toc" and
+                   (heading_matches(label, h["title"]) or
+                    (h.get("instruction_removal") and
+                     heading_matches(label, h["instruction_removal"]["source_title"])))]
         if len(targets) != 1:
             unmapped_toc_labels.append(label)
             toc_removals.append(evidence.path)
@@ -686,6 +984,16 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
     with zipfile.ZipFile(io.BytesIO(source)) as archive:
         profile["body_page_number_policy"] = compile_page_number_policy(
             archive, root, headings, profile["body_page_number"])
+    if request.cover_pagination is not None:
+        first = min(headings, key=lambda item: item["index"])
+        if not toc_active or first["kind"] == "toc" or first.get("inline"):
+            raise ProfileError("封面分页检查需要可定位的首个正文标题和 Word 自动目录")
+        profile["cover_pagination"] = {
+            **request.cover_pagination.model_dump(mode="json"),
+            "boundary_key": first["key"], "boundary_bookmark": first["bookmark_name"],
+            "source": {"kind": "explicit_template_confirmation", "source_sha256": spec.source_sha256,
+                       "specification_sha256": spec.specification_sha256},
+        }
     profile["protected_document_sha256"] = freeze_protected_structure(root, profile)
     candidate.source_execution = sign_profile(profile)
     return candidate

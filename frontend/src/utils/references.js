@@ -1,4 +1,4 @@
-const REFERENCE_PREFIX = /^\s*(?:\[\s*(\d+)\s*\]|［\s*(\d+)\s*］)/
+const REFERENCE_PREFIX = /^\s*(?:\[\s*([0-9０-９]+)\s*\]|［\s*([0-9０-９]+)\s*］)/
 
 const MARKERS = {
   journal: 'J', book: 'M', thesis: 'D', conference: 'C', online: 'EB/OL', standard: 'S',
@@ -7,10 +7,10 @@ const MARKERS = {
 export const REFERENCE_FIELDS = {
   journal: ['authors', 'title', 'source', 'year', 'volume', 'issue', 'pages', 'doi'],
   book: ['authors', 'title', 'place', 'publisher', 'year', 'pages', 'doi'],
-  thesis: ['authors', 'title', 'place', 'institution', 'year', 'pages'],
-  conference: ['authors', 'title', 'collection', 'place', 'publisher', 'year', 'pages'],
-  online: ['authors', 'title', 'source', 'url', 'publish_date', 'year', 'access_date'],
-  standard: ['organization', 'title', 'number', 'place', 'publisher', 'year'],
+  thesis: ['authors', 'title', 'place', 'institution', 'year', 'pages', 'doi'],
+  conference: ['authors', 'title', 'collection', 'place', 'publisher', 'year', 'pages', 'doi'],
+  online: ['authors', 'title', 'source', 'url', 'publish_date', 'year', 'access_date', 'doi'],
+  standard: ['authors', 'organization', 'title', 'number', 'place', 'publisher', 'year', 'doi'],
 }
 
 export const REFERENCE_FIELD_LABELS = {
@@ -27,7 +27,7 @@ export function referenceNumber(block) {
   if (block?.reference?.original_pasted_text != null) return null
   const raw = block?.reference?.unformatted_text || block?.text || ''
   const match = String(raw).match(REFERENCE_PREFIX)
-  const number = match ? Number(match[1] || match[2]) : 0
+  const number = match ? Number((match[1] || match[2]).normalize('NFKC')) : 0
   return Number.isSafeInteger(number) && number > 0 ? number : null
 }
 
@@ -126,11 +126,11 @@ export function formatReference(reference, number) {
     const year = value('year') && !value('publish_date').startsWith(value('year')) ? value('year') : ''
     let tail = [value('source'), value('publish_date'), year].filter(Boolean).join('，')
     if (value('url')) tail += `${tail ? '. ' : ''}${value('url')}`
-    if (value('access_date')) tail += `${tail ? ' ' : ''}（引用日期：${value('access_date')}）`
+    if (value('access_date')) tail += `（引用日期：${value('access_date')}）`
     if (tail) parts.push(tail)
   }
   if (value('doi')) parts.push(`DOI: ${value('doi')}`)
-  const citation = parts.join('. ')
+  const citation = parts.filter(part => part.trim()).map(part => part.replace(/^[ .。]+|[ .。]+$/g, '')).join('. ')
   return number == null ? (citation || raw) : `[${number}] ${citation || stripNumber(raw)}`.trim()
 }
 
@@ -147,14 +147,28 @@ export function createReference(kind = 'journal', unformattedText = '') {
 function extractPastedReference(value) {
   const text = String(value || '').replace(REFERENCE_PREFIX, '').replace(/\r\n?/g, '\n').replace(/\s*\n\s*/g, ' ').trim()
   const match = text.match(/^([^。.]+)[.。]\s*([^。.]+?)\s*\[(EB\/OL|J|M|D|C|S)\](?:\s*[.。]\s*|\s*$)(.*)$/i)
-  if (!match) return null
+    || text.match(/^((?:[A-Za-z]\.\s*){1,4}[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*)*)[.。]\s*([^。.]+?)\s*\[(EB\/OL|J|M|D|C|S)\](?:\s*[.。]\s*|\s*$)(.*)$/i)
+  const standardOnly = !match && text.match(/^([^。.]+?)\s*\[(S)\](?:\s*[.。]\s*|\s*$)(.*)$/i)
+  if (!match && !standardOnly) return null
   const kinds = { J: 'journal', M: 'book', D: 'thesis', C: 'conference', 'EB/OL': 'online', S: 'standard' }
-  const kind = kinds[match[3].toUpperCase()]
-  const fields = { authors: match[1].trim(), title: match[2].trim() }
-  if (!fields.authors || !fields.title) return null
+  const kind = standardOnly ? 'standard' : kinds[match[3].toUpperCase()]
+  const fields = standardOnly ? { title: standardOnly[1].trim() } : { authors: match[1].trim(), title: match[2].trim() }
+  let tailText = standardOnly ? standardOnly[3] : match[4]
+  if (!fields.title || (!standardOnly && !fields.authors)) return null
+  if (kind !== 'journal') {
+    const doi = tailText.match(/(?:[.。]\s*|\s+)DOI\s*[:：]\s*(10\.\d{4,9}\/\S+?)\s*[.。]?\s*$/i)
+    if (doi) {
+      const before = tailText.slice(0, doi.index).trim()
+      const safeOnlineSeparator = /^\s/.test(doi[0]) || /（引用日期[:：]\s*\d{4}-\d{2}-\d{2}）$/.test(before)
+      if (kind !== 'online' || safeOnlineSeparator) {
+        fields.doi = doi[1]
+        tailText = before
+      }
+    }
+  }
   let fullyConsumed = false
   if (kind === 'journal') {
-    let tail = match[4].trim()
+    let tail = tailText.trim()
     const doi = tail.match(/(?:[.。:：]\s*|\s+|(?<=\d))DOI\s*[:：]\s*(10\.\d{4,9}\/\S+?)\s*[.。]?\s*$/i)
     if (doi) {
       tail = tail.slice(0, doi.index).trim()
@@ -178,7 +192,7 @@ function extractPastedReference(value) {
       fullyConsumed = Object.entries(fields).every(([field, value]) => value.length <= limits[field])
     }
   } else if (kind === 'book' || kind === 'thesis') {
-    const tail = match[4].trim()
+    const tail = tailText.trim()
     const candidates = []
     const yearSeparators = [...tail.matchAll(/[,，]\s*(?=(?:19|20)\d{2})/g)]
     for (const separator of yearSeparators) {
@@ -197,10 +211,44 @@ function extractPastedReference(value) {
       else fields.institution = publisherParts[publisherParts.length - 1]
       fields.year = remainder[1]
       if (remainder[2]) fields.pages = remainder[2]
-      const limits = { authors: 2000, title: 2000, place: 500, publisher: 1000, institution: 1000, year: 32, pages: 200 }
+      const limits = { authors: 2000, title: 2000, place: 500, publisher: 1000, institution: 1000, year: 32, pages: 200, doi: 500 }
       fullyConsumed = Object.entries(fields).every(([field, value]) => value.length <= limits[field])
     }
   }
+  if (kind === 'conference') {
+    const tail = tailText.trim()
+    const parts = tail.match(/^([^,，.。:：]+)\s*[,，]\s*([^,，.。:：]+)\s*[:：]\s*([^,，.。:：]+)\s*[,，]\s*((?:19|20)\d{2})(?:\s*[:：]\s*([a-z]?\d+(?:[-–—][a-z]?\d+)?(?:\s*\+\s*[a-z]?\d+(?:[-–—][a-z]?\d+)?)*)\s*)?\s*[.。]?$/iu)
+    if (parts) {
+      Object.assign(fields, { collection: parts[1].trim(), place: parts[2].trim(), publisher: parts[3].trim(), year: parts[4] })
+      if (parts[5]) fields.pages = parts[5]
+      fullyConsumed = [fields.collection, fields.place, fields.publisher].every(Boolean) && fields.collection.length <= 2000 && fields.place.length <= 500 && fields.publisher.length <= 1000 && (fields.pages || '').length <= 200
+    } else if (tail && !/[\d,，:：\[\].。]/.test(tail)) {
+      fields.collection = tail
+      fullyConsumed = tail.length <= 2000
+    } else if (!tail) fullyConsumed = true
+  } else if (kind === 'online') {
+    const parts = tailText.trim().match(/^(?:([^。.]+?)[.。]\s*)?(https?:\/\/[^\s（）]+?)(?:（引用日期[:：]\s*(\d{4}-\d{2}-\d{2})）)?$/i)
+    if (parts) {
+      const prefix = (parts[1] || '').trim()
+      const dated = prefix.match(/^([^,，]+?)[,，]\s*(\d{4}(?:-\d{2}(?:-\d{2})?)?)$/)
+      if (dated) Object.assign(fields, { source: dated[1].trim(), publish_date: dated[2] })
+      else if (/^\d{4}(?:-\d{2}(?:-\d{2})?)?$/.test(prefix)) fields.publish_date = prefix
+      else if (prefix && !/[,，]/.test(prefix)) fields.source = prefix
+      else if (prefix) return { kind, fields, fullyConsumed }
+      fields.url = parts[2]
+      if (parts[3]) fields.access_date = parts[3]
+      fullyConsumed = (fields.source || '').length <= 2000 && fields.url.length <= 4000 && !/[.。]$/.test(fields.url)
+    } else if (!tailText.trim()) fullyConsumed = true
+  } else if (kind === 'standard') {
+    const parts = tailText.trim().match(/^([A-Za-z][A-Za-z0-9\/.\s-]*\d(?:[A-Za-z0-9\/.-]*[A-Za-z0-9])?)(?:\s*[,，]\s*([^,，.。:：]+)\s*[:：]\s*([^,，.。:：]+))?(?:\s*[,，]\s*((?:19|20)\d{2}))?\s*[.。]?$/)
+    if (parts) {
+      fields.number = parts[1].trim()
+      if (parts[2]) Object.assign(fields, { place: parts[2].trim(), publisher: parts[3].trim() })
+      if (parts[4]) fields.year = parts[4]
+      fullyConsumed = fields.number.length <= 500 && (fields.place || '').length <= 500 && (fields.publisher || '').length <= 1000 && (!parts[2] || (fields.place && fields.publisher))
+    } else if (!tailText.trim()) fullyConsumed = true
+  }
+  if ((fields.authors || '').length > 2000 || fields.title.length > 2000 || (fields.doi || '').length > 500) fullyConsumed = false
   return { kind, fields, fullyConsumed }
 }
 

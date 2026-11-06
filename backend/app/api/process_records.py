@@ -253,12 +253,12 @@ def _role_can_approve(user: dict, required_role: str, participant: dict | None) 
     if required_role == "admin":
         return role == "admin"
     if required_role == "college_admin":
-        return role in {"admin", "college_admin"}
+        return role == "admin"
     if required_role == "teacher":
-        return role in {"admin", "college_admin"} or (role == "teacher" and participant and participant.get("teacher_id") == user["id"])
+        return role == "admin" or (role == "teacher" and participant and participant.get("teacher_id") == user["id"])
     if required_role == "defense_group":
         # 制度要求指导教师回避本人学生的答辩；管理员可代为登记答辩组结论。
-        return role in {"admin", "college_admin"} or (
+        return role == "admin" or (
             role == "teacher" and participant and participant.get("teacher_id") != user["id"]
         )
     return False
@@ -393,7 +393,7 @@ def create_cohort_record(cohort_id: str, req: ProcessRecordCreate, store: Store 
 
 @router.get("/process-records/inbox")
 def process_record_inbox(store: Store = Depends(get_store), user: dict = Depends(current_user)) -> list[dict]:
-    if user["role"] not in {"teacher", "admin", "college_admin"}:
+    if user["role"] not in {"teacher", "admin"}:
         raise HTTPException(status_code=403, detail="只有教师或管理员可以查看材料审批收件箱")
     result = []
     for record in store.list_workflow_records("process_record", limit=None):

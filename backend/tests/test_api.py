@@ -165,6 +165,17 @@ def test_user_registration_roles_and_admin_management():
     )
     assert approve_res.status_code == 200
     assert approve_res.json()["status"] == "active"
+    school_res = client.post("/api/organizations", json={
+        "id": "school-bob-template-test",
+        "name": "鲍勃老师所在学校",
+        "type": "school",
+    })
+    assert school_res.status_code == 201, school_res.text
+    context_res = client.put(
+        f"/api/organizations/users/{bob_record['id']}/context",
+        json={"organization_context": {"school_id": school_res.json()["id"]}},
+    )
+    assert context_res.status_code == 200, context_res.text
 
     # 鲍勃老师此时已获得管理权限，可以创建/管理模板
     ok_tpl = client.post(

@@ -143,7 +143,8 @@ def derive_manuscript_template(template, source_path, imported, *, actor):
             accept_recommended=True, accept_new_object_defaults=True, remove_template_instructions=True,
             remove_unmatched_toc_entries=True, preserve_manuscript_structure=True,
             body_page_number=parent.get("body_page_number"))
-        candidate = compile_profile(candidate, path, request, actor=actor)
+        candidate = compile_profile(candidate, path, request, actor=actor,
+                                    preserve_manuscript_heading_text=True)
     profile = candidate.source_execution
     inherited_labels = {}
     inherited_label_sources = set()
@@ -169,6 +170,7 @@ def derive_manuscript_template(template, source_path, imported, *, actor):
     for field in profile["fields"]:
         prior = next((f for f in parent["fields"] if f["key"] == field["key"]), None)
         if prior: field["properties"] = copy.deepcopy(prior["properties"])
+    profile["cover_table_overrides"] = copy.deepcopy(parent.get("cover_table_overrides", []))
     for key in ("object_properties", "new_object_policy", "body_properties", "table_borders", "image_alignment"):
         profile[key] = copy.deepcopy(parent[key])
     if profile.get("toc_active"):

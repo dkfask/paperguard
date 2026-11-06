@@ -25,12 +25,17 @@ from app.models.project import WritingProject
 from app.models.template import PaperTemplate, SectionType, TextStyle
 from app.services.document_assets import resolve_document_image_path
 from app.services.project_versions import project_content_hash
-from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
+from app.services.references import (ReferenceInlineMappingError, reference_block_text, reference_inline_runs,
+                                     reference_number_for, uses_sequential_reference_numbering)
 from app.services.upload_security import validate_docx_bytes
 
 
-INSPECTOR_VERSION = "docx-output-check/5"
-MASTER_INSPECTOR_VERSION = "docx-output-check/6-master"
+INSPECTOR_VERSION = "docx-output-check/7"
+MASTER_INSPECTOR_VERSION = "docx-output-check/10-master"
+_PREVIOUS_INSPECTOR_VERSIONS = {
+    INSPECTOR_VERSION: "docx-output-check/5",
+    MASTER_INSPECTOR_VERSION: "docx-output-check/9-master",
+}
 _CHART_NS = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
     "c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
@@ -128,10 +133,19 @@ def expected_output_check_identity(
     }
 
 
-def verify_report_identity(report: dict[str, Any] | None, expected: dict[str, Any]) -> bool:
-    return bool(report and expected and output_check_identity(report) == {
-        key: expected.get(key) for key in output_check_identity(report)
-    })
+def verify_report_identity(report: dict[str, Any] | None, expected: dict[str, Any], *,
+                           allow_previous_inspector: bool = False) -> bool:
+    if not report or not expected:
+        return False
+    if ("source_profile_sha256" in expected
+            and report.get("source_profile_sha256") != expected.get("source_profile_sha256")):
+        return False
+    actual = output_check_identity(report)
+    wanted = {key: expected.get(key) for key in actual}
+    if (allow_previous_inspector
+            and actual["inspector_version"] == _PREVIOUS_INSPECTOR_VERSIONS.get(wanted["inspector_version"])):
+        wanted["inspector_version"] = actual["inspector_version"]
+    return actual == wanted
 
 
 def _style_for(project_section, template: PaperTemplate, block_index: int) -> TextStyle:
@@ -1023,6 +1037,19 @@ def inspect_docx_output(
         matched.append((actual_paragraphs[found], section_key, block_index))
         matched_indices.add(found)
         cursor = found + 1
+    if uses_sequential_reference_numbering(project):
+        blocks = [(section.key, index) for section in project.sections
+                  if str(getattr(section.type, "value", section.type)) == "references" or section.key == "references"
+                  for index, block in enumerate(section.paragraphs)
+                  if str(getattr(block.type, "value", block.type)) == "paragraph" and reference_block_text(block).strip()]
+        observed = [paragraph.text for paragraph, section_key, index in matched
+                    if (section_key, index) in blocks]
+        numbers = [re.match(r"^\[(\d+)\](?:\s|$)", text) for text in observed]
+        actual_numbers = [int(match.group(1)) for match in numbers if match]
+        good = len(observed) == len(blocks) and len(actual_numbers) == len(blocks) and actual_numbers == list(range(1, len(blocks) + 1))
+        check("references.sequential_numbers", "pass" if good else "fail", obj="references",
+              expected=list(range(1, len(blocks) + 1)), actual=actual_numbers,
+              evidence="number prefixes read independently from actual emitted reference paragraphs")
     if cursor < len(actual_text):
         extras = actual_text[cursor:]
         # Generated title/TOC cached rows are not inferred as paper body content.
@@ -1202,15 +1229,14 @@ def require_docx_output_pass(*args, **kwargs) -> dict[str, Any]:
 
 
 def require_output_check_report(report: dict[str, Any]) -> dict[str, Any]:
+    from app.services.output_acceptance import output_report_is_acceptable
+
     checks = report.get("checks")
     if (
         not isinstance(checks, list)
         or not checks
         or report.get("check_count") != len(checks)
-        or report.get("passed_count") != len(checks)
-        or report.get("status") != "pass"
-        or any(not isinstance(item, dict) or item.get("status") != "pass" for item in checks)
-        or report.get("unsupported")
+        or not output_report_is_acceptable(report)
     ):
         raise DocxOutputCheckError(report)
     return report
@@ -1218,6 +1244,8 @@ def require_output_check_report(report: dict[str, Any]) -> dict[str, Any]:
 
 def safe_output_check_diagnostics(report: dict[str, Any] | None) -> dict[str, Any]:
     """Project check failures without exposing manuscript text or expected/actual content."""
+    from app.services.output_acceptance import output_report_is_acceptable
+
     report = report if isinstance(report, dict) else {}
     checks = report.get("checks") if isinstance(report.get("checks"), list) else []
     findings = []
@@ -1232,11 +1260,10 @@ def safe_output_check_diagnostics(report: dict[str, Any] | None) -> dict[str, An
         })
         if len(findings) == 50:
             break
-    invalid_passing_report = report.get("status") == "pass" and (
+    invalid_passing_report = report.get("status") == "pass" and not output_report_is_acceptable(report) and (
         not checks
         or report.get("check_count") != len(checks)
-        or report.get("passed_count") != len(checks)
-        or any(not isinstance(item, dict) or item.get("status") != "pass" for item in checks)
+        or not output_report_is_acceptable(report)
     )
     if not findings and (not checks or report.get("status") != "pass" or invalid_passing_report):
         findings.append({
@@ -1252,23 +1279,41 @@ def safe_output_check_diagnostics(report: dict[str, Any] | None) -> dict[str, An
     }
 
 
-def verify_report_binding(report: dict[str, Any] | None, data: bytes) -> bool:
+def verify_report_binding(report: dict[str, Any] | None, data: bytes, *,
+                          allow_previous_inspector: bool = False) -> bool:
+    from app.services.output_acceptance import output_report_is_acceptable
+
     if not isinstance(report, dict):
         return False
     checks = report.get("checks")
     master_report = "source_profile_sha256" in report
     expected_version = MASTER_INSPECTOR_VERSION if master_report else INSPECTOR_VERSION
+    accepted_versions = {expected_version}
+    previous_version = _PREVIOUS_INSPECTOR_VERSIONS[expected_version]
+    if allow_previous_inspector:
+        accepted_versions.add(previous_version)
+    if master_report and report.get("inspector_version") == previous_version:
+        # This only establishes that a historical report points at these bytes.
+        # Delivery callers using this compatibility path must re-run the current checker.
+        return bool(
+            allow_previous_inspector
+            and report.get("contract_version") == 1
+            and re.fullmatch(r"[0-9a-f]{64}", str(report.get("source_profile_sha256") or ""))
+            and isinstance(checks, list) and checks
+            and report.get("check_count") == len(checks)
+            and report.get("passed_count") == len(checks)
+            and not report.get("unsupported")
+            and all(isinstance(item, dict) and item.get("status") == "pass" for item in checks)
+            and report.get("output_sha256") == _sha256(data)
+        )
     return bool(
         report.get("contract_version") == 1
-        and report.get("inspector_version") == expected_version
+        and report.get("inspector_version") in accepted_versions
         and (not master_report or re.fullmatch(r"[0-9a-f]{64}", str(report.get("source_profile_sha256") or "")))
-        and report.get("status") == "pass"
+        and output_report_is_acceptable(report)
         and isinstance(checks, list)
         and len(checks) > 0
         and report.get("check_count") == len(checks)
-        and report.get("passed_count") == len(checks)
-        and not report.get("unsupported")
-        and all(isinstance(item, dict) and item.get("status") == "pass" for item in checks)
         and report.get("output_sha256") == _sha256(data)
     )
 

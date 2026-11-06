@@ -28,6 +28,7 @@ def _omit_empty_project_defaults(value: Any) -> Any:
             and not (key in {"width_cm", "height_cm", "alignment"} and item is None)
             and not (key == "layout_template_snapshot" and item is None)
             and not (key in {"reference", "reference_number"} and item is None)
+            and not (key == "reference_number_managed" and item is False)
             and not (key == "original_pasted_text" and item is None)
             and not (key == "language_fact" and item is None)
             and not (key == "year_fact" and item is None)

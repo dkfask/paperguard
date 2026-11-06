@@ -10,6 +10,8 @@ import pytest
 from app import auth
 from app.db import Store
 from app.main import app
+from app.models.template import PaperTemplate
+from app.services.projects import default_template
 
 
 client = TestClient(app)
@@ -48,12 +50,32 @@ def test_closed_roles_cannot_login_or_keep_using_old_sessions(role):
     assert login.status_code == 403 and login.json()["detail"]["code"] == "ROLE_NOT_OPEN"
     for path in ["/api/auth/me", "/api/projects", "/api/organizations", "/api/audit",
                  "/api/document-projects", "/api/document-packages", "/api/process-records/catalog",
-                 "/api/saas/v1/context", "/api/operations/retention", "/media/uploads/unknown.png"]:
+                 "/api/process-records/inbox",
+                 "/api/saas/v1/context", "/api/operations/retention", "/api/my-tasks",
+                 "/api/cohorts", "/api/submissions", "/api/archives",
+                 "/api/workflow-capabilities", "/media/uploads/unknown.png"]:
         response = client.get(path, headers=old_session)
         assert response.status_code == 403, (path, response.text)
         assert error_code(response) == "ROLE_NOT_OPEN", path
     write = client.post("/api/projects", headers=old_session, json={"template_id": "default-gb7713"})
     assert write.status_code == 403
+    workflow_writes = [
+        ("/api/cohorts", {"name": "closed-role", "organization_id": "missing-org"}),
+        ("/api/submissions/closed-role-submission/reviews", {"decision": "returned", "reason": "修订"}),
+        ("/api/submissions/closed-role-submission/comments", {"body": "批注"}),
+        ("/api/archives", {"submission_id": "closed-role-submission"}),
+        ("/api/archives/closed-role-archive/retry", {"reason": "重试"}),
+        ("/api/archives/closed-role-archive/manual-review", {
+            "output_sha256": "0" * 64, "confirmed_check_ids": [],
+        }),
+    ]
+    for path, body in workflow_writes:
+        response = client.post(path, headers=old_session, json=body)
+        assert response.status_code == 403, (path, response.text)
+        assert error_code(response) == "ROLE_NOT_OPEN", path
+    review_candidate = client.get("/api/archives/closed-role-archive/review-candidate", headers=old_session)
+    assert review_candidate.status_code == 403
+    assert error_code(review_candidate) == "ROLE_NOT_OPEN"
     assert store.get_user(user["id"])["role"] == role
 
 
@@ -80,6 +102,44 @@ def test_open_roles_retain_thesis_and_generic_document_access(role):
     for path in ["/api/auth/me", "/api/projects", "/api/templates", "/api/document-projects", "/api/document-packages"]:
         response = client.get(path, headers=session)
         assert response.status_code == 200, (path, response.text)
+
+
+def test_candidate_published_template_is_scoped_across_list_detail_and_project_creation():
+    store = Store()
+    template = default_template()
+    template.id = "school-a-published-template"
+    template.organization_context = {"school_id": "school-a"}
+    template.admission_provenance = {
+        "source": "document_template_candidate",
+        "visibility": "organization",
+    }
+    store.save_template(template)
+
+    _, same_school = account("student", organization_context={"school_id": "school-a"})
+    _, other_school = account("student", organization_context={"school_id": "school-b"})
+    _, admin = account("admin")
+    same_school_headers = headers(same_school)
+    other_school_headers = headers(other_school)
+    admin_headers = headers(admin)
+
+    same_school_templates = client.get("/api/templates", headers=same_school_headers)
+    other_school_templates = client.get("/api/templates", headers=other_school_headers)
+    assert same_school_templates.status_code == 200
+    assert template.id in {item["id"] for item in same_school_templates.json()}
+    assert other_school_templates.status_code == 200
+    assert template.id not in {item["id"] for item in other_school_templates.json()}
+
+    assert client.get(f"/api/templates/{template.id}", headers=same_school_headers).status_code == 200
+    assert client.get(f"/api/templates/{template.id}", headers=other_school_headers).status_code == 404
+    assert client.get(
+        f"/api/templates/{template.id}/writing-specification", headers=other_school_headers
+    ).status_code == 404
+    assert client.post(
+        "/api/projects",
+        headers=other_school_headers,
+        json={"template_id": template.id, "title": "跨组织越权"},
+    ).status_code == 404
+    assert client.get(f"/api/templates/{template.id}", headers=admin_headers).status_code == 200
 
 
 @pytest.mark.parametrize("requested_role", ["student", "teacher", "admin"])

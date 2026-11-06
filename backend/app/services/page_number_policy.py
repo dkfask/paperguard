@@ -72,14 +72,14 @@ def _footer_is_page_only(root):
     return state is None and count <= 1
 
 
-def footer_bytes(settings):
+def footer_bytes(settings, *, dirty=False):
     footer = etree.Element(qn("w:ftr"), nsmap={"w": NS["w"]})
     paragraph = etree.SubElement(footer, qn("w:p"))
     ppr = etree.SubElement(paragraph, qn("w:pPr"))
     etree.SubElement(ppr, qn("w:jc")).set(qn("w:val"), "center")
     field = etree.SubElement(paragraph, qn("w:fldSimple"))
     field.set(qn("w:instr"), " PAGE ")
-    field.set(qn("w:dirty"), "true")
+    field.set(qn("w:dirty"), "true" if dirty else "false")
     run = etree.SubElement(field, qn("w:r"))
     rpr = etree.SubElement(run, qn("w:rPr"))
     fonts = etree.SubElement(rpr, qn("w:rFonts"))

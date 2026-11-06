@@ -609,6 +609,34 @@ def test_durable_project_export_job_roundtrip(monkeypatch):
     saved_export = Store().get_workflow_record("project_export", task["id"])
     original_report = saved_export["output_check"]
 
+    # A previous inspector may authorize delivery only after the current
+    # inspector independently rechecks the frozen snapshot and bytes.
+    from app.api import projects as projects_api
+    saved_export["output_check"] = {**original_report, "inspector_version": "docx-output-check/5"}
+    saved_export = Store().save_workflow_record("project_export", saved_export, expected_revision=saved_export["revision"])
+    with monkeypatch.context() as check_patch:
+        calls = []
+        current_check = projects_api.require_docx_output_pass
+
+        def check_again(*args, **kwargs):
+            calls.append(kwargs.get("context_kind"))
+            return current_check(*args, **kwargs)
+
+        check_patch.setattr(projects_api, "require_docx_output_pass", check_again)
+        old_download = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+        assert old_download.status_code == 200 and old_download.content == original_output
+        assert calls == ["paper-async"]
+        def reject_current_check(*_args, **_kwargs):
+            raise ValueError("current check failed")
+
+        check_patch.setattr(projects_api, "require_docx_output_pass", reject_current_check)
+        assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+    saved_export["output_check"]["inspector_version"] = "docx-output-check/4"
+    saved_export = Store().save_workflow_record("project_export", saved_export, expected_revision=saved_export["revision"])
+    assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+    saved_export["output_check"] = original_report
+    saved_export = Store().save_workflow_record("project_export", saved_export, expected_revision=saved_export["revision"])
+
     other_project_id = _create_full_default_gb7713_project()
     changed_other_project = client.put(f"/api/projects/{other_project_id}/section/ch1", json={
         "title": "第一章 绪论",
@@ -3035,3 +3063,54 @@ def test_approved_student_can_download_existing_export_but_not_edit():
     finally:
         app.dependency_overrides.pop(get_store, None)
         app.dependency_overrides.pop(current_user, None)
+
+
+def test_sequential_reference_save_reorders_and_rejects_stale_revision():
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    project.requirement_snapshot = {"resolved_items": [{
+        "checker": "references.list_facts", "params": {"required": True, "numbering": "sequential"}}]}
+    store.save_project(project)
+    initial = client.get(f"/api/projects/{project_id}").json()
+    refs = next(section for section in initial["sections"] if section["key"] == "references")
+    first = refs["paragraphs"][0]
+    second = {"id": "sequential-new", "type": "paragraph", "text": "新增文献"}
+    saved = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": initial["revision"], "paragraphs": [first, second]})
+    assert saved.status_code == 200, saved.text
+    refs = next(section for section in saved.json()["sections"] if section["key"] == "references")
+    assert [block["reference_number"] for block in refs["paragraphs"]] == [1, 2]
+    reordered = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": saved.json()["revision"], "paragraphs": list(reversed(refs["paragraphs"]))})
+    assert reordered.status_code == 200, reordered.text
+    reordered_refs = next(section for section in reordered.json()["sections"] if section["key"] == "references")
+    assert [block["reference_number"] for block in reordered_refs["paragraphs"]] == [1, 2]
+    assert reordered.json()["reference_number_owners"] == {"1": "sequential-new", "2": first["id"]}
+    stale = client.put(f"/api/projects/{project_id}/section/references", json={
+        "base_revision": saved.json()["revision"], "paragraphs": refs["paragraphs"]})
+    assert stale.status_code == 409
+    assert client.get(f"/api/projects/{project_id}").json()["reference_number_owners"] == reordered.json()["reference_number_owners"]
+
+
+def test_import_recognizes_college_and_department_as_distinct_cover_fields(tmp_path):
+    """学院和系别是独立事实，均须从母版的封面字段识别。"""
+    from docx import Document as DocxDocument
+
+    source = DocxDocument()
+    cover = source.add_table(rows=0, cols=2)
+    for label in ("学    院：", "系    别：", "专    业："):
+        cells = cover.add_row().cells
+        cells[0].text = label
+    source.add_paragraph("摘要")
+    path = tmp_path / "college-department.docx"
+    source.save(path)
+    response = client.post("/api/templates/import", files={
+        "file": (path.name, path.read_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    })
+    assert response.status_code == 200, response.text
+    fields = {field["key"]: field["label"] for field in response.json()["meta_fields"]}
+    assert fields["college"] == "学院"
+    assert fields["department"] == "系别"
+    cover_fields = next(block["fields"] for block in response.json()["cover_blocks"] if block["kind"] == "table")
+    assert [field["key"] for field in cover_fields] == ["college", "department", "major"]

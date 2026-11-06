@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import io
+import logging
 import os
 import platform
 import re
@@ -21,6 +22,9 @@ from lxml import etree
 
 from app.core.extract.xml_utils import NS, qn, safe_xml_parser
 from app.services.source_template_safety import audit_generated_package
+
+
+LOGGER = logging.getLogger("paperguard.word_layout")
 
 
 class WordNativeLayoutError(RuntimeError):
@@ -106,6 +110,145 @@ on run argv
                             set lastPage to get range information lastRange information type active end page number
                             set end of outputRows to "R|" & passNumber & "|" & bookmarkName & "|" & rowNumber & "|" & firstPage & "|" & lastPage
                         end repeat
+                    end repeat
+                end repeat
+                close docRef saving no
+            on error errorText number errorNumber
+                try
+                    set closeRef to document documentName
+                    if (posix full name of closeRef) is inputPath then close closeRef saving no
+                end try
+                error errorText number errorNumber
+            end try
+        end tell
+    end timeout
+    set text item delimiters of AppleScript to linefeed
+    return outputRows as text
+end run
+'''
+
+# This separate probe leaves existing pagination receipt versions untouched.
+# It reports only counts, not manuscript text, for pages preceding the first
+# configured content heading.  Offsets are searched in Word's main story so
+# physical pages introduced by section breaks can be observed as empty.
+_WORD_COVER_SCRIPT = r'''
+on firstPositionForPage(docRef, limitPosition, wantedPage)
+    set lowPosition to 0
+    set highPosition to limitPosition
+    tell application "Microsoft Word"
+        repeat while lowPosition < highPosition
+            set middlePosition to (lowPosition + highPosition) div 2
+            set pointRange to create range docRef start middlePosition end middlePosition
+            set actualPage to (get range information pointRange information type active end page number) as integer
+            if actualPage < wantedPage then
+                set lowPosition to middlePosition + 1
+            else
+                set highPosition to middlePosition
+            end if
+        end repeat
+    end tell
+    return lowPosition
+end firstPositionForPage
+
+on hasReadableCharacter(valueText)
+    repeat with itemCharacter in characters of valueText
+        set characterCode to id of itemCharacter
+        if characterCode > 32 and characterCode is not in {160, 5760, 6158, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8203, 8204, 8205, 8206, 8207, 8232, 8233, 8234, 8235, 8236, 8237, 8238, 8239, 8287, 8288, 12288, 65279, 65532} then return 1
+    end repeat
+    return 0
+end hasReadableCharacter
+
+-- A text range is only a conservative candidate for visible cover content.
+-- Mixed/unsupported formatting is deliberately left unresolved. Shapes and
+-- tables alone do not establish that anything was actually rendered.
+on hasPlainTextCandidate(docRef, pageRange, firstPosition, lastPosition)
+    tell application "Microsoft Word"
+        repeat with paragraphNumber from 1 to (count paragraphs of pageRange)
+            set paraRange to text object of paragraph paragraphNumber of pageRange
+            set partStart to start of content of paraRange
+            set partEnd to end of content of paraRange
+            if partStart < firstPosition then set partStart to firstPosition
+            if partEnd > lastPosition then set partEnd to lastPosition
+            if partEnd > partStart then
+                set partRange to create range docRef start partStart end partEnd
+                if my hasReadableCharacter(content of partRange) is 1 then
+                    try
+                        set fontRef to font object of partRange
+                        set fontHidden to hidden of fontRef
+                        set fontSize to font size of fontRef
+                        set fontColor to color of fontRef
+                        set backgroundName to (background pattern color index of shading of partRange) as text
+                        set highlightName to (highlight color index of partRange) as text
+                        if fontHidden is false and fontSize > 0 and class of fontColor is list and (count fontColor) is 3 then
+                            set redValue to item 1 of fontColor
+                            set greenValue to item 2 of fontColor
+                            set blueValue to item 3 of fontColor
+                            if redValue is greater than or equal to 0 and redValue is less than or equal to 65535 and greenValue is greater than or equal to 0 and greenValue is less than or equal to 65535 and blueValue is greater than or equal to 0 and blueValue is less than or equal to 65535 then
+                                if (redValue < 57344 or greenValue < 57344 or blueValue < 57344) and backgroundName is in {"no highlight", "white"} and highlightName is in {"no highlight", "white"} then return 1
+                            end if
+                        end if
+                    end try
+                end if
+            end if
+        end repeat
+    end tell
+    return 0
+end hasPlainTextCandidate
+
+on run argv
+    set inputPath to item 1 of argv
+    set documentName to item 2 of argv
+    set boundaryName to item 3 of argv
+    set outputRows to {}
+    with timeout of 140 seconds
+        tell application "Microsoft Word"
+            if (count documents) is not 0 then error "PAPERGUARD_WORD_BUSY"
+            try
+                open (POSIX file inputPath) read only true add to recent files false
+                set docRef to document documentName
+                if (posix full name of docRef) is not inputPath then error "PAPERGUARD_WORD_PATH"
+                set end of outputRows to "V|" & (version as text)
+                repeat with passNumber from 1 to 2
+                    repaginate docRef
+                    set totalPages to compute statistics docRef statistic statistic pages
+                    set boundaryRange to text object of bookmark boundaryName of docRef
+                    set boundaryPosition to start of content of boundaryRange
+                    set boundaryPoint to create range docRef start boundaryPosition end boundaryPosition
+                    set boundaryPage to (get range information boundaryPoint information type active end page number) as integer
+                    set boundaryEndPage to (get range information boundaryRange information type active end page number) as integer
+                    if boundaryPage is not boundaryEndPage then error "PAPERGUARD_COVER_HEADING_SPAN"
+                    if boundaryPosition > 1000000 or boundaryPage > 64 or boundaryPage < 1 then error "PAPERGUARD_COVER_BUDGET"
+                    set end of outputRows to "T|" & passNumber & "|" & totalPages
+                    set end of outputRows to "B|" & passNumber & "|" & boundaryPage & "|" & boundaryPosition
+                    set shapeCounts to {}
+                    repeat boundaryPage times
+                        set end of shapeCounts to 0
+                    end repeat
+                    repeat with shapeNumber from 1 to (count shapes of docRef)
+                        set shapeRef to shape shapeNumber of docRef
+                        set shapeRange to anchor of shapeRef
+                        if (start of content of shapeRange) < boundaryPosition and (visible of shapeRef) then
+                            set shapePage to (get range information shapeRange information type active end page number) as integer
+                            if shapePage < 1 or shapePage > boundaryPage then error "PAPERGUARD_COVER_SHAPE"
+                            set item shapePage of shapeCounts to (item shapePage of shapeCounts) + 1
+                        end if
+                    end repeat
+                    repeat with pageNumber from 1 to boundaryPage
+                        set firstPosition to my firstPositionForPage(docRef, boundaryPosition, pageNumber)
+                        set lastPosition to my firstPositionForPage(docRef, boundaryPosition, pageNumber + 1)
+                        set textPresent to 0
+                        set plainTextCandidate to 0
+                        set inlineCount to 0
+                        set tableCount to 0
+                        if lastPosition > firstPosition then
+                            set pageRange to create range docRef start firstPosition end lastPosition
+                            set textPresent to my hasReadableCharacter(content of pageRange)
+                            if textPresent is 1 then set plainTextCandidate to my hasPlainTextCandidate(docRef, pageRange, firstPosition, lastPosition)
+                            set inlineCount to count inline shapes of pageRange
+                            set tableCount to count tables of pageRange
+                        end if
+                        set shapeCount to item pageNumber of shapeCounts
+                        set end of outputRows to "P|" & passNumber & "|" & pageNumber & "|" & textPresent & "|" & plainTextCandidate & "|" & inlineCount & "|" & tableCount & "|" & shapeCount
                     end repeat
                 end repeat
                 close docRef saving no
@@ -399,9 +542,133 @@ def _run_word(path: Path, names: list[str], timeout: int) -> str:
     if result.returncode:
         if "PAPERGUARD_WORD_BUSY" in result.stderr:
             raise WordNativeLayoutError("Word 正在使用其他文档，请关闭后重试")
+        error_code = re.search(r"\((-(?:1712|1708|1728|1743|10000|128|600|609))\)\s*$", result.stderr or "")
+        LOGGER.warning("word pagination failed exit_code=%s apple_event_code=%s", result.returncode,
+                       error_code.group(1) if error_code else "unknown")
         _cleanup_word_temporary_document(path)
         raise WordNativeLayoutError("Word 未能完成分页或书签定位，请检查本机 Word 后重试")
     return result.stdout
+
+
+def _parse_cover_measurement(output: str) -> tuple[str, int, int, list[dict]]:
+    version = ""
+    totals = {}
+    boundaries = {}
+    pages = {1: [], 2: []}
+    try:
+        for line in output.splitlines():
+            parts = line.split("|")
+            if len(parts) == 2 and parts[0] == "V" and not version:
+                version = parts[1]
+            elif len(parts) == 3 and parts[0] == "T":
+                number, total = int(parts[1]), int(parts[2])
+                if number not in pages or number in totals or total < 1:
+                    raise ValueError
+                totals[number] = total
+            elif len(parts) == 4 and parts[0] == "B":
+                number, page, position = map(int, parts[1:])
+                if number not in pages or number in boundaries or not 1 <= page <= 64 or not 0 <= position <= 1000000:
+                    raise ValueError
+                boundaries[number] = (page, position)
+            elif len(parts) == 8 and parts[0] == "P":
+                number, page, text_present, plain_text, inline_count, table_count, shape_count = map(int, parts[1:])
+                if (number not in pages or page != len(pages[number]) + 1 or text_present not in (0, 1)
+                        or plain_text not in (0, 1) or plain_text > text_present
+                        or min(inline_count, table_count, shape_count) < 0):
+                    raise ValueError
+                pages[number].append({"page": page, "text_present": bool(text_present),
+                    "plain_text_candidate": bool(plain_text),
+                    "inline_shapes": inline_count, "tables": table_count, "floating_shapes": shape_count})
+            else:
+                raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise WordNativeLayoutError("Word 返回的封面分页证据格式无效") from exc
+    if (not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", version)
+            or set(totals) != {1, 2} or totals[1] != totals[2]
+            or set(boundaries) != {1, 2} or boundaries[1] != boundaries[2]
+            or boundaries[1][0] > totals[1] or pages[1] != pages[2]
+            or len(pages[1]) != boundaries[1][0]):
+        raise WordNativeLayoutError("Word 封面分页未收敛或逐页证据不完整")
+    return version, totals[1], boundaries[1][0], pages[1]
+
+
+def _run_word_cover(path: Path, boundary: str, timeout: int) -> str:
+    if sys.platform != "darwin":
+        raise WordNativeLayoutError("本机 Word 封面分页采集仅支持 macOS")
+    try:
+        result = subprocess.run(
+            ["/usr/bin/osascript", "-", str(path), path.name, boundary],
+            input=_WORD_COVER_SCRIPT, capture_output=True, text=True, timeout=timeout, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        cleaned = _cleanup_word_temporary_document(path)
+        message = ("Word 封面分页超时，请稍后重试" if cleaned else
+                   "Word 封面分页超时，临时文档状态暂未确认，请联系系统团队处理")
+        raise WordNativeLayoutError(message) from exc
+    except OSError as exc:
+        raise WordNativeLayoutError("本机 Word 封面分页组件不可用") from exc
+    if result.returncode:
+        if "PAPERGUARD_WORD_BUSY" in result.stderr:
+            raise WordNativeLayoutError("Word 正在使用其他文档，请关闭后重试")
+        error_code = re.search(r"\((-(?:1712|1708|1728|1743|10000|128|600|609))\)\s*$", result.stderr or "")
+        LOGGER.warning("word cover pagination failed exit_code=%s apple_event_code=%s", result.returncode,
+                       error_code.group(1) if error_code else "unknown")
+        _cleanup_word_temporary_document(path)
+        raise WordNativeLayoutError("Word 未能完成封面逐页定位，请检查本机 Word 后重试")
+    return result.stdout
+
+
+def _cover_has_plain_text_context(data: bytes, boundary: str) -> bool:
+    """Refuse to infer visible text when page background/effects are unknown."""
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        root = etree.fromstring(archive.read("word/document.xml"), safe_xml_parser())
+        styles = etree.fromstring(archive.read("word/styles.xml"), safe_xml_parser())
+    backgrounds = root.findall(qn("w:background"))
+    if len(backgrounds) > 1:
+        return False
+    if backgrounds:
+        background = backgrounds[0]
+        if (len(background) or set(background.attrib) != {qn("w:color")}
+                or background.get(qn("w:color"), "").upper() != "FFFFFF"):
+            return False
+    # Word's simple font/color properties need not expose newer text effects.
+    # Restrict this claim to cover runs and styles without such extensions.
+    word2010 = "http://schemas.microsoft.com/office/word/2010/wordml"
+    for item in styles.iter():
+        if (isinstance(item.tag, str) and etree.QName(item).namespace == word2010
+                and any(parent.tag == qn("w:rPr") for parent in item.iterancestors())):
+            return False
+    for item in root.iter():
+        if item.tag == qn("w:bookmarkStart") and item.get(qn("w:name")) == boundary:
+            return True
+        if (isinstance(item.tag, str) and etree.QName(item).namespace == word2010
+                and any(parent.tag == qn("w:rPr") for parent in item.iterancestors())):
+            return False
+    return False
+
+
+def inspect_word_cover(source_path: Path, boundary: str, *, word_documents_dir: Path | None = None,
+                       timeout: int = 150) -> dict:
+    """Measure main-story content before a source-bound heading, without exposing its text."""
+    if timeout < 1 or timeout > 180:
+        raise ValueError("timeout must be between 1 and 180 seconds")
+    source_path = Path(source_path)
+    source = source_path.read_bytes()
+    audit_generated_package(source)
+    _validate_extra_bookmarks(source, [boundary])
+    with _word_workspace(word_documents_dir) as temporary:
+        copy = temporary / "paperguard-input.docx"
+        fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as target:
+            target.write(source)
+        version, total, boundary_page, pages = _parse_cover_measurement(_run_word_cover(copy, boundary, timeout))
+        if copy.read_bytes() != source or source_path.read_bytes() != source:
+            raise WordNativeLayoutError("封面分页期间 Word 文件发生变化")
+    return {"scope": "word_cover_main_story_pages_only", "source_sha256": hashlib.sha256(source).hexdigest(),
+            "word_version": version, "macos_version": platform.mac_ver()[0], "machine": platform.machine(),
+            "probe_sha256": hashlib.sha256(_WORD_COVER_SCRIPT.encode()).hexdigest(), "page_count": total,
+            "pagination_stable": True, "plain_text_context": _cover_has_plain_text_context(source, boundary),
+            "boundary_bookmark": boundary, "boundary_page": boundary_page, "pages": pages}
 
 
 def _validate_table_targets(data: bytes, targets: list[dict]) -> None:

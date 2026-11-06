@@ -42,7 +42,8 @@ def items_from_markdown(markdown_content: str) -> list[RequirementItem]:
         params = dict(raw.get("params") or {})
         for key in (
             "section_key", "section_keys", "min", "max", "years", "min_count",
-            "min_ratio", "current_year", "count_mode", "rule_pack_id",
+            "min_ratio", "current_year", "count_mode", "rule_pack_id", "field_key",
+            "field_keys", "required", "numbering", "bracket_style", "language_order", "format_check",
         ):
             if key in raw and key not in params:
                 params[key] = raw[key]
@@ -57,6 +58,10 @@ def items_from_markdown(markdown_content: str) -> list[RequirementItem]:
             "recent_reference_count": "references.recent_count",
             "recent_reference_ratio": "references.recent_ratio",
             "reference_format": "references.format",
+            "cover_required_fields": "cover.fields_present",
+            "cover.fields_present": "cover.fields_present",
+            "references_list_facts": "references.list_facts",
+            "references.list_facts": "references.list_facts",
             "chapter_page_break": "chapter.page_break",
         }.get(raw_type, checker or (raw_type if raw_type not in ("auto", "manual", "doc") else ""))
         item_type = str(raw.get("item_type") or (raw_type if raw_type in ("auto", "manual", "doc") else "auto"))

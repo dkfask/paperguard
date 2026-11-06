@@ -1380,3 +1380,62 @@ def test_office_pdf_font_names_normalize_known_macos_cjk_fallbacks():
     assert _font_name('/ABCDEF+STSongti-SC-Regular') == 'stsongtisc'
     assert _font_name('STHeitiSC-Medium') == 'stheitiscmedium'
     assert _font_name('TimesNewRomanPSMT') == 'timesnewroman'
+
+
+@pytest.mark.parametrize('damage', ['none', 'missing', 'manifest', 'source', 'script', 'boundary', 'pages', 'signature'])
+def test_cover_pagination_receipt_is_bound_to_profile_and_exact_document(native_word_directory, monkeypatch, damage):
+    from app.services.word_native_layout import _WORD_COVER_SCRIPT
+
+    path, profile, project = native_word_directory
+    profile['headings'][0]['index'] = 0
+    profile['source_sha256'] = '1' * 64
+    profile['specification_sha256'] = '2' * 64
+    profile['cover_pagination'] = {
+        'boundary_key': 'ch1', 'boundary_bookmark': 'PGHchapter1', 'allowed_blank_offsets': [],
+        'require_boundary_new_page': True,
+        'source': {'kind': 'explicit_template_confirmation', 'source_sha256': '1' * 64,
+                   'specification_sha256': '2' * 64},
+    }
+
+    def measure(candidate, _deadline, policy):
+        assert policy['boundary_bookmark'] == 'PGHchapter1'
+        return {
+            'scope': 'word_cover_main_story_pages_only', 'source_sha256': hashlib.sha256(candidate.read_bytes()).hexdigest(),
+            'word_version': '16.113.3', 'macos_version': platform.mac_ver()[0], 'machine': platform.machine(),
+            'probe_sha256': hashlib.sha256(_WORD_COVER_SCRIPT.encode()).hexdigest(),
+            'page_count': 8, 'pagination_stable': True, 'plain_text_context': True, 'boundary_bookmark': 'PGHchapter1', 'boundary_page': 8,
+            'pages': [{'page': number, 'text_present': number < 8, 'inline_shapes': 0,
+                       'plain_text_candidate': number < 8, 'tables': 0, 'floating_shapes': 0} for number in range(1, 9)],
+        }
+
+    monkeypatch.setattr(office_layout, '_measure_native_cover', measure)
+    office_layout.refresh_master_layout(path, project, profile)
+    with zipfile.ZipFile(path) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+    receipt = json.loads(parts[office_layout.RECEIPT_PART])
+    if damage != 'none':
+        if damage == 'missing':
+            receipt.pop('word_cover')
+        elif damage == 'manifest':
+            receipt['word_cover']['manifest_sha256'] = '0' * 64
+        elif damage == 'source':
+            receipt['word_cover']['source_sha256'] = '0' * 64
+        elif damage == 'script':
+            receipt['word_cover']['probe_sha256'] = '0' * 64
+        elif damage == 'boundary':
+            receipt['word_cover']['boundary_page'] = 7
+        elif damage == 'pages':
+            receipt['word_cover']['pages'].pop()
+        elif damage == 'signature':
+            receipt['word_cover']['pages'][0]['text_present'] = False
+        if damage != 'signature':
+            receipt.pop('signature')
+            receipt['signature'] = office_layout._mac(receipt, office_layout.NATIVE_TOC_VERSION)
+        parts[office_layout.RECEIPT_PART] = json.dumps(receipt).encode()
+    payload = _archive_parts(parts)
+    if damage == 'none':
+        verified = office_layout.verify_layout_receipt(payload, project, profile)
+        assert office_layout.cover_pagination_result(profile, verified)['ok']
+    else:
+        with pytest.raises(ProfileError):
+            office_layout.verify_layout_receipt(payload, project, profile)

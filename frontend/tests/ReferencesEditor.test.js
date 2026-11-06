@@ -134,6 +134,27 @@ describe('ReferencesEditor', () => {
     wrapper.unmount()
   })
 
+  it('keeps fullwidth-numbered references and wrapped lines together when adding a batch', async () => {
+    const paragraphs = []
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    const first = '［１］ 张三. 研究题名[J]. 示例期刊,\n2024, 12(3): 1-9.'
+    const second = '［２］ 李四. 第二条[J]. 示例期刊, 2025.'
+    await wrapper.find('.reference-actions button').trigger('click')
+    await wrapper.get('[data-test="reference-paste-input"]').setValue(`${first}\n${second}`)
+    expect(wrapper.findAll('.reference-paste-preview li')).toHaveLength(2)
+    await wrapper.get('[data-test="reference-paste-add"]').trigger('click')
+    expect(paragraphs.map(block => block.reference.original_pasted_text)).toEqual([first, second])
+    expect(paragraphs.map(block => block.reference.kind)).toEqual(['journal', 'journal'])
+    expect(wrapper.emitted('change')).toHaveLength(1)
+    await wrapper.setProps({ paragraphs: paragraphs.map((block, index) => ({ ...block, reference_number: index + 1 })) })
+    expect(wrapper.findAll('.reference-card strong').map(item => item.text())).toEqual(['[1]', '[2]'])
+    expect(wrapper.findAll('.reference-preview code').map(item => item.text())).toEqual([
+      '[1] 张三. 研究题名[J]. 示例期刊, 2024, 12(3): 1-9',
+      '[2] 李四. 第二条[J]. 示例期刊, 2025',
+    ])
+    wrapper.unmount()
+  })
+
   it('extracts supported pasted journals in a batch and keeps unresolved entries editable', async () => {
     const paragraphs = []
     const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
@@ -241,6 +262,57 @@ describe('ReferencesEditor', () => {
     Object.assign(paragraphs[0].reference.year_fact, { status: 'confirmed', confirmed_by: 'student', confirmed_at: 'now' })
     await wrapper.get('[data-test="reference-field-year"]').setValue('2025')
     expect(paragraphs[0].reference.year_fact).toMatchObject({ value: '2025', status: 'unconfirmed', confirmed_by: '' })
+    wrapper.unmount()
+  })
+})
+
+describe('pasted supported reference types', () => {
+  it('extracts dotted authors and DOI when references are pasted in bulk', async () => {
+    const paragraphs = []
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    const entries = [
+      'A. Smith. System study[C]. Proceedings, London: Press, 2024: 1-9. DOI: 10.1234/conf.24',
+      'A. Group. Standard Name[S]. ISO 1234, London: Press, 2025. DOI: 10.1234/std.25',
+    ]
+    await wrapper.find('.reference-actions button').trigger('click')
+    await wrapper.get('[data-test="reference-paste-input"]').setValue(entries.join('\n'))
+    await wrapper.get('[data-test="reference-paste-add"]').trigger('click')
+    expect(paragraphs.map(p => p.reference.kind)).toEqual(['conference', 'standard'])
+    expect(paragraphs.map(p => p.reference.authors)).toEqual(['A. Smith', 'A. Group'])
+    expect(paragraphs.map(p => p.reference.doi)).toEqual(['10.1234/conf.24', '10.1234/std.25'])
+    expect(paragraphs.map(p => p.reference.original_pasted_text)).toEqual(entries)
+    wrapper.unmount()
+  })
+
+  it('creates editable conference, online, and standard entries while retaining each original', async () => {
+    const paragraphs = []
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    const entries = [
+      '[1] 张三. 系统研究[C]. 智能会议论文集, 北京: 示例出版社, 2024: 12-18.',
+      '[2] 李四. 学术资料[EB/OL]. 示例机构，2024-10-01. https://example.test/path(a)?x=1.2&y=3（引用日期：2026-11-05）',
+      '[3] 文献著录规则[S]. GB/T 7714-2025，北京: 示例出版社，2025.',
+    ]
+    await wrapper.find('.reference-actions button').trigger('click')
+    await wrapper.get('[data-test="reference-paste-input"]').setValue(entries.join('\n'))
+    await wrapper.get('[data-test="reference-paste-add"]').trigger('click')
+    expect(paragraphs.map(p => p.reference.kind)).toEqual(['conference', 'online', 'standard'])
+    expect(paragraphs.map(p => p.reference.original_pasted_text)).toEqual(entries)
+    expect(paragraphs[0].reference).toMatchObject({ collection: '智能会议论文集', pages: '12-18' })
+    expect(paragraphs[1].reference.url).toBe('https://example.test/path(a)?x=1.2&y=3')
+    expect(paragraphs[2].reference.number).toBe('GB/T 7714-2025')
+    expect(wrapper.findAll('details.reference-original pre').map(node => node.text())).toEqual(entries)
+    wrapper.unmount()
+  })
+})
+
+describe('extended reference fact editing', () => {
+  it('lets students edit the standard author and DOI', async () => {
+    const paragraphs = [{ id: 'standard', type: 'paragraph', text: '', reference: { kind: 'standard', title: '标准', number: 'ISO 1234', authors: '', doi: '' } }]
+    const wrapper = mount(ReferencesEditor, { props: { paragraphs } })
+    await wrapper.get('[data-test="reference-field-authors"]').setValue('A. Group')
+    await wrapper.get('[data-test="reference-field-doi"]').setValue('10.1234/std')
+    expect(paragraphs[0].reference).toMatchObject({ authors: 'A. Group', doi: '10.1234/std' })
+    expect(wrapper.get('.reference-preview').text()).toContain('10.1234/std')
     wrapper.unmount()
   })
 })

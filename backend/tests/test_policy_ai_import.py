@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.api import ai as ai_api
 from app.main import app
+from app.services.policy_import import normalize_ai_policy
 
 
 client = TestClient(app)
@@ -129,6 +130,53 @@ def test_ai_import_creates_draft_and_keeps_source_document(monkeypatch):
     audit = client.get(f"/api/policies/{policy['id']}/audit", headers=headers)
     assert audit.status_code == 200
     assert any(event["action"] == "ai_imported" for event in audit.json())
+
+
+def test_policy_import_keeps_explicit_cover_and_reference_checkers_automatic():
+    raw = json.dumps({"name": "1101 试点规则", "items": [
+        {
+            "id": "cover-required-fields", "type": "auto", "target": "cover",
+            "checker": "cover.fields_present",
+            "params": {"field_keys": ["title", "college", "major", "class_name", "author", "student_id", "advisor", "date"]},
+            "severity": "error", "enforce": "hard", "description": "封面必填字段均应填写",
+        },
+        {
+            "id": "reference-list", "type": "auto", "target": "references",
+            "checker": "references.list_facts",
+            "params": {"required": True, "numbering": "sequential", "bracket_style": "square",
+                        "language_order": "zh_before_en"},
+            "severity": "error", "enforce": "hard", "description": "参考文献事实、编号与排序符合试点规则",
+        },
+        {
+            "id": "reference-number-year", "type": "auto", "target": "references",
+            "checker": "references.format", "params": {"format_check": "number_and_year"},
+            "severity": "warning", "enforce": "soft", "description": "只核验序号与年份",
+        },
+    ]}, ensure_ascii=False)
+
+    policy, analysis = normalize_ai_policy(raw, "1101.md")
+
+    assert [item["type"] for item in policy["items"]] == ["auto", "auto", "auto"]
+    assert [item["checker"] for item in policy["items"]] == [
+        "cover.fields_present", "references.list_facts", "references.format",
+    ]
+    assert analysis["auto_rule_count"] == 3
+
+
+@pytest.mark.parametrize("item", [
+    {"id": "cover", "type": "auto", "checker": "cover.fields_present", "params": {"field_keys": ["title", "not-a-field"]}},
+    {"id": "refs", "type": "auto", "checker": "references.list_facts", "params": {"numbering": "sort-by-author"}},
+    {"id": "refs-empty", "type": "auto", "checker": "references.list_facts", "params": {}},
+    {"id": "refs-optional-numbering", "type": "auto", "checker": "references.list_facts", "params": {"required": False, "numbering": "sequential"}},
+    {"id": "refs-generic-format", "type": "reference_format", "params": {}},
+])
+def test_policy_import_downgrades_incomplete_or_unsupported_rule_mappings(item):
+    policy, analysis = normalize_ai_policy(json.dumps({"items": [item]}), "guide.md")
+
+    assert policy["items"][0]["type"] == "manual"
+    assert policy["items"][0]["checker"] == ""
+    assert analysis["auto_rule_count"] == 0
+    assert analysis["manual_rule_count"] == 1
 
 
 def test_ai_import_extracts_docx_text_before_calling_model(monkeypatch):
