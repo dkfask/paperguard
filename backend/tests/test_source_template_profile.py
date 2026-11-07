@@ -3223,6 +3223,48 @@ def test_character_indent_baseline_applies_to_mixed_region_and_is_protected(mast
     assert any(c['rule'] == 'master.indent_baseline_styles' and c['status'] == 'fail' for c in corrupted['checks'])
 
 
+def test_legacy_character_indent_accepts_only_equivalent_default_style(master, tmp_path, monkeypatch):
+    from app.services import master_docx_check, master_docx_renderer
+
+    _, template, project, _ = master
+    profile = copy.deepcopy(template.source_execution)
+    heading = next(item for item in profile['headings'] if item['key'] == project.sections[-1].key)
+    heading['properties']['paragraph.indent.first_line'] = {'value': 2, 'unit': 'character'}
+    heading['properties']['font.size'] = {'value': 12, 'unit': 'pt'}
+    monkeypatch.setattr(master_docx_renderer, 'verify_profile', lambda *_: profile)
+    monkeypatch.setattr(master_docx_check, 'verify_profile', lambda *_: profile)
+    data = rendered(master, tmp_path)
+
+    def remove_generated_style(styles):
+        for style in styles.xpath('./w:style[@w:styleId="PGIndentBase24"]', namespaces=NS):
+            style.getparent().remove(style)
+
+    def restore_default_paragraphs(root):
+        for style in root.xpath('.//w:pStyle[@w:val="PGIndentBase24"]', namespaces=NS):
+            style.getparent().remove(style)
+
+    legacy = rewrite(rewrite(data, 'word/styles.xml', remove_generated_style),
+                     'word/document.xml', restore_default_paragraphs)
+    report = inspect(master, legacy)
+    assert report['status'] == 'pass', [(c['rule'], c['object']) for c in report['checks'] if c['status'] != 'pass']
+
+    def change_default_size(styles):
+        style = styles.xpath('./w:style[@w:styleId="Normal"]', namespaces=NS)[0]
+        style.find('./' + qn('w:rPr') + '/' + qn('w:sz')).set(qn('w:val'), '22')
+
+    bad_size = inspect(master, rewrite(legacy, 'word/styles.xml', change_default_size))
+    assert any(c['rule'] == 'master.indent_baseline_styles' and c['status'] == 'fail' for c in bad_size['checks'])
+
+    def change_paragraph_style(root):
+        paragraph = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val=$tag]//w:p', namespaces=NS,
+                               tag='pg-block:' + project.sections[-1].paragraphs[0].id)[0]
+        style = OxmlElement('w:pStyle'); style.set(qn('w:val'), 'Heading1')
+        paragraph.find(qn('w:pPr')).insert(0, style)
+
+    bad_style = inspect(master, rewrite(legacy, 'word/document.xml', change_paragraph_style))
+    assert any(c['rule'] == 'master.indent_baseline_styles' and c['status'] == 'fail' for c in bad_style['checks'])
+
+
 def test_master_checks_sequential_numbers_from_actual_reference_blocks(master, tmp_path):
     from app.services.references import reconcile_reference_numbers
 

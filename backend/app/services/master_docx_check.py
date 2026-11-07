@@ -1031,6 +1031,41 @@ def _generated_indent_baselines(source_styles, output_styles, root, profile, *, 
             return False
         expected[heading["key"]] = style_id
     generated_ids = set(expected.values())
+    present_ids = {style.get(qn("w:styleId")) for style in output_styles.findall(qn("w:style"))}
+    if generated_ids and not (generated_ids & present_ids):
+        # Older renderers used the source default paragraph style. Accept it
+        # only when its effective base size proves the same character width.
+        if not word_roundtrip and etree.tostring(source_styles, method="c14n") != etree.tostring(output_styles, method="c14n"):
+            return False
+        output_defaults = [style for style in output_styles.findall(qn("w:style"))
+                           if style.get(qn("w:type")) == "paragraph"
+                           and style.get(qn("w:default"), "").lower() in {"1", "true", "on"}]
+        default_id = defaults[0].get(qn("w:styleId"))
+        if len(output_defaults) != 1 or output_defaults[0].get(qn("w:styleId")) != default_id:
+            return False
+        resolver = EffectiveFormatResolver(output_styles)
+        values, sources = {}, {}
+        if resolver.defaults is not None:
+            resolver._run(values, sources, resolver.defaults.find(f"{qn('w:rPrDefault')}/{qn('w:rPr')}"))
+        chain = resolver.chain(default_id)
+        if resolver.issues & {"missing_style_reference", "style_inheritance_cycle"} or not chain:
+            return False
+        for style in chain:
+            if sum(item.get(qn("w:styleId")) == style.get(qn("w:styleId"))
+                   for item in output_styles.findall(qn("w:style"))) != 1:
+                return False
+            resolver._run(values, sources, style.find(qn("w:rPr")), style=True)
+        for paragraph in root.xpath(".//w:sdt[starts-with(w:sdtPr/w:tag/@w:val, 'pg-block:')]//w:p", namespaces=NS):
+            regions = paragraph.xpath("ancestor::w:sdt[starts-with(w:sdtPr/w:tag/@w:val, 'pg-region:')][1]/w:sdtPr/w:tag/@w:val", namespaces=NS)
+            region_key = regions[0].removeprefix("pg-region:") if len(regions) == 1 else ""
+            if region_key not in expected:
+                continue
+            style = paragraph.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+            actual = style.get(qn("w:val"), "") if style is not None else default_id
+            size = int(expected[region_key].removeprefix("PGIndentBase")) / 2
+            if actual != default_id or values.get("font.size") != {"value": size, "unit": "pt"}:
+                return False
+        return True
     styles_without_generated = copy.deepcopy(output_styles)
     for style_id in generated_ids:
         styles = output_styles.xpath("./w:style[@w:styleId=$ident]", namespaces=NS, ident=style_id)
