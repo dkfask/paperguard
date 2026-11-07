@@ -58,6 +58,7 @@ from app.models.workflow import (
 from app.domain.workflow_states import ACTIVE_PARTICIPANT_STATES, transition_state
 from app.repositories.workflow_repository import WorkflowRepository
 from app.services.access_service import visible_organization_ids
+from app.services.document_access import can_access_template
 from app.services.audit_service import list_audit_events
 from app.services.projects import create_project_from_template
 from app.services.project_check import check_project
@@ -792,6 +793,7 @@ def _stage_preview(store: Store, stage: dict, cohort: dict, config: dict) -> dic
     if template is None:
         errors.append("阶段必须绑定已存在的模板")
     else:
+        _ensure_workflow_template_access(store, cohort, template)
         admission = template_admission(template)
         if not admission["can_use_for_draft"]:
             errors.append("阶段模板含有当前检查器无法覆盖的结构，不能发布此阶段")
@@ -1232,6 +1234,27 @@ def import_members(cohort_id: str, req: MemberImportRequest, store: Store = Depe
     }
 
 
+def _ensure_workflow_template_access(store: Store, cohort: dict, template: PaperTemplate) -> None:
+    """Use the authorized cohort's server-recorded scope for its template."""
+    context: dict[str, str] = {}
+    unit_id = cohort.get("organization_id", "")
+    seen: set[str] = set()
+    while unit_id and unit_id not in seen:
+        seen.add(unit_id)
+        unit = store.get_organization_unit(unit_id)
+        if unit is None:
+            break
+        kind = getattr(unit.type, "value", unit.type)
+        context.setdefault(f"{kind}_id", unit.id)
+        unit_id = unit.parent_id
+    # A workflow cohort ID is also a valid batch scope, separate from an
+    # organization-unit ID. Both come from server-checked membership.
+    contexts = [context, {"batch_id": cohort["id"]}]
+    if not any(can_access_template(store, {"role": "student", "organization_context": scope}, template)
+               for scope in contexts):
+        raise HTTPException(status_code=404, detail="模板不存在")
+
+
 @router.post("/cohorts/{cohort_id}/stages", status_code=201)
 def create_stage(cohort_id: str, req: StageCreate, store: Store = Depends(get_store), user: dict = Depends(current_user)) -> dict:
     _ensure_manager(user, workflow=True)
@@ -1244,6 +1267,7 @@ def create_stage(cohort_id: str, req: StageCreate, store: Store = Depends(get_st
     template = store.get_template(template_id)
     if template is None:
         raise HTTPException(status_code=422, detail="阶段模板不存在")
+    _ensure_workflow_template_access(store, cohort, template)
     ensure_template_admitted_for_writing(template)
     unknown_materials = [item for item in req.required_materials if catalog_item(item) is None]
     if unknown_materials:
@@ -1327,6 +1351,7 @@ def create_stage_version(stage_id: str, req: StageVersionCreate,
     template = store.get_template(template_id)
     if template is None:
         raise HTTPException(status_code=422, detail="阶段模板不存在")
+    _ensure_workflow_template_access(store, cohort, template)
     ensure_template_admitted_for_writing(template)
     unknown_materials = [item for item in new_config.get("required_materials", []) if catalog_item(item) is None]
     if unknown_materials:
@@ -1697,6 +1722,7 @@ def bind_project(participant_id: str, req: BindProjectRequest, store: Store = De
     template = store.get_template(template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="阶段要求的模板不存在")
+    _ensure_workflow_template_access(store, cohort, template)
     ensure_template_admitted_for_writing(template)
     if req.project_id:
         project = store.get_project(req.project_id)

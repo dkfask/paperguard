@@ -3660,6 +3660,99 @@ def test_workflow_stage_cannot_select_a_blocked_template():
     assert response.json()["detail"]["code"] == "template_admission_blocked"
 
 
+def test_workflow_template_scope_uses_cohort_organization_ancestors(tmp_path):
+    from fastapi import HTTPException
+    from app.api.workflow import _ensure_workflow_template_access
+    from app.models.organization import OrganizationUnit
+    from app.services.projects import default_template
+
+    store = Store(tmp_path / 'scope-ancestors.db')
+    for unit in (
+        OrganizationUnit(id='school-a', name='学校 A', type='school'),
+        OrganizationUnit(id='college-a', name='学院 A', type='college', parent_id='school-a'),
+        OrganizationUnit(id='school-b', name='学校 B', type='school'),
+    ):
+        store.save_organization_unit(unit)
+    template = default_template().model_copy(update={
+        'organization_context': {'school_id': 'school-a'},
+        'admission_provenance': {'source': 'document_template_candidate'},
+    })
+    _ensure_workflow_template_access(store, {'id': 'batch-a', 'organization_id': 'college-a'}, template)
+    with pytest.raises(HTTPException) as denied:
+        _ensure_workflow_template_access(store, {'id': 'batch-b', 'organization_id': 'school-b'}, template)
+    assert denied.value.status_code == 404
+
+
+def test_workflow_template_scope_is_checked_for_stages_versions_and_binding():
+    from app.services.projects import default_template
+
+    admin = _login('admin', 'TestAdminPassword123')
+    teacher, student, teacher_id, student_id = _create_people(admin)
+    suffix = uuid.uuid4().hex[:8]
+    store = Store()
+    schools = []
+    for name in ('scope-a', 'scope-b'):
+        response = client.post('/api/organizations', headers=admin, json={
+            'id': f'{name}-{suffix}', 'name': name, 'type': 'school',
+        })
+        assert response.status_code == 201, response.text
+        schools.append(response.json()['id'])
+    for user_id in (teacher_id, student_id):
+        person = store.get_user(user_id)
+        person['organization_context'] = {'school_id': schools[0]}
+        store.save_user(person)
+    cohort = client.post('/api/cohorts', headers=admin, json={
+        'name': '范围验证批次', 'organization_id': schools[0],
+    }).json()
+    assert client.post(f"/api/cohorts/{cohort['id']}/members", headers=admin, json={
+        'student_id': student_id, 'teacher_id': teacher_id,
+    }).status_code == 201
+    templates = []
+    for index, school in enumerate(schools):
+        template = default_template().model_copy(update={
+            'id': f'scoped-{index}-{suffix}', 'organization_context': {'school_id': school},
+            'admission_provenance': {'source': 'document_template_candidate'},
+        })
+        store.save_template(template)
+        templates.append(template)
+    now = datetime.now(timezone.utc)
+    stage_data = {'key': 'final', 'name': '终稿', 'open_at': (now - timedelta(minutes=1)).isoformat(),
+                  'deadline_at': (now + timedelta(days=1)).isoformat(), 'is_final': True}
+    url = f"/api/cohorts/{cohort['id']}/stages"
+    denied = client.post(url, headers=teacher, json={**stage_data, 'template_id': templates[1].id})
+    assert denied.status_code == 404, denied.text
+    denied_admin = client.post(url, headers=admin, json={**stage_data, 'template_id': templates[1].id})
+    assert denied_admin.status_code == 404, denied_admin.text
+    allowed = client.post(url, headers=teacher, json={**stage_data, 'template_id': templates[0].id})
+    assert allowed.status_code == 201, allowed.text
+    stage = allowed.json()
+    assert client.post(f"/api/stages/{stage['id']}/publish", headers=teacher).status_code == 200
+    denied_version = client.post(f"/api/stages/{stage['id']}/versions", headers=teacher, json={
+        'reason': '测试模板范围', 'template_id': templates[1].id,
+    })
+    assert denied_version.status_code == 404, denied_version.text
+
+    # Simulate an older published stage containing a foreign template ID.
+    config = store.get_workflow_record('stage_config', stage['config_version_id'])
+    config['template_id'] = templates[1].id
+    assert store.save_workflow_record('stage_config', config, expected_revision=config['revision'])
+    assert client.post(f"/api/stages/{stage['id']}/preview", headers=teacher).status_code == 404
+    participant = client.get('/api/my-tasks', headers=student).json()[0]
+    denied_bind = client.post(f"/api/stage-participants/{participant['id']}/project",
+                              headers=student, json={'title': '范围验证'})
+    assert denied_bind.status_code == 404, denied_bind.text
+    assert not store.get_workflow_record('participant', participant['id']).get('project_id')
+    config = store.get_workflow_record('stage_config', stage['config_version_id'])
+    config['template_id'] = templates[0].id
+    assert store.save_workflow_record('stage_config', config, expected_revision=config['revision'])
+    person = store.get_user(student_id)
+    person['organization_context'] = {}
+    store.save_user(person)
+    allowed_bind = client.post(f"/api/stage-participants/{participant['id']}/project",
+                               headers=student, json={'title': '范围验证'})
+    assert allowed_bind.status_code == 200, allowed_bind.text
+
+
 def test_binding_existing_paper_persists_batch_scope_atomically(monkeypatch):
     admin = _login('admin', 'TestAdminPassword123')
     teacher, student, teacher_id, student_id = _create_people(admin)
