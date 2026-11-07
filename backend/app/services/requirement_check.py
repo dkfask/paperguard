@@ -382,11 +382,12 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
                             descriptor, f"参考文献第 {position} 条编号不连续", actual_number, position, section.key,
                         ))
                 if params.get("bracket_style") == "square":
-                    rendered = reference_block_text(block, reference_number_for(block, position))
-                    if not re.match(rf"^\[\s*{position}\s*\]\s+\S", rendered):
+                    number = reference_number_for(block, position)
+                    rendered = reference_block_text(block, number)
+                    if not re.match(rf"^\[\s*{number}\s*\]\s+\S", rendered):
                         findings.append(_finding(
-                            descriptor, f"参考文献第 {position} 条未使用连续方括号编号",
-                            rendered[:80], f"[{position}] 文献内容", section.key,
+                            descriptor, f"参考文献第 {position} 条未使用方括号编号",
+                            rendered[:80], f"[{number}] 文献内容", section.key,
                         ))
                 if params.get("language_order") == "zh_before_en":
                     fact = reference.language_fact if reference else None

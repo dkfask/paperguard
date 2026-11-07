@@ -220,6 +220,20 @@ def test_reference_list_checker_enforces_sequential_square_numbers_and_confirmed
     assert any("语种未确认" in result["message"] for result in findings)
 
 
+def test_square_brackets_do_not_require_sequential_reference_numbers():
+    project = _project()
+    project.sections[-1].paragraphs = [ParagraphBlock(id='preserved', reference_number=2,
+        reference=ReferenceEntry(kind='journal', authors='张三', title='研究', source='示例期刊', year='2024'))]
+    item = {'id': 'square-only', 'type': 'auto', 'target': 'references', 'checker': 'references.list_facts',
+            'params': {'bracket_style': 'square'}, 'severity': 'error', 'enforce': 'hard'}
+    assert check_requirements(project, {'resolved_items': [item]}) == ([], [])
+    item['params']['numbering'] = 'sequential'
+    findings, not_checked = check_requirements(project, {'resolved_items': [item]})
+    assert not not_checked
+    assert any('编号不连续' in finding['message'] for finding in findings)
+    assert not any('方括号' in finding['message'] for finding in findings)
+
+
 def test_exact_legacy_1101_cover_rule_uses_automatic_field_check_and_still_requires_template_mapping():
     project = _project()
     project.meta = {
