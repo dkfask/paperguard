@@ -40,6 +40,7 @@ LEGACY_VERSION = "office-layout/10"
 LEGACY_NATIVE_TOC_VERSION = "office-layout/11"
 VERSION = "office-layout/12"
 NATIVE_TOC_VERSION = "office-layout/13"
+SERVER_TOC_VERSION = "office-layout/server-1"
 
 # Pagination costs vary with document size and Word response times. The outer
 # export deadline and worker lease remain the authoritative hard limits.
@@ -77,7 +78,7 @@ def _environment():
     return env
 
 
-def _office_roundtrip(input_path: Path, directory: Path):
+def _office_roundtrip(input_path: Path, directory: Path, *, named_destinations: bool = False):
     converter = os.environ.get("PAPERGUARD_SOFFICE_PATH") or shutil.which("soffice") or shutil.which("libreoffice")
     java = os.environ.get("PAPERGUARD_JAVA_PATH") or shutil.which("java")
     jar = Path(os.environ.get("PAPERGUARD_OFFICE_JAR","/app/office/libreoffice.jar"))
@@ -88,6 +89,15 @@ def _office_roundtrip(input_path: Path, directory: Path):
         raise ProfileError("后台排版依赖摘要不符，已拒绝执行")
     directory.mkdir(parents=True,exist_ok=True)
     profile = directory/"profile";profile.mkdir(mode=0o700)
+    if named_destinations:
+        user_profile = profile / "user"
+        user_profile.mkdir(mode=0o700)
+        (user_profile / "registrymodifications.xcu").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<oor:items xmlns:oor="http://openoffice.org/2001/registry">'
+            '<item oor:path="/org.openoffice.Office.Common/Filter/PDF/Export">'
+            '<prop oor:name="ExportBookmarksToPDFDestination" oor:op="fuse">'
+            '<value>true</value></prop></item></oor:items>', encoding="utf-8")
     name = "pg_"+uuid.uuid4().hex
     environment = _environment()
     check_export_budget()
@@ -256,7 +266,7 @@ def _match_heading(label, headings, required):
     return exact or candidates
 
 
-def _read_toc(path: Path, profile):
+def _read_toc(path: Path, profile, *, allow_server_style_aliases: bool = False):
     with zipfile.ZipFile(path) as archive:
         root=load_part(archive,"word/document.xml")
         styles=load_part(archive,"word/styles.xml")
@@ -305,8 +315,18 @@ def _read_toc(path: Path, profile):
             expected_level=int(inferred.group(1))
         if expected_level is not None and level!=expected_level:raise ProfileError("目录层级与母版章节层级不一致："+label[:80])
         source_style=profile.get("toc_style_by_level",{}).get(str(level)) or profile.get("toc_style_by_level",{}).get(level)
-        if not source_style or style_id!=source_style:
+        if not source_style:
             raise ProfileError("刷新后的目录样式与母版样式不一致："+label[:80])
+        if style_id != source_style:
+            measured_style = [node for node in styles.findall(qn("w:style"))
+                              if node.get(qn("w:styleId")) == style_id]
+            if (not allow_server_style_aliases or style_id != f"Contents{level}"
+                    or source_style not in profile.get("toc_style_ids", [])
+                    or len(measured_style) != 1 or measured_style[0].get(qn("w:type")) != "paragraph"
+                    or not re.fullmatch(rf"TOC\s*{level}", names.get(style_id, ""), re.I)):
+                raise ProfileError("刷新后的目录样式与母版样式不一致："+label[:80])
+            style.set(qn("w:val"), source_style)
+            style_id = source_style
         bookmark=heading.get("bookmark_name","")
         if not bookmark:raise ProfileError("章节缺少稳定跳转书签")
         source_anchor=anchors[0] if len(anchors)==1 else ""
@@ -1093,7 +1113,11 @@ def _refresh_master_layout_native(output_path: Path, project, profile):
 
 def refresh_master_layout(output_path: Path,project,profile):
     with ensure_export_budget():
-        if os.environ.get("PAPERGUARD_NATIVE_WORD_TOC", "").strip().lower() in {"1", "true", "yes", "on"}:
+        if os.environ.get("PAPERGUARD_SERVER_LAYOUT", "").strip().lower() in {"1", "true", "yes", "on"}:
+            if profile.get("toc_active"):
+                from app.services.server_layout import refresh_server_layout
+                refresh_server_layout(output_path, project, profile)
+        elif os.environ.get("PAPERGUARD_NATIVE_WORD_TOC", "").strip().lower() in {"1", "true", "yes", "on"}:
             if profile.get("toc_active"):
                 _refresh_master_layout_native(output_path, project, profile)
         else:
@@ -1210,6 +1234,9 @@ def verify_layout_receipt(data,project,profile):
         raw=archive.read(RECEIPT_PART)
         if len(raw)>2_000_000:raise ProfileError("排版证据超出预算")
         receipt=json.loads(raw)
+        if receipt.get("version") == SERVER_TOC_VERSION:
+            from app.services.server_layout import verify_server_receipt
+            return verify_server_receipt(data, project, profile, receipt)
         signature=receipt.pop("signature","")
         version=receipt.get("version")
         mac_version=version if version in {LEGACY_VERSION, LEGACY_NATIVE_TOC_VERSION, VERSION, NATIVE_TOC_VERSION} else VERSION

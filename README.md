@@ -224,6 +224,7 @@ docker compose up -d --build
 ```
 
 - 数据(论文项目 SQLite + 上传图片)持久化在 Docker volume `paperguard_data`,重建/升级容器不丢数据
+- 服务端 Word 排版可通过应用和 worker 的 `PAPERGUARD_SERVER_LAYOUT=1` 启用。两者须使用相同的 LibreOffice、Java、校验通过的 UNO 依赖和模板所需字体；容器需显式传入变量并挂载获准使用的字体。目录及分页证据以服务器排版为准，其他 Word/WPS 环境可能重新分页。含尚不支持的封面分页规则的模板会被拒绝交付。
 - 启动时默认保留上传图片，不自动清理无引用文件。经核对和备份后，如需启用启动清理，可由受控环境显式设置 `PAPERGUARD_STARTUP_IMAGE_CLEANUP=true`；仅清理扫描判定为无引用且超过 24 小时的文件。
 - `worker` 容器负责站内通知 outbox 消费和截止提醒调度，与后端共享数据库卷；可用 `PAPERGUARD_WORKER_INTERVAL_SECONDS` 调整周期
 - 首次部署前必须设置强密码环境变量 `PAPERGUARD_ADMIN_PASSWORD`(至少 12 位, 含字母和数字), 不再提供固定默认密码

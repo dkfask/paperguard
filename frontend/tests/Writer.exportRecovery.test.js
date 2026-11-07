@@ -86,6 +86,7 @@ describe('Writer export recovery', () => {
     await flushPromises()
     expect(api.fetchProjectExportJobs).toHaveBeenCalledWith('p1')
     expect(wrapper.find('.writer-import-action').exists()).toBe(false)
+    expect(wrapper.get('[data-test="writer-pagination-notice"]').text()).toContain('writer.paginationNotice')
     await wrapper.get('[data-test="writer-download-ready"]').trigger('click')
     await flushPromises()
     expect(api.downloadProjectExportJob).toHaveBeenCalledWith('p1', 'saved-task', '论文.docx')

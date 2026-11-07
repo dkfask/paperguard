@@ -726,6 +726,7 @@ Object.assign(translations.zh, {
   'writer.headingLevel': '标题级别',
   'writer.changeHeadingFailed': '标题级别调整失败',
   'writer.exportReady': '当前版本的文件已生成',
+  'writer.paginationNotice': '目录页码由生成环境计算；使用不同版本的 Word 或 WPS 打开时，分页可能变化。',
   'writer.downloadReadyExport': '下载当前成品',
   'writer.downloadOptionalPdf': '下载 PDF（可选）'
 })
@@ -740,6 +741,7 @@ Object.assign(translations.en, {
   'writer.headingLevel': 'Heading level',
   'writer.changeHeadingFailed': 'Failed to change heading level',
   'writer.exportReady': 'The file for this version is ready',
+  'writer.paginationNotice': 'Page numbers are calculated when the document is generated. Pagination may differ in other Word or WPS versions.',
   'writer.downloadReadyExport': 'Download current file',
   'writer.downloadOptionalPdf': 'Download PDF (optional)'
 })

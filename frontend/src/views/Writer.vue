@@ -137,6 +137,7 @@
       <div v-if="exportCheck" class="notice-banner export-check-status" role="status" aria-live="polite">
         <strong>{{ manualReview?.status === 'required' ? t('writer.automaticCheckPendingTitle') : readyExport ? t('writer.exportReady') : t('writer.exportGenerated') }}</strong>
         <span>{{ t('writer.exportFormatStatus', { status: exportCheckLabel(exportCheck.status), count: exportCheck.count }) }}</span>
+        <span v-if="readyExport" data-test="writer-pagination-notice">{{ t('writer.paginationNotice') }}</span>
         <button v-if="readyExport" class="small" :disabled="exporting" data-test="writer-download-ready" @click="downloadReadyExport">{{ t('writer.downloadReadyExport') }}</button>
         <button v-if="readyExport && optionalPdfEnabled" class="small" :disabled="exporting" data-test="writer-download-pdf" @click="downloadReadyExportPdf"><span class="material-symbols-outlined" aria-hidden="true">download</span>{{ t('writer.downloadOptionalPdf') }}</button>
       </div>

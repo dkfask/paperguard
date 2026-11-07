@@ -115,6 +115,131 @@ def test_required_layout_bookmarks_cover_each_content_object_and_caption():
     ]
 
 
+@pytest.fixture
+def server_layout_fixture(toc_package, monkeypatch):
+    from app.services import server_layout
+
+    path, _, profile = toc_package
+    project = WritingProject(id='server-layout', template_id='test-master')
+    monkeypatch.setenv('PAPERGUARD_SERVER_LAYOUT', '1')
+
+    def roundtrip(source, directory, *, named_destinations=False):
+        assert named_destinations is True
+        directory.mkdir()
+        shutil.copyfile(source, directory / 'updated.docx')
+        (directory / 'before.pdf').write_bytes(b'fixture')
+        (directory / 'after.pdf').write_bytes(b'fixture')
+
+    monkeypatch.setattr(office_layout, '_office_roundtrip', roundtrip)
+    monkeypatch.setattr(office_layout, '_pdf_state',
+                        lambda _: {'page_count': 9, 'destinations': [['绪论', 8]], 'fonts': []})
+    result = {'page_count': 9, 'extra_bookmarks': [{'bookmark': 'PGHchapter1', 'physical_page': 8}],
+              'table_rows': {'tables': []}, 'fonts': [], 'pdf_sha256': 'a' * 64}
+    monkeypatch.setattr(server_layout, '_probe', lambda *_args: copy.deepcopy(result))
+    return path, profile, project, result
+
+
+def test_server_layout_is_signed_and_binds_output_without_claiming_word(server_layout_fixture):
+    path, profile, project, _ = server_layout_fixture
+    office_layout.refresh_master_layout(path, project, profile)
+    receipt = office_layout.verify_layout_receipt(path.read_bytes(), project, profile)
+    assert receipt['version'] == office_layout.SERVER_TOC_VERSION
+    assert receipt['pagination_source'] == 'libreoffice_server'
+    assert receipt['server_layout']['extra_bookmarks'][0]['physical_page'] == 8
+    assert 'word_native' not in receipt
+
+
+@pytest.mark.parametrize('damage', ['position', 'page_count', 'toc', 'pdf_hash', 'probe', 'signature'])
+def test_server_layout_rejects_invalid_signed_or_tampered_evidence(server_layout_fixture, damage):
+    path, profile, project, _ = server_layout_fixture
+    office_layout.refresh_master_layout(path, project, profile)
+    with zipfile.ZipFile(path) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+    receipt = json.loads(parts[office_layout.RECEIPT_PART])
+    receipt.pop('signature')
+    if damage == 'position':
+        receipt['server_layout']['extra_bookmarks'][0]['physical_page'] = 0
+    elif damage == 'page_count':
+        receipt['page_count'] = 10
+    elif damage == 'toc':
+        receipt['toc'][0]['page'] = '99'
+    elif damage == 'pdf_hash':
+        receipt['server_layout']['pdf_sha256'] = 'invalid'
+    elif damage == 'probe':
+        receipt['probe_sha256'] = '0' * 64
+    else:
+        receipt['server_layout']['pdf_sha256'] = 'b' * 64
+    receipt['signature'] = ('invalid' if damage == 'signature' else
+                            office_layout._mac(receipt, office_layout.SERVER_TOC_VERSION))
+    parts[office_layout.RECEIPT_PART] = json.dumps(receipt).encode()
+    with pytest.raises(ProfileError):
+        office_layout.verify_layout_receipt(_archive_parts(parts), project, profile)
+
+
+def test_server_layout_does_not_publish_when_final_measurement_changes(server_layout_fixture, monkeypatch):
+    from app.services import server_layout
+
+    path, profile, project, result = server_layout_fixture
+    original = path.read_bytes()
+    measurements = [copy.deepcopy(result), {**copy.deepcopy(result), 'page_count': 10}]
+    monkeypatch.setattr(server_layout, '_probe', lambda *_args: measurements.pop(0))
+    with pytest.raises(ProfileError, match='最终文件与服务器分页证据不一致'):
+        office_layout.refresh_master_layout(path, project, profile)
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize('damage', ['missing', 'changed', 'different_page_count'])
+def test_server_probe_rejects_incomplete_or_unstable_pdf_locations(toc_package, tmp_path, monkeypatch, damage):
+    from app.services import server_layout
+
+    path, parts, profile = toc_package
+    rows, _ = office_layout._read_toc(path, profile)
+    office_layout._replace_toc_rows(parts, rows, profile)
+    project = WritingProject(id='server-probe', template_id='test-master')
+
+    def roundtrip(source, directory, *, named_destinations=False):
+        assert named_destinations
+        directory.mkdir()
+        shutil.copyfile(source, directory / 'updated.docx')
+        (directory / 'before.pdf').write_bytes(b'fixture')
+        (directory / 'after.pdf').write_bytes(b'fixture')
+
+    monkeypatch.setattr(office_layout, '_office_roundtrip', roundtrip)
+    monkeypatch.setattr(office_layout, '_pdf_state',
+                        lambda _: {'page_count': 9, 'destinations': [['绪论', 8]], 'fonts': []})
+    def destinations(path):
+        if path.name == 'before.pdf':
+            return 9, {'PGHchapter1': 8}
+        if damage == 'missing':
+            return 9, {}
+        if damage == 'changed':
+            return 9, {'PGHchapter1': 9}
+        return 10, {'PGHchapter1': 8}
+    monkeypatch.setattr(server_layout, '_pdf_destinations', destinations)
+    with pytest.raises(ProfileError, match='未收敛或内容位置不完整'):
+        server_layout._probe(parts, project, profile, rows, tmp_path)
+
+
+def test_server_probe_row_bookmarks_exist_only_in_measurement_copy(table_row_layout):
+    from app.services.master_layout_anchors import required_table_row_targets
+    from app.services.server_layout import _instrument_rows
+
+    path, profile, project, _ = table_row_layout
+    with zipfile.ZipFile(path) as archive:
+        original = {name: archive.read(name) for name in archive.namelist()}
+    targets = required_table_row_targets(project, profile)
+    instrumented, tables = _instrument_rows(original, targets)
+    assert original['word/document.xml'] != instrumented['word/document.xml']
+    assert len(tables) == 1
+    assert len(tables[0]['markers']) == 3
+    names = [name for pair in tables[0]['markers'] for name in pair]
+    assert len(names) == len(set(names)) == 6
+    measured = etree.fromstring(instrumented['word/document.xml'])
+    source = etree.fromstring(original['word/document.xml'])
+    assert all(measured.xpath('.//w:bookmarkStart[@w:name=$name]', namespaces=NS, name=name) for name in names)
+    assert not any(source.xpath('.//w:bookmarkStart[@w:name=$name]', namespaces=NS, name=name) for name in names)
+
+
 @pytest.mark.parametrize(('kind', 'start', 'end', 'caption', 'valid'), [
     ('image', 4, 4, 4, True), ('image', 4, 4, 5, False), ('image', 4, 5, 4, False),
     ('table', 4, 6, 4, True), ('table', 4, 6, 3, False), ('table', 4, 3, 4, False),
@@ -214,6 +339,41 @@ def test_refreshed_toc_preserves_styles_sections_and_cached_values_with_live_pag
     settings=etree.fromstring(parts['word/settings.xml'])
     assert settings.xpath('./w:updateFields/@w:val',namespaces=NS)==['false']
     assert {k for k in parts if parts[k]!=before[k]}=={'word/document.xml','word/settings.xml'}
+
+
+def test_server_directory_maps_libreoffice_canonical_style_back_to_template(toc_package):
+    path, parts, profile = toc_package
+    root = etree.fromstring(parts['word/document.xml'])
+    styles = etree.fromstring(parts['word/styles.xml'])
+    row_style = root.xpath('.//w:pStyle[@w:val="TOC1"]', namespaces=NS)[0]
+    row_style.set(qn('w:val'), 'Contents1')
+    definition = styles.xpath('./w:style[@w:styleId="TOC1"]', namespaces=NS)[0]
+    definition.set(qn('w:styleId'), 'Contents1')
+    parts['word/document.xml'] = etree.tostring(root)
+    parts['word/styles.xml'] = etree.tostring(styles)
+    with zipfile.ZipFile(path, 'w') as archive:
+        for name, data in parts.items():
+            archive.writestr(name, data)
+    with pytest.raises(ProfileError, match='目录样式与母版样式不一致'):
+        office_layout._read_toc(path, profile)
+    rows, _ = office_layout._read_toc(path, profile, allow_server_style_aliases=True)
+    assert rows[0]['style_id'] == 'TOC1'
+    assert rows[0]['paragraph'].find(f"{qn('w:pPr')}/{qn('w:pStyle')}").get(qn('w:val')) == 'TOC1'
+
+
+def test_server_directory_rejects_unknown_style_alias(toc_package):
+    path, parts, profile = toc_package
+    root = etree.fromstring(parts['word/document.xml'])
+    styles = etree.fromstring(parts['word/styles.xml'])
+    root.xpath('.//w:pStyle[@w:val="TOC1"]', namespaces=NS)[0].set(qn('w:val'), 'Other1')
+    styles.xpath('./w:style[@w:styleId="TOC1"]', namespaces=NS)[0].set(qn('w:styleId'), 'Other1')
+    parts['word/document.xml'] = etree.tostring(root)
+    parts['word/styles.xml'] = etree.tostring(styles)
+    with zipfile.ZipFile(path, 'w') as archive:
+        for name, data in parts.items():
+            archive.writestr(name, data)
+    with pytest.raises(ProfileError, match='目录样式与母版样式不一致'):
+        office_layout._read_toc(path, profile, allow_server_style_aliases=True)
 
 
 @pytest.mark.parametrize('change',['static','wrong_bookmark','locked','dirty','wrong_cache','duplicate','external_field','field_tab'])

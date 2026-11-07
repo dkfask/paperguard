@@ -690,7 +690,7 @@ def _table_style_row_heights_allow_growth(table, styles) -> bool:
 
 def _object_page_relation(block, layout_receipt) -> tuple[bool, dict]:
     """Check object/caption pages using verified native Word measurements."""
-    native = (layout_receipt or {}).get("word_native") or {}
+    native = (layout_receipt or {}).get("server_layout") or (layout_receipt or {}).get("word_native") or {}
     rows = native.get("extra_bookmarks") or []
     positions = {row.get("bookmark"): row.get("physical_page")
                  for row in rows if isinstance(row, dict)}
@@ -708,7 +708,7 @@ def _object_page_relation(block, layout_receipt) -> tuple[bool, dict]:
 
 def _table_row_page_relation(block, layout_receipt) -> tuple[bool, dict]:
     """Independently check measured row locations, not rendered visibility."""
-    native = (layout_receipt or {}).get("word_native") or {}
+    native = (layout_receipt or {}).get("server_layout") or (layout_receipt or {}).get("word_native") or {}
     evidence = native.get("table_rows") or {}
     tables = evidence.get("tables") if isinstance(evidence, dict) else None
     name = block_bookmark_name(block.id, "start")
@@ -739,7 +739,7 @@ def _table_row_page_relation(block, layout_receipt) -> tuple[bool, dict]:
 
 def _heading_page_relation(heading, section, next_heading, layout_receipt):
     """Compare a heading's last page with its next meaningful content in Word."""
-    native = (layout_receipt or {}).get("word_native") or {}
+    native = (layout_receipt or {}).get("server_layout") or (layout_receipt or {}).get("word_native") or {}
     rows = native.get("extra_bookmarks") or []
     positions = {row.get("bookmark"): row.get("physical_page")
                  for row in rows if isinstance(row, dict)}
@@ -1079,7 +1079,7 @@ def _apply_master_layout_review_policy(report, verified_receipt):
     exact bytes and project.  Older receipts remain readable but lack some of
     the current evidence.  Visual equivalence in other viewers is not inferred.
     """
-    from app.services.office_layout import NATIVE_TOC_VERSION
+    from app.services.office_layout import NATIVE_TOC_VERSION, SERVER_TOC_VERSION
     from app.services.output_acceptance import output_report_is_acceptable
 
     checks = report.get("checks")
@@ -1087,9 +1087,11 @@ def _apply_master_layout_review_policy(report, verified_receipt):
                      and item.get("rule") == "master.layout_receipt"] if isinstance(checks, list) else []
     complete = (
         isinstance(verified_receipt, dict)
-        and verified_receipt.get("version") == NATIVE_TOC_VERSION
-        and verified_receipt.get("pagination_source") == "word_native"
-        and verified_receipt.get("toc_preparation_source") == "word_native"
+        and ((verified_receipt.get("version") == NATIVE_TOC_VERSION
+              and verified_receipt.get("pagination_source") == "word_native"
+              and verified_receipt.get("toc_preparation_source") == "word_native")
+             or (verified_receipt.get("version") == SERVER_TOC_VERSION
+                 and verified_receipt.get("pagination_source") == "libreoffice_server"))
         and verified_receipt.get("state_stable") is True
         and len(layout_checks) == 1 and layout_checks[0].get("status") == "pass"
         and isinstance(checks, list) and bool(checks)
@@ -1104,7 +1106,9 @@ def _apply_master_layout_review_policy(report, verified_receipt):
     ]
     if complete:
         report["visual_evidence_limitations"] = [
-            "已核验 Word 分页、目录、字体及对象位置；图片内容、视觉裁切和其他 Word/WPS 环境的显示效果未逐项验证。"
+            ("已核验服务器分页、目录、字体及对象位置；学生本机 Word/WPS 的分页可能不同。"
+             if verified_receipt.get("version") == SERVER_TOC_VERSION else
+             "已核验 Word 分页、目录、字体及对象位置；图片内容、视觉裁切和其他 Word/WPS 环境的显示效果未逐项验证。")
         ]
 
 
@@ -1161,7 +1165,7 @@ def inspect_master_output(data, project, template, source, report):
             source_names, output_names = set(original.namelist()),set(output.namelist())
             from app.services.page_number_policy import CONTENT_TYPE, PART, REL_ID, REL_TYPE, footer_bytes, sections
             page_policy = profile.get("body_page_number_policy")
-            from app.services.office_layout import NATIVE_TOC_VERSION, RECEIPT_PART, verify_layout_receipt, heading_name
+            from app.services.office_layout import NATIVE_TOC_VERSION, SERVER_TOC_VERSION, RECEIPT_PART, verify_layout_receipt, heading_name
             toc_active = profile.get("toc_active", False)
             layout_receipt = None
             if toc_active:
@@ -1181,7 +1185,7 @@ def inspect_master_output(data, project, template, source, report):
             # its signed receipt does not authorize changes to source parts or
             # styles. Legacy Office round-trips may have rewritten those parts.
             roundtrip_authorized = (layout_receipt is not None
-                                    and layout_receipt.get("version") != NATIVE_TOC_VERSION)
+                                    and layout_receipt.get("version") not in {NATIVE_TOC_VERSION, SERVER_TOC_VERSION})
             mutable = {"word/document.xml","word/_rels/document.xml.rels","[Content_Types].xml","word/settings.xml", "word/styles.xml"}
             check("indent_baseline_styles", _generated_indent_baselines(
                 load_part(original, "word/styles.xml"), styles_root, root, profile,
@@ -1928,7 +1932,7 @@ def inspect_master_output(data, project, template, source, report):
                             same_page, pages = _object_page_relation(block, layout_receipt)
                             check("table_caption_pagination", same_page, block.id,
                                   expected="caption and table start on the same Word page", actual=pages)
-                            native = (layout_receipt or {}).get("word_native") or {}
+                            native = (layout_receipt or {}).get("server_layout") or (layout_receipt or {}).get("word_native") or {}
                             if "table_rows" in native:
                                 located, details = _table_row_page_relation(block, layout_receipt)
                                 check("table_row_pagination", located, block.id,
