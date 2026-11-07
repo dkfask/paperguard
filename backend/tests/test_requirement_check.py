@@ -1,5 +1,7 @@
 """文档级自动检查器的规则覆盖。"""
 
+import pytest
+
 from app.models.project import ParagraphBlock, ProjectSection, ReferenceEntry, ReferenceLanguageFact, ReferenceYearFact, WritingProject
 from app.models.template import MetaField
 from app.services.project_check import check_project
@@ -170,6 +172,22 @@ def test_reference_list_checker_validates_facts_and_stable_numbers():
     section.paragraphs[1] = ParagraphBlock(id="legacy", text="未结构化的旧文献")
     findings, _ = check_requirements(project, {"resolved_items": [item]})
     assert any("尚未录入结构化文献事实" in result["message"] for result in findings)
+
+
+@pytest.mark.parametrize('numbering', [None, 'sequential'])
+def test_optional_reference_rule_accepts_empty_list_and_checks_present_entries(numbering):
+    project = _project()
+    project.sections[-1].paragraphs = []
+    params = {'required': False}
+    if numbering:
+        params['numbering'] = numbering
+    item = {'id': 'optional-references', 'type': 'auto', 'target': 'references',
+            'checker': 'references.list_facts', 'params': params, 'severity': 'error', 'enforce': 'hard'}
+    assert check_requirements(project, {'resolved_items': [item]}) == ([], [])
+    project.sections[-1].paragraphs = [ParagraphBlock(id='missing-facts', text='未结构化的旧文献')]
+    findings, not_checked = check_requirements(project, {'resolved_items': [item]})
+    assert not not_checked
+    assert any('尚未录入结构化文献事实' in finding['message'] for finding in findings)
 
 
 def test_reference_list_checker_enforces_sequential_square_numbers_and_confirmed_language_order():

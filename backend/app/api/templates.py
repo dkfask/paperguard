@@ -127,6 +127,7 @@ def list_templates(
             "updated_at": t.updated_at,
             "section_count": _count_sections(t.sections),
             "version": t.version,
+            "immutable": is_candidate_published_template(t),
             "rule_packs": t.rule_packs,
             "requirement_set_ids": t.requirement_set_ids,
             "admission": template_admission(t),

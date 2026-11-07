@@ -339,11 +339,10 @@ def _normalize_item(raw: Any, index: int, filename: str, used: set[str]) -> dict
         supported = (
             set(params).issubset({"required", "numbering", "bracket_style", "language_order"})
             and ("required" not in params or type(params["required"]) is bool)
-            and (not ordered_checks or params.get("required", True) is True)
             and ("numbering" not in params or params["numbering"] == "sequential")
             and ("bracket_style" not in params or params["bracket_style"] == "square")
             and ("language_order" not in params or params["language_order"] == "zh_before_en")
-            and (params.get("required") is True or bool(ordered_checks))
+            and ("required" in params or bool(ordered_checks))
         )
         if not supported:
             item_type = "manual"

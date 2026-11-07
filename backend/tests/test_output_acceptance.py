@@ -12,7 +12,7 @@ def _report(statuses, rule="master.effective_format"):
         {
             "rule": rule,
             "object": f"paragraph:{index}",
-            "unit": f"paragraph:{index}#paragraph.space_after",
+            "unit": f"paragraph:{index}#paragraph.spacing.after",
             "status": status,
         }
         for index, status in enumerate(statuses)

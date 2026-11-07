@@ -135,8 +135,10 @@ def historical_artifact(request, master, tmp_path, monkeypatch):
     return request.param, source, data, old_report, candidate, version
 
 
-def test_historical_candidate_is_rechecked_with_current_visibility_rules(historical_artifact):
+@pytest.mark.parametrize("inspector_version", ["docx-output-check/6-master", "docx-output-check/9-master"])
+def test_historical_candidate_is_rechecked_with_current_visibility_rules(historical_artifact, inspector_version):
     case, _source, data, _old_report, candidate, version = historical_artifact
+    _old_report["inspector_version"] = inspector_version
     if case in {"hidden", "hidden-cover-label", "shaded", "black-highlight"}:
         with pytest.raises(DocxOutputCheckError):
             workflow._verified_candidate_artifact(None, candidate, version)
@@ -146,8 +148,10 @@ def test_historical_candidate_is_rechecked_with_current_visibility_rules(histori
         assert report["visibility_check_version"] == "word-run-visibility/1"
 
 
-def test_historical_archive_is_rechecked_with_current_visibility_rules(historical_artifact, tmp_path, monkeypatch):
+@pytest.mark.parametrize("inspector_version", ["docx-output-check/6-master", "docx-output-check/9-master"])
+def test_historical_archive_is_rechecked_with_current_visibility_rules(historical_artifact, tmp_path, monkeypatch, inspector_version):
     case, source, data, old_report, candidate, version = historical_artifact
+    old_report["inspector_version"] = inspector_version
     store = Store(tmp_path / "historical.db")
     submission = {"id": "historical-submission", "project_version_id": version["id"],
                   "candidate_id": candidate["id"]}

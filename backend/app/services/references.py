@@ -667,12 +667,15 @@ def _reconcile_legacy_reference_numbers(previous: Any, updated: Any) -> None:
 
 
 def uses_sequential_reference_numbering(project: Any) -> bool:
-    """Only the frozen, explicitly configured pilot rule opts into renumbering."""
+    """Use the same narrowly scoped legacy rule mapping as requirement checks."""
+    from app.services.requirement_check import _normalize_legacy_1101_item
+
     snapshot = getattr(project, "requirement_snapshot", None) or {}
     items = snapshot.get("resolved_items", []) if isinstance(snapshot, dict) else []
-    return any(isinstance(item, dict) and item.get("checker") == "references.list_facts"
+    normalized = (_normalize_legacy_1101_item(item) for item in items if isinstance(item, dict))
+    return any(item.get("checker") == "references.list_facts"
                and isinstance(item.get("params"), dict)
-               and item["params"].get("numbering") == "sequential" for item in items)
+               and item["params"].get("numbering") == "sequential" for item in normalized)
 
 
 _POSSIBLE_NUMERIC_CITATION = re.compile(r"[\[【]\s*\d+(?:\s*[,，;；、\-–—~～]\s*\d+)*\s*[\]】]")

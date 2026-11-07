@@ -373,6 +373,8 @@ def test_candidate_publish_requires_non_preview_trials_and_binds_project_snapsho
     template = published.json()["template"]
     provenance = template["admission_provenance"]
     assert template["id"] == candidate["template_id"]
+    listed = client.get('/api/templates', headers=headers).json()
+    assert next(item for item in listed if item['id'] == template['id'])['immutable'] is True
     assert template["organization_context"] == {}
     assert provenance["visibility"] == "global"
     assert provenance["candidate_id"] == candidate["candidate_id"]

@@ -142,7 +142,10 @@ def derive_manuscript_template(template, source_path, imported, *, actor):
         request = ConfirmWritingProfile(expected_specification_sha256=specification.specification_sha256,
             accept_recommended=True, accept_new_object_defaults=True, remove_template_instructions=True,
             remove_unmatched_toc_entries=True, preserve_manuscript_structure=True,
-            body_page_number=parent.get("body_page_number"))
+            body_page_number=parent.get("body_page_number"),
+            cover_pagination=({key: parent["cover_pagination"][key]
+                               for key in ("allowed_blank_offsets", "require_boundary_new_page")}
+                              if parent.get("cover_pagination") is not None else None))
         candidate = compile_profile(candidate, path, request, actor=actor,
                                     preserve_manuscript_heading_text=True)
     profile = candidate.source_execution

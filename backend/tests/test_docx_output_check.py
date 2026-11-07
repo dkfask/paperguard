@@ -489,6 +489,7 @@ def test_report_identity_is_bound_to_the_frozen_project_and_template_snapshot(tm
 
 @pytest.mark.parametrize(("current_version", "previous_version", "master"), [
     ("docx-output-check/7", "docx-output-check/5", False),
+    ("docx-output-check/10-master", "docx-output-check/6-master", True),
     ("docx-output-check/10-master", "docx-output-check/9-master", True),
 ])
 def test_previous_inspector_needs_explicit_recheck_and_exact_identity(
@@ -511,6 +512,18 @@ def test_previous_inspector_needs_explicit_recheck_and_exact_identity(
     report["inspector_version"] = "docx-output-check/unknown"
     assert not verify_report_binding(report, data, allow_previous_inspector=True)
     assert not verify_report_identity(report, expected, allow_previous_inspector=True)
+
+
+def test_empty_admission_provenance_preserves_legacy_template_identity(tmp_path):
+    import hashlib
+    from app.services.docx_output_check import template_output_hash
+
+    _, _, template = _sample(tmp_path)
+    legacy_json = template.model_dump_json(exclude={'admission_provenance'})
+    restored = type(template).model_validate_json(legacy_json)
+    assert template_output_hash(restored) == hashlib.sha256(legacy_json.encode()).hexdigest()
+    restored.admission_provenance = {'candidate_id': 'candidate-a'}
+    assert template_output_hash(restored) != hashlib.sha256(legacy_json.encode()).hexdigest()
 
 def test_missing_required_template_heading_fails_even_when_export_force_was_used(tmp_path):
     data, project, template = _sample(tmp_path)

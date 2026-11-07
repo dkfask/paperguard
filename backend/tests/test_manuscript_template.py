@@ -115,8 +115,15 @@ def test_every_imported_heading_is_a_required_directory_target(manuscript_case, 
     specification = extract_writing_specification(path)
     template = compile_profile(template, path, ConfirmWritingProfile(
         expected_specification_sha256=specification.specification_sha256, accept_recommended=True,
-        accept_new_object_defaults=True, remove_template_instructions=True, preserve_manuscript_structure=True), actor='teacher')
+        accept_new_object_defaults=True, remove_template_instructions=True, preserve_manuscript_structure=True,
+        cover_pagination={'allowed_blank_offsets': [1], 'require_boundary_new_page': True}), actor='teacher')
     derived, _ = derive_manuscript_template(template, path, imported, actor='student')
+    cover = derived.source_execution['cover_pagination']
+    assert cover['allowed_blank_offsets'] == [1]
+    assert cover['require_boundary_new_page'] is True
+    assert cover['source']['source_sha256'] == derived.source_execution['source_sha256']
+    assert cover['source']['specification_sha256'] == derived.source_execution['specification_sha256']
+    assert cover['boundary_bookmark'] == derived.source_execution['headings'][0]['bookmark_name']
     entries = derived.source_execution['toc_entries']
     assert [e['target_title'] for e in entries] == [s['title'] for s in imported['sections']]
     assert [e['level'] for e in entries] == [1, 2, 3, 3, 2, 3, 1]

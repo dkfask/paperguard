@@ -375,6 +375,8 @@ export const translations = {
 }
 
 Object.assign(translations.zh, {
+  'editor.immutableTemplate': '已准入的模板版本不可修改。如需变更，请重新导入 Word 创建候选模板并重新准入。',
+  'editor.importNewCandidate': '返回模板列表并导入新候选',
   'workflow.resolveBlockingBeforeApproval': '还有 {count} 条阻断意见未解决，请复核后标记解决，或退回学生修改。',
   'documentPackagePublisher.description': '上传 Word 模板，检查解析候选后再发布；单独规范可选。发布后的模板、规范和执行版本不可原地修改。',
   'documentPackagePublisher.templateTitle': '上传 Word 模板',
@@ -437,6 +439,8 @@ Object.assign(translations.zh, {
 })
 
 Object.assign(translations.en, {
+  'editor.immutableTemplate': 'An admitted template version cannot be edited. Import a Word file to create a new candidate and admit it again.',
+  'editor.importNewCandidate': 'Return to templates and import a new candidate',
   'workflow.resolveBlockingBeforeApproval': '{count} blocking comments remain unresolved. Review and resolve them, or return the submission for revision.',
   'documentPackagePublisher.description': 'Upload a Word template, review the parsed candidate, and publish an immutable package. A separate standard is optional.',
   'documentPackagePublisher.templateTitle': 'Upload a Word template',

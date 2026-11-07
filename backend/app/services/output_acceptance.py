@@ -10,13 +10,13 @@ from collections import Counter
 from typing import Any
 
 
-CONTRACT_VERSION = "1101-output-acceptance/5"
+CONTRACT_VERSION = "1101-output-acceptance/6"
 
 # A rule is scoreable only at the declared unit granularity. Composite or
 # unknown checks remain hard blockers until the template mapping is reviewed.
 _SCORED_FORMAT_UNITS = frozenset({
-    ("master.effective_format", "paragraph.space_before"),
-    ("master.effective_format", "paragraph.space_after"),
+    ("master.effective_format", "paragraph.spacing.before"),
+    ("master.effective_format", "paragraph.spacing.after"),
 })
 _RULE_MAPPING_SHA256 = hashlib.sha256(json.dumps(
     {

@@ -131,7 +131,7 @@
             </div>
             <div class="template-row-actions">
               <button v-if="canManage" class="small primary" type="button" @click="$router.push('/templates/' + template.id + '/edit')">
-                <span class="material-symbols-outlined" aria-hidden="true">edit</span>{{ t('templates.edit') }}
+                <span class="material-symbols-outlined" aria-hidden="true">{{ template.immutable ? 'visibility' : 'edit' }}</span>{{ template.immutable ? t('templates.readonly') : t('templates.edit') }}
               </button>
               <span v-else class="readonly-label"><span class="material-symbols-outlined" aria-hidden="true">lock</span>{{ t('templates.readonly') }}</span>
               <button v-if="canManage && template.id !== 'default-gb7713'" class="icon-action danger" type="button" :title="t('templates.delete')" :aria-label="t('templates.delete')" @click="remove(template)">
@@ -210,6 +210,7 @@ const importResult = ref(null)
 const candidateWritingTemplate = computed(() => ({
   id: importResult.value?.template_id,
   source_docx: importResult.value?.definition?.source_docx,
+  meta_fields: (importResult.value?.definition?.fields || []).filter(field => !field.location || field.location === 'metadata'),
   writing_specification: importResult.value?.definition?.extensions?.writing_specification,
   source_execution: importResult.value?.definition?.extensions?.source_execution,
   version: importResult.value?.version,

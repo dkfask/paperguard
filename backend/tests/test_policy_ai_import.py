@@ -167,7 +167,6 @@ def test_policy_import_keeps_explicit_cover_and_reference_checkers_automatic():
     {"id": "cover", "type": "auto", "checker": "cover.fields_present", "params": {"field_keys": ["title", "not-a-field"]}},
     {"id": "refs", "type": "auto", "checker": "references.list_facts", "params": {"numbering": "sort-by-author"}},
     {"id": "refs-empty", "type": "auto", "checker": "references.list_facts", "params": {}},
-    {"id": "refs-optional-numbering", "type": "auto", "checker": "references.list_facts", "params": {"required": False, "numbering": "sequential"}},
     {"id": "refs-generic-format", "type": "reference_format", "params": {}},
 ])
 def test_policy_import_downgrades_incomplete_or_unsupported_rule_mappings(item):
@@ -177,6 +176,14 @@ def test_policy_import_downgrades_incomplete_or_unsupported_rule_mappings(item):
     assert policy["items"][0]["checker"] == ""
     assert analysis["auto_rule_count"] == 0
     assert analysis["manual_rule_count"] == 1
+
+
+def test_policy_import_preserves_optional_sequential_reference_check():
+    item = {"id": "refs-optional-numbering", "type": "auto", "checker": "references.list_facts",
+            "params": {"required": False, "numbering": "sequential"}}
+    policy, _ = normalize_ai_policy(json.dumps({"items": [item]}), "guide.md")
+    assert policy["items"][0]["type"] == "auto"
+    assert policy["items"][0]["params"] == item["params"]
 
 
 def test_ai_import_extracts_docx_text_before_calling_model(monkeypatch):

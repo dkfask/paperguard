@@ -503,6 +503,34 @@ def test_configured_sequential_numbering_reassigns_only_current_version():
     reconcile_reference_numbers(reloaded, reloaded.model_copy(deep=True))
 
 
+def test_legacy_1101_numbering_uses_same_mapping_and_preserves_citation_safety():
+    from app.services.references import (ReferenceNumberError, reconcile_reference_numbers,
+                                         uses_sequential_reference_numbering, validate_reference_numbers)
+    from app.services.requirement_check import _LEGACY_1101_REFERENCE_DESCRIPTION
+
+    previous = _sequential_project()
+    previous.requirement_snapshot['resolved_items'] = [{
+        'id': 'references_format', 'type': 'manual', 'description': _LEGACY_1101_REFERENCE_DESCRIPTION,
+        'params': {'order': 'sequential', 'bracket': 'square', 'style': '顺序编码制',
+                   'language_order': '中文在前，英文在后'},
+    }]
+    assert uses_sequential_reference_numbering(previous)
+    revised = previous.model_copy(deep=True)
+    revised.sections[-1].paragraphs.pop(0)
+    reconcile_reference_numbers(previous, revised)
+    assert revised.sections[-1].paragraphs[0].reference_number == 1
+
+    cited = previous.model_copy(deep=True)
+    cited.sections[0].paragraphs[0].text = '前人研究[2]'
+    cited.sections[-1].paragraphs.pop(0)
+    reconcile_reference_numbers(previous, cited)
+    assert cited.sections[-1].paragraphs[0].reference_number == 2
+    with pytest.raises(ReferenceNumberError):
+        validate_reference_numbers(cited)
+    previous.requirement_snapshot['resolved_items'][0]['description'] += '变更'
+    assert not uses_sequential_reference_numbering(previous)
+
+
 @pytest.mark.parametrize('location', ['paragraph', 'inline', 'table', 'image_caption', 'table_caption', 'title'])
 def test_possible_citation_prevents_silent_rebinding_and_identifies_location(location):
     from app.services.references import reconcile_reference_numbers, validate_reference_numbers, ReferenceNumberError

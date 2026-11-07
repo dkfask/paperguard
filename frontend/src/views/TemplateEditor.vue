@@ -3,11 +3,11 @@
     <section class="workspace-hero">
       <div>
         <p class="workspace-kicker">{{ t('editor.kicker') }}</p>
-        <h1>{{ isNew ? t('templates.new') : t('templates.edit') }}</h1>
+        <h1>{{ isNew ? t('templates.new') : immutable ? t('templates.readonly') : t('templates.edit') }}</h1>
         <p>{{ t('editor.description') }}</p>
       </div>
       <div class="resource-hero-actions">
-        <button class="small primary" type="button" :disabled="saving || loading || !!loadError" @click="save">
+        <button v-if="!immutable" class="small primary" type="button" :disabled="saving || loading || !!loadError" @click="save">
           <span class="material-symbols-outlined" aria-hidden="true">save</span>{{ saving ? t('editor.saving') : t('editor.save') }}
         </button>
         <button class="small" type="button" @click="$router.push('/templates')">
@@ -22,6 +22,16 @@
 
     <section class="panel template-editor-panel">
       <div v-if="loading" class="editor-loading">{{ t('editor.loading') }}</div>
+    <div v-else-if="immutable" data-test="immutable-template-view">
+      <h2>{{ tpl.name }}</h2>
+      <p>{{ tpl.description }}</p>
+      <p>{{ t('editor.immutableTemplate') }}</p>
+      <h3>{{ t('editor.sections') }}</h3>
+      <ul><li v-for="section in readonlySections" :key="section.key">{{ section.title }}</li></ul>
+      <h3>{{ t('editor.styles') }}</h3>
+      <ul><li v-for="(style, key) in tpl.styles" :key="key">{{ styleLabel(key) }} · {{ style.font_zh }} · {{ style.font_en }} · {{ style.size_pt }} pt</li></ul>
+      <button class="small" type="button" @click="$router.push('/templates')">{{ t('editor.importNewCandidate') }}</button>
+    </div>
     <!-- 基本信息 -->
     <ScreenDeck v-else class="template-form-deck"><section class="screen-form-section"><h3>{{ t('screen.basic') }}</h3>
       <div class="template-basic-grid">
@@ -175,6 +185,11 @@ const tpl = ref({
   version: '1', rule_packs: [], requirement_set_ids: [],
   sections: [], styles: {}, meta_fields: [],
 })
+const immutable = computed(() => tpl.value.admission_provenance?.source === 'document_template_candidate')
+const readonlySections = computed(() => {
+  const flatten = (items) => (items || []).flatMap(item => [item, ...flatten(item.children)])
+  return flatten(tpl.value.sections)
+})
 const policyOptions = ref([])
 const savedTemplateSnapshot = ref('')
 const activeStyle = ref(null), activeNode = ref(null)
@@ -220,7 +235,9 @@ onMounted(async () => {
     }
   }
   try { policyOptions.value = await fetchPolicies() } catch { /* 学生或旧后端可无规范列表 */ }
-  try { await refreshAdmission() } catch (e) { error.value = e.message || t('common.operationFailed') }
+  if (!immutable.value) {
+    try { await refreshAdmission() } catch (e) { error.value = e.message || t('common.operationFailed') }
+  }
   stylesKeys.value = Object.keys(tpl.value.styles)
   for (const k of stylesKeys.value) collapsed.value[k] = true
   loading.value = false
@@ -308,6 +325,7 @@ function validateTemplate() {
 }
 
 async function save() {
+  if (immutable.value) return
   saving.value = true; error.value = ''; saved.value = false
   const validationError = validateTemplate()
   if (validationError) {

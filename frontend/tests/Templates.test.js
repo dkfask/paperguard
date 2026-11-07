@@ -136,6 +136,20 @@ describe('Templates', () => {
     wrapper.unmount()
   })
 
+  it('provides metadata fields for confirming the defense date rule', async () => {
+    const candidate = templateCandidate()
+    candidate.definition.fields = [
+      { key: 'defense_date', label: '答辩日期', location: 'metadata' },
+      { key: 'body_field', label: '正文标记', location: 'content' },
+    ]
+    const { wrapper } = await importPreview(candidate)
+    const confirmation = wrapper.findComponent(profileConfirmationStub)
+    expect(confirmation.props('template').meta_fields).toEqual([
+      { key: 'defense_date', label: '答辩日期', location: 'metadata' },
+    ])
+    wrapper.unmount()
+  })
+
   it('confirms the reviewed candidate and publishes it before opening the editor', async () => {
     const { wrapper, candidate } = await importPreview()
     await wrapper.get('[data-test="profile-publish"]').trigger('click')

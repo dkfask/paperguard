@@ -33,8 +33,8 @@ from app.services.upload_security import validate_docx_bytes
 INSPECTOR_VERSION = "docx-output-check/7"
 MASTER_INSPECTOR_VERSION = "docx-output-check/10-master"
 _PREVIOUS_INSPECTOR_VERSIONS = {
-    INSPECTOR_VERSION: "docx-output-check/5",
-    MASTER_INSPECTOR_VERSION: "docx-output-check/9-master",
+    INSPECTOR_VERSION: frozenset({"docx-output-check/5"}),
+    MASTER_INSPECTOR_VERSION: frozenset({"docx-output-check/6-master", "docx-output-check/9-master"}),
 }
 _CHART_NS = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
@@ -102,7 +102,10 @@ def docx_chart_parts(data: bytes) -> list[str]:
 
 
 def template_output_hash(template: PaperTemplate) -> str:
-    return _sha256(template.model_dump_json().encode("utf-8"))
+    # The new empty default must not change identities frozen before this field
+    # existed. Nonempty provenance remains part of the template identity.
+    excluded = {"admission_provenance"} if not template.admission_provenance else set()
+    return _sha256(template.model_dump_json(exclude=excluded).encode("utf-8"))
 
 
 def output_check_identity(report: dict[str, Any] | None) -> dict[str, Any]:
@@ -143,7 +146,7 @@ def verify_report_identity(report: dict[str, Any] | None, expected: dict[str, An
     actual = output_check_identity(report)
     wanted = {key: expected.get(key) for key in actual}
     if (allow_previous_inspector
-            and actual["inspector_version"] == _PREVIOUS_INSPECTOR_VERSIONS.get(wanted["inspector_version"])):
+            and actual["inspector_version"] in _PREVIOUS_INSPECTOR_VERSIONS.get(wanted["inspector_version"], ())):
         wanted["inspector_version"] = actual["inspector_version"]
     return actual == wanted
 
@@ -1289,10 +1292,10 @@ def verify_report_binding(report: dict[str, Any] | None, data: bytes, *,
     master_report = "source_profile_sha256" in report
     expected_version = MASTER_INSPECTOR_VERSION if master_report else INSPECTOR_VERSION
     accepted_versions = {expected_version}
-    previous_version = _PREVIOUS_INSPECTOR_VERSIONS[expected_version]
+    previous_versions = _PREVIOUS_INSPECTOR_VERSIONS[expected_version]
     if allow_previous_inspector:
-        accepted_versions.add(previous_version)
-    if master_report and report.get("inspector_version") == previous_version:
+        accepted_versions.update(previous_versions)
+    if master_report and report.get("inspector_version") in previous_versions:
         # This only establishes that a historical report points at these bytes.
         # Delivery callers using this compatibility path must re-run the current checker.
         return bool(
