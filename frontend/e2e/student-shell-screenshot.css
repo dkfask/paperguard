@@ -3,6 +3,12 @@
   flex: 0 0 316px;
 }
 
+.workflow-identity > div {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .student-task-summary .task-summary-state {
   box-sizing: border-box;
   flex: 0 0 112px;
