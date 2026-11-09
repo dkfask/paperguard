@@ -503,6 +503,35 @@ def test_configured_sequential_numbering_reassigns_only_current_version():
     reconcile_reference_numbers(reloaded, reloaded.model_copy(deep=True))
 
 
+@pytest.mark.parametrize('kind', ['equation', 'table'])
+def test_opaque_content_does_not_imply_a_missing_citation_but_prevents_renumbering(kind):
+    from app.models.project import EquationBlock, TableBlock
+    from app.services.references import ReferenceNumberError, reconcile_reference_numbers, validate_reference_numbers
+
+    project = _sequential_project()
+    if kind == 'equation':
+        block = ParagraphBlock(id='opaque', type='equation', equation=EquationBlock(omml='<math>x=1</math>'))
+    else:
+        block = ParagraphBlock(id='opaque', type='table', table=TableBlock(rows=1, cols=1,
+                               cells=[['data']], source_xml='<table/>'))
+    project.sections[0].paragraphs.append(block)
+    validate_reference_numbers(project)
+
+    revised = project.model_copy(deep=True)
+    revised.sections[-1].paragraphs.pop(0)
+    reconcile_reference_numbers(project, revised)
+    assert revised.sections[-1].paragraphs[0].reference_number == 2
+    with pytest.raises(ReferenceNumberError):
+        validate_reference_numbers(revised)
+
+    project.sections[0].paragraphs[0].text = '正文引用 [3]'
+    with pytest.raises(ReferenceNumberError, match='无法对应参考文献'):
+        validate_reference_numbers(project)
+    project.sections[0].paragraphs[0].text = '正文引用 [3-1]'
+    with pytest.raises(ReferenceNumberError, match='无法对应参考文献'):
+        validate_reference_numbers(project)
+
+
 def test_legacy_1101_numbering_uses_same_mapping_and_preserves_citation_safety():
     from app.services.references import (ReferenceNumberError, reconcile_reference_numbers,
                                          uses_sequential_reference_numbering, validate_reference_numbers)

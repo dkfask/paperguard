@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from app.models.project import InlineTextRun, ReferenceLanguageFact, ReferenceYearFact
 
@@ -686,7 +686,7 @@ _MATH_CONTEXT_BEFORE = re.compile(r"(?:计算|变量|函数|表达式|公式|方
 _MATH_CONTEXT_AFTER = re.compile(r"^\s*[=+*/×÷−]")
 
 
-def _numeric_citation_evidence(project: Any, protected_numbers: set[int] | None = None) -> list[tuple[str, set[int] | None]]:
+def _numeric_citation_evidence(project: Any, protected_numbers: set[int] | None = None) -> list[tuple[str, set[int] | Literal["opaque"] | None]]:
     """Inspect editable text; bitmap pixels and other opaque payloads are outside this scan."""
     evidence = []
     if protected_numbers is None:
@@ -769,9 +769,11 @@ def _numeric_citation_evidence(project: Any, protected_numbers: set[int] | None 
                     for column, text in enumerate(cells):
                         examine(text, f"{location} 表格第 {row + 1} 行第 {column + 1} 列")
                 if block.table.source_xml:
-                    evidence.append((location + "（原始表格结构待核验）", None))
+                    # Opaque content prevents safe renumbering, but it does not
+                    # establish that an existing citation is missing.
+                    evidence.append((location + "（原始表格结构待核验）", "opaque"))
             elif kind == "equation":
-                evidence.append((location + "（公式内容待核验）", None))
+                evidence.append((location + "（公式内容待核验）", "opaque"))
             else:
                 evidence.append((location + "（内容类型待核验）", None))
     return evidence
@@ -783,7 +785,7 @@ def possible_numeric_citation_locations(project: Any) -> list[str]:
 
 def missing_numeric_citation_locations(project: Any, known_numbers: set[int]) -> list[str]:
     return list(dict.fromkeys(location for location, numbers in _numeric_citation_evidence(project)
-                              if numbers is None or not numbers.issubset(known_numbers)))
+                              if numbers != "opaque" and (numbers is None or not numbers.issubset(known_numbers))))
 
 
 def reconcile_reference_numbers(previous: Any, updated: Any) -> None:
