@@ -586,7 +586,8 @@ def validate_reference_numbers(project: Any) -> None:
     if uses_sequential_reference_numbering(project):
         blocks = [block for block in _reference_blocks(project) if reference_block_text(block).strip()]
         numbers = [reference_number_for(block, index) for index, block in enumerate(blocks, 1)]
-        if numbers != list(range(1, len(numbers) + 1)):
+        if (uses_sequential_reference_numbering(project, blocking_only=True)
+                and numbers != list(range(1, len(numbers) + 1))):
             locations = possible_numeric_citation_locations(project)
             if locations:
                 raise ReferenceNumberError("参考文献编号不能安全重排；请检查 " + "、".join(locations[:5])
@@ -666,8 +667,8 @@ def _reconcile_legacy_reference_numbers(previous: Any, updated: Any) -> None:
     updated.reference_number_owners = owners
 
 
-def uses_sequential_reference_numbering(project: Any) -> bool:
-    """Use the same narrowly scoped legacy rule mapping as requirement checks."""
+def uses_sequential_reference_numbering(project: Any, *, blocking_only: bool = False) -> bool:
+    """Resolve configured numbering; optionally require a blocking hard error."""
     from app.services.requirement_check import _normalize_legacy_1101_item
 
     snapshot = getattr(project, "requirement_snapshot", None) or {}
@@ -675,7 +676,10 @@ def uses_sequential_reference_numbering(project: Any) -> bool:
     normalized = (_normalize_legacy_1101_item(item) for item in items if isinstance(item, dict))
     return any(item.get("checker") == "references.list_facts"
                and isinstance(item.get("params"), dict)
-               and item["params"].get("numbering") == "sequential" for item in normalized)
+               and item["params"].get("numbering") == "sequential"
+               and (not blocking_only or (item.get("enforce", "soft") == "hard"
+                                          and item.get("severity", "warning") == "error"))
+               for item in normalized)
 
 
 _POSSIBLE_NUMERIC_CITATION = re.compile(r"[\[【]\s*\d+(?:\s*[,，;；、\-–—~～]\s*\d+)*\s*[\]】]")

@@ -480,7 +480,8 @@ def test_online_and_standard_editor_fields_are_rendered_and_verified():
 
 def _sequential_project():
     return WritingProject(id='sequential', template_id='tpl', requirement_snapshot={'resolved_items': [
-        {'checker': 'references.list_facts', 'params': {'required': True, 'numbering': 'sequential'}}]}, sections=[
+        {'checker': 'references.list_facts', 'enforce': 'hard', 'severity': 'error',
+         'params': {'required': True, 'numbering': 'sequential'}}]}, sections=[
         ProjectSection(key='body', type='body', title='正文', paragraphs=[ParagraphBlock(id='body-1', text='正文')]),
         ProjectSection(key='references', type='references', title='参考文献', paragraphs=[
             ParagraphBlock(id='one', text='[1] 文献甲'), ParagraphBlock(id='two', text='[2] 文献乙')])])
@@ -501,6 +502,54 @@ def test_configured_sequential_numbering_reassigns_only_current_version():
     assert initial.reference_number_owners == {'1': 'one', '2': 'two'}
     reloaded = WritingProject.model_validate_json(revised.model_dump_json())
     reconcile_reference_numbers(reloaded, reloaded.model_copy(deep=True))
+
+
+@pytest.mark.parametrize(('enforce', 'severity'), [('soft', 'warning'), ('hard', 'warning'), ('soft', 'error'), (None, None)])
+def test_advisory_sequential_rule_does_not_block_safe_existing_citations(tmp_path, enforce, severity):
+    from app.services.docx_output_check import inspect_docx_output
+    from app.services.references import ReferenceNumberError, reconcile_reference_numbers, validate_reference_numbers
+
+    previous = _sequential_project()
+    rule = previous.requirement_snapshot['resolved_items'][0]
+    rule['type'] = 'auto'
+    if enforce is None:
+        rule.pop('enforce'); rule.pop('severity')
+    else:
+        rule.update({'enforce': enforce, 'severity': severity})
+    previous.sections[0].paragraphs[0].text = '前人研究[2]'
+    revised = previous.model_copy(deep=True)
+    revised.sections[-1].paragraphs.pop(0)
+    reconcile_reference_numbers(previous, revised)
+    assert revised.sections[-1].paragraphs[0].reference_number == 2
+    validate_reference_numbers(revised)
+    template = PaperTemplate(id='tpl', name='模板', styles=DEFAULT_STYLES, sections=[
+        {'key': 'body', 'type': SectionType.BODY, 'title': '正文'},
+        {'key': 'references', 'type': SectionType.REFERENCES, 'title': '参考文献'}])
+    output = tmp_path / 'advisory.docx'
+    export_project_to_docx(revised, template, str(output))
+    report = inspect_docx_output(output.read_bytes(), revised, template)
+    assert not any(check['rule'] == 'references.sequential_numbers' and check['status'] == 'fail'
+                   for check in report['checks'])
+
+    revised.sections[0].paragraphs[0].text = '错误引用[3]'
+    with pytest.raises(ReferenceNumberError, match='无法对应参考文献'):
+        validate_reference_numbers(revised)
+
+
+def test_hard_sequential_rule_still_blocks_when_an_advisory_rule_is_also_present():
+    from app.services.references import ReferenceNumberError, reconcile_reference_numbers, validate_reference_numbers
+
+    previous = _sequential_project()
+    previous.requirement_snapshot['resolved_items'].append({
+        'checker': 'references.list_facts', 'enforce': 'soft', 'severity': 'warning',
+        'params': {'numbering': 'sequential'},
+    })
+    previous.sections[0].paragraphs[0].text = '前人研究[2]'
+    revised = previous.model_copy(deep=True)
+    revised.sections[-1].paragraphs.pop(0)
+    reconcile_reference_numbers(previous, revised)
+    with pytest.raises(ReferenceNumberError, match='编号不能安全重排'):
+        validate_reference_numbers(revised)
 
 
 @pytest.mark.parametrize('kind', ['equation', 'table'])
@@ -540,6 +589,7 @@ def test_legacy_1101_numbering_uses_same_mapping_and_preserves_citation_safety()
     previous = _sequential_project()
     previous.requirement_snapshot['resolved_items'] = [{
         'id': 'references_format', 'type': 'manual', 'description': _LEGACY_1101_REFERENCE_DESCRIPTION,
+        'enforce': 'hard', 'severity': 'error',
         'params': {'order': 'sequential', 'bracket': 'square', 'style': '顺序编码制',
                    'language_order': '中文在前，英文在后'},
     }]

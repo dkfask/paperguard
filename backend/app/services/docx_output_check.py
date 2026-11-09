@@ -1040,7 +1040,7 @@ def inspect_docx_output(
         matched.append((actual_paragraphs[found], section_key, block_index))
         matched_indices.add(found)
         cursor = found + 1
-    if uses_sequential_reference_numbering(project):
+    if uses_sequential_reference_numbering(project, blocking_only=True):
         blocks = [(section.key, index) for section in project.sections
                   if str(getattr(section.type, "value", section.type)) == "references" or section.key == "references"
                   for index, block in enumerate(section.paragraphs)

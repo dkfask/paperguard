@@ -1759,7 +1759,7 @@ def inspect_master_output(data, project, template, source, report):
             expected_regions = [h["key"] for h in profile["headings"] if h["kind"]!="toc"]
             check("project_sections",[s.key for s in project.sections]==expected_regions,"project section order")
             sections = {s.key:s for s in project.sections}
-            if uses_sequential_reference_numbering(project):
+            if uses_sequential_reference_numbering(project, blocking_only=True):
                 reference_blocks = [block for section in project.sections
                     if str(getattr(section.type, "value", section.type)) == "references" or section.key == "references"
                     for block in section.paragraphs

@@ -3283,7 +3283,7 @@ def test_master_checks_sequential_numbers_from_actual_reference_blocks(master, t
     template = compile_profile(draft, source, confirmation, actor='teacher-test')
     project = WritingProject(id='references-project', template_id=template.id,
         meta={'title': '测试题目', 'author': '测试学生', 'student_id': 'LOCAL-001'},
-        requirement_snapshot={'resolved_items': [{'checker': 'references.list_facts',
+        requirement_snapshot={'resolved_items': [{'checker': 'references.list_facts', 'enforce': 'hard', 'severity': 'error',
                                                     'params': {'numbering': 'sequential'}}]},
         sections=[ProjectSection(key=node.key, type=node.type, title=node.title, paragraphs=(
             [ParagraphBlock(id='reference-a', text='第一条文献'), ParagraphBlock(id='reference-b', text='第二条文献')]
@@ -3308,6 +3308,18 @@ def test_master_checks_sequential_numbers_from_actual_reference_blocks(master, t
     report = inspect_docx_output(damaged, numbered, template, source_template_bytes=source.read_bytes())
     assert any(c['rule'] == 'master.reference_sequential_numbers' and c['status'] == 'fail'
                for c in report['checks'])
+
+    advisory = numbered.model_copy(deep=True)
+    advisory.requirement_snapshot['resolved_items'][0].update({'enforce': 'soft', 'severity': 'warning'})
+    body = next(section for section in advisory.sections if section.type != 'references')
+    body.paragraphs[0].text = '前人研究[2]'
+    references = next(section for section in advisory.sections if section.type == 'references')
+    references.paragraphs.pop(0)
+    reconcile_reference_numbers(numbered, advisory)
+    export_project_to_docx(advisory, template, str(output), template_path=str(source))
+    report = inspect_docx_output(output.read_bytes(), advisory, template, source_template_bytes=source.read_bytes())
+    assert report['status'] == 'pass', [(c['rule'], c['object']) for c in report['checks'] if c['status'] != 'pass']
+    assert not any(c['rule'] == 'master.reference_sequential_numbers' for c in report['checks'])
 
 
 @pytest.mark.parametrize('kind', ['header', 'footer'])
