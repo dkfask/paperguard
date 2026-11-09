@@ -93,13 +93,18 @@ public class PaperGuardLayout {
             if (document==null) throw new IllegalStateException();
             XStorable storage=UnoRuntime.queryInterface(XStorable.class,document);
             Path directory=Path.of(args[2]);
-            stage="initial_layout";
-            store(storage,directory.resolve("before.pdf"),"writer_pdf_Export");
             stage="refresh";
             var indexes=UnoRuntime.queryInterface(XDocumentIndexesSupplier.class,document).getDocumentIndexes();
             for (int i=0;i<indexes.getCount();i++) UnoRuntime.queryInterface(XDocumentIndex.class,indexes.getByIndex(i)).update();
             var fields=UnoRuntime.queryInterface(XTextFieldsSupplier.class,document).getTextFields();
             XRefreshable refresh=UnoRuntime.queryInterface(XRefreshable.class,fields);
+            if (refresh!=null) refresh.refresh();
+            // Measure two consecutive refreshed layouts. The first PDF is
+            // the server's initial refreshed result, not the unrefreshed view.
+            stage="initial_layout";
+            store(storage,directory.resolve("before.pdf"),"writer_pdf_Export");
+            stage="repeat_refresh";
+            for (int i=0;i<indexes.getCount();i++) UnoRuntime.queryInterface(XDocumentIndex.class,indexes.getByIndex(i)).update();
             if (refresh!=null) refresh.refresh();
             stage="export";
             store(storage,directory.resolve("after.pdf"),"writer_pdf_Export");

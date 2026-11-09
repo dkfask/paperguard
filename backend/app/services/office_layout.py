@@ -41,6 +41,8 @@ LEGACY_NATIVE_TOC_VERSION = "office-layout/11"
 VERSION = "office-layout/12"
 NATIVE_TOC_VERSION = "office-layout/13"
 SERVER_TOC_VERSION = "office-layout/server-1"
+# The previous deployed worker remains valid only for already signed receipts.
+PREVIOUS_WORKER_SHA256 = "d337521d357df3a043a9702d75e4ecb7067600cbc0dbe803a9e6be7d186935fb"
 
 # Pagination costs vary with document size and Word response times. The outer
 # export deadline and worker lease remain the authoritative hard limits.
@@ -1251,7 +1253,7 @@ def verify_layout_receipt(data,project,profile):
         destinations = None
         if version in {LEGACY_VERSION, VERSION}:
             dependency = json.loads(DEPENDENCY.read_text())
-            if (receipt.get("worker_sha256")!=hashlib.sha256(WORKER.read_bytes()).hexdigest()
+            if (receipt.get("worker_sha256") not in {hashlib.sha256(WORKER.read_bytes()).hexdigest(), PREVIOUS_WORKER_SHA256}
                     or receipt.get("dependency_sha256")!=dependency.get("sha256")):
                 raise ProfileError("排版证据与当前文件、内容或排版组件不匹配")
             if (receipt.get("preliminary_pdf_scope") != "libreoffice_toc_preparation"

@@ -234,7 +234,11 @@ def test_square_brackets_do_not_require_sequential_reference_numbers():
     assert not any('方括号' in finding['message'] for finding in findings)
 
 
-def test_exact_legacy_1101_cover_rule_uses_automatic_field_check_and_still_requires_template_mapping():
+@pytest.mark.parametrize("legacy_params", [
+    {"min": 0, "max": 35},
+    {"fields": ["题目", "学院", "系别", "专业", "班级", "姓名", "学号", "指导教师", "提交日期"]},
+])
+def test_exact_legacy_1101_cover_rule_uses_automatic_field_check_and_still_requires_template_mapping(legacy_params):
     project = _project()
     project.meta = {
         "title": "测试题目", "college": "测试学院", "department": "测试系",
@@ -246,18 +250,36 @@ def test_exact_legacy_1101_cover_rule_uses_automatic_field_check_and_still_requi
     template.meta_fields = [MetaField(key=key, label=key) for key in field_keys]
     legacy = {
         "id": "cover_required_fields", "type": "manual", "target": "cover", "checker": "",
-        "params": {"min": 0, "max": 35},
+        "params": legacy_params,
         "description": "封面须包含题目、学生所在学院、系别、专业、班级、姓名、学号、指导教师、提交日期",
         "severity": "error", "enforce": "hard",
     }
 
     assert check_requirements(project, {"resolved_items": [legacy]}, template) == ([], [])
 
+    project.meta["department"] = ""
+    findings, not_checked = check_requirements(project, {"resolved_items": [legacy]}, template)
+    assert not not_checked
+    assert any("department" in result["message"] for result in findings)
+    project.meta["department"] = "测试系"
+
     template.meta_fields = [field for field in template.meta_fields if field.key != "department"]
     findings, not_checked = check_requirements(project, {"resolved_items": [legacy]}, template)
     assert findings == []
     assert not_checked[0]["reason"] == "cover_field_mapping_missing"
     assert not_checked[0]["enforce"] == "hard"
+
+
+def test_legacy_1101_cover_rule_does_not_guess_changed_fields():
+    item = {
+        "id": "cover_required_fields", "type": "manual", "target": "cover", "checker": "",
+        "params": {"fields": ["题目", "学院"]},
+        "description": "封面须包含题目、学生所在学院、系别、专业、班级、姓名、学号、指导教师、提交日期",
+        "severity": "error", "enforce": "hard",
+    }
+    findings, not_checked = check_requirements(_project(), {"resolved_items": [item]}, default_template())
+    assert not findings
+    assert len(not_checked) == 1 and not_checked[0]["type"] == "manual"
 
 
 def test_exact_legacy_1101_reference_rule_checks_order_and_preserves_fail_closed_near_misses():
