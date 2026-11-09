@@ -842,6 +842,9 @@ test.describe('PaperGuard browser lifecycle', () => {
       await expect.soft(student).toHaveScreenshot('full-lifecycle-student-shell.png', {
         animations: 'disabled',
         maxDiffPixels: 1000,
+        // These masked regions contain randomized account names and dates;
+        // keep their mask bounds stable without widening the pixel tolerance.
+        stylePath: 'e2e/student-shell-screenshot.css',
         mask: [
           student.locator('.user-tray'),
           student.locator('.sidebar-footer'),
