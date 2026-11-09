@@ -323,6 +323,30 @@ def test_native_measurement_failure_attempts_own_copy_cleanup(tmp_path, monkeypa
     assert calls == [word_native_layout._WORD_SCRIPT, word_native_layout._CLEANUP_SCRIPT]
 
 
+@pytest.mark.parametrize(("stderr", "expected_code"), [
+    ("private document /secret/path: Word failed (-1728)\n", "-1728"),
+    ("private document /secret/path: Word failed (unrecognized)\n", "unknown"),
+    ("private document /secret/path: Word failed (-9999)\n", "unknown"),
+])
+def test_native_measurement_failure_logs_only_safe_error_code(tmp_path, monkeypatch, caplog, stderr, expected_code):
+    monkeypatch.setattr(word_native_layout.sys, "platform", "darwin")
+    source = tmp_path / "paperguard-word-test" / "paperguard-input.docx"
+
+    def run(args, **kwargs):
+        if kwargs["input"] == word_native_layout._WORD_SCRIPT:
+            return SimpleNamespace(returncode=1, stderr=stderr, stdout="")
+        return SimpleNamespace(returncode=0, stderr="", stdout="CLOSED\n")
+
+    monkeypatch.setattr(word_native_layout.subprocess, "run", run)
+    with caplog.at_level("WARNING", logger="paperguard.word_layout"):
+        with pytest.raises(WordNativeLayoutError, match="未能完成分页"):
+            word_native_layout._run_word(source, ["PGHchapter"], 1)
+    assert f"exit_code=1 apple_event_code={expected_code}" in caplog.text
+    assert "private document" not in caplog.text
+    assert "/secret/path" not in caplog.text
+    assert str(source) not in caplog.text
+
+
 def test_native_busy_does_not_try_to_close_an_existing_document(tmp_path, monkeypatch):
     monkeypatch.setattr(word_native_layout.sys, "platform", "darwin")
     calls = []

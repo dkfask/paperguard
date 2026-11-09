@@ -10,7 +10,7 @@ from app.core.export.docx_exporter import export_project_to_docx
 from app.core.extract.xml_utils import NS, qn
 from app.models.project import InlineTextRun, ParagraphBlock, ProjectSection, ReferenceEntry, WritingProject
 from app.models.template import PaperTemplate, SectionType, TemplateSection, TextStyle
-from app.services.docx_output_check import inspect_docx_output
+from app.services.docx_output_check import DocxOutputCheckError, inspect_docx_output, require_output_check_report
 from app.services.manuscript_template import derive_manuscript_template
 from tests.test_manuscript_template import manuscript_case
 from tests.test_source_template_profile import rewrite
@@ -82,8 +82,14 @@ def test_master_reference_preserves_format_and_checker_detects_tampering(manuscr
 
     tampered = rewrite(data, "word/document.xml", remove_italic)
     report = inspect_docx_output(tampered, project, derived, source_template_bytes=payload)
+    check = next(item for item in report["checks"]
+                 if item["rule"] == "master.inline_decoration" and item["status"] == "fail")
+    assert check["check_id"] in report["failed_checks"]
+    assert report["format_accuracy"]["percentage"] > 90.0
     assert report["status"] == "fail"
-    assert any(item["rule"] == "master.inline_decoration" and item["status"] == "fail" for item in report["checks"])
+    assert report["hard_blockers"]
+    with pytest.raises(DocxOutputCheckError):
+        require_output_check_report(report)
 
 
 def test_structured_reference_with_unmappable_runs_fails_closed(tmp_path):

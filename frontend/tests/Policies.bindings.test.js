@@ -136,3 +136,71 @@ describe('policy list states', () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
   })
 })
+
+describe('cover and reference checks', () => {
+  it('configures both checks with their required parameters', async () => {
+    await open()
+    await wrapper.get('.policy-editor-panel input').setValue('1101 测试规范')
+    await wrapper.findAll('button').find(el => el.text().includes('添加规则')).trigger('click')
+    let row = wrapper.get('.rule-row')
+    await row.get('.rule-row-top input').setValue('cover-fields')
+    row = wrapper.get('.rule-row')
+    await row.get('.rule-fields select').setValue('cover.fields_present')
+    expect(row.get('.rule-fields input').element.value).toBe('cover')
+    await row.get('input[placeholder="例如：student_name, title"]').setValue(' title， author ')
+    await wrapper.findAll('button').find(el => el.text().includes('添加规则')).trigger('click')
+    row = wrapper.findAll('.rule-row')[1]
+    await row.get('.rule-row-top input').setValue('reference-facts')
+    row = wrapper.findAll('.rule-row')[1]
+    await row.get('.rule-fields select').setValue('references.list_facts')
+    expect(row.get('.rule-fields input').element.value).toBe('references')
+    await row.get('.reference-required input').setValue(true)
+    await row.get('.reference-sequential input').setValue(true)
+    await wrapper.get('.policy-editor-panel').findAll('button').find(el => el.text().includes('新建规范')).trigger('click')
+    await flushPromises()
+    const items = api.savePolicy.mock.calls[0][0].items
+    expect(items[0]).toMatchObject({ checker: 'cover.fields_present', target: 'cover', params: { field_keys: ['title', 'author'] } })
+    expect(items[1]).toMatchObject({ checker: 'references.list_facts', target: 'references', params: { required: true, numbering: 'sequential' } })
+    expect(items[0]).not.toHaveProperty('fieldKeysText')
+    expect(items[1]).not.toHaveProperty('referenceRequired')
+    expect(items[1]).not.toHaveProperty('referenceSequential')
+  })
+
+  it('rejects empty or duplicate cover keys before saving', async () => {
+    await open()
+    await wrapper.findAll('button').find(el => el.text().includes('添加规则')).trigger('click')
+    const row = wrapper.get('.rule-row')
+    await row.get('.rule-fields select').setValue('cover.fields_present')
+    const save = wrapper.get('.policy-editor-panel').findAll('button').find(el => el.text().includes('新建规范'))
+    await save.trigger('click'); await flushPromises()
+    expect(api.savePolicy).not.toHaveBeenCalled()
+    expect(wrapper.get('.policy-editor-panel [role="alert"]').text()).toContain('填写不重复的封面字段标识')
+    expect(wrapper.findAll('[role="alert"]')).toHaveLength(1)
+    await row.get('input[placeholder="例如：student_name, title"]').setValue('title,title')
+    await save.trigger('click'); await flushPromises()
+    expect(api.savePolicy).not.toHaveBeenCalled()
+  })
+
+  it('round trips saved check parameters without losing unrelated fields', async () => {
+    const policy = { id: 'existing', name: '草稿规范', level: 'teacher', version: '1', status: 'draft', documents: [], bindings: [], items: [
+      { id: 'cover-fields', type: 'auto', target: 'cover', checker: 'cover.fields_present', params: { field_keys: ['title', 'author'], extra: 'keep' } },
+      { id: 'reference-facts', type: 'auto', target: 'references', checker: 'references.list_facts', params: { required: true, numbering: 'sequential', extra: 'keep' } },
+    ] }
+    api.fetchPolicies.mockResolvedValue([policy]); api.fetchPolicy.mockResolvedValue(policy)
+    mountPage(); await flushPromises()
+    await wrapper.get('.policy-list-item').trigger('click'); await flushPromises()
+    const rows = wrapper.findAll('.rule-row')
+    expect(rows[0].get('input[placeholder="例如：student_name, title"]').element.value).toBe('title, author')
+    expect(rows[1].get('.reference-required input').element.checked).toBe(true)
+    expect(rows[1].get('.reference-sequential input').element.checked).toBe(true)
+    await rows[0].get('input[placeholder="例如：student_name, title"]').setValue('title')
+    await rows[1].get('.reference-required input').setValue(false)
+    await rows[1].get('.reference-sequential input').setValue(false)
+    await wrapper.get('.policy-editor-panel').findAll('button').find(el => el.text().includes('保存草稿')).trigger('click')
+    await flushPromises()
+    const items = api.savePolicy.mock.calls[0][0].items
+    expect(items[0].params).toMatchObject({ field_keys: ['title'], extra: 'keep' })
+    expect(items[1].params).toMatchObject({ required: false, extra: 'keep' })
+    expect(items[1].params).not.toHaveProperty('numbering')
+  })
+})

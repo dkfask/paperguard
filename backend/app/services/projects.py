@@ -137,5 +137,4 @@ def create_project_from_template(
 
 def seed_default_template(store: Store) -> None:
     """首次启动时写入内置模板。"""
-    if store.get_template("default-gb7713") is None:
-        store.save_template(default_template())
+    store.insert_template_if_absent(default_template())

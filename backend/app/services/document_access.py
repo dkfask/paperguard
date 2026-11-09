@@ -53,6 +53,23 @@ def document_context_visible(
     return any(str(value) in visible_ids for key, value in resource_context.items() if key in _SCOPE_KEYS and value)
 
 
+def can_access_template(store: Store, user: dict[str, Any], template: Any) -> bool:
+    """Apply organization scope to candidate-published templates."""
+    provenance = getattr(template, "admission_provenance", None) or {}
+    is_candidate_template = provenance.get("source") == "document_template_candidate"
+    global_candidate = (
+        is_candidate_template
+        and provenance.get("visibility") == "global"
+        and not (getattr(template, "organization_context", None) or {})
+    )
+    return document_context_visible(
+        store,
+        user,
+        getattr(template, "organization_context", None),
+        allow_global=not is_candidate_template or global_candidate,
+    )
+
+
 def can_access_document_project(store: Store, user: dict[str, Any], project: Any) -> bool:
     """Allow owners, administrators, and scoped college administrators."""
     if user.get("role") == "admin" or project.owner_id == user.get("id"):
@@ -116,6 +133,7 @@ def public_document_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "audit_document_access_denied",
+    "can_access_template",
     "can_access_document_project",
     "document_context_visible",
     "document_package_visible",

@@ -443,13 +443,14 @@ _META_LABELS: list[tuple[str, str, str]] = [
     (r"指导教师|导师", "advisor", "指导教师"),
     (r"论文题目|题目", "title", "题目"),
     (r"学院", "college", "学院"),
+    (r"系别|系部", "department", "系别"),
     (r"专业", "major", "专业"),
     (r"班级", "class_name", "班级"),
     (r"学校名称|学校", "school", "学校名称"),
     (r"日期", "date", "日期"),
 ]
 _META_LABEL_RE = re.compile(
-    r"(学生学号|学生姓名|学号|姓名|指导教师|导师|论文题目|题目|学院|专业|班级|学校名称|学校|日期)\s*[：:]"
+    r"(学生学号|学生姓名|学号|姓名|指导教师|导师|论文题目|题目|学院|系别|系部|专业|班级|学校名称|学校|日期)\s*[：:]"
 )
 _META_LABEL_TEXT = {key: label for _, key, label in _META_LABELS}
 

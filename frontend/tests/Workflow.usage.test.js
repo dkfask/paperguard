@@ -89,6 +89,27 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); document.body.innerHTML = ''; vi.unstubAllGlobals() })
 async function open(stubReview = true) { wrapper = mount(Workflow, { attachTo: document.body, global: { stubs: { ...(stubReview ? { ReviewEvidence: true } : {}), StageConfigForm: true, ScreenDeck: { template: '<div><slot name="header" /><slot /></div>' } } } }); await flushPromises() }
 describe('workflow usage regressions', () => {
+  it('prevents repeated pre-checks and hides an older candidate when a new pre-check fails', async () => {
+    let resolveFirst
+    api.createSubmissionCandidate.mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+    await open()
+    await button('测试论文').trigger('click')
+    const precheck = button('提交预检')
+    await precheck.trigger('click')
+    expect(precheck.element.disabled).toBe(true)
+    expect(precheck.text()).toContain('预检中')
+    await precheck.trigger('click')
+    expect(api.createSubmissionCandidate).toHaveBeenCalledTimes(1)
+    resolveFirst({ id: 'candidate-1', status: 'ready', gates: [], check_report: {} })
+    await flushPromises()
+    expect(document.body.textContent).toContain('确认正式提交')
+    api.createSubmissionCandidate.mockRejectedValueOnce(new Error('预检失败'))
+    await button('提交预检').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[role=dialog] [role=alert]')?.textContent).toContain('预检失败')
+    expect(document.body.textContent).not.toContain('确认正式提交')
+    expect(button('提交预检').element.disabled).toBe(false)
+  })
   it('opens the archive list from a workflow message', async () => {
     route.query = { panel: 'messages' }
     api.fetchWorkflowNotifications.mockResolvedValue({ items: [{
@@ -183,38 +204,40 @@ describe('workflow usage regressions', () => {
     api.fetchArchives.mockResolvedValue([
       { id: 'archive-ready', submission_id: 'new-submission', status: 'succeeded', download_url: '/api/archives/archive-ready/download', manual_review: { status: 'not_required' } },
       { id: 'archive-pending', submission_id: 'new-submission', status: 'queued' },
-      { id: 'archive-review', submission_id: 'new-submission', status: 'succeeded', manual_review: { status: 'required' } },
+      { id: 'archive-review', submission_id: 'new-submission', status: 'succeeded', download_url: '/api/archives/archive-review/download', manual_review: { status: 'required' } },
     ])
     api.downloadArchive.mockResolvedValue()
     await open()
     const archives = wrapper.get('[data-test="student-archives"]')
     expect(archives.text()).toContain('论文归档')
     expect(archives.text()).toContain('排队中')
-    expect(archives.text()).toContain('自动版面检查未完成，请联系系统团队')
-    expect(archives.findAll('button')).toHaveLength(1)
-    await archives.get('button').trigger('click')
+    expect(archives.text()).toContain('Word/WPS 核查待办，归档已可下载')
+    expect(archives.findAll('button')).toHaveLength(2)
+    await archives.findAll('button')[0].trigger('click')
     await flushPromises()
     expect(api.downloadArchive).toHaveBeenCalledOnce()
     expect(api.downloadArchive).toHaveBeenCalledWith('archive-ready')
   })
 
-  it('shows an automatic-check blocker instead of asking the teacher to approve it manually', async () => {
+  it('keeps archive download available while showing the Word/WPS review todo', async () => {
     identity.user = { role: 'teacher', status: 'active' }
     route.query = { panel: 'review' }
     api.fetchArchives.mockResolvedValue([
       { id: 'archive-ready', status: 'succeeded', download_url: '/api/archives/archive-ready/download', manual_review: { status: 'not_required' } },
-      { id: 'archive-unchecked', status: 'succeeded', manual_review: { status: 'required' } },
+      { id: 'archive-unchecked', status: 'succeeded', download_url: '/api/archives/archive-unchecked/download', manual_review: { status: 'required' } },
     ])
     api.downloadArchive.mockResolvedValue()
     await open()
     const archives = wrapper.get('[data-test="teacher-archives"]')
-    expect(archives.text()).toContain('自动版面检查未完成，请联系系统团队')
-    expect(archives.text()).not.toContain('核查归档成品')
-    expect(archives.findAll('button')).toHaveLength(1)
-    await archives.get('button').trigger('click')
+    expect(archives.text()).toContain('Word/WPS 核查待办，归档已可下载')
+    expect(archives.findAll('button')).toHaveLength(2)
+    await archives.findAll('button')[0].trigger('click')
     await flushPromises()
     expect(api.downloadArchive).toHaveBeenCalledWith('archive-ready')
-    expect(document.querySelector('[data-test="archive-manual-review"]')).toBeNull()
+    expect(api.downloadArchive).toHaveBeenCalledWith('archive-ready')
+    await archives.findAll('button')[1].trigger('click')
+    await flushPromises()
+    expect(api.downloadArchive).toHaveBeenCalledWith('archive-unchecked')
   })
 
   it('keeps student submission history available when archive loading fails', async () => {
@@ -280,13 +303,19 @@ describe('workflow usage regressions', () => {
     const submitted = { ...acknowledged, state: 'submitted', current_submission: { id: 'submission-1', number: 'SUB-1' } }
     api.fetchMyTasks.mockResolvedValue([initial])
     api.acknowledgeTaskRequirements.mockImplementation(async () => { api.fetchMyTasks.mockResolvedValue([acknowledged]) })
-    api.createSubmissionCandidate.mockResolvedValue({ id: 'candidate-1', status: 'ready', gates: [], warning_count: 0 })
+    api.createSubmissionCandidate.mockResolvedValue({
+      id: 'candidate-1', status: 'ready', warning_count: 0,
+      manual_review: { status: 'required' },
+      gates: [{ key: 'office_review_todo', label: 'Word/WPS 核查待办', passed: false, blocking: false, detail: '自动检查已通过；此待办不影响正式提交。' }],
+    })
     api.confirmSubmission.mockImplementation(async () => { api.fetchMyTasks.mockResolvedValue([submitted]) })
 
     await open(); await button('测试论文').trigger('click')
     await button('确认要求').trigger('click'); await flushPromises()
     expect(document.querySelector('[role="dialog"]').textContent).not.toContain('确认要求')
     await button('提交预检').trigger('click'); await flushPromises()
+    expect(document.querySelector('[role="dialog"]').textContent).toContain('Word/WPS 核查待办')
+    expect(document.querySelector('[role="dialog"]').textContent).toContain('此待办不影响正式提交')
     await button('确认正式提交').trigger('click'); await flushPromises()
 
     const dialog = document.querySelector('[role="dialog"]')
@@ -311,6 +340,7 @@ describe('workflow usage regressions', () => {
     await button('确认正式提交').trigger('click'); await flushPromises()
 
     expect(api.confirmSubmission).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[role=dialog] [role=alert]')?.textContent).toContain('提交结果未收到')
     const originalRequest = api.confirmSubmission.mock.calls[0][0]
     expect(originalRequest).toMatchObject({ candidate_id: 'candidate-1', warning_acknowledged: true })
     await button('确认正式提交').trigger('click'); await flushPromises()
@@ -319,6 +349,21 @@ describe('workflow usage regressions', () => {
     expect(api.confirmSubmission.mock.calls[1][0]).toEqual(originalRequest)
     expect(document.querySelector('[role="dialog"]').textContent).toContain('待审核')
     expect(document.body.textContent).not.toContain('提交结果未收到')
+  })
+
+  it('reports a confirmed submission when refreshing its task fails', async () => {
+    api.fetchMyTasks.mockResolvedValueOnce([{ ...participant, state: 'in_progress', current_submission: null }])
+      .mockRejectedValueOnce(new Error('刷新任务失败'))
+    api.createSubmissionCandidate.mockResolvedValue({ id: 'candidate-1', status: 'ready', gates: [], warning_count: 0 })
+    api.confirmSubmission.mockResolvedValue({})
+
+    await open(); await button('测试论文').trigger('click')
+    await button('提交预检').trigger('click'); await flushPromises()
+    await button('确认正式提交').trigger('click'); await flushPromises()
+
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.body.textContent).toContain('提交已成功，但工作台信息未完全刷新，请点击“刷新工作台”查看。')
+    expect(document.body.textContent).toContain('刷新任务失败')
   })
 
   it('uses a new request identity when the student prepares a new candidate', async () => {
@@ -529,7 +574,8 @@ describe('workflow usage regressions', () => {
     expect(wrapper.text()).toContain('论文提交、审核和归档尚未开放')
     expect(wrapper.find('.archive-panel').exists()).toBe(false)
   })
-  it.each(['admin', 'college_admin'])('hides teacher fields from the %s material inbox', async role => {
+  it('hides teacher fields from the admin material inbox', async () => {
+    const role = 'admin'
     identity.user = { role, status: 'active' }
     api.fetchProcessRecordInbox.mockResolvedValue([{ id: 'midterm-1', artifact_type: 'midterm_check', artifact_name: '中期检查', pending_approvals: ['teacher'] }])
     await open()

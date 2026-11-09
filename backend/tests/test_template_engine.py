@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from pathlib import Path
 
@@ -11,7 +12,10 @@ from docx import Document
 from fastapi.testclient import TestClient
 
 from app.domain.documents.schemas import TemplateAnchor, TemplateAsset, TemplateDefinition, TemplateField, TemplateSection
+from app.db import Store
 from app.main import app
+from app.models.template import PaperTemplate
+from app.services.document_candidates import TEMPLATE_CANDIDATE_KIND
 from app.services.template_engine import (
     TemplateCandidateError,
     TemplateParseCandidate,
@@ -251,6 +255,241 @@ def test_template_parse_and_confirm_api_requires_manager_and_keeps_candidate_sta
     assert {"template.candidate.parsed", "template.candidate.confirmed"}.issubset(actions)
     serialized = " ".join(str(event) for event in audit.json())
     assert body["source_asset"]["checksum"] not in serialized
+
+
+@pytest.mark.parametrize("interruption", ["template_insert", "publication_finalize"])
+def test_candidate_publish_requires_non_preview_trials_and_binds_project_snapshot(monkeypatch, interruption) -> None:
+    client = TestClient(app)
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    source = (FIXTURES / "templates" / "admissible.docx").read_bytes()
+    parsed = client.post(
+        "/api/templates/parse",
+        headers=headers,
+        files={"file": ("admissible.docx", source, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert parsed.status_code == 200, parsed.text
+    candidate = parsed.json()
+    specification = candidate["definition"]["extensions"]["writing_specification"]
+    confirmation = {
+        "expected_specification_sha256": specification["specification_sha256"],
+        "accept_recommended": True,
+        "remove_template_instructions": True,
+        "accept_new_object_defaults": True,
+    }
+
+    preview = client.post("/api/templates/parse/writing-profile", headers=headers, json={
+        "candidate": candidate,
+        "confirmation": confirmation,
+        "preview_only": True,
+    })
+    assert preview.status_code == 200, preview.text
+    assert all(report["status"] == "pass" for report in preview.json()["trials"].values())
+    preview_candidate = client.post(
+        "/api/templates/parse/confirm", headers=headers, json=preview.json()["candidate"]
+    )
+    assert preview_candidate.status_code == 422, preview_candidate.text
+    assert "source_profile_invalid" in preview_candidate.text
+
+    parsed_again = client.post(
+        "/api/templates/parse",
+        headers=headers,
+        files={"file": ("admissible.docx", source, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert parsed_again.status_code == 200, parsed_again.text
+    candidate = parsed_again.json()
+    candidate["definition"]["organization_context"] = {"school_id": "client-spoofed-school"}
+    confirmation["expected_specification_sha256"] = candidate["definition"]["extensions"]["writing_specification"]["specification_sha256"]
+    prepared = client.post("/api/templates/parse/writing-profile", headers=headers, json={
+        "candidate": candidate,
+        "confirmation": confirmation,
+        "preview_only": False,
+    })
+    assert prepared.status_code == 200, prepared.text
+    assert prepared.json()["candidate"]["definition"]["organization_context"] == {}
+    assert set(prepared.json()["trials"]) == {"normal", "long"}
+    assert all(report["status"] == "pass" for report in prepared.json()["trials"].values())
+    # JSON.stringify in browsers emits integral floats as integers. The
+    # server-owned prepared profile must remain valid after that round trip.
+    browser_candidate = json.loads(
+        json.dumps(prepared.json()["candidate"]),
+        parse_float=lambda value: int(float(value)) if float(value).is_integer() else float(value),
+    )
+    assert json.dumps(browser_candidate) != json.dumps(prepared.json()["candidate"])
+    confirmed = client.post(
+        "/api/templates/parse/confirm", headers=headers, json=browser_candidate
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    store = Store()
+    store.save_template(PaperTemplate(id=candidate["template_id"], name="预先占用的模板"))
+    collision = client.post(
+        "/api/templates/parse/publish", headers=headers,
+        json={"candidate_id": candidate["candidate_id"]},
+    )
+    assert collision.status_code == 409, collision.text
+    candidate_record = store.get_workflow_record(TEMPLATE_CANDIDATE_KIND, candidate["candidate_id"])
+    assert candidate_record is not None
+    assert candidate_record.get("publication") is None
+    store.delete_template(candidate["template_id"])
+
+    original_insert = Store.insert_template_if_absent
+    with monkeypatch.context() as patch:
+        if interruption == "template_insert":
+            def interrupt_insert(self, template):
+                if template.id == candidate["template_id"]:
+                    raise RuntimeError("simulated interruption before template insert")
+                return original_insert(self, template)
+
+            patch.setattr(Store, "insert_template_if_absent", interrupt_insert)
+        else:
+            original_save_record = Store.save_workflow_record
+
+            def interrupt_finalize(self, kind, record, *, expected_revision=None):
+                publication = record.get("publication") or {}
+                if kind == TEMPLATE_CANDIDATE_KIND and publication.get("status") == "published":
+                    return None
+                return original_save_record(self, kind, record, expected_revision=expected_revision)
+
+            patch.setattr(Store, "save_workflow_record", interrupt_finalize)
+        with TestClient(app, raise_server_exceptions=False) as interrupted_client:
+            interrupted = interrupted_client.post(
+                "/api/templates/parse/publish", headers=headers,
+                json={"candidate_id": candidate["candidate_id"]},
+            )
+    assert interrupted.status_code == (500 if interruption == "template_insert" else 409)
+    pending_record = store.get_workflow_record(TEMPLATE_CANDIDATE_KIND, candidate["candidate_id"])
+    assert pending_record["publication"]["status"] == "publishing"
+    assert pending_record["publication"]["template_sha256"]
+    if interruption == "publication_finalize":
+        assert store.get_template(candidate["template_id"]) is not None
+
+    published = client.post(
+        "/api/templates/parse/publish", headers=headers,
+        json={"candidate_id": candidate["candidate_id"]},
+    )
+    assert published.status_code == 200, published.text
+    template = published.json()["template"]
+    provenance = template["admission_provenance"]
+    assert template["id"] == candidate["template_id"]
+    listed = client.get('/api/templates', headers=headers).json()
+    assert next(item for item in listed if item['id'] == template['id'])['immutable'] is True
+    assert template["organization_context"] == {}
+    assert provenance["visibility"] == "global"
+    assert provenance["candidate_id"] == candidate["candidate_id"]
+    assert provenance["source_docx_sha256"] == hashlib.sha256(source).hexdigest()
+    assert provenance["trial_evidence_sha256"]
+    assert published.json()["admission"]["can_use_for_draft"] is True
+    assert published.json()["admission"]["can_claim_compliant_delivery"] is False
+
+    browser_template = json.loads(
+        json.dumps(template),
+        parse_float=lambda value: int(float(value)) if float(value).is_integer() else float(value),
+    )
+    assessed = client.post('/api/templates/admission/assess', headers=headers, json=browser_template)
+    assert assessed.status_code == 200, assessed.text
+    assert assessed.json()['can_use_for_draft'] is True
+    browser_template['source_execution']['source_sha256'] = '0' * 64
+    changed_assessment = client.post('/api/templates/admission/assess', headers=headers, json=browser_template)
+    assert changed_assessment.status_code == 200, changed_assessment.text
+    assert any(item['code'] == 'source_profile_invalid' for item in changed_assessment.json()['blockers'])
+
+    changed_definition = {**template, "name": "未经重新准入的改写"}
+    update = client.put(f"/api/templates/{template['id']}", headers=headers, json=changed_definition)
+    assert update.status_code == 409, update.text
+    assert client.get(f"/api/templates/{template['id']}", headers=headers).json()["admission_provenance"] == provenance
+    assert client.delete(f"/api/templates/{template['id']}", headers=headers).status_code == 409
+    monkeypatch.setattr(
+        "app.api.templates.default_template",
+        lambda: PaperTemplate.model_validate(template),
+    )
+    reset = client.post("/api/templates/default", headers=headers)
+    assert reset.status_code == 409, reset.text
+    assert client.get(f"/api/templates/{template['id']}", headers=headers).json()["admission_provenance"] == provenance
+    assert client.post("/api/templates/default", headers=headers).status_code == 409
+
+    repeated = client.post(
+        "/api/templates/parse/publish", headers=headers,
+        json={"candidate_id": candidate["candidate_id"]},
+    )
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["template"]["admission_provenance"] == provenance
+
+    project = client.post("/api/projects", headers=headers, json={
+        "template_id": template["id"], "title": "候选发布快照验证",
+    })
+    assert project.status_code == 201, project.text
+    assert project.json()["template_snapshot"]["admission_provenance"] == provenance
+
+
+def test_insert_template_if_absent_never_replaces_an_existing_id(tmp_path) -> None:
+    store = Store(tmp_path / "templates.db")
+    existing = PaperTemplate(id="same-id", name="existing")
+    replacement = PaperTemplate(id="same-id", name="replacement")
+
+    assert store.insert_template_if_absent(existing) is True
+    assert store.insert_template_if_absent(replacement) is False
+    assert store.get_template("same-id").name == "existing"
+
+
+def test_template_create_reports_atomic_id_collision_without_replacing_template(monkeypatch) -> None:
+    client = TestClient(app)
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    existing = PaperTemplate(id=f"concurrent-{uuid.uuid4().hex}", name="并发先创建")
+    store = Store()
+    original_insert = Store.insert_template_if_absent
+
+    def insert_competing_template(self, template):
+        if template.id == existing.id:
+            assert original_insert(self, existing)
+        return original_insert(self, template)
+
+    monkeypatch.setattr(Store, "insert_template_if_absent", insert_competing_template)
+    response = client.post("/api/templates", headers=headers, json={
+        **PaperTemplate(id=existing.id, name="后到模板").model_dump(mode="json"),
+    })
+
+    assert response.status_code == 409, response.text
+    assert store.get_template(existing.id).name == "并发先创建"
+
+
+def test_candidate_publish_rejects_definition_changed_after_trial() -> None:
+    client = TestClient(app)
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "TestAdminPassword123"})
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    source = (FIXTURES / "templates" / "admissible.docx").read_bytes()
+    parsed = client.post(
+        "/api/templates/parse",
+        headers=headers,
+        files={"file": ("admissible.docx", source, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert parsed.status_code == 200, parsed.text
+    candidate = parsed.json()
+    confirmation = {
+        "expected_specification_sha256": candidate["definition"]["extensions"]["writing_specification"]["specification_sha256"],
+        "accept_recommended": True,
+        "remove_template_instructions": True,
+        "accept_new_object_defaults": True,
+    }
+    prepared = client.post("/api/templates/parse/writing-profile", headers=headers, json={
+        "candidate": candidate,
+        "confirmation": confirmation,
+        "preview_only": False,
+    })
+    assert prepared.status_code == 200, prepared.text
+    changed = prepared.json()["candidate"]
+    changed["definition"]["extensions"]["post_trial_change"] = "changed"
+    confirmed = client.post("/api/templates/parse/confirm", headers=headers, json=changed)
+    assert confirmed.status_code == 200, confirmed.text
+    published = client.post("/api/templates/parse/publish", headers=headers, json={
+        "candidate_id": candidate["candidate_id"],
+    })
+    assert published.status_code == 409
+    assert "试排后发生变化" in published.text
 
 
 def test_template_parse_blocks_an_unmapped_header_before_confirmation() -> None:

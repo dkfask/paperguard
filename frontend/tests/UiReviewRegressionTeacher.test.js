@@ -74,7 +74,7 @@ describe('F-21 角色标签不得用二元三元', () => {
 describe('F-14 不得向无权角色展示必然 403 的按钮', () => {
   it('批次「关闭/恢复」按钮必须受 canManage 约束', () => {
     const workflow = read('src/views/Workflow.vue')
-    // 后端 close_cohort / reopen_cohort 走 _ensure_manager，角色集 {admin, college_admin}
+    // 后端 close_cohort / reopen_cohort 走 _ensure_manager，仅系统管理员可执行。
     expect(workflow).toContain('v-if="canManage && cohort.status === \'published\'"')
     expect(workflow).toContain('v-if="canManage && cohort.status === \'closed\'"')
   })
@@ -82,7 +82,7 @@ describe('F-14 不得向无权角色展示必然 403 的按钮', () => {
   it('两个 _ensure_manager 同名不同实现时，不得靠猜测放宽后端', () => {
     // 记录约束：workflow.py 的 _MANAGER_ROLES 不含 teacher，auth.py 的 MANAGE_ROLES 含
     const backend = read('../backend/app/api/workflow.py')
-    expect(backend).toMatch(/_MANAGER_ROLES\s*=\s*\{"admin",\s*"college_admin"\}/)
+    expect(backend).toMatch(/_MANAGER_ROLES\s*=\s*\{"admin"\}/)
   })
 })
 
@@ -213,7 +213,7 @@ describe('F-18 / F-20 路由标题与角色门禁', () => {
     // F-20 的漏网：先修了 Policies.vue，Templates.vue 的同名链接被漏掉
     const templates = read('src/views/Templates.vue')
     expect(templates).toContain('v-if="canViewAudit" to="/audit"')
-    expect(templates).toContain("const canViewAudit = computed(() => ['admin', 'college_admin']")
+    expect(templates).toContain("const canViewAudit = computed(() => auth.user?.role === 'admin')")
   })
 
   it('教师能到达的页面不得出现无条件的审计链接', () => {

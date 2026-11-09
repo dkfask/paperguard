@@ -29,15 +29,14 @@ def test_unrequested_white_text_is_detected_when_template_has_no_color_rule(mast
     assert report['status'] == 'fail'
 
 
-@pytest.mark.parametrize("rgb", [(0, 34, 136), (255, 255, 255)])
-def test_explicit_template_color_is_preserved_and_checked(master, tmp_path, rgb):
+def test_explicit_template_color_is_preserved_and_checked(master, tmp_path):
     from docx import Document
     from docx.shared import RGBColor
     from tests.test_master_cover_label_visibility import _recompile
 
     source = master[0]
     doc = Document(source)
-    doc.styles['Normal'].font.color.rgb = RGBColor(*rgb)
+    doc.styles['Normal'].font.color.rgb = RGBColor(0, 34, 136)
     doc.save(source)
     case = _recompile(master)
     data = rendered(case, tmp_path)
@@ -48,16 +47,23 @@ def test_explicit_template_color_is_preserved_and_checked(master, tmp_path, rgb)
         run, _ = _target(root, case, 'body')
         color = run.find(f"{qn('w:rPr')}/{qn('w:color')}")
         assert color is not None
-        color.set(qn('w:val'), '000000' if rgb == (255, 255, 255) else 'FFFFFF')
+        color.set(qn('w:val'), 'FFFFFF')
 
     report = inspect(case, rewrite(data, 'word/document.xml', alter))
     assert report['status'] == 'fail'
     assert any(item['rule'] == 'master.effective_format' and item['status'] == 'fail'
                for item in report['checks'])
+    assert any(item['rule'] == 'master.text_color_visibility' and item['status'] == 'fail'
+               for item in report['checks'])
 
 
-@pytest.mark.parametrize('alteration', ['automatic', 'theme_override', 'duplicate'])
-def test_ambiguous_or_overridden_direct_color_is_not_accepted(master, tmp_path, alteration):
+@pytest.mark.parametrize(('alteration', 'expected_status'), [
+    ('automatic', 'fail'),
+    ('theme_override', 'fail'),
+    ('duplicate', 'fail'),
+])
+def test_visible_color_mismatch_remains_a_hard_format_block(
+        master, tmp_path, alteration, expected_status):
     from docx import Document
     from docx.shared import RGBColor
     from tests.test_master_cover_label_visibility import _recompile
@@ -83,9 +89,14 @@ def test_ambiguous_or_overridden_direct_color_is_not_accepted(master, tmp_path, 
             etree.SubElement(rpr, qn('w:color')).set(qn('w:val'), 'FFFFFF')
 
     report = inspect(case, rewrite(data, 'word/document.xml', alter))
-    assert report['status'] == 'fail'
+    assert report['status'] == expected_status
     assert any(item['rule'] == 'master.effective_format' and item['status'] == 'fail'
                for item in report['checks'])
+    visibility = next(item for item in report['checks']
+                      if item['rule'] == 'master.text_color_visibility'
+                      and item['object'] == case[2].sections[-1].paragraphs[0].id)
+    assert visibility['status'] == ('pass' if alteration == 'automatic' else 'unverifiable')
+    assert report['hard_blockers']
 
 
 def test_equivalent_direct_automatic_color_is_allowed_when_template_has_no_color_rule(master, tmp_path):
@@ -100,6 +111,55 @@ def test_equivalent_direct_automatic_color_is_allowed_when_template_has_no_color
 
     report = inspect(master, rewrite(data, 'word/document.xml', alter))
     assert report['status'] == 'pass', [item for item in report['checks'] if item['status'] != 'pass']
+
+
+def test_white_text_on_black_highlight_is_visible_on_white_page(master, tmp_path):
+    from app.models.project import InlineTextRun
+
+    block = master[2].sections[-1].paragraphs[0]
+    block.text = "高亮文字"
+    block.inline_runs = [InlineTextRun(text="高亮文字", highlight="black")]
+    data = rendered(master, tmp_path)
+
+    def alter(root):
+        run, _ = _target(root, master, "body")
+        rpr = run.find(qn('w:rPr'))
+        color = rpr.find(qn('w:color'))
+        if color is None:
+            color = etree.SubElement(rpr, qn('w:color'))
+        color.set(qn('w:val'), 'FFFFFF')
+
+    report = inspect(master, rewrite(data, 'word/document.xml', alter))
+    visibility = next(item for item in report['checks']
+                      if item['rule'] == 'master.text_color_visibility'
+                      and item['object'] == block.id)
+    assert visibility['status'] == 'pass'
+    contrast = next(item for item in report['checks']
+                    if item['rule'] == 'master.highlight_color_distinct'
+                    and item['object'] == block.id)
+    assert contrast['status'] == 'pass'
+    assert report['status'] == 'fail'  # The direct color still violates the template rule.
+
+
+def test_white_text_without_highlight_remains_blocked_on_white_page(master, tmp_path):
+    case = master
+    data = rendered(case, tmp_path)
+
+    def alter(root):
+        run, _ = _target(root, case, 'body')
+        rpr = run.find(qn('w:rPr'))
+        color = rpr.find(qn('w:color'))
+        if color is None:
+            color = etree.SubElement(rpr, qn('w:color'))
+        color.set(qn('w:val'), 'FFFFFF')
+
+    report = inspect(case, rewrite(data, 'word/document.xml', alter))
+    visibility = next(item for item in report['checks']
+                      if item['rule'] == 'master.text_color_visibility'
+                      and item['object'] == case[2].sections[-1].paragraphs[0].id)
+    assert visibility['status'] == 'fail'
+    assert report['status'] == 'fail'
+    assert any(item.startswith('master.text_color_visibility:') for item in report['hard_blockers'])
 
 
 @pytest.mark.parametrize('white_text', [False, True])
@@ -130,15 +190,26 @@ def test_old_frozen_candidate_and_archive_are_rechecked_for_text_color(master, t
     report = inspect(master, data)
     assert report['status'] == ('fail' if white_text else 'pass')
 
-    # Model an older checker that accepted this exact artifact's color.
+    # Model v9, which predates the separate hard visibility check and score contract.
     old_report = copy.deepcopy(report)
+    old_report['checks'] = [check for check in old_report['checks']
+                            if check['rule'] != 'master.text_color_visibility']
     for check in old_report['checks']:
         if check['status'] != 'pass':
             assert check['rule'] == 'master.effective_format'
             check['status'] = 'pass'
     old_report['status'] = 'pass'
-    old_report['passed_count'] = old_report['check_count']
-    assert verify_report_binding(old_report, data)
+    old_report['check_count'] = old_report['passed_count'] = len(old_report['checks'])
+    old_report['inspector_version'] = 'docx-output-check/9-master'
+    old_report.pop('text_color_visibility_check_version', None)
+    for key in ('acceptance_contract', 'format_accuracy', 'rule_accuracy', 'failed_checks',
+                'unverifiable_checks', 'excluded_checks', 'hard_blockers', 'acceptance_status'):
+        old_report.pop(key, None)
+    for check in old_report['checks']:
+        check.pop('check_id', None)
+        check.pop('classification', None)
+    assert not verify_report_binding(old_report, data)
+    assert verify_report_binding(old_report, data, allow_previous_inspector=True)
 
     artifact = tmp_path / 'old-color.docx'
     artifact.write_bytes(data)

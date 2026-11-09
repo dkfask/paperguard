@@ -54,10 +54,18 @@ _CHECKER_ALIASES = {
     "chapter.page_break": "chapter.page_break",
     "cover_field_present": "cover.field_present",
     "meta.field_present": "meta.field_present",
+    "cover_required_fields": "cover.fields_present",
+    "cover.fields_present": "cover.fields_present",
+    "references_list_facts": "references.list_facts",
+    "references.list_facts": "references.list_facts",
     "ai.usage_declared": "ai.usage_declared",
 }
 
-_SUPPORTED_CHECKERS = set(_CHECKER_ALIASES.values()) | {"cover.field_present"}
+_SUPPORTED_CHECKERS = set(_CHECKER_ALIASES.values()) | {"cover.field_present", "cover.fields_present"}
+_COVER_FIELD_KEYS = {
+    "school", "title", "author", "student_id", "college", "department",
+    "major", "class_name", "advisor", "date",
+}
 _KNOWN_RULE_PACKS = {"GB-T-7713-1-2006", "GB-T-7714-1-2015", "SIM-UNIV-generic"}
 _FORMAT_TERM_RE = re.compile(
     r"字体|字号|行距|首行缩进|缩进|对齐|分页|另起一页|章前|换页|页边距|页眉|页脚|页码|段前|段后|"
@@ -68,6 +76,8 @@ _FORMAT_TERM_RE = re.compile(
 _PARAM_KEYS = {
     "section_key", "section_keys", "min", "max", "min_count", "min_ratio",
     "years", "current_year", "count_mode", "prefix_pattern", "field_key",
+    "field_keys", "required", "numbering", "bracket_style", "language_order",
+    "format_check",
 }
 _TARGET_ALIASES = {
     "正文": "body", "正文内容": "body", "摘要": "abstract", "中文摘要": "abstract",
@@ -199,6 +209,11 @@ def build_policy_import_messages(filename: str, text: str) -> list[dict[str, str
         f"文件名：{filename}\n"
         f"可用 checker：{allowed}\n"
         "规则映射要求：明确写出数值的字数、关键词、参考文献要求可以转成 auto；"
+        "封面必填项只有在能提供完整、唯一的内部 field_keys 列表时才用 cover.fields_present；"
+        "只对明确要求的参考文献事实完整性和本系统支持的顺序编码、方括号、中先英后规则使用 references.list_facts，"
+        "对应参数示例为 required=true、numbering=sequential、bracket_style=square、language_order=zh_before_en；"
+        "references.format 只核验明确声明的 format_check=number_and_year（序号与四位年份），不代表完整文献标准格式；"
+        "不得把未说明的标准格式要求映射成上述检查器，不能确认完整参数时保留 manual；"
         "只有在文档给出准确章节 key 时才使用 section.exists 或 chapter.page_break；"
         "无法安全映射的要求必须保留为 manual，不要猜测。不要生成规则包 ID。"
         "不得遗漏任何明确的格式条款，包括中文字体、西文字体、字号、加粗、行距、段前段后、"
@@ -306,6 +321,36 @@ def _normalize_item(raw: Any, index: int, filename: str, used: set[str]) -> dict
         checker = _normalize_checker(raw_type)
     if checker == "section.word_count" and target == "abstract":
         checker = "abstract.word_count"
+
+    if checker == "cover.fields_present":
+        field_keys = params.get("field_keys")
+        supported = (
+            isinstance(field_keys, list)
+            and bool(field_keys)
+            and all(isinstance(key, str) and key in _COVER_FIELD_KEYS for key in field_keys)
+            and len(field_keys) == len(set(field_keys))
+            and set(params).issubset({"field_keys"})
+        )
+        if not supported:
+            item_type = "manual"
+            checker = ""
+    elif checker == "references.list_facts":
+        ordered_checks = {"numbering", "bracket_style", "language_order"} & set(params)
+        supported = (
+            set(params).issubset({"required", "numbering", "bracket_style", "language_order"})
+            and ("required" not in params or type(params["required"]) is bool)
+            and ("numbering" not in params or params["numbering"] == "sequential")
+            and ("bracket_style" not in params or params["bracket_style"] == "square")
+            and ("language_order" not in params or params["language_order"] == "zh_before_en")
+            and ("required" in params or bool(ordered_checks))
+        )
+        if not supported:
+            item_type = "manual"
+            checker = ""
+    elif checker == "references.format":
+        if params != {"format_check": "number_and_year"}:
+            item_type = "manual"
+            checker = ""
 
     # 未知或缺少上下文的自动规则转为人工要求，避免导入后产生错误的合规结论。
     if item_type == "auto" and not checker:

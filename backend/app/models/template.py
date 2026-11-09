@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -115,6 +116,7 @@ class PaperTemplate(BaseModel):
     organization_context: dict[str, str] = {}  # 模板适用的默认组织作用域
     writing_specification: WritingSpecification | None = None  # 源 Word 的待确认规范与证据
     source_execution: dict = Field(default_factory=dict)  # 服务端确认并签名的母版执行配置
+    admission_provenance: dict[str, Any] = Field(default_factory=dict)  # 发布候选、源文件与试排证据绑定
 
 
 # ---------------------------------------------------------------------------

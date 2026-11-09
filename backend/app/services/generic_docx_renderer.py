@@ -326,6 +326,12 @@ def inspect_document_project_docx_output(
             report["status"] = "fail"
         report.update({"project_content_hash":document_project_content_hash(project),"template_id":template.id,"template_version":template_version.version,
                        "template_hash":canonical_hash({"package":package.model_dump(mode="json"),"template":template.model_dump(mode="json"),"template_version":template_version.model_dump(mode="json"),"spec_version":spec_version.model_dump(mode="json") if spec_version is not None else None})})
+        # The adapter replaces the legacy project identity and can add its own
+        # checks. Authenticate the final generic report, not the intermediate
+        # legacy report produced above.
+        from app.services.output_acceptance import apply_1101_acceptance_contract
+        report["passed_count"] = sum(item["status"] == "pass" for item in report["checks"])
+        apply_1101_acceptance_contract(report)
     return report
 
 

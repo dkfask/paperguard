@@ -2,23 +2,12 @@
 from __future__ import annotations
 
 import pytest
-from docx import Document
-from docx.shared import RGBColor
+from lxml import etree
 
 from app.models.project import InlineTextRun
-from tests.test_master_cover_label_visibility import _recompile
-from tests.test_source_template_profile import inspect, master, rendered
-
-
-def _with_font_color(master, value):
-    source = master[0]
-    document = Document(source)
-    if value is None:
-        document.styles['Normal'].font.color.rgb = None
-    else:
-        document.styles['Normal'].font.color.rgb = RGBColor.from_string(value)
-    document.save(source)
-    return _recompile(master)
+from app.core.extract.xml_utils import NS, qn
+from tests.test_master_content_visibility import _target
+from tests.test_source_template_profile import inspect, master, rendered, rewrite
 
 
 @pytest.mark.parametrize(('foreground', 'highlight', 'allowed'), [
@@ -31,20 +20,39 @@ def _with_font_color(master, value):
 ])
 @pytest.mark.parametrize('inline', [False, True])
 def test_highlight_does_not_hide_student_text(master, tmp_path, foreground, highlight, allowed, inline):
-    case = _with_font_color(master, foreground)
-    block = case[2].sections[-1].paragraphs[0]
+    block = master[2].sections[-1].paragraphs[0]
     if inline:
         block.text = '前文需要强调后文'
         block.inline_runs = [InlineTextRun(text='前文'), InlineTextRun(text='需要强调', highlight=highlight),
                              InlineTextRun(text='后文')]
     else:
         block.highlight = highlight
-    report = inspect(case, rendered(case, tmp_path))
+    data = rendered(master, tmp_path)
+    if foreground not in (None, '000000'):
+        def set_foreground(root):
+            tag = f'pg-block:{block.id}'
+            contents = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val=$tag]/w:sdtContent',
+                                  namespaces=NS, tag=tag)
+            assert len(contents) == 1
+            for run in contents[0].xpath('.//w:r[w:t]', namespaces=NS):
+                properties = run.find(qn('w:rPr'))
+                if properties is None:
+                    properties = etree.Element(qn('w:rPr'))
+                    run.insert(0, properties)
+                color = properties.find(qn('w:color'))
+                if color is None:
+                    color = etree.SubElement(properties, qn('w:color'))
+                color.set(qn('w:val'), foreground)
+        data = rewrite(data, 'word/document.xml', set_foreground)
+    report = inspect(master, data)
     relevant = [item for item in report['checks']
                 if item['rule'] == 'master.highlight_color_distinct' and item['object'] == block.id]
     assert relevant, 'independent output inspection must cover the effective text/highlight pair'
-    assert all(item['status'] == ('pass' if allowed else 'fail') for item in relevant)
-    assert (report['status'] == 'pass') is allowed, [item for item in report['checks'] if item['status'] != 'pass']
+    assert all(item['status'] == ('pass' if allowed else 'fail') for item in relevant), relevant
+    if not allowed:
+        assert report['status'] == 'fail'
+    elif foreground in (None, '000000'):
+        assert report['status'] == 'pass'
 
 
 @pytest.mark.parametrize(('direct_color', 'effective_color', 'white_document', 'allowed'), [

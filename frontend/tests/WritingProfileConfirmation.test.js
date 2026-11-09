@@ -20,6 +20,17 @@ describe('writing profile publication', () => {
     expect(publishWritingProfile).toHaveBeenCalledWith('t1', expect.objectContaining({proposal_id:'proposal-1', expected_specification_sha256:'spec-hash', accept_recommended:true,remove_template_instructions:true,accept_new_object_defaults:true}))
     expect(wrapper.emitted('published')).toHaveLength(1)
   })
+  it('shows the source-evidenced heading corrections for review', async () => {
+    const correctedPlan = { ...plan, headings: [{ key: 'parent', title: '5.1 硬件实现', properties: {}, title_properties: {} }],
+      heading_semantic_corrections: [{ key: 'child', title: '5.1.1 模块实现', parent_key: 'parent' }] }
+    proposeWritingProfile.mockResolvedValueOnce({ ...proposal, template: { source_execution: correctedPlan } })
+    const wrapper = mount(WritingProfileConfirmation, { props: { template } })
+    await wrapper.get('button').trigger('click'); await flushPromises()
+    const corrections = wrapper.get('[data-test="heading-semantic-corrections"]')
+    expect(corrections.text()).toContain('5.1.1 模块实现')
+    expect(corrections.text()).toContain('二级调整为三级')
+    expect(corrections.text()).toContain('5.1 硬件实现')
+  })
   it('invalidates a preview when the template becomes dirty', async () => {
     const wrapper = mount(WritingProfileConfirmation, { props: { template } })
     await wrapper.get('button').trigger('click'); await flushPromises()
@@ -32,12 +43,30 @@ describe('writing profile publication', () => {
     const candidate = {candidate_id:'candidate-1'}
     prepareCandidateWritingProfile.mockResolvedValue({...proposal,candidate})
     const wrapper = mount(WritingProfileConfirmation, { props: {template,candidate} })
-    await wrapper.get('button').trigger('click'); await flushPromises()
+    await wrapper.get('[data-test="writing-profile-prepare"]').trigger('click'); await flushPromises()
     expect(prepareCandidateWritingProfile).toHaveBeenCalledWith(candidate,expect.objectContaining({expected_specification_sha256:'spec-hash'}))
     for (const checkbox of wrapper.get('[data-test="writing-profile-plan"]').findAll('input[type="checkbox"]')) await checkbox.setValue(true)
-    await wrapper.get('button.primary').trigger('click'); await flushPromises()
+    await wrapper.get('[data-test="writing-profile-publish"]').trigger('click'); await flushPromises()
     expect(prepareCandidateWritingProfile).toHaveBeenLastCalledWith(candidate,expect.objectContaining({accept_recommended:true}),false)
+    expect(prepareCandidateWritingProfile.mock.invocationCallOrder[0]).toBeLessThan(prepareCandidateWritingProfile.mock.invocationCallOrder[1])
     expect(publishWritingProfile).not.toHaveBeenCalled()
+  })
+  it('shows readable labels instead of internal role and property keys', () => {
+    const conflictTemplate = {
+      ...template,
+      writing_specification: {
+        ...template.writing_specification,
+        rules: [
+          { id: 'keywords-font', confidence: 'conflict', property: 'font.eastAsia', scope: { region_title: '摘要', role: 'keywords' }, expected: '宋体', alternatives: [] },
+          { id: 'english-keywords-font', confidence: 'conflict', property: 'font.ascii', scope: { region_title: 'Abstract', role: 'english_keywords' }, expected: 'Times New Roman', alternatives: [] },
+        ],
+      },
+    }
+    const wrapper = mount(WritingProfileConfirmation, { props: { template: conflictTemplate } })
+
+    expect(wrapper.text()).toContain('摘要 · 中文关键词 · 中文字体')
+    expect(wrapper.text()).toContain('Abstract · 英文关键词 · 西文字体')
+    expect(wrapper.text()).not.toMatch(/english_abstract|english_keywords|\bkeywords\b/)
   })
   it('requires another server preview after changing the manuscript hierarchy policy', async () => {
     const wrapper = mount(WritingProfileConfirmation, { props: { template } })
@@ -113,4 +142,22 @@ describe('writing profile publication', () => {
     await wrapper.get('button.primary').trigger('click'); await flushPromises()
     expect(publishWritingProfile).toHaveBeenCalledWith('t1', expect.objectContaining({ inline_label_overrides: labels, proposal_id: 'proposal-1' }))
   })
+  it('previews explicit cover pagination and invalidates changes', async () => {
+    const wrapper = mount(WritingProfileConfirmation, { props: { template } })
+    await wrapper.get('[data-test="cover-pagination-enabled"]').setValue(true)
+    await wrapper.get('[data-test="cover-blank-offsets"]').setValue('1, 1')
+    expect(wrapper.get('button').element.disabled).toBe(true)
+    await wrapper.get('[data-test="cover-blank-offsets"]').setValue('2, 1')
+    const pagination = { allowed_blank_offsets: [1, 2], require_boundary_new_page: true }
+    proposeWritingProfile.mockResolvedValueOnce({ ...proposal, template: { source_execution: {
+      ...plan, headings: [{ key: 'abstract', title: '摘要', properties: {}, title_properties: {} }],
+      cover_pagination: { ...pagination, boundary_key: 'abstract' }
+    } } })
+    await wrapper.get('button').trigger('click'); await flushPromises()
+    expect(proposeWritingProfile).toHaveBeenLastCalledWith('t1', expect.objectContaining({ cover_pagination: pagination }))
+    expect(wrapper.get('[data-test="cover-pagination-preview"]').text()).toContain('摘要')
+    await wrapper.get('[data-test="cover-boundary-new-page"]').setValue(false)
+    expect(wrapper.find('[data-test="writing-profile-plan"]').exists()).toBe(false)
+  })
+
 })

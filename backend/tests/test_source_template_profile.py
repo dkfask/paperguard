@@ -1,5 +1,6 @@
 """Approved ordinary-Word masters: publication, fidelity and delivery negatives."""
 import copy
+import hashlib
 import io
 from pathlib import Path
 import uuid
@@ -21,7 +22,7 @@ from app.core.extract.xml_utils import NS,load_part,qn
 from app.core.export.docx_exporter import export_project_to_docx
 from app.main import app
 from app.models.project import WritingProject,ProjectSection,ParagraphBlock,ImageBlock,TableBlock
-from app.models.template import PaperTemplate,MetaField
+from app.models.template import PaperTemplate,MetaField,SectionType
 from app.services.docx_output_check import DocxOutputCheckError,inspect_docx_output,require_output_check_report,verify_report_binding
 from app.services.document_assets import document_upload_dir
 from app.services.import_template import extract_section_tree,import_template_styles
@@ -81,10 +82,14 @@ def keyword_master(tmp_path):
     doc = Document()
     doc.add_heading('摘要', 1)
     doc.add_paragraph('摘要正文示例。')
-    doc.add_paragraph('关键词：模板；系统')
+    cn = doc.add_paragraph()
+    cn.add_run('关键词').bold = True
+    cn.add_run('：模板；系统')
     doc.add_heading('Abstract', 1)
     doc.add_paragraph('Abstract body example.')
-    doc.add_paragraph('Key Words: template; system')
+    en = doc.add_paragraph()
+    en.add_run('Key Words').bold = True
+    en.add_run(': template; system')
     doc.add_heading('第1章 绪论', 1)
     doc.add_paragraph('正文示例，需要用于提取正文格式。' * 8)
     source = tmp_path / 'keyword-master.docx'
@@ -108,14 +113,14 @@ def keyword_master(tmp_path):
     return source, template, project, base, labels, draft
 
 
-def test_confirmed_keyword_labels_are_rendered_and_independently_checked(keyword_master, tmp_path):
+def test_confirmed_keyword_labels_are_rendered_and_decoration_deviations_are_rejected(keyword_master, tmp_path):
     source, template, project, _, labels, _ = keyword_master
     data = rendered((source, template, project, None), tmp_path)
     report = inspect((source, template, project, None), data)
     assert report['status'] == 'pass', [(c['rule'], c['object'], c['actual']) for c in report['checks'] if c['status'] != 'pass']
-    assert report['inspector_version'] == 'docx-output-check/6-master'
+    assert report['inspector_version'] == 'docx-output-check/10-master'
     assert verify_report_binding(report, data)
-    for old_version in ('docx-output-check/2', 'docx-output-check/4', 'docx-output-check/5-master'):
+    for old_version in ('docx-output-check/2', 'docx-output-check/4', 'docx-output-check/5-master', 'docx-output-check/6-master', 'docx-output-check/7-master', 'docx-output-check/8-master', 'docx-output-check/9-master'):
         old_report = {**report, 'inspector_version': old_version}
         assert not verify_report_binding(old_report, data)
     no_profile = dict(report)
@@ -127,8 +132,40 @@ def test_confirmed_keyword_labels_are_rendered_and_independently_checked(keyword
     assert 'Key words: Template Example' in text
     assert 'Key Words:' not in text
     assert '关键词：学生内容' in text
+    headings = {h['kind']: h for h in template.source_execution['headings']}
+    for kind in ('keywords', 'english_keywords'):
+        assert headings[kind]['properties'].get('font.bold', False) is False
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        resolver = EffectiveFormatResolver(load_part(archive, 'word/styles.xml'),
+            load_part(archive, 'word/theme/theme1.xml'), load_part(archive, 'word/settings.xml'))
+        for word in ('学生内容', 'Template Example'):
+            element = root.xpath('.//w:t[text()=$text]', namespaces=NS, text=word)[0]
+            paragraph = element.xpath('ancestor::w:p[1]', namespaces=NS)[0]
+            _, _, runs, _ = resolver.paragraph(paragraph, include_whitespace=True)
+            actual = next(run for run in runs if run['text'] == word)
+            assert actual['properties'].get('font.bold', False) is False
     assert {c['object'] for c in report['checks'] if c['rule'] == 'master.inline_label' and c['status'] == 'pass'} == set(labels)
     assert any(c['rule'] == 'master.inline_label_bold' and c['status'] == 'pass' for c in report['checks'])
+
+    def bold_content(root):
+        text = root.xpath('.//w:t[text()="学生内容"]', namespaces=NS)[0]
+        run = text.getparent()
+        rpr = run.find(qn('w:rPr'))
+        if rpr is None:
+            rpr = OxmlElement('w:rPr')
+            run.insert(0, rpr)
+        bold = rpr.find(qn('w:b'))
+        if bold is None:
+            bold = OxmlElement('w:b')
+            rpr.append(bold)
+        bold.set(qn('w:val'), '1')
+    altered = rewrite(data, 'word/document.xml', bold_content)
+    result = inspect((source, template, project, None), altered)
+    assert result['status'] == 'fail'
+    assert result['format_accuracy']['percentage'] > 90
+    assert any(c['rule'] == 'master.inline_decoration' and c['status'] == 'fail' for c in result['checks'])
+    with pytest.raises(DocxOutputCheckError):
+        require_output_check_report(result)
 
     def change_label(root):
         run = root.xpath('.//w:t[text()="Key words"]', namespaces=NS)[0]
@@ -145,6 +182,83 @@ def test_confirmed_keyword_labels_are_rendered_and_independently_checked(keyword
     result = inspect((source, template, project, None), altered)
     assert result['status'] == 'fail'
     assert any(c['rule'] == 'master.inline_label_bold' and c['status'] == 'fail' for c in result['checks'])
+
+
+def test_legacy_keyword_profile_with_label_bold_leak_is_rejected(keyword_master):
+    from app.services.source_template_profile import sign_profile
+    source, template, _, _, _, _ = keyword_master
+    legacy = template.model_copy(deep=True)
+    profile = copy.deepcopy(legacy.source_execution)
+    profile.pop('inline_content_format_version', None)
+    next(h for h in profile['headings'] if h['kind'] == 'keywords')['properties']['font.bold'] = True
+    legacy.source_execution = sign_profile(profile)
+    with pytest.raises(ProfileError, match='关键词内容格式.*适配'):
+        verify_profile(legacy, source.read_bytes())
+
+
+def test_legacy_keyword_profile_without_bold_leak_still_verifies(keyword_master):
+    from app.services.source_template_profile import sign_profile
+    source, template, _, _, _, _ = keyword_master
+    legacy = template.model_copy(deep=True)
+    profile = copy.deepcopy(legacy.source_execution)
+    profile.pop('inline_content_format_version', None)
+    legacy.source_execution = sign_profile(profile)
+    assert verify_profile(legacy, source.read_bytes())['profile_sha256'] == legacy.source_execution['profile_sha256']
+
+
+def test_legacy_explicit_keyword_content_bold_override_is_preserved(keyword_master):
+    from app.services.source_template_profile import sign_profile
+    source, _, _, base, labels, draft = keyword_master
+    spec = extract_writing_specification(source)
+    rule = next(r for r in spec.rules if r.scope.get('role') == 'keywords' and r.property == 'font.bold')
+    template = compile_profile(draft, source, ConfirmWritingProfile(**base, inline_label_overrides=labels,
+        overrides={rule.id: True}), actor='teacher-test')
+    profile = copy.deepcopy(template.source_execution)
+    profile.pop('inline_content_format_version', None)
+    template.source_execution = sign_profile(profile)
+    assert verify_profile(template, source.read_bytes())['profile_sha256'] == template.source_execution['profile_sha256']
+
+
+def test_legacy_other_keyword_override_does_not_hide_bold_leak(keyword_master):
+    from app.services.source_template_profile import sign_profile
+    source, template, _, _, _, _ = keyword_master
+    legacy = template.model_copy(deep=True)
+    profile = copy.deepcopy(legacy.source_execution)
+    profile.pop('inline_content_format_version', None)
+    rule = next(r for r in legacy.writing_specification.rules
+                if r.scope.get('role') == 'english_keywords' and r.property == 'font.bold')
+    profile['overrides'][rule.id] = True
+    next(h for h in profile['headings'] if h['kind'] == 'keywords')['properties']['font.bold'] = True
+    legacy.source_execution = sign_profile(profile)
+    with pytest.raises(ProfileError, match='关键词内容格式.*适配'):
+        verify_profile(legacy, source.read_bytes())
+
+
+def test_legacy_bold_override_requires_intact_source_specification(keyword_master):
+    from app.services.source_template_profile import sign_profile
+    source, _, _, base, labels, draft = keyword_master
+    spec = extract_writing_specification(source)
+    rule = next(r for r in spec.rules if r.scope.get('role') == 'keywords' and r.property == 'font.bold')
+    template = compile_profile(draft, source, ConfirmWritingProfile(**base, inline_label_overrides=labels,
+        overrides={rule.id: True}), actor='teacher-test')
+    profile = copy.deepcopy(template.source_execution)
+    profile.pop('inline_content_format_version', None)
+    template.source_execution = sign_profile(profile)
+    template.writing_specification.rules[0].property = 'tampered'
+    with pytest.raises(ProfileError, match='关键词内容格式.*适配'):
+        verify_profile(template, source.read_bytes())
+
+
+def test_explicit_keyword_content_bold_override_is_preserved(keyword_master, tmp_path):
+    source, _, project, base, labels, draft = keyword_master
+    spec = extract_writing_specification(source)
+    rule = next(r for r in spec.rules if r.scope.get('role') == 'keywords' and r.property == 'font.bold')
+    template = compile_profile(draft, source, ConfirmWritingProfile(**base, inline_label_overrides=labels,
+        overrides={rule.id: True}), actor='teacher-test')
+    heading = next(h for h in template.source_execution['headings'] if h['kind'] == 'keywords')
+    assert heading['properties']['font.bold'] is True
+    data = rendered((source, template, project, None), tmp_path)
+    assert inspect((source, template, project, None), data)['status'] == 'pass'
 
 
 @pytest.mark.parametrize('labels', [
@@ -285,7 +399,10 @@ def _complete_layout_review_case():
     checks = [{'rule': 'master.layout_receipt', 'status': 'pass'},
               {'rule': 'master.heading_pagination', 'status': 'pass'}]
     report = {'checks': checks, 'check_count': 2, 'passed_count': 2,
-              'status': 'pass', 'unsupported': []}
+              'status': 'pass', 'unsupported': [],
+              'source_profile_sha256': 'a' * 64, 'output_sha256': 'b' * 64}
+    from app.services.output_acceptance import apply_1101_acceptance_contract
+    apply_1101_acceptance_contract(report)
     return report, receipt
 
 
@@ -341,6 +458,16 @@ def test_master_review_gate_retains_unverified_or_failed_evidence(damage):
     assert review_required(report)
     assert report['manual_checks']
     assert 'visual_evidence_limitations' not in report
+    if damage == 'incomplete_layout':
+        from app.services.output_acceptance import apply_1101_acceptance_contract, output_report_is_acceptable
+
+        report['source_profile_sha256'] = 'a' * 64
+        report['passed_count'] = len(report['checks'])
+        apply_1101_acceptance_contract(report)
+        assert report['format_accuracy']['percentage'] > 90
+        assert report['acceptance_status'] == 'fail'
+        assert any(item.startswith('布局证据不完整:') for item in report['hard_blockers'])
+        assert not output_report_is_acceptable(report)
 
 
 def test_normal_and_long_content_keep_master_and_have_bound_reports(master,tmp_path):
@@ -418,6 +545,7 @@ def test_body_page_number_preserves_front_matter_and_fills_last_section(tmp_path
     assert after.sections[1].footer._element.xml == before.sections[1].footer._element.xml
     assert all(section.footer.part.partname == '/word/footerPGBody.xml' for section in after.sections[2:])
     assert after.sections[-1].footer._element.xpath('.//w:fldSimple/@w:instr') == [' PAGE ']
+    assert after.sections[-1].footer._element.xpath('.//w:fldSimple/@w:dirty') == ['false']
     assert after.sections[-1].footer._element.xpath('.//w:rFonts/@w:ascii') == ['Times New Roman']
     assert after.sections[-1].footer._element.xpath('.//w:sz/@w:val') == ['18']
 
@@ -426,6 +554,69 @@ def test_body_page_number_preserves_front_matter_and_fills_last_section(tmp_path
     invalid = inspect_docx_output(tampered, project, published, source_template_bytes=source.read_bytes())
     assert invalid['status'] == 'fail'
     assert next(c for c in invalid['checks'] if c['rule'] == 'master.body_page_footer')['status'] == 'fail'
+
+
+def test_body_page_number_preserves_legacy_signed_footer(tmp_path):
+    from app.services.page_number_policy import footer_bytes
+    from app.services.source_template_profile import sign_profile
+
+    source, template, request = _body_page_master(tmp_path)
+    published = compile_profile(template, source, request, actor='teacher-test')
+    legacy = copy.deepcopy(published.source_execution)
+    policy = legacy['body_page_number_policy']
+    policy['footer_sha256'] = hashlib.sha256(footer_bytes(policy['settings'], dirty=True)).hexdigest()
+    published.source_execution = sign_profile(legacy)
+    project = WritingProject(id='legacy-page-project', template_id=template.id,
+        sections=[ProjectSection(key=n.key, type=n.type, title=n.title,
+            paragraphs=[ParagraphBlock(id=n.key+'-p', text='学生正文。')])
+            for n in flatten(published.sections) if n.type.value not in {'cover', 'toc'}])
+    output = tmp_path / 'legacy-page-output.docx'
+    export_project_to_docx(project, published, str(output), template_path=str(source))
+    data = output.read_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        footer = archive.read('word/footerPGBody.xml')
+    assert hashlib.sha256(footer).hexdigest() != policy['footer_sha256']
+    assert etree.fromstring(footer).xpath('.//w:fldSimple/@w:dirty', namespaces=NS) == ['false']
+    report = inspect_docx_output(data, project, published, source_template_bytes=source.read_bytes())
+    assert report['status'] == 'pass'
+    footer_check = next(c for c in report['checks'] if c['rule'] == 'master.body_page_footer')
+    assert footer_check['actual'] == {
+        'profile_footer_sha256': policy['footer_sha256'],
+        'output_footer_sha256': hashlib.sha256(footer).hexdigest(),
+        'compatibility': 'legacy-dirty-to-clean/1',
+    }
+
+    # Existing artifacts carrying the exact legacy footer remain recheckable.
+    historical_buffer = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as src, zipfile.ZipFile(historical_buffer, 'w') as dst:
+        for entry in src.infolist():
+            payload = footer_bytes(policy['settings'], dirty=True) if entry.filename == 'word/footerPGBody.xml' else src.read(entry.filename)
+            dst.writestr(entry, payload)
+    historical = historical_buffer.getvalue()
+    with zipfile.ZipFile(io.BytesIO(historical)) as archive:
+        historical_footer = archive.read('word/footerPGBody.xml')
+    assert hashlib.sha256(historical_footer).hexdigest() == policy['footer_sha256']
+    historical_report = inspect_docx_output(historical, project, published, source_template_bytes=source.read_bytes())
+    assert historical_report['status'] == 'pass'
+    assert next(c for c in historical_report['checks'] if c['rule'] == 'master.body_page_footer')['actual']['compatibility'] == 'exact'
+
+    # The historical digest is authorized only by a legacy signed profile.
+    current = compile_profile(template, source, request, actor='teacher-test')
+    mismatched = inspect_docx_output(historical, project, current, source_template_bytes=source.read_bytes())
+    mismatched_footer = next(c for c in mismatched['checks'] if c['rule'] == 'master.body_page_footer')
+    assert mismatched_footer['status'] == 'fail'
+    assert mismatched_footer['actual']['compatibility'] == 'invalid'
+
+    # Even a valid signature cannot authorize an unknown footer digest.
+    invalid_profile = copy.deepcopy(current.source_execution)
+    invalid_profile['body_page_number_policy']['footer_sha256'] = '0' * 64
+    current.source_execution = sign_profile(invalid_profile)
+    invalid = inspect_docx_output(data, project, current, source_template_bytes=source.read_bytes())
+    invalid_footer = next(c for c in invalid['checks'] if c['rule'] == 'master.body_page_footer')
+    assert invalid_footer['status'] == 'fail'
+    assert invalid_footer['actual']['compatibility'] == 'invalid'
+    with pytest.raises(ProfileError, match='正文页码配置与已确认规则不一致'):
+        export_project_to_docx(project, current, str(tmp_path / 'rejected.docx'), template_path=str(source))
 
 
 def test_body_page_number_refuses_to_replace_other_footer_content(tmp_path):
@@ -518,7 +709,157 @@ def test_multiple_cover_fields_cannot_share_the_same_value_cell(tmp_path):
         compile_profile(template, source, request, actor='teacher-test')
 
 
-@pytest.mark.parametrize('mutation',['text','font','section','header','field','duplicate','relationship','configuration','visible-control'])
+@pytest.mark.parametrize(('property_name', 'confirmed', 'xml_attribute', 'corrupt'), [
+    ('paragraph.spacing.after', {'value': 25.0, 'unit': 'pt'}, 'after', '0'),
+    ('paragraph.spacing.line', {'value': 1.5, 'unit': 'multiple', 'kind': 'auto'}, 'line', '240'),
+    ('paragraph.align', 'center', 'val', 'right'),
+])
+def test_confirmed_cover_paragraph_rule_is_rendered_and_checked(tmp_path, property_name, confirmed, xml_attribute, corrupt):
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    document = Document()
+    table = document.add_table(rows=2, cols=2)
+    for row, (label, value) in zip(table.rows, [('题目：', '模板题目'), ('学生姓名：', '模板学生')]):
+        row.cells[0].text, row.cells[1].text = label, value
+        for cell in row.cells:
+            paragraph = cell.paragraphs[0]
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            paragraph.paragraph_format.space_after = Pt(10)
+            paragraph.paragraph_format.line_spacing = 1.15
+    document.add_heading('第1章 绪论', 1)
+    document.add_paragraph('这是具有足够长度的正文示例。' * 8)
+    source = tmp_path / 'cover-paragraph-master.docx'
+    document.save(source)
+    specification = extract_writing_specification(source)
+    rule = next(item for item in specification.rules
+                if item.scope.get('role') == 'table_text' and item.property == property_name)
+    draft = PaperTemplate(id='cover-paragraph', name='封面段落', source_docx=source.name,
+        sections=extract_section_tree(source), styles=import_template_styles(source)['styles'],
+        meta_fields=[MetaField(key='title', label='题目'), MetaField(key='author', label='姓名')])
+    request = ConfirmWritingProfile(expected_specification_sha256=specification.specification_sha256,
+        accept_recommended=True, remove_template_instructions=True, accept_new_object_defaults=True,
+        overrides={rule.id: confirmed})
+    template = compile_profile(draft, source, request, actor='teacher-test')
+    project = WritingProject(id='cover-paragraph-project', template_id=draft.id,
+        meta={'title': '学生题目', 'author': '学生姓名'},
+        sections=[ProjectSection(key=node.key, type=node.type, title=node.title,
+            paragraphs=[ParagraphBlock(id=node.key + '-p', text='学生正文。')])
+            for node in flatten(template.sections) if node.type.value not in {'cover', 'toc'}])
+    output = tmp_path / 'cover-paragraph-output.docx'
+    export_project_to_docx(project, template, str(output), template_path=str(source))
+    data = output.read_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        root = load_part(archive, 'word/document.xml')
+        styles = load_part(archive, 'word/styles.xml')
+        paragraph = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-field:author"]/ancestor::w:p[1]', namespaces=NS)[0]
+        resolver = EffectiveFormatResolver(styles)
+        actual = resolver.paragraph(paragraph)[0].get(property_name)
+        cover_cells = root.xpath('.//w:tbl[1]/w:tr/w:tc/w:p', namespaces=NS)
+        assert len(cover_cells) == 4
+        assert all(resolver.paragraph(item)[0].get(property_name) == confirmed for item in cover_cells)
+    assert actual == confirmed
+    report = inspect_docx_output(data, project, template, source_template_bytes=source.read_bytes())
+    assert report['status'] == 'pass'
+
+    def damage(root):
+        paragraph = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-field:author"]/ancestor::w:p[1]', namespaces=NS)[0]
+        ppr = paragraph.find(qn('w:pPr'))
+        node = ppr.find(qn('w:jc' if property_name == 'paragraph.align' else 'w:spacing'))
+        node.set(qn('w:' + xml_attribute), corrupt)
+
+    report = inspect_docx_output(rewrite(data, 'word/document.xml', damage), project, template,
+                                 source_template_bytes=source.read_bytes())
+    assert report['status'] == 'fail'
+    assert any(item['rule'] == 'master.effective_format' and item['object'] == 'author'
+               and item['status'] == 'fail' for item in report['checks'])
+
+
+def test_legacy_cover_override_is_recovered_without_rewriting_signed_profile(master, tmp_path, monkeypatch):
+    import app.services.master_docx_renderer as renderer
+    from app.services.source_template_profile import commentless_source, freeze_protected_structure, sign_profile
+
+    source, draft, project, request = master
+    specification = extract_writing_specification(source)
+    rule = next(item for item in specification.rules if item.scope.get('role') == 'table_text'
+                and item.property == 'paragraph.spacing.line')
+    confirmed = {'value': 2.0, 'unit': 'multiple', 'kind': 'auto'}
+    request = request.model_copy(update={'overrides': {rule.id: confirmed}})
+    template = compile_profile(draft, source, request, actor='teacher-test')
+    old = copy.deepcopy(template.source_execution)
+    old.pop('cover_table_overrides')
+    with zipfile.ZipFile(io.BytesIO(commentless_source(source.read_bytes()))) as archive:
+        root = load_part(archive, 'word/document.xml')
+    old['protected_document_sha256'] = freeze_protected_structure(root, copy.deepcopy(old))
+    template.source_execution = sign_profile(old)
+    signed = copy.deepcopy(template.source_execution)
+
+    derived = verify_profile(template, source.read_bytes())
+    assert template.source_execution == signed
+    assert derived['signature'] == signed['signature']
+    assert derived['cover_table_overrides']
+    output = tmp_path / 'legacy-cover.docx'
+    export_project_to_docx(project, template, str(output), template_path=str(source))
+    report = inspect_docx_output(output.read_bytes(), project, template, source_template_bytes=source.read_bytes())
+    assert report['status'] == 'pass'
+    with zipfile.ZipFile(output) as archive:
+        document = load_part(archive, 'word/document.xml')
+        resolver = EffectiveFormatResolver(load_part(archive, 'word/styles.xml'))
+        cells = document.xpath('.//w:tbl[1]/w:tr/w:tc/w:p', namespaces=NS)
+        assert len(cells) == 4
+        assert all(resolver.paragraph(paragraph)[0].get('paragraph.spacing.line') == confirmed for paragraph in cells)
+
+    # A historical output that ignored the confirmed override cannot pass the
+    # current check, even though it was produced from a valid old signature.
+    historical = tmp_path / 'legacy-cover-historical.docx'
+    with monkeypatch.context() as context:
+        context.setattr(renderer, 'verify_profile', lambda *_: signed)
+        export_project_to_docx(project, template, str(historical), template_path=str(source))
+    report = inspect_docx_output(historical.read_bytes(), project, template, source_template_bytes=source.read_bytes())
+    assert report['status'] == 'fail'
+    assert any(item['rule'] == 'master.fixed_body_and_sections' and item['status'] == 'fail' for item in report['checks'])
+
+    invalid = template.model_copy(deep=True)
+    invalid.writing_specification.rules[0].expected = 'tampered'
+    with pytest.raises(ProfileError, match='旧模板格式覆盖缺少可验证的源规范'):
+        verify_profile(invalid, source.read_bytes())
+
+
+def test_manuscript_template_inherits_confirmed_cover_table_override(master, tmp_path):
+    from app.services.docx_project_import import import_docx_project
+    from app.services.manuscript_template import derive_manuscript_template
+
+    source, draft, project, request = master
+    specification = extract_writing_specification(source)
+    rule = next(item for item in specification.rules if item.scope.get('role') == 'table_text'
+                and item.property == 'paragraph.spacing.line')
+    confirmed = {'value': 2.0, 'unit': 'multiple', 'kind': 'auto'}
+    request = request.model_copy(update={'overrides': {rule.id: confirmed}, 'preserve_manuscript_structure': True})
+    parent = compile_profile(draft, source, request, actor='teacher-test')
+    manuscript = Document()
+    manuscript.add_heading('第1章 自定义章节', 1)
+    manuscript.add_paragraph('论文原有正文。')
+    raw = io.BytesIO()
+    manuscript.save(raw)
+    derived, payload = derive_manuscript_template(parent, source, import_docx_project(raw.getvalue()), actor='student-test')
+    assert derived.source_execution['cover_table_overrides'] == parent.source_execution['cover_table_overrides']
+    new_source = tmp_path / 'derived-cover-master.docx'
+    new_source.write_bytes(payload)
+    new_project = project.model_copy(update={'template_id': derived.id, 'sections': [
+        ProjectSection(key=node.key, type=node.type, title=node.title,
+            paragraphs=[ParagraphBlock(id=node.key + '-p', text='学生正文。')])
+        for node in flatten(derived.sections) if node.type.value not in {'cover', 'toc'}]})
+    output = tmp_path / 'derived-cover-output.docx'
+    export_project_to_docx(new_project, derived, str(output), template_path=str(new_source))
+    report = inspect_docx_output(output.read_bytes(), new_project, derived, source_template_bytes=payload)
+    assert report['status'] == 'pass', [(item['rule'], item['object']) for item in report['checks'] if item['status'] != 'pass']
+    with zipfile.ZipFile(output) as archive:
+        root = load_part(archive, 'word/document.xml')
+        resolver = EffectiveFormatResolver(load_part(archive, 'word/styles.xml'))
+        cells = root.xpath('.//w:tbl[1]/w:tr/w:tc/w:p', namespaces=NS)
+        assert all(resolver.paragraph(paragraph)[0].get('paragraph.spacing.line') == confirmed for paragraph in cells)
+
+
+@pytest.mark.parametrize('mutation',['text','section','header','field','duplicate','relationship','configuration','visible-control'])
 def test_corrupted_outputs_cannot_pass(master,tmp_path,mutation):
     data=rendered(master,tmp_path)
     def alter(root):
@@ -549,6 +890,46 @@ def test_corrupted_outputs_cannot_pass(master,tmp_path,mutation):
     report=inspect(master,rewrite(data,part,alter))
     assert report['status']=='fail'
     with pytest.raises(Exception):require_output_check_report(report)
+
+
+def test_single_ordinary_font_difference_is_a_hard_block(master, tmp_path):
+    data = rendered(master, tmp_path)
+
+    def alter(root):
+        root.xpath('.//w:sdt[starts-with(w:sdtPr/w:tag/@w:val,"pg-block:")]//w:sz', namespaces=NS)[0].set(qn('w:val'), '40')
+
+    report = inspect(master, rewrite(data, 'word/document.xml', alter))
+    assert report['status'] == 'fail'
+    assert report['format_accuracy']['percentage'] > 90
+    failed = next(item for item in report['checks']
+                  if item['rule'] == 'master.effective_format' and item['status'] == 'fail')
+    assert failed['classification'] == 'hard_block'
+    with pytest.raises(DocxOutputCheckError):
+        require_output_check_report(report)
+
+
+def test_white_text_on_white_page_cannot_be_averaged_away(master, tmp_path):
+    data = rendered(master, tmp_path)
+
+    def hide_text(root):
+        run = root.xpath(
+            './/w:sdt[starts-with(w:sdtPr/w:tag/@w:val,"pg-block:")]'
+            '/w:sdtContent//w:r[w:t][normalize-space(w:t)]',
+            namespaces=NS,
+        )[0]
+        properties = run.find(qn('w:rPr'))
+        if properties is None:
+            properties = etree.SubElement(run, qn('w:rPr'))
+        color = etree.SubElement(properties, qn('w:color'))
+        color.set(qn('w:val'), 'FFFFFF')
+
+    report = inspect(master, rewrite(data, 'word/document.xml', hide_text))
+
+    assert report['format_accuracy']['percentage'] > 90
+    assert report['acceptance_status'] == 'fail'
+    assert any(item['rule'] == 'master.text_color_visibility' and item['status'] == 'fail'
+               for item in report['checks'])
+    assert any(item.startswith('master.text_color_visibility:') for item in report['hard_blockers'])
 
 
 def test_profile_and_source_changes_require_new_confirmation(master):
@@ -1024,7 +1405,11 @@ def test_master_table_repeat_header_requires_one_enabled_first_row(
     assert checks[0]["status"] == expected
     if expected == "pass":
         assert report["status"] == "pass"
+        assert require_output_check_report(report) is report
     else:
+        assert report["status"] == "fail"
+        assert report["format_accuracy"]["percentage"] > 90
+        assert checks[0]["classification"] == "hard_block"
         with pytest.raises(DocxOutputCheckError):
             require_output_check_report(report)
 
@@ -1152,10 +1537,14 @@ def test_master_table_checks_conditional_height_in_default_style(master, tmp_pat
     checks = [item for item in report["checks"]
               if item["rule"] == "master.table_style_row_height" and item["object"] == "style-height-table"]
     assert len(checks) == 1 and checks[0]["status"] == expected
-    assert report["status"] == expected
     if expected == "fail":
+        assert report["status"] == "fail"
+        assert report["acceptance_status"] == "fail"
+        assert any("master.table_style_row_height" in item for item in report["hard_blockers"])
         with pytest.raises(DocxOutputCheckError):
             require_output_check_report(report)
+    else:
+        assert report["status"] == "pass"
 
 
 @pytest.mark.parametrize(("case", "expected"), [
@@ -1670,7 +2059,8 @@ def test_master_rich_text_and_decoration_tampering_are_checked(master, tmp_path)
     damaged = rewrite(data, 'word/document.xml', remove_subscript)
     damaged_report = inspect(master, damaged)
     assert damaged_report['status'] == 'fail'
-    assert any(c['rule'] == 'master.inline_decoration' and c['status'] == 'fail' for c in damaged_report['checks'])
+    assert any(c['rule'] == 'master.inline_vertical_alignment' and c['status'] == 'fail'
+               for c in damaged_report['checks'])
 
 
 def test_master_rejects_inline_text_that_differs_from_saved_paragraph(master, tmp_path):
@@ -1682,10 +2072,14 @@ def test_master_rejects_inline_text_that_differs_from_saved_paragraph(master, tm
         rendered(master, tmp_path)
 
 
-@pytest.mark.parametrize(('run_index', 'property_name'), [
-    (1, 'vertAlign'), (1, 'u'), (4, 'b'), (4, 'highlight'), (6, 'i'),
+@pytest.mark.parametrize(('run_index', 'property_name', 'rule'), [
+    (1, 'vertAlign', 'master.inline_vertical_alignment'),
+    (1, 'u', 'master.inline_decoration'),
+    (4, 'b', 'master.inline_decoration'),
+    (4, 'highlight', 'master.inline_decoration'),
+    (6, 'i', 'master.inline_decoration'),
 ])
-def test_master_checks_each_rich_text_decoration(master, tmp_path, run_index, property_name):
+def test_master_checks_each_rich_text_decoration(master, tmp_path, run_index, property_name, rule):
     _, _, project, _ = master
     project.sections[-1].paragraphs = [ParagraphBlock(
         id='decorations', text='H2O x2 颜色', inline_runs=[
@@ -1703,7 +2097,12 @@ def test_master_checks_each_rich_text_decoration(master, tmp_path, run_index, pr
         rpr.remove(rpr.find(qn('w:' + property_name)))
 
     report = inspect(master, rewrite(data, 'word/document.xml', remove_property))
-    assert any(c['rule'] == 'master.inline_decoration' and c['status'] == 'fail' for c in report['checks'])
+    assert any(c['rule'] == rule and c['status'] == 'fail' for c in report['checks'])
+    if property_name == 'vertAlign':
+        assert report['status'] == 'fail'
+        assert any(rule in item for item in report['hard_blockers'])
+        with pytest.raises(DocxOutputCheckError):
+            require_output_check_report(report)
 
 
 def test_master_checks_whitespace_and_accepts_split_runs(master, tmp_path):
@@ -2155,7 +2554,24 @@ def test_manual_review_api_binds_candidate_snapshot_source_and_permissions(maste
         download = base + '/artifact'
         artifact = get_document_artifact(store, record.get('artifact_id', ''))
         report = artifact.output_check if artifact else {}
-    assert record['status'] == 'succeeded', record
+    assert record['status'] == 'succeeded', (
+        record.get('error_code'), record.get('last_error'), record.get('output_check_diagnostic'),
+    )
+    # Historical master reports retain their original version; download and
+    # review boundaries must still run the current master inspector.
+    report_kind = 'document_artifact' if artifact else record_kind
+    report_id = artifact.id if artifact else record['id']
+    stored_report = store.get_workflow_record(report_kind, report_id)
+    assert stored_report['output_check']['inspector_version'] == 'docx-output-check/10-master'
+    stored_report['output_check']['inspector_version'] = 'docx-output-check/7-master'
+    stored_report = store.save_workflow_record(report_kind, stored_report, expected_revision=stored_report['revision'])
+    report = stored_report['output_check']
+    # An unsupported historical inspector cannot authorize any delivery path.
+    for endpoint in [download, base + '/review-candidate']:
+        assert client.get(endpoint, headers=headers).status_code == 409
+    stored_report['output_check']['inspector_version'] = 'docx-output-check/9-master'
+    stored_report = store.save_workflow_record(report_kind, stored_report, expected_revision=stored_report['revision'])
+    report = stored_report['output_check']
     review = client.get(base, headers=headers).json()['manual_review']
     assert review['status'] == 'required'
     assert client.get(download, headers=headers).status_code == 409
@@ -2445,3 +2861,571 @@ def test_master_output_rejects_heading_line_spacing_changed_from_source(master, 
     assert report['status'] == 'fail'
     assert any(check['rule'] == 'master.fixed_body_and_sections' and check['status'] == 'fail'
                for check in report['checks'])
+
+
+def _numbered_heading_master(tmp_path):
+    doc = Document()
+    doc.styles['Normal'].font.size = Pt(12)
+    numbering = doc.part.numbering_part.element
+    abstract_id = max([int(n.get(qn('w:abstractNumId'))) for n in numbering.findall(qn('w:abstractNum'))] + [-1]) + 1
+    num_id = max([int(n.get(qn('w:numId'))) for n in numbering.findall(qn('w:num'))] + [0]) + 1
+    abstract = OxmlElement('w:abstractNum')
+    abstract.set(qn('w:abstractNumId'), str(abstract_id))
+    for level, pattern in enumerate(('%1', '%1.%2')):
+        definition = OxmlElement('w:lvl')
+        definition.set(qn('w:ilvl'), str(level))
+        for tag, value in [('start', '1'), ('numFmt', 'decimal'), ('lvlText', pattern)]:
+            child = OxmlElement('w:' + tag)
+            child.set(qn('w:val'), value)
+            definition.append(child)
+        abstract.append(definition)
+    numbering.append(abstract)
+    num = OxmlElement('w:num')
+    num.set(qn('w:numId'), str(num_id))
+    abstract_ref = OxmlElement('w:abstractNumId')
+    abstract_ref.set(qn('w:val'), str(abstract_id))
+    num.append(abstract_ref)
+    numbering.append(num)
+    doc.add_heading('第1章 绪论', 1)
+    doc.add_paragraph('这是足够长的正文样本，用于描述论文内容和记录测试文本。' * 6)
+    for title in ('研究内容', '研究内容'):
+        paragraph = doc.add_heading(title, 2)
+        num_pr = paragraph._p.get_or_add_pPr().get_or_add_numPr()
+        num_pr.get_or_add_ilvl().set(qn('w:val'), '1')
+        num_pr.get_or_add_numId().set(qn('w:val'), str(num_id))
+        doc.add_paragraph('标题下正文内容。' * 10)
+    doc.add_heading('1.3 手工标题', 2)
+    source = tmp_path / 'auto-numbered-heading.docx'
+    doc.save(source)
+    spec = extract_writing_specification(source)
+    template = PaperTemplate(id='numbered-master', name='编号母版', source_docx=source.name,
+        sections=extract_section_tree(source), styles=import_template_styles(source)['styles'])
+    repeated = [s for s in flatten(template.sections) if s.title == '研究内容']
+    assert len(repeated) == 2
+    repeated[0].title = '1.1 研究内容'
+    repeated[1].title = '1.2 研究内容'
+    request = ConfirmWritingProfile(expected_specification_sha256=spec.specification_sha256,
+        accept_recommended=True, remove_template_instructions=True, accept_new_object_defaults=True)
+    return source, template, request
+
+
+def test_profile_maps_visible_automatic_numbered_headings_in_order(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    published = compile_profile(template, source, request, actor='teacher-test')
+    headings = [h for h in published.source_execution['headings'] if h['kind'] == 'heading2']
+    assert [h['title'] for h in headings] == ['1.1 研究内容', '1.2 研究内容', '1.3 手工标题']
+    assert [h['index'] for h in headings] == sorted({h['index'] for h in headings})
+
+
+
+def test_profile_keeps_all_automatically_numbered_headings_with_raw_titles(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    for section in flatten(template.sections):
+        if section.title in {'1.1 研究内容', '1.2 研究内容'}:
+            section.title = '研究内容'
+    published = compile_profile(template, source, request, actor='teacher-test')
+    assert [h['title'] for h in published.source_execution['headings'] if h['kind'] == 'heading2'] == [
+        '研究内容', '研究内容', '1.3 手工标题']
+
+
+def test_profile_rejects_raw_title_if_a_previous_numbered_heading_is_removed(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    doc = Document(source)
+    next(p for p in doc.paragraphs if p.text == '研究内容').text = '已删除的小节'
+    doc.save(source)
+    for section in flatten(template.sections):
+        section.children = [child for child in section.children if child.title != '1.1 研究内容']
+    next(s for s in flatten(template.sections) if s.title == '1.2 研究内容').title = '研究内容'
+    request.expected_specification_sha256 = extract_writing_specification(source).specification_sha256
+    with pytest.raises(ProfileError, match='自动编号还用于未保留的段落'):
+        compile_profile(template, source, request, actor='teacher-test')
+
+
+def test_profile_rejects_raw_title_with_unverifiable_automatic_numbering(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    for section in flatten(template.sections):
+        if section.title in {'1.1 研究内容', '1.2 研究内容'}:
+            section.title = '研究内容'
+    doc = Document(source)
+    number_id = next(p for p in doc.paragraphs if p.text == '研究内容')._p.pPr.numPr.numId.val
+    num = doc.part.numbering_part.element.xpath(f'./w:num[@w:numId="{number_id}"]')[0]
+    abstract_id = num.find(qn('w:abstractNumId')).get(qn('w:val'))
+    abstract = doc.part.numbering_part.element.xpath(f'./w:abstractNum[@w:abstractNumId="{abstract_id}"]')[0]
+    restart = OxmlElement('w:lvlRestart')
+    restart.set(qn('w:val'), '0')
+    abstract.findall(qn('w:lvl'))[1].append(restart)
+    doc.save(source)
+    request.expected_specification_sha256 = extract_writing_specification(source).specification_sha256
+    with pytest.raises(ProfileError, match='章节自动编号的完整计数无法验证'):
+        compile_profile(template, source, request, actor='teacher-test')
+
+
+def test_profile_does_not_guess_mismatched_automatic_number(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    next(s for s in flatten(template.sections) if s.title == '1.1 研究内容').title = '1.9 研究内容'
+    with pytest.raises(ProfileError, match='章节未能映射到母版：1.9'):
+        compile_profile(template, source, request, actor='teacher-test')
+
+
+def test_profile_rejects_automatic_numbering_when_used_by_removed_content(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    for section in flatten(template.sections):
+        section.children = [child for child in section.children if child.title != '1.2 研究内容']
+    with pytest.raises(ProfileError, match='自动编号还用于未保留的段落'):
+        compile_profile(template, source, request, actor='teacher-test')
+
+
+def test_profile_rejects_automatic_numbering_with_unsupported_restart(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    doc = Document(source)
+    number_id = next(p for p in doc.paragraphs if p.text == '研究内容')._p.pPr.numPr.numId.val
+    num = doc.part.numbering_part.element.xpath(f'./w:num[@w:numId="{number_id}"]')[0]
+    abstract_id = num.find(qn('w:abstractNumId')).get(qn('w:val'))
+    abstract = doc.part.numbering_part.element.xpath(f'./w:abstractNum[@w:abstractNumId="{abstract_id}"]')[0]
+    level = abstract.findall(qn('w:lvl'))[1]
+    restart = OxmlElement('w:lvlRestart')
+    restart.set(qn('w:val'), '0')
+    level.append(restart)
+    doc.save(source)
+    request.expected_specification_sha256 = extract_writing_specification(source).specification_sha256
+    with pytest.raises(ProfileError, match='章节未能映射到母版：1.1'):
+        compile_profile(template, source, request, actor='teacher-test')
+
+
+def test_numbered_heading_output_keeps_word_counter_and_passes_independent_check(tmp_path):
+    from app.services.docx_project_import import _HeadingNumbering
+
+    source, template, request = _numbered_heading_master(tmp_path)
+    published = compile_profile(template, source, request, actor='teacher-test')
+    project = WritingProject(id='numbered-project', template_id=published.id,
+        sections=[ProjectSection(key=n.key, type=n.type, title=n.title,
+            paragraphs=[ParagraphBlock(id=n.key + '-p', text='学生正文')])
+            for n in flatten(published.sections) if n.type.value not in {'cover', 'toc'}])
+    output = tmp_path / 'numbered-output.docx'
+    export_project_to_docx(project, published, str(output), template_path=str(source))
+    report = inspect_docx_output(output.read_bytes(), project, published, source_template_bytes=source.read_bytes())
+    assert report['status'] == 'pass', [(c['rule'], c['object']) for c in report['checks'] if c['status'] != 'pass']
+    doc = Document(output)
+    numbering = _HeadingNumbering(doc)
+    actual = [numbering.text(p, p.text, True) for p in doc.paragraphs if p.text == '研究内容']
+    assert actual == ['1.1 研究内容', '1.2 研究内容']
+
+
+def test_profile_rejects_ambiguous_manual_and_automatic_heading(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    doc = Document(source)
+    next(p for p in doc.paragraphs if p.text == '研究内容').insert_paragraph_before('1.1 研究内容', style='Heading 2')
+    doc.save(source)
+    request.expected_specification_sha256 = extract_writing_specification(source).specification_sha256
+    with pytest.raises(ProfileError, match='自动编号章节存在多个匹配位置'):
+        compile_profile(template, source, request, actor='teacher-test')
+
+
+def test_profile_rejects_counter_with_inherited_numbering_usage(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    doc = Document(source)
+    numbered = [p for p in doc.paragraphs if p.text == '研究内容']
+    num_id = numbered[1]._p.pPr.numPr.numId.val
+    style_num = doc.styles['Heading 2'].element.get_or_add_pPr().get_or_add_numPr()
+    style_num.get_or_add_ilvl().set(qn('w:val'), '1')
+    style_num.get_or_add_numId().set(qn('w:val'), str(num_id))
+    numbered[1]._p.pPr.remove(numbered[1]._p.pPr.numPr)
+    doc.save(source)
+    request.expected_specification_sha256 = extract_writing_specification(source).specification_sha256
+    with pytest.raises(ProfileError, match='章节未能映射到母版：1.1'):
+        compile_profile(template, source, request, actor='teacher-test')
+
+
+def test_profile_maps_default_counter_restart_at_higher_level(tmp_path):
+    source, _, request = _numbered_heading_master(tmp_path)
+    doc = Document(source)
+    num_id = next(p for p in doc.paragraphs if p.text == '研究内容')._p.pPr.numPr.numId.val
+    for title, level in [('第二章', 1), ('研究内容', 2)]:
+        paragraph = doc.add_heading(title, level)
+        num_pr = paragraph._p.get_or_add_pPr().get_or_add_numPr()
+        num_pr.get_or_add_ilvl().set(qn('w:val'), str(level - 1))
+        num_pr.get_or_add_numId().set(qn('w:val'), str(num_id))
+    doc.save(source)
+    template = PaperTemplate(id='counter-restart', name='编号重置', source_docx=source.name,
+        sections=extract_section_tree(source), styles=import_template_styles(source)['styles'])
+    repeated = [s for s in flatten(template.sections) if s.title == '研究内容']
+    assert len(repeated) == 3
+    for section, title in zip(repeated, ('1.1 研究内容', '1.2 研究内容', '2.1 研究内容')):
+        section.title = title
+    next(s for s in flatten(template.sections) if s.title == '第二章').title = '2 第二章'
+    request.expected_specification_sha256 = extract_writing_specification(source).specification_sha256
+    published = compile_profile(template, source, request, actor='teacher-test')
+    titles = [h['title'] for h in published.source_execution['headings']]
+    assert titles[-2:] == ['2 第二章', '2.1 研究内容']
+
+
+def test_profile_repairs_legacy_third_level_structure_using_source_evidence(tmp_path):
+    doc = Document()
+    doc.styles['Normal'].font.size = Pt(12)
+    doc.styles['Heading 3'].font.size = Pt(14)
+    doc.add_heading('第4章 样例', 1)
+    doc.add_paragraph('用于提供足够的正文样式。' * 12)
+    doc.add_heading('4.1 已有二级标题', 2)
+    doc.add_heading('4.1.1 三级样例', 3)
+    doc.add_heading('第5章 系统实现', 1)
+    doc.add_heading('5.1 硬件实现', 2)
+    doc.add_heading('5.1.1 模块实现', 2)  # Source uses Heading 2; number indicates level 3.
+    doc.add_paragraph('用于测试学生内容。' * 12)
+    doc.add_heading('5.2 软件实现', 2)
+    doc.add_heading('5.2.1 系统显示', 2)
+    source = tmp_path / 'legacy-structure.docx'
+    doc.save(source)
+    template = PaperTemplate(id='legacy', name='旧章节树', source_docx=source.name,
+        sections=extract_section_tree(source), styles=import_template_styles(source)['styles'])
+    chapter = next(s for s in flatten(template.sections) if s.title == '第5章 系统实现')
+    for parent in list(chapter.children):
+        for child in list(parent.children):
+            parent.children.remove(child)
+            child.type = SectionType.HEADING2
+            chapter.children.insert(chapter.children.index(parent) + 1, child)
+    request = ConfirmWritingProfile(expected_specification_sha256=extract_writing_specification(source).specification_sha256,
+        accept_recommended=True, remove_template_instructions=True, accept_new_object_defaults=True)
+    published = compile_profile(template, source, request, actor='teacher-test')
+    chapter = next(s for s in flatten(published.sections) if s.title == '第5章 系统实现')
+    assert [(s.title, [child.title for child in s.children]) for s in chapter.children] == [
+        ('5.1 硬件实现', ['5.1.1 模块实现']), ('5.2 软件实现', ['5.2.1 系统显示'])]
+    assert [item['title'] for item in published.source_execution['heading_semantic_corrections']] == [
+        '5.1.1 模块实现', '5.2.1 系统显示']
+    assert all(child.type.value == 'heading3' for section in chapter.children for child in section.children)
+    project = WritingProject(id='corrected-project', template_id=published.id,
+        sections=[ProjectSection(key=n.key, type=n.type, title=n.title,
+            paragraphs=[ParagraphBlock(id=n.key + '-p', text='学生正文')])
+            for n in flatten(published.sections) if n.type.value not in {'cover', 'toc'}])
+    output = tmp_path / 'corrected-output.docx'
+    export_project_to_docx(project, published, str(output), template_path=str(source))
+    report = inspect_docx_output(output.read_bytes(), project, published, source_template_bytes=source.read_bytes())
+    assert report['status'] == 'pass', [(c['rule'], c['object']) for c in report['checks'] if c['status'] != 'pass']
+
+
+def test_profile_rejects_duplicate_visible_automatic_headings(tmp_path):
+    source, template, request = _numbered_heading_master(tmp_path)
+    doc = Document(source)
+    paragraphs = [p for p in doc.paragraphs if p.text == '研究内容']
+    original_id = paragraphs[0]._p.pPr.numPr.numId.val
+    numbering = doc.part.numbering_part.element
+    original = numbering.xpath(f'./w:num[@w:numId="{original_id}"]')[0]
+    new_id = max(int(n.get(qn('w:numId'))) for n in numbering.findall(qn('w:num'))) + 1
+    duplicate = copy.deepcopy(original)
+    duplicate.set(qn('w:numId'), str(new_id))
+    numbering.append(duplicate)
+    paragraphs[1]._p.pPr.numPr.numId.set(qn('w:val'), str(new_id))
+    doc.save(source)
+    request.expected_specification_sha256 = extract_writing_specification(source).specification_sha256
+    with pytest.raises(ProfileError, match='自动编号章节存在多个匹配位置'):
+        compile_profile(template, source, request, actor='teacher-test')
+
+
+def test_profile_does_not_reinterpret_an_explicit_third_level_style(tmp_path):
+    doc = Document()
+    doc.add_heading('第1章 绪论', 1)
+    doc.add_paragraph('正文格式来源示例。' * 20)
+    doc.add_heading('1.1 研究内容', 2)
+    doc.add_heading('1.1.1 方法', 3)
+    source = tmp_path / 'explicit-third-level.docx'
+    doc.save(source)
+    template = PaperTemplate(id='explicit-level', name='标题层级', source_docx=source.name,
+        sections=extract_section_tree(source), styles=import_template_styles(source)['styles'])
+    next(s for s in flatten(template.sections) if s.title == '1.1.1 方法').type = SectionType.HEADING2
+    request = ConfirmWritingProfile(expected_specification_sha256=extract_writing_specification(source).specification_sha256,
+        accept_recommended=True, remove_template_instructions=True, accept_new_object_defaults=True)
+    with pytest.raises(ProfileError, match='章节层级与 Word 母版不一致'):
+        compile_profile(template, source, request, actor='teacher-test')
+
+
+def test_zero_character_indent_clears_inherited_physical_first_line():
+    from app.services.master_docx_check import _paragraph_property_layers, _paragraph_property_matches
+    from app.services.master_docx_renderer import apply_properties
+
+    styles = OxmlElement('w:styles')
+    normal = OxmlElement('w:style')
+    normal.set(qn('w:type'), 'paragraph')
+    normal.set(qn('w:default'), '1')
+    normal.set(qn('w:styleId'), 'Normal')
+    inherited = OxmlElement('w:pPr')
+    inherited_indent = OxmlElement('w:ind')
+    inherited_indent.set(qn('w:firstLine'), '200')
+    inherited.append(inherited_indent)
+    normal.append(inherited)
+    styles.append(normal)
+    paragraph = OxmlElement('w:p')
+    wanted = {'value': 0, 'unit': 'character'}
+    apply_properties(paragraph, {'paragraph.indent.first_line': wanted})
+    indent = paragraph.find('./' + qn('w:pPr') + '/' + qn('w:ind'))
+    assert indent.get(qn('w:firstLineChars')) == '0'
+    assert indent.get(qn('w:firstLine')) == '0'
+    styles = etree.fromstring(etree.tostring(styles))
+    paragraph = etree.fromstring(etree.tostring(paragraph))
+    indent = paragraph.find('./' + qn('w:pPr') + '/' + qn('w:ind'))
+    inherited_indent = styles.find('./' + qn('w:style') + '/' + qn('w:pPr') + '/' + qn('w:ind'))
+    resolver = EffectiveFormatResolver(styles)
+
+    def matches():
+        properties, _, _, _ = resolver.paragraph(paragraph)
+        return _paragraph_property_matches('paragraph.indent.first_line', wanted,
+            properties.get('paragraph.indent.first_line'), properties,
+            {'paragraph.indent.first_line': wanted}, _paragraph_property_layers(resolver, paragraph))
+
+    assert matches()
+    del indent.attrib[qn('w:firstLine')]
+    assert not matches()
+    indent.set(qn('w:firstLine'), '0')
+    inherited_indent.set(qn('w:firstLine'), '300')
+    assert matches()
+
+
+def test_character_indent_baseline_applies_to_mixed_region_and_is_protected(master, tmp_path, monkeypatch):
+    from app.services import master_docx_check, master_docx_renderer
+
+    source, template, project, _ = master
+    profile = copy.deepcopy(template.source_execution)
+    heading = next(item for item in profile['headings'] if item['key'] == project.sections[-1].key)
+    heading['properties']['paragraph.indent.first_line'] = {'value': 2, 'unit': 'character'}
+    heading['properties']['font.size'] = {'value': 12, 'unit': 'pt'}
+    monkeypatch.setattr(master_docx_renderer, 'verify_profile', lambda *_: profile)
+    monkeypatch.setattr(master_docx_check, 'verify_profile', lambda *_: profile)
+    monkeypatch.setenv('PAPERGUARD_DATA_DIR', str(tmp_path / 'data'))
+    uploads = document_upload_dir()
+    uploads.mkdir(parents=True, exist_ok=True)
+    image = uploads / (project.id + '-mixed.png')
+    Image.new('RGB', (40, 20), 'blue').save(image)
+    project.sections[-1].paragraphs.extend([
+        ParagraphBlock(id='mixed-image', type='image', image=ImageBlock(url='/media/uploads/' + image.name, caption='示意图')),
+        ParagraphBlock(id='mixed-table', type='table', table=TableBlock(rows=1, cols=1, cells=[['数据']], caption='结果表')),
+        ParagraphBlock(id='mixed-blank', text=''),
+    ])
+    data = rendered(master, tmp_path)
+    report = inspect(master, data)
+    assert report['status'] == 'pass', [(c['rule'], c['object']) for c in report['checks'] if c['status'] != 'pass']
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        root = etree.fromstring(archive.read('word/document.xml'))
+        paragraphs = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val=$tag]//w:p', namespaces=NS,
+                                tag='pg-region:' + heading['key'])
+        assert len(paragraphs) >= 5
+        assert {p.find('./' + qn('w:pPr') + '/' + qn('w:pStyle')).get(qn('w:val')) for p in paragraphs} == {'PGIndentBase24'}
+
+    def change_base_size(styles):
+        style = styles.xpath('./w:style[@w:styleId="PGIndentBase24"]', namespaces=NS)[0]
+        style.find('./' + qn('w:rPr') + '/' + qn('w:sz')).set(qn('w:val'), '21')
+
+    corrupted = inspect(master, rewrite(data, 'word/styles.xml', change_base_size))
+    assert any(c['rule'] == 'master.indent_baseline_styles' and c['status'] == 'fail' for c in corrupted['checks'])
+
+    def change_paragraph_style(root):
+        paragraph = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-block:mixed-image"]//w:p', namespaces=NS)[0]
+        paragraph.find('./' + qn('w:pPr') + '/' + qn('w:pStyle')).set(qn('w:val'), 'Normal')
+
+    corrupted = inspect(master, rewrite(data, 'word/document.xml', change_paragraph_style))
+    assert any(c['rule'] == 'master.indent_baseline_styles' and c['status'] == 'fail' for c in corrupted['checks'])
+
+
+def test_legacy_character_indent_accepts_only_equivalent_default_style(master, tmp_path, monkeypatch):
+    from app.services import master_docx_check, master_docx_renderer
+
+    _, template, project, _ = master
+    profile = copy.deepcopy(template.source_execution)
+    heading = next(item for item in profile['headings'] if item['key'] == project.sections[-1].key)
+    heading['properties']['paragraph.indent.first_line'] = {'value': 2, 'unit': 'character'}
+    heading['properties']['font.size'] = {'value': 12, 'unit': 'pt'}
+    monkeypatch.setattr(master_docx_renderer, 'verify_profile', lambda *_: profile)
+    monkeypatch.setattr(master_docx_check, 'verify_profile', lambda *_: profile)
+    data = rendered(master, tmp_path)
+
+    def remove_generated_style(styles):
+        for style in styles.xpath('./w:style[@w:styleId="PGIndentBase24"]', namespaces=NS):
+            style.getparent().remove(style)
+
+    def restore_default_paragraphs(root):
+        for style in root.xpath('.//w:pStyle[@w:val="PGIndentBase24"]', namespaces=NS):
+            style.getparent().remove(style)
+
+    legacy = rewrite(rewrite(data, 'word/styles.xml', remove_generated_style),
+                     'word/document.xml', restore_default_paragraphs)
+    report = inspect(master, legacy)
+    assert report['status'] == 'pass', [(c['rule'], c['object']) for c in report['checks'] if c['status'] != 'pass']
+
+    def change_default_size(styles):
+        style = styles.xpath('./w:style[@w:styleId="Normal"]', namespaces=NS)[0]
+        style.find('./' + qn('w:rPr') + '/' + qn('w:sz')).set(qn('w:val'), '22')
+
+    bad_size = inspect(master, rewrite(legacy, 'word/styles.xml', change_default_size))
+    assert any(c['rule'] == 'master.indent_baseline_styles' and c['status'] == 'fail' for c in bad_size['checks'])
+
+    def change_paragraph_style(root):
+        paragraph = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val=$tag]//w:p', namespaces=NS,
+                               tag='pg-block:' + project.sections[-1].paragraphs[0].id)[0]
+        style = OxmlElement('w:pStyle'); style.set(qn('w:val'), 'Heading1')
+        paragraph.find(qn('w:pPr')).insert(0, style)
+
+    bad_style = inspect(master, rewrite(legacy, 'word/document.xml', change_paragraph_style))
+    assert any(c['rule'] == 'master.indent_baseline_styles' and c['status'] == 'fail' for c in bad_style['checks'])
+
+
+def test_master_checks_sequential_numbers_from_actual_reference_blocks(master, tmp_path):
+    from app.services.references import reconcile_reference_numbers
+
+    source, _, _, _ = master
+    doc = Document(source)
+    doc.add_heading('参考文献', 1)
+    doc.add_paragraph('参考文献示例。')
+    doc.save(source)
+    spec = extract_writing_specification(source)
+    draft = PaperTemplate(id='references-master', name='参考文献测试母版', source_docx=source.name,
+        sections=extract_section_tree(source), styles=import_template_styles(source)['styles'],
+        meta_fields=[MetaField(key='title', label='题目'), MetaField(key='author', label='姓名'),
+                     MetaField(key='student_id', label='学号')])
+    confirmation = ConfirmWritingProfile(expected_specification_sha256=spec.specification_sha256,
+        accept_recommended=True, remove_template_instructions=True, accept_new_object_defaults=True)
+    template = compile_profile(draft, source, confirmation, actor='teacher-test')
+    project = WritingProject(id='references-project', template_id=template.id,
+        meta={'title': '测试题目', 'author': '测试学生', 'student_id': 'LOCAL-001'},
+        requirement_snapshot={'resolved_items': [{'checker': 'references.list_facts', 'enforce': 'hard', 'severity': 'error',
+                                                    'params': {'numbering': 'sequential'}}]},
+        sections=[ProjectSection(key=node.key, type=node.type, title=node.title, paragraphs=(
+            [ParagraphBlock(id='reference-a', text='第一条文献'), ParagraphBlock(id='reference-b', text='第二条文献')]
+            if node.type.value == 'references' else [ParagraphBlock(id=node.key + '-p', text='学生正文')]))
+            for node in flatten(template.sections) if node.type.value not in {'cover', 'toc'}])
+    assert any(section.type == 'references' for section in project.sections)
+    numbered = project.model_copy(deep=True)
+    reconcile_reference_numbers(project, numbered)
+    output = tmp_path / 'reference-master.docx'
+    export_project_to_docx(numbered, template, str(output), template_path=str(source))
+    data = output.read_bytes()
+    report = inspect_docx_output(data, numbered, template, source_template_bytes=source.read_bytes())
+    assert any(c['rule'] == 'master.reference_sequential_numbers' and c['status'] == 'pass'
+               for c in report['checks'])
+
+    def damage_number(root):
+        controls = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-block:reference-b"]//w:t', namespaces=NS)
+        assert controls and '[2]' in controls[0].text
+        controls[0].text = controls[0].text.replace('[2]', '[1]', 1)
+
+    damaged = rewrite(data, 'word/document.xml', damage_number)
+    report = inspect_docx_output(damaged, numbered, template, source_template_bytes=source.read_bytes())
+    assert any(c['rule'] == 'master.reference_sequential_numbers' and c['status'] == 'fail'
+               for c in report['checks'])
+
+    advisory = numbered.model_copy(deep=True)
+    advisory.requirement_snapshot['resolved_items'][0].update({'enforce': 'soft', 'severity': 'warning'})
+    body = next(section for section in advisory.sections if section.type != 'references')
+    body.paragraphs[0].text = '前人研究[2]'
+    references = next(section for section in advisory.sections if section.type == 'references')
+    references.paragraphs.pop(0)
+    reconcile_reference_numbers(numbered, advisory)
+    export_project_to_docx(advisory, template, str(output), template_path=str(source))
+    report = inspect_docx_output(output.read_bytes(), advisory, template, source_template_bytes=source.read_bytes())
+    assert report['status'] == 'pass', [(c['rule'], c['object']) for c in report['checks'] if c['status'] != 'pass']
+    assert not any(c['rule'] == 'master.reference_sequential_numbers' for c in report['checks'])
+
+
+@pytest.mark.parametrize('kind', ['header', 'footer'])
+def test_master_rejects_swapped_section_part_relationship_targets(master, tmp_path, kind):
+    source, template, project, confirmation = master
+    doc = Document(source)
+    for index, section in enumerate(doc.sections):
+        part = getattr(section, kind)
+        part.is_linked_to_previous = False
+        part.paragraphs[0].text = f'固定{kind} {index + 1}'
+    doc.save(source)
+    spec = extract_writing_specification(source)
+    draft = template.model_copy(deep=True)
+    draft.source_execution = {}
+    request = confirmation.model_copy(update={'expected_specification_sha256': spec.specification_sha256})
+    published = compile_profile(draft, source, request, actor='teacher-test')
+    case = (source, published, project, request)
+    data = rendered(case, tmp_path)
+    original_report = inspect(case, data)
+    assert original_report['status'] == 'pass', [item for item in original_report['checks'] if item['status'] != 'pass']
+
+    def swap_targets(root):
+        relations = [node for node in root if node.get('Type', '').endswith('/' + kind)]
+        assert len(relations) == 2
+        first, second = relations
+        first_target, second_target = first.get('Target'), second.get('Target')
+        first.set('Target', second_target)
+        second.set('Target', first_target)
+
+    damaged = rewrite(data, 'word/_rels/document.xml.rels', swap_targets)
+    report = inspect(case, damaged)
+    assert report['status'] == 'fail'
+    assert any(item['rule'] == 'master.section_part_relationships' and item['status'] == 'fail'
+               for item in report['checks'])
+
+
+def test_master_rejects_swapped_fixed_cover_image_relationship_targets(master, tmp_path):
+    source, template, project, confirmation = master
+    doc = Document(source)
+    for index, color in enumerate(('red', 'blue')):
+        image_path = tmp_path / f'cover-{index}.png'
+        Image.new('RGB', (24, 16), color).save(image_path)
+        picture = doc.add_picture(str(image_path))
+        paragraph = picture._inline.xpath('ancestor::w:p')[0]
+        doc.element.body.insert(index + 1, paragraph)
+    doc.save(source)
+    spec = extract_writing_specification(source)
+    draft = template.model_copy(deep=True)
+    draft.source_execution = {}
+    request = confirmation.model_copy(update={'expected_specification_sha256': spec.specification_sha256})
+    published = compile_profile(draft, source, request, actor='teacher-test')
+    case = (source, published, project, request)
+    data = rendered(case, tmp_path)
+    original_report = inspect(case, data)
+    assert original_report['status'] == 'pass', [item for item in original_report['checks'] if item['status'] != 'pass']
+
+    def swap_targets(root):
+        relations = [node for node in root if node.get('Type', '').endswith('/image')]
+        assert len(relations) == 2
+        first, second = relations
+        first_target, second_target = first.get('Target'), second.get('Target')
+        first.set('Target', second_target)
+        second.set('Target', first_target)
+
+    damaged = rewrite(data, 'word/_rels/document.xml.rels', swap_targets)
+    report = inspect(case, damaged)
+    assert report['status'] == 'fail'
+    assert any(item['rule'] == 'master.fixed_part_relationships' and item['status'] == 'fail'
+               for item in report['checks'])
+
+
+@pytest.mark.parametrize(('part', 'rule'), [
+    ('word/numbering.xml', 'master.protected_parts'),
+    ('word/theme/theme1.xml', 'master.protected_parts'),
+    ('word/styles.xml', 'master.indent_baseline_styles'),
+])
+def test_native_layout_receipt_does_not_authorize_master_format_changes(
+        master, tmp_path, monkeypatch, part, rule):
+    """Native layout signs the output; it does not authorize changing the master."""
+    from app.services import master_docx_check, office_layout
+
+    _, template, _, _ = master
+    data = rendered(master, tmp_path)
+    profile = copy.deepcopy(template.source_execution)
+    profile['toc_active'] = True
+    receipt = {'version': office_layout.NATIVE_TOC_VERSION,
+               'toc': [], 'word_native': {'extra_bookmarks': []}}
+    monkeypatch.setattr(master_docx_check, 'verify_profile', lambda *_: profile)
+    monkeypatch.setattr(office_layout, 'verify_layout_receipt', lambda *_: receipt)
+
+    def status(payload):
+        report = inspect(master, payload)
+        return next(item['status'] for item in report['checks'] if item['rule'] == rule)
+
+    assert status(data) == 'pass'
+
+    def damage(root):
+        if part == 'word/numbering.xml':
+            target = root.find('.//' + qn('w:lvlText'))
+            assert target is not None
+            target.set(qn('w:val'), '错误编号')
+        elif part == 'word/styles.xml':
+            target = root.xpath('./w:style[@w:styleId="Normal"]/w:rPr/w:sz', namespaces=NS)[0]
+            target.set(qn('w:val'), '72')
+        else:
+            target = root.xpath('.//a:srgbClr', namespaces={'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'})[0]
+            target.set('val', 'FF00FF')
+
+    assert status(rewrite(data, part, damage)) == 'fail'

@@ -38,6 +38,7 @@ from app.services.image_cleanup import remove_project_images
 from app.services.project_validation import validate_heading_hierarchy, validate_project_completeness
 from app.services.project_versions import project_attachment_refs, project_content_hash, project_snapshot
 from app.services.access_service import visible_organization_ids
+from app.services.document_access import can_access_template
 from app.services.resource_access import assert_resource_read
 from app.services.template_compare import compare_project_to_template
 from app.services.projects import create_project_from_template
@@ -51,7 +52,6 @@ from app.services.source_template_profile import ProfileError
 from app.services.docx_output_check import (
     DocxOutputCheckError,
     expected_output_check_identity,
-    output_check_identity,
     require_docx_output_pass,
     safe_output_check_diagnostics,
     source_template_bytes,
@@ -294,7 +294,7 @@ def create_project(req: CreateProjectRequest, store: Store = Depends(get_store),
                    user: dict = Depends(current_user)) -> WritingProject:
     """基于模板创建写作项目(实例化章节树), 归属当前用户。"""
     tpl = store.get_template(req.template_id)
-    if tpl is None:
+    if tpl is None or not can_access_template(store, user, tpl):
         raise HTTPException(status_code=404, detail="模板不存在")
     ensure_template_admitted_for_writing(tpl)
     owner = user["id"]
@@ -590,6 +590,7 @@ def _parse_par(data: dict, project_id: str = "", existing: ParagraphBlock | None
             inline_runs=inline_runs,
             reference=reference,
             reference_number=data.get("reference_number"),
+            reference_number_managed=existing.reference_number_managed if existing else False,
         )
         if parsed.reference is not None:
             reconcile_reference_language(
@@ -1533,7 +1534,7 @@ def switch_project_template(proj_id: str, req: SwitchTemplateRequest,
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
     tpl = store.get_template(req.template_id)
-    if tpl is None:
+    if tpl is None or not can_access_template(store, user, tpl):
         raise HTTPException(status_code=404, detail="目标模板不存在")
     ensure_template_admitted_for_writing(tpl)
     _rebind_template(proj, tpl)
@@ -1565,7 +1566,7 @@ def refresh_project_template(proj_id: str,
         raise HTTPException(status_code=404, detail="项目不存在")
     _ensure_access(proj, user)
     tpl = store.get_template(proj.template_id)
-    if tpl is None:
+    if tpl is None or not can_access_template(store, user, tpl):
         raise HTTPException(status_code=404, detail="项目绑定的模板不存在")
     ensure_template_admitted_for_writing(tpl)
     _rebind_template(proj, tpl)
@@ -2350,7 +2351,7 @@ def _verified_project_export_output(record: dict, proj_id: str, project: Writing
     if path.parent != EXPORT_DIR or not path.is_file():
         raise HTTPException(status_code=404, detail="导出制品不存在")
     data = path.read_bytes()
-    if not verify_report_binding(record.get("output_check"), data):
+    if not verify_report_binding(record.get("output_check"), data, allow_previous_inspector=True):
         raise HTTPException(status_code=409, detail="导出制品检查凭据缺失或与当前文件不匹配，请重新导出")
     try:
         snapshot_project = WritingProject.model_validate(record.get("project_snapshot") or {})
@@ -2371,7 +2372,7 @@ def _verified_project_export_output(record: dict, proj_id: str, project: Writing
     if str(record.get("source_template_sha256") or "") != str((record.get("output_check") or {}).get("source_template_sha256") or ""):
         raise HTTPException(status_code=409, detail="导出报告与任务发起时的源模板摘要不匹配，请重新导出")
     expected_identity = expected_output_check_identity(snapshot_project, snapshot_template, snapshot_source_bytes)
-    if not verify_report_identity(record.get("output_check"), expected_identity):
+    if not verify_report_identity(record.get("output_check"), expected_identity, allow_previous_inspector=True):
         raise HTTPException(status_code=409, detail="导出报告与任务冻结项目/模板快照不匹配，请重新导出")
     if not verify_source_template_binding(record.get("output_check"), snapshot_source_bytes):
         raise HTTPException(status_code=409, detail="导出模板源文件已变化或检查凭据无效，请重新导出")
@@ -2387,7 +2388,8 @@ def _verified_project_export_output(record: dict, proj_id: str, project: Writing
         )
     except Exception as exc:
         raise HTTPException(status_code=409, detail="导出制品未通过冻结快照复核，请重新导出") from exc
-    if output_check_identity(record.get("output_check")) != output_check_identity(fresh_report):
+    if not verify_report_identity(record.get("output_check"), fresh_report,
+                                  allow_previous_inspector=True):
         raise HTTPException(status_code=409, detail="导出检查报告与冻结快照复核不一致，请重新导出")
     if review_identity(record.get("output_check") or {}) != review_identity(fresh_report):
         raise HTTPException(status_code=409, detail="人工核查清单与独立成品复核不一致，请重新导出")

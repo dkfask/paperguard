@@ -21,7 +21,7 @@ from app.services.document_assets import resolve_document_image_path
 from app.services.digit_font_rules import BODY_KINDS, HEADING_KINDS, apply_digit_font
 from app.services.master_layout_anchors import block_bookmark_name
 from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
-from app.services.source_template_profile import ProfileError, verify_profile, commentless_source, package_manifest, digest
+from app.services.source_template_profile import ProfileError, verify_profile, commentless_source, package_manifest, digest, _heading_instruction
 
 REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -133,6 +133,10 @@ def apply_properties(paragraph, properties: dict):
         indent.attrib.pop(qn("w:" + attr), None); indent.attrib.pop(qn("w:" + attr + "Chars"), None)
         chars = value.get("unit") == "character"
         indent.set(qn("w:" + attr + ("Chars" if chars else "")), str(round(value["value"] * (100 if chars else 20))))
+        # Word can retain an inherited physical first-line offset even when
+        # firstLineChars is explicitly zero. Reset both representations.
+        if name == "first_line" and chars and value["value"] == 0:
+            indent.set(qn("w:firstLine"), "0")
     for run in paragraph.iter(qn("w:r")):
         rpr = run.find(qn("w:rPr"))
         if rpr is None:
@@ -333,6 +337,11 @@ def prepare_source(root, profile, meta=None):
     body = root.find(qn("w:body"))
     original = list(body)
     ns = {k: v for element in root.iter() for k, v in element.nsmap.items() if k}
+    for override in profile.get("cover_table_overrides", []):
+        matches = root.xpath(override["path"], namespaces=ns)
+        if len(matches) != 1 or matches[0].tag != qn("w:p"):
+            raise ProfileError("封面表格格式映射已失效")
+        apply_properties(matches[0], override["properties"])
     targets = [(field, root.xpath(field["path"], namespaces=ns)) for field in profile["fields"]]
     removals = [node for path in profile["removals"] for node in root.xpath(path, namespaces=ns)]
     toc_range = [node for path in profile.get("toc_range_paths", []) for node in root.xpath(path, namespaces=ns)]
@@ -445,6 +454,19 @@ def prepare_source(root, profile, meta=None):
             continue
         if heading["kind"] == "toc":
             continue
+        removal = heading.get("instruction_removal")
+        if removal:
+            observed = _heading_instruction(node)
+            if not observed or any(removal.get(key) != value for key, value in observed.items()):
+                raise ProfileError("模板标题说明与已确认母版不一致")
+            remaining = len(removal["kept_text"])
+            for text in node.findall(".//" + qn("w:t")):
+                paragraphs = text.xpath("ancestor::w:p[1]", namespaces=ns)
+                if not paragraphs or paragraphs[0] is not node:
+                    continue
+                value = text.text or ""
+                text.text = value[:remaining]
+                remaining = max(0, remaining - len(value))
         # A source heading whose explicit number corrected its level uses a
         # source-bound sample of that level, including Word's outline level.
         if heading.get("title_style_id"):
@@ -536,6 +558,43 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
         boxes = {h["key"]: h["page_box_cm"] for h in profile["headings"]}
         root = prepare_source(source_root, profile, project.meta)
         parts = {name: zf.read(name) for name in zf.namelist()}
+    # Character indents in Word use a paragraph style's base font size.
+    # Use a source-default-derived style per frozen region size, and apply it
+    # to every paragraph in that region so image/caption siblings cannot
+    # change the effective character width.
+    styles = etree.fromstring(parts["word/styles.xml"])
+    defaults = [item for item in styles.findall(qn("w:style"))
+                if item.get(qn("w:type")) == "paragraph"
+                and item.get(qn("w:default"), "").lower() in {"1", "true", "on"}]
+    baseline_styles = {}
+    source_style_ids = {item.get(qn("w:styleId")) for item in styles.findall(qn("w:style"))}
+    for heading in profile["headings"]:
+        indent = heading.get("properties", {}).get("paragraph.indent.first_line", {})
+        if heading.get("inline") or indent.get("unit") != "character" or not indent.get("value"):
+            continue
+        size = heading["properties"].get("font.size", {})
+        value = size.get("value") if size.get("unit") == "pt" else None
+        if (len(defaults) != 1 or not defaults[0].get(qn("w:styleId"))
+                or not isinstance(value, (int, float)) or isinstance(value, bool)
+                or not math.isfinite(value) or value <= 0 or value * 2 != round(value * 2)):
+            raise ProfileError("字符缩进缺少可验证的段落基准字号或默认样式")
+        half_points = round(value * 2)
+        style_id = "PGIndentBase" + str(half_points)
+        if style_id in source_style_ids:
+            raise ProfileError("母版中的段落基准样式名称冲突")
+        already_added = style_id in baseline_styles.values()
+        baseline_styles[heading["key"]] = style_id
+        if not already_added:
+            style = OxmlElement("w:style")
+            style.set(qn("w:type"), "paragraph")
+            style.set(qn("w:customStyle"), "1")
+            style.set(qn("w:styleId"), style_id)
+            child(style, "w:name", val=style_id)
+            child(style, "w:basedOn", val=defaults[0].get(qn("w:styleId")))
+            child(child(style, "w:rPr"), "w:sz", val=half_points)
+            styles.append(style)
+    if baseline_styles:
+        parts["word/styles.xml"] = xml_bytes(styles)
     scratch = Document()
     blocks = []
     chapter = figure = table_number = 0
@@ -639,13 +698,23 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                 from app.services.docx_anchors import _safe_omml
                 from app.domain.documents.schemas import ContentBlock
                 p = text_paragraph("", props)
-                math = _safe_omml(ContentBlock(id=block.id,kind="equation",data={"omml":block.equation.omml}))
-                if math is None:
+                math_element = _safe_omml(ContentBlock(id=block.id,kind="equation",data={"omml":block.equation.omml}))
+                if math_element is None:
                     raise ProfileError("公式缺少有效 Office Math 数据")
-                p.append(math)
+                p.append(math_element)
                 nodes.append(p)
             else:
                 raise ProfileError("内容块类型或数据不受当前母版执行器支持")
+            if heading["key"] in baseline_styles:
+                for node in nodes:
+                    for paragraph in node.iter(qn("w:p")):
+                        ppr = paragraph.find(qn("w:pPr"))
+                        if ppr is None:
+                            ppr = OxmlElement("w:pPr"); paragraph.insert(0, ppr)
+                        style = ppr.find(qn("w:pStyle"))
+                        if style is None:
+                            style = OxmlElement("w:pStyle"); ppr.insert(0, style)
+                        style.set(qn("w:val"), baseline_styles[heading["key"]])
             if heading.get("inline"):
                 nodes = nodes[0].findall(qn("w:r"))
             tagged = control("pg-block:"+block.id, nodes)
@@ -689,9 +758,14 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
     policy = profile.get("body_page_number_policy")
     if policy:
         from app.services.page_number_policy import CONTENT_TYPE, PART, REL_ID, REL_TYPE, footer_bytes
+        # A legacy signed profile may bind the old dirty PAGE field. Accept
+        # that historical digest, but emit the canonical non-dirty field so a
+        # newly generated document never asks Word to update external fields.
         footer = footer_bytes(policy["settings"])
+        canonical_hash = hashlib.sha256(footer).hexdigest()
+        legacy_hash = hashlib.sha256(footer_bytes(policy["settings"], dirty=True)).hexdigest()
         if (policy["part"] != PART or policy["relationship_id"] != REL_ID
-                or hashlib.sha256(footer).hexdigest() != policy["footer_sha256"]):
+                or policy.get("footer_sha256") not in {canonical_hash, legacy_hash}):
             raise ProfileError("正文页码配置与已确认规则不一致")
         parts[PART] = footer
         etree.SubElement(rels, "{"+REL+"}Relationship", Id=REL_ID, Type=REL_TYPE, Target=PART.removeprefix("word/"))

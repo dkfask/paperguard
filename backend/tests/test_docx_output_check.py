@@ -20,6 +20,7 @@ from app.services.docx_output_check import (
     TEXT_STYLE_COVERAGE,
     expected_output_check_identity,
     inspect_docx_output,
+    output_check_identity,
     require_docx_output_pass,
     verify_report_binding,
     verify_report_identity,
@@ -126,7 +127,7 @@ def test_generated_docx_passes_and_report_binds_output_bytes(tmp_path):
     report = require_docx_output_pass(data, project, template)
 
     assert report["status"] == "pass"
-    assert report["inspector_version"] == "docx-output-check/5"
+    assert report["inspector_version"] == "docx-output-check/7"
     assert report["check_count"] > 0
     assert report["passed_count"] == report["check_count"]
     assert report["project_revision"] == 7
@@ -484,6 +485,45 @@ def test_report_identity_is_bound_to_the_frozen_project_and_template_snapshot(tm
         assert not verify_report_identity({**report, field: changed}, expected)
     assert not verify_report_identity({key: value for key, value in report.items() if key != "project_id"}, expected)
 
+
+
+@pytest.mark.parametrize(("current_version", "previous_version", "master"), [
+    ("docx-output-check/7", "docx-output-check/5", False),
+    ("docx-output-check/10-master", "docx-output-check/6-master", True),
+    ("docx-output-check/10-master", "docx-output-check/9-master", True),
+])
+def test_previous_inspector_needs_explicit_recheck_and_exact_identity(
+        tmp_path, current_version, previous_version, master):
+    data, project, template = _sample(tmp_path)
+    report = require_docx_output_pass(data, project, template)
+    report["inspector_version"] = previous_version
+    expected = {**output_check_identity(report), "inspector_version": current_version}
+    if master:
+        report["source_profile_sha256"] = "a" * 64
+
+    assert not verify_report_binding(report, data)
+    assert not verify_report_identity(report, expected)
+    assert verify_report_binding(report, data, allow_previous_inspector=True)
+    assert verify_report_identity(report, expected, allow_previous_inspector=True)
+    assert not verify_report_binding(report, data + b"changed", allow_previous_inspector=True)
+    assert not verify_report_identity(
+        {**report, "project_content_hash": "f" * 64}, expected, allow_previous_inspector=True,
+    )
+    report["inspector_version"] = "docx-output-check/unknown"
+    assert not verify_report_binding(report, data, allow_previous_inspector=True)
+    assert not verify_report_identity(report, expected, allow_previous_inspector=True)
+
+
+def test_empty_admission_provenance_preserves_legacy_template_identity(tmp_path):
+    import hashlib
+    from app.services.docx_output_check import template_output_hash
+
+    _, _, template = _sample(tmp_path)
+    legacy_json = template.model_dump_json(exclude={'admission_provenance'})
+    restored = type(template).model_validate_json(legacy_json)
+    assert template_output_hash(restored) == hashlib.sha256(legacy_json.encode()).hexdigest()
+    restored.admission_provenance = {'candidate_id': 'candidate-a'}
+    assert template_output_hash(restored) != hashlib.sha256(legacy_json.encode()).hexdigest()
 
 def test_missing_required_template_heading_fails_even_when_export_force_was_used(tmp_path):
     data, project, template = _sample(tmp_path)

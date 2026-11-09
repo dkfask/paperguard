@@ -18,7 +18,7 @@ from app.core.extract.xml_utils import NS, qn
 from app.db import Store
 from app.models.project import ImageBlock, ParagraphBlock
 from app.services.document_assets import document_upload_dir
-from app.services.docx_output_check import DocxOutputCheckError, output_check_identity, verify_report_binding
+from app.services.docx_output_check import output_check_identity, verify_report_binding
 from app.services.master_docx_check import _picture_line_allows_growth
 from app.services.project_versions import project_attachment_refs, project_content_hash
 from tests.test_master_cover_label_visibility import _recompile
@@ -109,6 +109,12 @@ def test_image_spacing_is_rechecked_independently(image_case, tmp_path, rule, li
     assert _image_check(report) == expected
     if expected == "fail":
         assert report["status"] == "fail"
+        assert report["format_accuracy"]["percentage"] > 90.0
+        failed = next(item for item in report["checks"]
+                      if item["rule"] == "master.image_line_spacing"
+                      and item["object"] == "line-image")
+        assert failed["check_id"] in report["failed_checks"]
+        assert report["hard_blockers"]
 
 
 def test_duplicate_image_spacing_is_not_trusted(image_case, tmp_path):
@@ -123,6 +129,8 @@ def test_duplicate_image_spacing_is_not_trusted(image_case, tmp_path):
     report = inspect(image_case, rewrite(data, "word/document.xml", alter))
     assert _image_check(report) == "fail"
     assert report["status"] == "fail"
+    assert report["format_accuracy"]["percentage"] > 90.0
+    assert report["hard_blockers"]
 
 
 def test_safe_inherited_spacing_in_old_output_is_still_accepted(image_case, tmp_path):
@@ -243,7 +251,7 @@ def test_frozen_candidate_and_archive_are_rechecked_for_picture_line_spacing(
     report = inspect(image_case, data)
     assert _image_check(report) == ("fail" if clipping_rule else "pass")
 
-    # A frozen report from the previous inspector did not contain this rule.
+    # Model v9, which predates the image spacing check and score contract.
     old_report = copy.deepcopy(report)
     old_report.pop("image_line_spacing_check_version")
     old_report["checks"] = [item for item in old_report["checks"]
@@ -251,7 +259,15 @@ def test_frozen_candidate_and_archive_are_rechecked_for_picture_line_spacing(
     assert all(item["status"] == "pass" for item in old_report["checks"])
     old_report["status"] = "pass"
     old_report["check_count"] = old_report["passed_count"] = len(old_report["checks"])
-    assert verify_report_binding(old_report, data)
+    old_report["inspector_version"] = "docx-output-check/9-master"
+    for key in ("acceptance_contract", "format_accuracy", "rule_accuracy", "failed_checks",
+                "unverifiable_checks", "excluded_checks", "hard_blockers", "acceptance_status"):
+        old_report.pop(key, None)
+    for item in old_report["checks"]:
+        item.pop("check_id", None)
+        item.pop("classification", None)
+    assert not verify_report_binding(old_report, data)
+    assert verify_report_binding(old_report, data, allow_previous_inspector=True)
 
     artifact = tmp_path / "old-image.docx"
     artifact.write_bytes(data)
@@ -265,12 +281,14 @@ def test_frozen_candidate_and_archive_are_rechecked_for_picture_line_spacing(
                  "project_version_id": version["id"], "content_hash": version["content_hash"],
                  "artifact": {"docx_sha256": hashlib.sha256(data).hexdigest(), "output_check": old_report}}
     if clipping_rule:
-        with pytest.raises(DocxOutputCheckError):
+        with pytest.raises(workflow.DocxOutputCheckError):
             workflow._verified_candidate_artifact(None, candidate, version)
     else:
         checked, fresh = workflow._verified_candidate_artifact(None, candidate, version)
         assert checked == data
         assert fresh["image_line_spacing_check_version"] == "word-image-line-spacing/1"
+        assert _image_check(fresh) == "pass"
+        assert fresh["status"] == "pass"
 
     store = Store(tmp_path / "old-image.db")
     submission = {"id": "old-image-submission", "project_version_id": version["id"],
@@ -290,9 +308,11 @@ def test_frozen_candidate_and_archive_are_rechecked_for_picture_line_spacing(
                "source_template_sha256": hashlib.sha256(source.read_bytes()).hexdigest()}
     monkeypatch.setattr(workflow, "_archive_dir", lambda: tmp_path)
     if clipping_rule:
-        with pytest.raises(DocxOutputCheckError):
+        with pytest.raises(workflow.DocxOutputCheckError):
             workflow._verified_archive_output(store, archive["id"], archive)
     else:
         _, checked, fresh = workflow._verified_archive_output(store, archive["id"], archive)
         assert checked == data
         assert fresh["image_line_spacing_check_version"] == "word-image-line-spacing/1"
+        assert _image_check(fresh) == "pass"
+        assert fresh["status"] == "pass"

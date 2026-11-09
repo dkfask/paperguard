@@ -22,7 +22,7 @@
       </div>
     </section>
 
-    <div v-if="error || (listError && policies.length)" class="error-banner" role="alert">{{ error || listError }}</div>
+    <div v-if="(!editing && error) || (listError && policies.length)" class="error-banner" role="alert">{{ (!editing && error) || listError }}</div>
     <div class="policy-layout">
       <section class="panel policy-list-panel" :class="{ 'policy-list-panel--state': loading || policies.length === 0 }">
         <div v-if="!loading && policies.length" class="panel-heading">
@@ -77,6 +77,7 @@
           <p>{{ t('policies.selectDetail') }}</p>
         </div>
         <template v-else>
+          <div v-if="error" class="error-banner" role="alert">{{ error }}</div>
           <div class="editor-head panel-heading">
             <div>
               <p class="workspace-kicker">{{ t('policies.available') }}</p>
@@ -163,7 +164,7 @@
             </div>
             <input v-model="item.description" :disabled="readOnly" class="rule-description" :placeholder="t('policies.studentRequirement')" />
             <div class="rule-fields">
-              <select v-model="item.checker" :disabled="readOnly || item.type !== 'auto'">
+              <select v-model="item.checker" :disabled="readOnly || item.type !== 'auto'" @change="checkerChanged(item, $event.target.value)">
                 <option value="">{{ t('policies.selectChecker') }}</option>
                 <option value="section.exists">{{ t('checker.requiredSection') }}</option>
                 <option value="section.word_count">{{ t('checker.sectionWordCount') }}</option>
@@ -173,6 +174,8 @@
                 <option value="references.recent_count">{{ t('checker.recentReferenceCount') }}</option>
                 <option value="references.recent_ratio">{{ t('checker.recentReferenceRatio') }}</option>
                 <option value="references.format">{{ t('checker.referenceFormat') }}</option>
+                <option value="references.list_facts">{{ t('checker.referenceFacts') }}</option>
+                <option value="cover.fields_present">{{ t('checker.coverFields') }}</option>
                 <option value="chapter.page_break">{{ t('checker.chapterPageBreak') }}</option>
                 <option value="ai.usage_declared">{{ t('checker.aiDeclaration') }}</option>
               </select>
@@ -189,6 +192,19 @@
                 <option value="soft">{{ t('policies.soft') }}</option>
               </select>
             </div>
+            <div v-if="item.checker === 'cover.fields_present'" class="rule-pack-fields">
+              <label>{{ t('policies.coverFieldKeys') }}
+                <input v-model="item.fieldKeysText" :disabled="readOnly" :placeholder="t('policies.coverFieldKeysExample')" />
+                <small>{{ t('policies.coverFieldKeysHint') }}</small>
+              </label>
+            </div>
+            <label v-if="item.checker === 'references.list_facts'" class="reference-required">
+              <input v-model="item.referenceRequired" :disabled="readOnly" type="checkbox" />{{ t('policies.referenceListRequired') }}
+            </label>
+            <label v-if="item.checker === 'references.list_facts'" class="reference-sequential">
+              <input v-model="item.referenceSequential" :disabled="readOnly || item.type !== 'auto'" type="checkbox" />{{ t('policies.referenceSequential') }}
+              <small>{{ t('policies.referenceSequentialHint') }}</small>
+            </label>
             <div class="rule-pack-fields">
               <label>{{ t('policies.rulePackId') }}
                 <input v-model="item.rule_pack_id" :disabled="readOnly" :placeholder="t('policies.rulePackPlaceholder')" />
@@ -312,7 +328,7 @@ const emptyList = computed(() => !loading.value && !listError.value && policies.
 // 底部「论文模板 / 审计记录」入口必须与后端门槛一致，否则点了只会看到 403 死路。
 const canUseTemplates = computed(() => auth.user?.role === 'admin'
   || (auth.user?.role === 'teacher' && auth.user?.status === 'active'))
-const canViewAudit = computed(() => ['admin', 'college_admin'].includes(auth.user?.role))
+const canViewAudit = computed(() => auth.user?.role === 'admin')
 const readOnly = computed(() => !canManage.value || draft.value.status === 'published')
 
 function emptyPolicy() {
@@ -333,6 +349,9 @@ function formItem(item) {
   return {
     ...item,
     params: { ...(item.params || {}) },
+    fieldKeysText: Array.isArray(item.params?.field_keys) ? item.params.field_keys.join(', ') : '',
+    referenceRequired: item.params?.required === true,
+    referenceSequential: item.params?.numbering === 'sequential',
     min: item.params?.min ?? item.params?.min_count ?? '',
     max: item.params?.max ?? '',
     rulePackParamsText: Object.keys(item.rule_pack_params || {}).length
@@ -385,8 +404,13 @@ function addItem() {
   draft.value.items.push({
     id: `rule-${Date.now()}`, type: 'auto', target: 'document', checker: '', params: {},
     min: '', max: '', severity: 'warning', enforce: 'soft', description: '',
-    rule_pack_id: '', rule_pack_params: {}, rulePackParamsText: '',
+    fieldKeysText: '', referenceRequired: false, referenceSequential: false, rule_pack_id: '', rule_pack_params: {}, rulePackParamsText: '',
   })
+}
+
+function checkerChanged(item, checker) {
+  if (checker === 'cover.fields_present') item.target = 'cover'
+  if (checker === 'references.list_facts') item.target = 'references'
 }
 
 function bindingTargets(type) {
@@ -421,6 +445,18 @@ function payload() {
     ...draft.value,
     items: draft.value.items.map((item) => {
       const params = { ...(item.params || {}) }
+      if (item.type === 'auto' && item.checker === 'cover.fields_present') {
+        const fieldKeys = item.fieldKeysText.split(/[,，]/).map(key => key.trim()).filter(Boolean)
+        if (!fieldKeys.length || new Set(fieldKeys).size !== fieldKeys.length) {
+          throw new Error(t('policies.invalidCoverFieldKeys', { id: item.id || t('policies.unnamed') }))
+        }
+        params.field_keys = fieldKeys
+      }
+      if (item.type === 'auto' && item.checker === 'references.list_facts') {
+        params.required = item.referenceRequired
+        if (item.referenceSequential) params.numbering = 'sequential'
+        else if (params.numbering === 'sequential') delete params.numbering
+      }
       if (item.min !== '' && item.min !== null) params.min = Number(item.min)
       else delete params.min
       if (item.max !== '' && item.max !== null) params.max = Number(item.max)
@@ -436,7 +472,7 @@ function payload() {
           throw new Error(t('policies.invalidRulePackObject', { id: item.id || t('policies.unnamed') }))
         }
       }
-      const { min, max, rulePackParamsText, ...rest } = item
+      const { min, max, fieldKeysText, referenceRequired, referenceSequential, rulePackParamsText, ...rest } = item
       return { ...rest, params, rule_pack_params: rulePackParams }
     }),
   }

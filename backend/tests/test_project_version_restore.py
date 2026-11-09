@@ -130,3 +130,39 @@ def test_restore_detects_same_revision_content_change(restore_api, monkeypatch):
     assert _restore(client).status_code == 409
     assert store.get_project("paper").meta["title"] == "另一个窗口的修改"
     assert len(store.list_workflow_records("project_version", limit=None)) == 1
+
+
+def test_sequential_restore_keeps_snapshot_ownership_and_rejects_stale_save(restore_api):
+    client, store, current, version = restore_api
+    rule = {"resolved_items": [{"checker": "references.list_facts", "params": {"numbering": "sequential"}}]}
+    current.requirement_snapshot = rule
+    current.reference_number_owners = {"1": "current-ref"}
+    current.sections[0].paragraphs[0] = ParagraphBlock(
+        id="current-ref", text="[2] 当前文献", reference_number=1, reference_number_managed=True)
+    store.save_project(current)
+    historical = WritingProject.model_validate(version["content_snapshot"])
+    historical.requirement_snapshot = rule
+    historical.reference_number_owners = {"1": "old-ref"}
+    version["content_snapshot"] = project_snapshot(historical)
+    version["content_hash"] = project_content_hash(historical)
+    original_hash = version["content_hash"]
+    store.save_workflow_record("project_version", version)
+
+    response = _restore(client)
+    assert response.status_code == 200, response.text
+    restored = store.get_project("paper")
+    assert restored.reference_number_owners == {"1": "old-ref"}
+    assert restored.sections[0].paragraphs[0].reference_number == 1
+    before = next(v for v in store.list_workflow_records("project_version", limit=None)
+                  if v.get("created_reason") == "before_restore_version")
+    assert before["content_snapshot"]["reference_number_owners"] == {"1": "current-ref"}
+    assert store.get_workflow_record("project_version", "old-version")["content_hash"] == original_hash
+
+    stale = current.model_copy(deep=True)
+    assert store.update_project_if_revision(stale, current.revision) is None
+    assert store.get_project("paper").reference_number_owners == {"1": "old-ref"}
+    restored.sections[0].paragraphs.append(ParagraphBlock(id="new-ref", text="新增文献"))
+    saved = store.update_project_if_revision(restored, restored.revision)
+    assert saved.reference_number_owners == {"1": "old-ref", "2": "new-ref"}
+    assert store.get_workflow_record("project_version", "old-version")["content_hash"] == original_hash
+    assert before["content_hash"] == project_content_hash(before["content_snapshot"])

@@ -91,7 +91,15 @@ def test_created_tables_have_visible_grid_and_inspector_rejects_missing_lines(ma
         table = root.xpath('.//w:sdt[w:sdtPr/w:tag[starts-with(@w:val, "pg-block:")]]//w:tbl', namespaces=NS)[0]
         node = table.find(f'{qn("w:tblPr")}/{qn("w:tblBorders")}')
         node.getparent().remove(node)
-    assert inspect(master, rewrite(data, 'word/document.xml', remove_borders))['status'] == 'fail'
+    report = inspect(master, rewrite(data, 'word/document.xml', remove_borders))
+    border_check = next(item for item in report['checks']
+                        if item['rule'] == 'master.table_borders'
+                        and item['object'] == 'visibility-table')
+    assert border_check['status'] == 'fail'
+    assert border_check['check_id'] in report['failed_checks']
+    assert report['format_accuracy']['percentage'] > 90.0
+    assert report['status'] == 'fail'
+    assert report['hard_blockers']
 
 
 def test_imported_table_borders_survive_safe_rebuild(tmp_path):

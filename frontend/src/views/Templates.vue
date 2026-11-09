@@ -20,11 +20,12 @@
     <BaseModal :open="importOpen" :title="t('templates.importPreview')" @close="importOpen = false"><section v-if="importResult" class="import-result">
       <div class="panel-heading">
         <div>
-          <h2>{{ importResult.filename }} {{ t('templates.importResult') }}</h2>
+          <h2>{{ importResult.filename || importResult.name }} {{ t('templates.importResult') }}</h2>
         </div>
         <span class="material-symbols-outlined panel-icon" aria-hidden="true">document_scanner</span>
       </div>
-      <WritingSpecificationPreview :specification="importResult.writing_specification" :markdown="importResult.writing_specification_markdown" />
+      <p class="candidate-summary">{{ t('documentPackagePublisher.sections') }}: {{ importResult.definition.sections.length }} · {{ t('documentPackagePublisher.fields') }}: {{ importResult.definition.fields.length }}</p>
+      <WritingSpecificationPreview :specification="importResult.definition.extensions?.writing_specification" :markdown="importResult.definition.extensions?.writing_specification_markdown" />
       <div class="style-preview-list">
         <section v-for="group in importStyleGroups" :key="group.key" class="style-preview-group" :aria-label="t(group.label)">
           <h3>{{ t(group.label) }}</h3>
@@ -44,23 +45,29 @@
           </details>
         </section>
       </div>
-      <section v-if="importResult.admission" class="template-admission" :class="importResult.admission.status" data-test="import-template-admission">
-        <div class="admission-heading"><strong>{{ t('templateAdmission.title') }}</strong><span>{{ importResult.admission.status === 'blocked' ? t('templateAdmission.blocked') : t('templateAdmission.officeReview') }}</span></div>
-        <p>{{ t('templateAdmission.boundVersion', { version: importResult.admission.version, digest: importResult.admission.assessment_hash?.slice(0, 12) }) }}</p>
-        <p>{{ t('templateAdmission.autoCoverage', { count: importResult.admission.auto_verifiable_constraints?.length || 0 }) }}</p>
-        <ul v-if="importResult.admission.blockers?.length" class="admission-findings">
-          <li v-for="item in importResult.admission.blockers" :key="`${item.code}:${item.path}`">{{ item.message }} <small>{{ item.path }}</small></li>
+      <section v-if="importResult.admission_assessment" class="template-admission" :class="importResult.admission_assessment.status" data-test="import-template-admission">
+        <div class="admission-heading"><strong>{{ t('templateAdmission.title') }}</strong><span>{{ importResult.admission_assessment.status === 'blocked' ? t('templateAdmission.blocked') : t('templateAdmission.officeReview') }}</span></div>
+        <p>{{ t('templateAdmission.boundVersion', { version: importResult.version, digest: importResult.admission_assessment.assessment_hash?.slice(0, 12) }) }}</p>
+        <p>{{ t('templateAdmission.autoCoverage', { count: importResult.admission_assessment.auto_verifiable_constraints?.length || 0 }) }}</p>
+        <ul v-if="importResult.admission_assessment.blockers?.length" class="admission-findings">
+          <li v-for="item in importResult.admission_assessment.blockers" :key="`${item.code}:${item.path}`">{{ item.message }} <small>{{ item.path }}</small></li>
         </ul>
-        <ul v-if="importResult.admission.manual_checks?.length" class="admission-findings manual">
-          <li v-for="item in importResult.admission.manual_checks" :key="item.code">{{ item.message }}</li>
+        <ul v-if="importResult.admission_assessment.manual_checks?.length" class="admission-findings manual">
+          <li v-for="item in importResult.admission_assessment.manual_checks" :key="item.code">{{ item.message }}</li>
         </ul>
         <p class="admission-limit">{{ t('templateAdmission.noComplianceClaim') }}</p>
       </section>
+      <ul v-if="importResult.issues?.length" class="issue-list" data-test="import-template-issues">
+        <li v-for="(issue, index) in importResult.issues" :key="`${issue.code}:${issue.path}:${index}`">{{ issue.message }} <small v-if="issue.path">{{ issue.path }}</small></li>
+      </ul>
+      <p v-if="importResult.admission_assessment?.blockers?.length" class="admission-limit" data-test="candidate-admission-diagnostic">{{ t('templates.candidateAdmissionDiagnostic') }}</p>
+      <WritingProfileConfirmation
+        :template="candidateWritingTemplate"
+        :candidate="importResult"
+        :dirty="saving"
+        @published="publishFromCandidate"
+      />
       <div class="form-actions import-actions">
-        <button class="small primary" :disabled="saving" @click="createFromImport">
-          <span class="material-symbols-outlined" aria-hidden="true">check_circle</span>
-          {{ saving ? t('common.creating') : (lang === 'zh' ? '保存草稿并确认规范' : 'Save draft and review rules') }}
-        </button>
         <button class="small" :disabled="strippingComments" @click="downloadWithoutComments">
           <span class="material-symbols-outlined" aria-hidden="true">cleaning_services</span>
           {{ strippingComments ? t('templates.cleaningComments') : t('templates.cleanComments') }}
@@ -94,7 +101,7 @@
             <span class="material-symbols-outlined" aria-hidden="true">upload_file</span>
             {{ importing ? t('templates.aiRecognizing') : t('templates.importWord') }}
           </button>
-          <input ref="importInput" type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden @change="onImportPick" />
+          <input ref="importInput" data-test="template-import-file" type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden @change="onImportPick" />
         <button v-if="importResult" type="button" class="small" @click="importOpen = true">{{ t('templates.importPreview') }}</button></div>
         <div v-else class="readonly-note">
           <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
@@ -124,7 +131,7 @@
             </div>
             <div class="template-row-actions">
               <button v-if="canManage" class="small primary" type="button" @click="$router.push('/templates/' + template.id + '/edit')">
-                <span class="material-symbols-outlined" aria-hidden="true">edit</span>{{ t('templates.edit') }}
+                <span class="material-symbols-outlined" aria-hidden="true">{{ template.immutable ? 'visibility' : 'edit' }}</span>{{ template.immutable ? t('templates.readonly') : t('templates.edit') }}
               </button>
               <span v-else class="readonly-label"><span class="material-symbols-outlined" aria-hidden="true">lock</span>{{ t('templates.readonly') }}</span>
               <button v-if="canManage && template.id !== 'default-gb7713'" class="icon-action danger" type="button" :title="t('templates.delete')" :aria-label="t('templates.delete')" @click="remove(template)">
@@ -166,22 +173,29 @@
 <script setup>
 import BaseModal from '../components/base/BaseModal.vue'
 import WritingSpecificationPreview from '../components/WritingSpecificationPreview.vue'
+import WritingProfileConfirmation from '../components/WritingProfileConfirmation.vue'
 import ScreenDeck from '../components/ScreenDeck.vue'
 import ScreenCollection from '../components/ScreenCollection.vue'
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import AsyncState from '../components/AsyncState.vue'
-import { fetchTemplates, deleteTemplateApi, importDocxTemplate, stripTemplateComments, saveTemplate, fetchTemplate } from '../api'
+import {
+  fetchTemplates,
+  deleteTemplateApi,
+  parseDocumentTemplate,
+  confirmDocumentTemplateCandidate,
+  publishPaperTemplateFromCandidate,
+  stripTemplateComments,
+} from '../api'
 import { auth } from '../auth'
 import { useI18n } from '../i18n'
 
 const router = useRouter()
-const { lang, t, formatDate } = useI18n()
+const { t, formatDate } = useI18n()
 const isTeacher = computed(() => auth.user?.role === 'teacher')
-// 「相关入口」对所有角色渲染，审计记录后端只允许 admin/college_admin，
-// 不加条件教师点进去只会看到一个 403 空壳页面（同 F-20 在 Policies.vue 的漏网）。
-const canViewAudit = computed(() => ['admin', 'college_admin'].includes(auth.user?.role))
+// 试点只开放系统管理员查看审计；college_admin 是已关闭的旧角色。
+const canViewAudit = computed(() => auth.user?.role === 'admin')
 const canManage = computed(() => auth.user?.role === 'admin'
   || (auth.user?.role === 'teacher' && auth.user?.status === 'active'))
 const templates = ref([])
@@ -193,6 +207,14 @@ const confirmBusy = ref(false)
 const confirmDialog = ref({ open: false, title: '', description: '', confirmLabel: t('templates.confirmDelete'), danger: true, action: null })
 const importOpen = ref(false)
 const importResult = ref(null)
+const candidateWritingTemplate = computed(() => ({
+  id: importResult.value?.template_id,
+  source_docx: importResult.value?.definition?.source_docx,
+  meta_fields: (importResult.value?.definition?.fields || []).filter(field => !field.location || field.location === 'metadata'),
+  writing_specification: importResult.value?.definition?.extensions?.writing_specification,
+  source_execution: importResult.value?.definition?.extensions?.source_execution,
+  version: importResult.value?.version,
+}))
 const importFile = ref(null)
 const strippingComments = ref(false)
 const stripResult = ref(null)
@@ -207,7 +229,7 @@ const STYLE_KEYS = {
 
 const HEADING_STYLE_KEYS = ['heading1', 'heading2', 'heading3']
 const importStyleGroups = computed(() => {
-  const styles = importResult.value?.styles || {}
+  const styles = importResult.value?.definition?.styles || {}
   return [
     { key: 'headings', label: 'templates.headingLevels', styles: Object.fromEntries(HEADING_STYLE_KEYS.filter(key => key in styles).map(key => [key, styles[key]])) },
     { key: 'other', label: 'templates.otherStyles', styles: Object.fromEntries(Object.entries(styles).filter(([key]) => !HEADING_STYLE_KEYS.includes(key))) },
@@ -239,8 +261,8 @@ async function onImportPick(e) {
   stripResult.value = null
   importFile.value = f
   try {
+    importResult.value = await parseDocumentTemplate(f)
     importOpen.value = true
-    importResult.value = await importDocxTemplate(f)
   } catch (err) {
     error.value = err.message || t('common.operationFailed')
   } finally {
@@ -261,65 +283,26 @@ async function downloadWithoutComments() {
   }
 }
 
-function mergeImportedSections(imported, baseSections) {
-  // 封面字段由结构化表单承载；其余章节必须来自 Word 的识别结果。
-  const structural = baseSections.filter((section) => section.type === 'cover')
-  const normalize = (section) => {
-    const title = String(section.title || '').replace(/\s+/g, '').toLowerCase()
-    let normalized = section
-    if (section.type === 'english_abstract' || title.includes('英文摘要') || title.includes('englishabstract') || title === 'abstract') {
-      normalized = { ...section, key: 'english_abstract', type: 'english_abstract', required: true }
-    } else if (section.type === 'abstract' || title.includes('摘要')) {
-      normalized = { ...section, key: 'abstract', type: 'abstract', required: true }
-    } else if (section.type === 'toc' || title.includes('目录') || title.includes('contents') || title.includes('tableofcontents')) {
-      normalized = { ...section, key: 'toc', type: 'toc', required: true }
-    } else if (section.type === 'references' || title.includes('参考文献')) {
-      normalized = { ...section, key: 'references', type: 'references', required: true }
-    } else if (section.type === 'acknowledgement' || title.includes('致谢') || title.includes('谢辞')) {
-      normalized = { ...section, key: 'acknowledgement', type: 'acknowledgement', required: false }
-    } else if (section.type === 'appendix' || title.includes('附录')) {
-      normalized = { ...section, key: 'appendix', type: 'appendix', required: false }
-    }
-    return { ...normalized, children: (normalized.children || []).map(normalize) }
-  }
-
-  const sections = [...structural, ...imported.map(normalize)]
-  const seen = new Set()
-  return sections.filter((section) => {
-    if (seen.has(section.key)) return false
-    seen.add(section.key)
-    return true
-  })
-}
-
-
-async function createFromImport() {
+async function publishFromCandidate(result) {
+  if (saving.value) return
   saving.value = true
   error.value = ''
   try {
-    // 默认模板只提供封面容器和未识别到的封面字段。
-    const base = await fetchTemplate('default-gb7713')
-    const importedMeta = importResult.value.meta_fields || []
-    const tpl = {
-      id: '',
-      name: importResult.value.filename.replace(/\.docx?$/i, '') + ` (${t('templates.importWord')})`,
-      description: t('templates.importDescription', { styles: importResult.value.style_names.join(lang.value === 'zh' ? '、' : ', ') }),
-      sections: mergeImportedSections(importResult.value.sections || [], base.sections || []),
-      // 封面字段优先用模板识别结果(学院/班级等), 识别不到时沿用内置模板
-      meta_fields: importedMeta.length ? importedMeta : base.meta_fields,
-      // 封面版式(校名/报告类型/信息表): 有则按模板版式渲染封面
-      cover_blocks: importResult.value.cover_blocks || [],
-      // 模板源文件: 导出时以它为排版基底, 完整继承模板的样式/页眉页脚/页边距
-      source_docx: importResult.value.source_docx || '',
-      writing_specification: importResult.value.writing_specification || null,
-      styles: importResult.value.styles,
-    }
-    const saved = await saveTemplate(tpl, true)
+    const preparedCandidate = result?.candidate
+    if (!preparedCandidate?.candidate_id) throw new Error(t('common.operationFailed'))
+    importResult.value = preparedCandidate
+    const blockers = preparedCandidate.admission_assessment?.blockers || []
+    if (blockers.length) return
+    const confirmed = await confirmDocumentTemplateCandidate(preparedCandidate)
+    const saved = await publishPaperTemplateFromCandidate(confirmed.candidate_id)
+    const templateId = saved.template?.id || saved.id
+    if (!templateId) throw new Error(t('common.operationFailed'))
     importResult.value = null
     importFile.value = null
     stripResult.value = null
+    importOpen.value = false
     await loadTemplates()
-    router.push('/templates/' + saved.id + '/edit')
+    router.push('/templates/' + templateId + '/edit')
   } catch (err) {
     error.value = err.message || t('common.operationFailed')
   } finally {

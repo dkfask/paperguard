@@ -40,6 +40,7 @@ LEGACY_VERSION = "office-layout/10"
 LEGACY_NATIVE_TOC_VERSION = "office-layout/11"
 VERSION = "office-layout/12"
 NATIVE_TOC_VERSION = "office-layout/13"
+SERVER_TOC_VERSION = "office-layout/server-1"
 
 # Pagination costs vary with document size and Word response times. The outer
 # export deadline and worker lease remain the authoritative hard limits.
@@ -77,7 +78,7 @@ def _environment():
     return env
 
 
-def _office_roundtrip(input_path: Path, directory: Path):
+def _office_roundtrip(input_path: Path, directory: Path, *, named_destinations: bool = False):
     converter = os.environ.get("PAPERGUARD_SOFFICE_PATH") or shutil.which("soffice") or shutil.which("libreoffice")
     java = os.environ.get("PAPERGUARD_JAVA_PATH") or shutil.which("java")
     jar = Path(os.environ.get("PAPERGUARD_OFFICE_JAR","/app/office/libreoffice.jar"))
@@ -88,6 +89,15 @@ def _office_roundtrip(input_path: Path, directory: Path):
         raise ProfileError("后台排版依赖摘要不符，已拒绝执行")
     directory.mkdir(parents=True,exist_ok=True)
     profile = directory/"profile";profile.mkdir(mode=0o700)
+    if named_destinations:
+        user_profile = profile / "user"
+        user_profile.mkdir(mode=0o700)
+        (user_profile / "registrymodifications.xcu").write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<oor:items xmlns:oor="http://openoffice.org/2001/registry">'
+            '<item oor:path="/org.openoffice.Office.Common/Filter/PDF/Export">'
+            '<prop oor:name="ExportBookmarksToPDFDestination" oor:op="fuse">'
+            '<value>true</value></prop></item></oor:items>', encoding="utf-8")
     name = "pg_"+uuid.uuid4().hex
     environment = _environment()
     check_export_budget()
@@ -256,7 +266,7 @@ def _match_heading(label, headings, required):
     return exact or candidates
 
 
-def _read_toc(path: Path, profile):
+def _read_toc(path: Path, profile, *, allow_server_style_aliases: bool = False):
     with zipfile.ZipFile(path) as archive:
         root=load_part(archive,"word/document.xml")
         styles=load_part(archive,"word/styles.xml")
@@ -305,8 +315,18 @@ def _read_toc(path: Path, profile):
             expected_level=int(inferred.group(1))
         if expected_level is not None and level!=expected_level:raise ProfileError("目录层级与母版章节层级不一致："+label[:80])
         source_style=profile.get("toc_style_by_level",{}).get(str(level)) or profile.get("toc_style_by_level",{}).get(level)
-        if not source_style or style_id!=source_style:
+        if not source_style:
             raise ProfileError("刷新后的目录样式与母版样式不一致："+label[:80])
+        if style_id != source_style:
+            measured_style = [node for node in styles.findall(qn("w:style"))
+                              if node.get(qn("w:styleId")) == style_id]
+            if (not allow_server_style_aliases or style_id != f"Contents{level}"
+                    or source_style not in profile.get("toc_style_ids", [])
+                    or len(measured_style) != 1 or measured_style[0].get(qn("w:type")) != "paragraph"
+                    or not re.fullmatch(rf"TOC\s*{level}", names.get(style_id, ""), re.I)):
+                raise ProfileError("刷新后的目录样式与母版样式不一致："+label[:80])
+            style.set(qn("w:val"), source_style)
+            style_id = source_style
         bookmark=heading.get("bookmark_name","")
         if not bookmark:raise ProfileError("章节缺少稳定跳转书签")
         source_anchor=anchors[0] if len(anchors)==1 else ""
@@ -697,6 +717,134 @@ def _measure_native_layout(path: Path, deadline: float, extra_bookmarks: list[st
         raise ProfileError("Word 目录分页无法核验：" + str(exc)) from exc
 
 
+def _cover_policy(profile):
+    policy = profile.get("cover_pagination")
+    if policy is None:
+        return None
+    headings = profile.get("headings") or []
+    first = min(headings, key=lambda item: item.get("index", -1)) if headings else None
+    offsets = policy.get("allowed_blank_offsets") if isinstance(policy, dict) else None
+    source = policy.get("source") if isinstance(policy, dict) else None
+    if (not isinstance(policy, dict) or not first or first.get("kind") == "toc" or first.get("inline")
+            or not profile.get("toc_active") or policy.get("boundary_key") != first.get("key")
+            or policy.get("boundary_bookmark") != first.get("bookmark_name")
+            or type(policy.get("require_boundary_new_page")) is not bool
+            or not isinstance(offsets, list) or len(offsets) > 64
+            or any(type(item) is not int or not 1 <= item <= 63 for item in offsets)
+            or offsets != sorted(set(offsets))
+            or source != {"kind": "explicit_template_confirmation", "source_sha256": profile.get("source_sha256"),
+                          "specification_sha256": profile.get("specification_sha256")}):
+        raise ProfileError("封面分页规则与已确认模板不一致")
+    return policy
+
+
+def _measure_native_cover(path: Path, deadline: float, policy: dict | None) -> dict | None:
+    if policy is None:
+        return None
+    from app.services.word_native_layout import WordNativeLayoutError, inspect_word_cover
+    remaining = int(remaining_export_seconds(min(150, max(0, deadline - time.monotonic()))))
+    if remaining < 1:
+        raise ProfileError("Word 封面分页超过总时限，请稍后重试")
+    try:
+        result = inspect_word_cover(path, policy["boundary_bookmark"], timeout=remaining)
+        check_export_budget()
+        return result
+    except WordNativeLayoutError as exc:
+        check_export_budget()
+        raise ProfileError("Word 封面分页无法核验：" + str(exc)) from exc
+
+
+def _validated_cover_evidence(evidence, policy, word, source_sha256):
+    if policy is None:
+        if evidence is not None:
+            raise ProfileError("Word 封面分页证据包含未请求的规则")
+        return
+    from app.services.word_native_layout import _WORD_COVER_SCRIPT
+    if (not isinstance(evidence, dict) or evidence.get("scope") != "word_cover_main_story_pages_only"
+            or evidence.get("source_sha256") != source_sha256
+            or evidence.get("probe_sha256") != hashlib.sha256(_WORD_COVER_SCRIPT.encode()).hexdigest()
+            or evidence.get("pagination_stable") is not True
+            or type(evidence.get("plain_text_context")) is not bool
+            or any(evidence.get(key) != word.get(key) for key in ("word_version", "macos_version", "machine", "page_count"))
+            or evidence.get("boundary_bookmark") != policy["boundary_bookmark"]
+            or type(evidence.get("boundary_page")) is not int
+            or not 1 <= evidence["boundary_page"] <= min(64, evidence.get("page_count", 0))):
+        raise ProfileError("Word 封面分页证据缺失、过期或环境不匹配")
+    positions = [item for item in word.get("extra_bookmarks", [])
+                 if isinstance(item, dict) and item.get("bookmark") == policy["boundary_bookmark"]]
+    if len(positions) != 1 or positions[0].get("physical_page") != evidence["boundary_page"]:
+        raise ProfileError("Word 封面分页与正文边界书签不一致")
+    pages = evidence.get("pages")
+    if not isinstance(pages, list) or len(pages) != evidence["boundary_page"]:
+        raise ProfileError("Word 封面逐页证据不完整")
+    for number, row in enumerate(pages, 1):
+        if (not isinstance(row, dict) or set(row) != {"page", "text_present", "plain_text_candidate", "inline_shapes", "tables", "floating_shapes"}
+                or type(row.get("page")) is not int or row["page"] != number
+                or type(row.get("text_present")) is not bool
+                or type(row.get("plain_text_candidate")) is not bool
+                or row["plain_text_candidate"] and not row["text_present"]
+                or any(type(row.get(key)) is not int or row[key] < 0
+                       for key in ("inline_shapes", "tables", "floating_shapes"))):
+            raise ProfileError("Word 封面逐页证据无效")
+
+
+def cover_pagination_result(profile, receipt):
+    """Evaluate configured blank-page policy only against previously verified Word evidence."""
+    policy = _cover_policy(profile)
+    if policy is None:
+        return None
+    evidence = (receipt or {}).get("word_cover")
+    if not isinstance(evidence, dict):
+        return {"ok": False, "reason": "缺少与成品绑定的 Word 封面分页证据"}
+    pages = evidence["pages"]
+    def occupancy(row):
+        if row["plain_text_candidate"] and evidence["plain_text_context"]:
+            return "content"
+        if row["text_present"] or row["inline_shapes"] or row["tables"] or row["floating_shapes"]:
+            return "unknown"
+        return "blank"
+    boundary_page = evidence["boundary_page"]
+    cover_pages = pages[:-1]
+    unexpected = [row["page"] for row in cover_pages if occupancy(row) == "blank"
+                  and boundary_page - row["page"] not in policy["allowed_blank_offsets"]]
+    uncertain = [row["page"] for row in cover_pages if occupancy(row) == "unknown"
+                 and boundary_page - row["page"] not in policy["allowed_blank_offsets"]]
+    reasons = []
+    content_pages = cover_pages if policy["require_boundary_new_page"] else pages
+    if not any(occupancy(row) == "content" for row in content_pages):
+        reasons.append("未检测到封面内容")
+    if unexpected:
+        reasons.append("封面存在未声明的空白页")
+    if uncertain:
+        reasons.append("封面页内容是否可见无法验证")
+    if policy["require_boundary_new_page"]:
+        if occupancy(pages[-1]) == "content":
+            reasons.append("正文首标题与封面内容位于同一页")
+        elif occupancy(pages[-1]) == "unknown":
+            reasons.append("正文首标题前是否存在可见内容无法验证")
+    return {"ok": not reasons, "boundary_page": boundary_page, "unexpected_blank_pages": unexpected,
+            "unverifiable_pages": uncertain, "allowed_blank_offsets": policy["allowed_blank_offsets"],
+            "reason": "；".join(reasons)}
+
+
+def _measure_cover_evidence(path, deadline, profile, word):
+    policy = _cover_policy(profile)
+    evidence = _measure_native_cover(path, deadline, policy)
+    _validated_cover_evidence(evidence, policy, word, word["source_sha256"])
+    return evidence
+
+
+def _remeasure_final_cover(path, deadline, profile, word, previous):
+    policy = _cover_policy(profile)
+    if policy is None:
+        return
+    final = _measure_native_cover(path, deadline, policy)
+    _validated_cover_evidence(final, policy, word, hashlib.sha256(path.read_bytes()).hexdigest())
+    if any(final.get(key) != previous.get(key) for key in
+           ("word_version", "macos_version", "machine", "probe_sha256", "page_count", "plain_text_context", "boundary_bookmark", "boundary_page", "pages")):
+        raise ProfileError("最终 Word 文件与封面分页证据不一致")
+
+
 def _measure_native_table_rows(path: Path, deadline: float, targets: list[dict]) -> dict | None:
     """Locate table rows under the same total export budget as pagination."""
     if not targets:
@@ -924,6 +1072,7 @@ def _refresh_master_layout_native(output_path: Path, project, profile):
                 raise ProfileError("Word 排版结果未使用所需字体：" + "、".join(sorted(missing)))
         table_targets = required_table_row_targets(project, profile)
         table_evidence = _measure_table_evidence(candidate, deadline, table_targets, word)
+        cover_evidence = _measure_cover_evidence(candidate, deadline, profile, word)
         manifest_sha256 = digest({name: hashlib.sha256(data).hexdigest() for name, data in sorted(parts.items())})
         receipt = {
             "version": NATIVE_TOC_VERSION, "page_reference_mode": "bookmark_pageref",
@@ -941,6 +1090,8 @@ def _refresh_master_layout_native(output_path: Path, project, profile):
                                            if table_evidence is not None else None)},
             "document_manifest_sha256": manifest_sha256,
         }
+        if cover_evidence is not None:
+            receipt["word_cover"] = {**cover_evidence, "manifest_sha256": manifest_sha256}
         receipt["signature"] = _mac(receipt, NATIVE_TOC_VERSION)
         parts[RECEIPT_PART] = json.dumps(receipt, ensure_ascii=False, sort_keys=True,
                                          separators=(",", ":")).encode()
@@ -954,6 +1105,7 @@ def _refresh_master_layout_native(output_path: Path, project, profile):
                        ("word_version", "macos_version", "machine", "probe_sha256", "page_count", "toc", "extra_bookmarks"))):
             raise ProfileError("最终 Word 文件与分页证据不一致")
         _remeasure_final_tables(final_candidate, deadline, table_targets, final_word, table_evidence)
+        _remeasure_final_cover(final_candidate, deadline, profile, final_word, cover_evidence)
         audit_generated_package(final_bytes)
         check_export_budget()
         output_path.write_bytes(final_bytes)
@@ -961,7 +1113,11 @@ def _refresh_master_layout_native(output_path: Path, project, profile):
 
 def refresh_master_layout(output_path: Path,project,profile):
     with ensure_export_budget():
-        if os.environ.get("PAPERGUARD_NATIVE_WORD_TOC", "").strip().lower() in {"1", "true", "yes", "on"}:
+        if os.environ.get("PAPERGUARD_SERVER_LAYOUT", "").strip().lower() in {"1", "true", "yes", "on"}:
+            if profile.get("toc_active"):
+                from app.services.server_layout import refresh_server_layout
+                refresh_server_layout(output_path, project, profile)
+        elif os.environ.get("PAPERGUARD_NATIVE_WORD_TOC", "").strip().lower() in {"1", "true", "yes", "on"}:
             if profile.get("toc_active"):
                 _refresh_master_layout_native(output_path, project, profile)
         else:
@@ -1029,6 +1185,7 @@ def _refresh_master_layout(output_path: Path,project,profile):
         table_targets = required_table_row_targets(project, profile)
         table_evidence = _measure_table_evidence(directory / "word-layout-candidate.docx", deadline,
                                                  table_targets, word)
+        cover_evidence = _measure_cover_evidence(directory / "word-layout-candidate.docx", deadline, profile, word)
         manifest_sha256 = digest({n:hashlib.sha256(v).hexdigest() for n,v in sorted(parts.items())})
         receipt={"version":VERSION,"page_reference_mode":"bookmark_pageref",
             "pagination_source":"word_native",
@@ -1045,6 +1202,8 @@ def _refresh_master_layout(output_path: Path,project,profile):
                 "table_rows":({**table_evidence, "manifest_sha256":manifest_sha256}
                               if table_evidence is not None else None)},
             "document_manifest_sha256":manifest_sha256}
+        if cover_evidence is not None:
+            receipt["word_cover"] = {**cover_evidence, "manifest_sha256": manifest_sha256}
         receipt["signature"]=_mac(receipt)
         parts[RECEIPT_PART]=json.dumps(receipt,ensure_ascii=False,sort_keys=True,separators=(",", ":")).encode()
         final_candidate = directory / "word-final-candidate.docx"
@@ -1064,6 +1223,7 @@ def _refresh_master_layout(output_path: Path,project,profile):
                 or final_word.get("extra_bookmarks") != word["extra_bookmarks"]):
             raise ProfileError("最终 Word 文件与分页证据不一致")
         _remeasure_final_tables(final_candidate, deadline, table_targets, final_word, table_evidence)
+        _remeasure_final_cover(final_candidate, deadline, profile, final_word, cover_evidence)
         check_export_budget()
         output_path.write_bytes(final_bytes)
 
@@ -1074,6 +1234,9 @@ def verify_layout_receipt(data,project,profile):
         raw=archive.read(RECEIPT_PART)
         if len(raw)>2_000_000:raise ProfileError("排版证据超出预算")
         receipt=json.loads(raw)
+        if receipt.get("version") == SERVER_TOC_VERSION:
+            from app.services.server_layout import verify_server_receipt
+            return verify_server_receipt(data, project, profile, receipt)
         signature=receipt.pop("signature","")
         version=receipt.get("version")
         mac_version=version if version in {LEGACY_VERSION, LEGACY_NATIVE_TOC_VERSION, VERSION, NATIVE_TOC_VERSION} else VERSION
@@ -1198,6 +1361,17 @@ def verify_layout_receipt(data,project,profile):
                              "machine": native["machine"], "page_count": receipt["page_count"],
                              "extra_bookmarks": native["extra_bookmarks"]}
             _validated_table_row_evidence(row_evidence, targets, expected_word, native["measured_sha256"])
+        cover_policy = _cover_policy(profile)
+        cover_evidence = receipt.get("word_cover")
+        if cover_policy is not None:
+            if not isinstance(cover_evidence, dict) or cover_evidence.get("manifest_sha256") != expected:
+                raise ProfileError("Word 封面分页证据与当前文件不一致")
+            expected_word = {"word_version": native["version"], "macos_version": native["macos_version"],
+                             "machine": native["machine"], "page_count": receipt["page_count"],
+                             "extra_bookmarks": native["extra_bookmarks"]}
+            _validated_cover_evidence(cover_evidence, cover_policy, expected_word, native["measured_sha256"])
+        elif cover_evidence is not None:
+            raise ProfileError("Word 封面分页证据包含未请求的规则")
         if destinations is not None:
             destination_keys = [item["key"] for item in destinations]
             if destination_keys != keys:

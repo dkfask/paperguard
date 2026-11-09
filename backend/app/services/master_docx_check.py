@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import math
 import posixpath
 import re
 import zipfile
@@ -17,7 +18,8 @@ from app.models.project import BlockType
 from app.services.document_assets import resolve_document_image_path
 from app.services.digit_font_rules import BODY_KINDS, HEADING_KINDS, numbering_font_error
 from app.services.master_layout_anchors import block_bookmark_name
-from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
+from app.services.references import (ReferenceInlineMappingError, reference_block_text, reference_inline_runs,
+                                     reference_number_for, uses_sequential_reference_numbering)
 from app.services.source_template_profile import verify_profile, digest, commentless_source, package_manifest
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -211,6 +213,39 @@ def _known_white_document_background(root):
         return True
     return (not len(background) and set(background.attrib) == {qn("w:color")}
             and background.get(qn("w:color"), "").upper() == "FFFFFF")
+
+
+def _text_color_is_visible(node, effective, *, white_document):
+    """Reject or mark unprovable text colors that can disappear on the page."""
+    rprs = node.findall(qn("w:rPr"))
+    if len(rprs) > 1:
+        return None
+    colors = rprs[0].findall(qn("w:color")) if rprs else []
+    if len(colors) > 1:
+        return None
+    if colors:
+        color = colors[0]
+        if (set(color.attrib) != {qn("w:val")} or len(color)
+                or (color.text or "").strip()):
+            return None
+        foreground = color.get(qn("w:val"), "").lower()
+    else:
+        foreground = effective.get("font.color")
+    if foreground is None or foreground == "auto":
+        return True if white_document else None
+    if not isinstance(foreground, str) or not re.fullmatch(r"[0-9a-fA-F]{6}", foreground):
+        return None
+    if not white_document:
+        return None
+    if foreground.upper() != "FFFFFF":
+        return True
+    highlight = effective.get("font.highlight")
+    if highlight is None or isinstance(highlight, str) and highlight.lower() == "none":
+        return False
+    if not isinstance(highlight, str):
+        return None
+    highlight_rgb = _HIGHLIGHT_RGB.get(highlight.lower())
+    return None if highlight_rgb is None else highlight_rgb != "FFFFFF"
 
 
 def _highlight_is_distinct_from_text(node, effective, *, white_document):
@@ -655,7 +690,7 @@ def _table_style_row_heights_allow_growth(table, styles) -> bool:
 
 def _object_page_relation(block, layout_receipt) -> tuple[bool, dict]:
     """Check object/caption pages using verified native Word measurements."""
-    native = (layout_receipt or {}).get("word_native") or {}
+    native = (layout_receipt or {}).get("server_layout") or (layout_receipt or {}).get("word_native") or {}
     rows = native.get("extra_bookmarks") or []
     positions = {row.get("bookmark"): row.get("physical_page")
                  for row in rows if isinstance(row, dict)}
@@ -673,7 +708,7 @@ def _object_page_relation(block, layout_receipt) -> tuple[bool, dict]:
 
 def _table_row_page_relation(block, layout_receipt) -> tuple[bool, dict]:
     """Independently check measured row locations, not rendered visibility."""
-    native = (layout_receipt or {}).get("word_native") or {}
+    native = (layout_receipt or {}).get("server_layout") or (layout_receipt or {}).get("word_native") or {}
     evidence = native.get("table_rows") or {}
     tables = evidence.get("tables") if isinstance(evidence, dict) else None
     name = block_bookmark_name(block.id, "start")
@@ -704,7 +739,7 @@ def _table_row_page_relation(block, layout_receipt) -> tuple[bool, dict]:
 
 def _heading_page_relation(heading, section, next_heading, layout_receipt):
     """Compare a heading's last page with its next meaningful content in Word."""
-    native = (layout_receipt or {}).get("word_native") or {}
+    native = (layout_receipt or {}).get("server_layout") or (layout_receipt or {}).get("word_native") or {}
     rows = native.get("extra_bookmarks") or []
     positions = {row.get("bookmark"): row.get("physical_page")
                  for row in rows if isinstance(row, dict)}
@@ -950,11 +985,126 @@ def _paragraph_property_matches(key, wanted, actual, properties, expected, layer
             if hanging is not None and hanging != expected.get("paragraph.indent.hanging"):
                 if not isinstance(hanging, dict) or hanging.get("value") != 0:
                     return False
+            # Resolve both physical and character values independently.  A
+            # zero character value alone does not cancel inherited firstLine
+            # in Word, even though the normalized resolver prefers characters.
+            if isinstance(wanted, dict) and wanted.get("value") == 0:
+                effective = {}
+                for layer in layers:
+                    indent = layer.find(qn("w:ind")) if layer is not None else None
+                    if indent is not None:
+                        for name in ("firstLine", "firstLineChars"):
+                            value = indent.get(qn("w:" + name))
+                            if value is not None:
+                                effective[name] = int(value)
+                if any(effective.get(name, 0) != 0 for name in ("firstLine", "firstLineChars")):
+                    return False
     if actual == wanted:
         return True
     zero = lambda item: (isinstance(item, dict) and item.get("unit") in {"pt", "line", "character"}
                          and isinstance(item.get("value"), (int, float)) and item["value"] == 0)
     return zero(wanted) and (actual is None or zero(actual))
+
+
+def _generated_indent_baselines(source_styles, output_styles, root, profile, *, word_roundtrip):
+    """Verify the narrowly declared base styles and every generated use."""
+    if source_styles is None or output_styles is None:
+        return False
+    defaults = [style for style in source_styles.findall(qn("w:style"))
+                if style.get(qn("w:type")) == "paragraph"
+                and style.get(qn("w:default"), "").lower() in {"1", "true", "on"}]
+    source_ids = [style.get(qn("w:styleId")) for style in source_styles.findall(qn("w:style"))]
+    expected = {}
+    for heading in profile.get("headings", []):
+        properties = heading.get("properties", {})
+        indent = properties.get("paragraph.indent.first_line", {})
+        if heading.get("inline") or indent.get("unit") != "character" or not indent.get("value"):
+            continue
+        size = properties.get("font.size", {})
+        value = size.get("value") if size.get("unit") == "pt" else None
+        if (len(defaults) != 1 or not defaults[0].get(qn("w:styleId"))
+                or not isinstance(value, (int, float)) or isinstance(value, bool)
+                or not math.isfinite(value) or value <= 0 or value * 2 != round(value * 2)):
+            return False
+        style_id = "PGIndentBase" + str(round(value * 2))
+        if style_id in source_ids:
+            return False
+        expected[heading["key"]] = style_id
+    generated_ids = set(expected.values())
+    present_ids = {style.get(qn("w:styleId")) for style in output_styles.findall(qn("w:style"))}
+    if generated_ids and not (generated_ids & present_ids):
+        # Older renderers used the source default paragraph style. Accept it
+        # only when its effective base size proves the same character width.
+        if not word_roundtrip and etree.tostring(source_styles, method="c14n") != etree.tostring(output_styles, method="c14n"):
+            return False
+        output_defaults = [style for style in output_styles.findall(qn("w:style"))
+                           if style.get(qn("w:type")) == "paragraph"
+                           and style.get(qn("w:default"), "").lower() in {"1", "true", "on"}]
+        default_id = defaults[0].get(qn("w:styleId"))
+        if len(output_defaults) != 1 or output_defaults[0].get(qn("w:styleId")) != default_id:
+            return False
+        resolver = EffectiveFormatResolver(output_styles)
+        values, sources = {}, {}
+        if resolver.defaults is not None:
+            resolver._run(values, sources, resolver.defaults.find(f"{qn('w:rPrDefault')}/{qn('w:rPr')}"))
+        chain = resolver.chain(default_id)
+        if resolver.issues & {"missing_style_reference", "style_inheritance_cycle"} or not chain:
+            return False
+        for style in chain:
+            if sum(item.get(qn("w:styleId")) == style.get(qn("w:styleId"))
+                   for item in output_styles.findall(qn("w:style"))) != 1:
+                return False
+            resolver._run(values, sources, style.find(qn("w:rPr")), style=True)
+        for paragraph in root.xpath(".//w:sdt[starts-with(w:sdtPr/w:tag/@w:val, 'pg-block:')]//w:p", namespaces=NS):
+            regions = paragraph.xpath("ancestor::w:sdt[starts-with(w:sdtPr/w:tag/@w:val, 'pg-region:')][1]/w:sdtPr/w:tag/@w:val", namespaces=NS)
+            region_key = regions[0].removeprefix("pg-region:") if len(regions) == 1 else ""
+            if region_key not in expected:
+                continue
+            style = paragraph.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+            actual = style.get(qn("w:val"), "") if style is not None else default_id
+            size = int(expected[region_key].removeprefix("PGIndentBase")) / 2
+            if actual != default_id or values.get("font.size") != {"value": size, "unit": "pt"}:
+                return False
+        return True
+    styles_without_generated = copy.deepcopy(output_styles)
+    for style_id in generated_ids:
+        styles = output_styles.xpath("./w:style[@w:styleId=$ident]", namespaces=NS, ident=style_id)
+        if len(styles) != 1:
+            return False
+        style = styles[0]
+        if (style.get(qn("w:type")) != "paragraph" or style.get(qn("w:customStyle")) not in {"1", "true", "on"}
+                or set(style.attrib) != {qn("w:type"), qn("w:customStyle"), qn("w:styleId")}):
+            return False
+        children = [child for child in style if child.tag not in {qn("w:rsid"), qn("w:uiPriority"),
+                    qn("w:qFormat"), qn("w:semiHidden"), qn("w:unhideWhenUsed")}]
+        if [child.tag for child in children] != [qn("w:name"), qn("w:basedOn"), qn("w:rPr")]:
+            return False
+        name, base, rpr = children
+        if (name.attrib != {qn("w:val"): style_id}
+                or base.attrib != {qn("w:val"): defaults[0].get(qn("w:styleId"))}
+                or len(name) or len(base) or rpr.attrib or len(rpr) != 1
+                or rpr[0].tag != qn("w:sz")
+                or rpr[0].attrib != {qn("w:val"): style_id.removeprefix("PGIndentBase")}
+                or len(rpr[0])):
+            return False
+        match = styles_without_generated.xpath("./w:style[@w:styleId=$ident]", namespaces=NS, ident=style_id)[0]
+        styles_without_generated.remove(match)
+    if not word_roundtrip and etree.tostring(source_styles, method="c14n") != etree.tostring(styles_without_generated, method="c14n"):
+        return False
+    for paragraph in root.xpath(".//w:sdt[starts-with(w:sdtPr/w:tag/@w:val, 'pg-block:')]//w:p", namespaces=NS):
+        regions = paragraph.xpath("ancestor::w:sdt[starts-with(w:sdtPr/w:tag/@w:val, 'pg-region:')][1]/w:sdtPr/w:tag/@w:val", namespaces=NS)
+        region_key = regions[0].removeprefix("pg-region:") if len(regions) == 1 else ""
+        style = paragraph.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+        actual = style.get(qn("w:val"), "") if style is not None else ""
+        if region_key in expected and actual != expected[region_key]:
+            return False
+        if actual in generated_ids and expected.get(region_key) != actual:
+            return False
+    for style in root.xpath(".//w:pStyle", namespaces=NS):
+        if style.get(qn("w:val"), "") in generated_ids and not style.xpath(
+                "ancestor::w:sdt[starts-with(w:sdtPr/w:tag/@w:val, 'pg-block:')]", namespaces=NS):
+            return False
+    return True
 
 
 def _apply_master_layout_review_policy(report, verified_receipt):
@@ -964,23 +1114,24 @@ def _apply_master_layout_review_policy(report, verified_receipt):
     exact bytes and project.  Older receipts remain readable but lack some of
     the current evidence.  Visual equivalence in other viewers is not inferred.
     """
-    from app.services.office_layout import NATIVE_TOC_VERSION
+    from app.services.office_layout import NATIVE_TOC_VERSION, SERVER_TOC_VERSION
+    from app.services.output_acceptance import output_report_is_acceptable
 
     checks = report.get("checks")
     layout_checks = [item for item in checks if isinstance(item, dict)
                      and item.get("rule") == "master.layout_receipt"] if isinstance(checks, list) else []
     complete = (
         isinstance(verified_receipt, dict)
-        and verified_receipt.get("version") == NATIVE_TOC_VERSION
-        and verified_receipt.get("pagination_source") == "word_native"
-        and verified_receipt.get("toc_preparation_source") == "word_native"
+        and ((verified_receipt.get("version") == NATIVE_TOC_VERSION
+              and verified_receipt.get("pagination_source") == "word_native"
+              and verified_receipt.get("toc_preparation_source") == "word_native")
+             or (verified_receipt.get("version") == SERVER_TOC_VERSION
+                 and verified_receipt.get("pagination_source") == "libreoffice_server"))
         and verified_receipt.get("state_stable") is True
         and len(layout_checks) == 1 and layout_checks[0].get("status") == "pass"
         and isinstance(checks, list) and bool(checks)
         and report.get("check_count") == len(checks)
-        and report.get("passed_count") == len(checks)
-        and report.get("status") == "pass"
-        and all(isinstance(item, dict) and item.get("status") == "pass" for item in checks)
+        and output_report_is_acceptable(report)
         and not report.get("unsupported")
         and not report.get("layout_evidence_limitations")
     )
@@ -990,7 +1141,9 @@ def _apply_master_layout_review_policy(report, verified_receipt):
     ]
     if complete:
         report["visual_evidence_limitations"] = [
-            "已核验 Word 分页、目录、字体及对象位置；图片内容、视觉裁切和其他 Word/WPS 环境的显示效果未逐项验证。"
+            ("已核验服务器分页、目录、字体及对象位置；学生本机 Word/WPS 的分页可能不同。"
+             if verified_receipt.get("version") == SERVER_TOC_VERSION else
+             "已核验 Word 分页、目录、字体及对象位置；图片内容、视觉裁切和其他 Word/WPS 环境的显示效果未逐项验证。")
         ]
 
 
@@ -1002,10 +1155,15 @@ def inspect_master_output(data, project, template, source, report):
     report["image_line_spacing_check_version"] = "word-image-line-spacing/1"
     report["direct_shading_check_version"] = "word-direct-shading/1"
     report["highlight_color_check_version"] = "word-highlight-color/1"
+    report["cover_pagination_check_version"] = "word-cover-pagination/2"
 
-    def check(rule, good, obj, expected=None, actual=None):
-        report["checks"].append({"rule": "master."+rule, "status": "pass" if good else "fail", "object":obj,
-                                 "expected":expected,"actual":actual,"evidence":"independent inspection of emitted OOXML and frozen source/profile"})
+    def check(rule, good, obj, expected=None, actual=None, *, unit=None, status=None):
+        item = {"rule": "master."+rule, "status": status or ("pass" if good else "fail"), "object": obj,
+                "expected": expected, "actual": actual,
+                "evidence": "independent inspection of emitted OOXML and frozen source/profile"}
+        if unit is not None:
+            item["unit"] = unit
+        report["checks"].append(item)
     layout_receipt = None
     try:
         profile = verify_profile(template, source)
@@ -1040,9 +1198,9 @@ def inspect_master_output(data, project, template, source, report):
             styles_root = load_part(output,"word/styles.xml")
             resolver = EffectiveFormatResolver(styles_root,load_part(output,"word/theme/theme1.xml"),load_part(output,"word/settings.xml"))
             source_names, output_names = set(original.namelist()),set(output.namelist())
-            from app.services.page_number_policy import CONTENT_TYPE, PART, REL_ID, REL_TYPE, sections
+            from app.services.page_number_policy import CONTENT_TYPE, PART, REL_ID, REL_TYPE, footer_bytes, sections
             page_policy = profile.get("body_page_number_policy")
-            from app.services.office_layout import RECEIPT_PART, verify_layout_receipt, heading_name
+            from app.services.office_layout import NATIVE_TOC_VERSION, SERVER_TOC_VERSION, RECEIPT_PART, verify_layout_receipt, heading_name
             toc_active = profile.get("toc_active", False)
             layout_receipt = None
             if toc_active:
@@ -1053,11 +1211,20 @@ def inspect_master_output(data, project, template, source, report):
                     check("layout_receipt", False, "directory pagination", expected="valid signed measured receipt", actual=type(exc).__name__)
             else:
                 check("layout_receipt", RECEIPT_PART not in output_names, "directory pagination", expected="no receipt for templates without mapped TOC")
-            # All relaxed package comparisons require a valid signed receipt.
-            # A file that merely resembles a Word save must stay on the strict
-            # source/package comparison path.
-            roundtrip_authorized = layout_receipt is not None
-            mutable = {"word/document.xml","word/_rels/document.xml.rels","[Content_Types].xml","word/settings.xml"}
+            if profile.get("cover_pagination") is not None:
+                from app.services.office_layout import cover_pagination_result
+                cover_result = cover_pagination_result(profile, layout_receipt)
+                check("cover_pagination", cover_result["ok"], "cover before first content heading",
+                      expected="no undeclared blank cover pages and the confirmed boundary policy", actual=cover_result)
+            # The current native path copies only verified TOC rows from Word;
+            # its signed receipt does not authorize changes to source parts or
+            # styles. Legacy Office round-trips may have rewritten those parts.
+            roundtrip_authorized = (layout_receipt is not None
+                                    and layout_receipt.get("version") not in {NATIVE_TOC_VERSION, SERVER_TOC_VERSION})
+            mutable = {"word/document.xml","word/_rels/document.xml.rels","[Content_Types].xml","word/settings.xml", "word/styles.xml"}
+            check("indent_baseline_styles", _generated_indent_baselines(
+                load_part(original, "word/styles.xml"), styles_root, root, profile,
+                word_roundtrip=roundtrip_authorized), "generated content styles")
             source_media = {hashlib.sha256(original.read(n)).hexdigest() for n in source_names if n.startswith("word/media/")}
             output_media = {hashlib.sha256(output.read(n)).hexdigest() for n in output_names if n.startswith("word/media/")}
             # These omissions are only a native Office round-trip allowance.
@@ -1114,15 +1281,31 @@ def inspect_master_output(data, project, template, source, report):
                     len(refs := [ref for ref in sec.findall(qn("w:footerReference"))
                                  if ref.get(qn("w:type")) == "default"]) == 1
                     and refs[0].get(qn("r:id")) == REL_ID for sec in sects[start:])
+                canonical_footer_hash = hashlib.sha256(footer_bytes(settings)).hexdigest()
+                legacy_footer_hash = hashlib.sha256(footer_bytes(settings, dirty=True)).hexdigest()
+                signed_footer_hash = page_policy.get("footer_sha256")
+                observed_footer_hash = hashlib.sha256(output.read(PART)).hexdigest() if PART in output_names else ""
+                # A legacy signed profile may produce a new canonical footer;
+                # its original footer also remains valid for historical files.
+                # A canonical profile never authorizes the dirty legacy footer.
+                footer_matches = (signed_footer_hash in {canonical_footer_hash, legacy_footer_hash}
+                                  and (observed_footer_hash == signed_footer_hash
+                                       or (signed_footer_hash == legacy_footer_hash
+                                           and observed_footer_hash == canonical_footer_hash)))
                 good = (PART in output_names and page_policy.get("part") == PART
                         and page_policy.get("relationship_id") == REL_ID
                         and page_policy.get("settings") == settings
-                        and hashlib.sha256(output.read(PART)).hexdigest() == page_policy.get("footer_sha256")
+                        and footer_matches
                         and len(fields) == 1 and fields[0].get(qn("w:instr"), "").strip() == "PAGE"
                         and len(fonts) == 1 and all(fonts[0].get(qn("w:" + slot)) == settings.get("font") for slot in ("ascii", "hAnsi", "eastAsia", "cs"))
                         and len(sizes) == 1 and sizes[0].get(qn("w:val")) == str(round(settings.get("size_pt", 0) * 2))
                         and len(align) == 1 and align[0].get(qn("w:val")) == "center" and refs_ok)
-                check("body_page_footer", bool(good), "body sections", expected="confirmed PAGE field, font, size and section references")
+                check("body_page_footer", bool(good), "body sections",
+                      expected="confirmed PAGE field, font, size and section references",
+                      actual={"profile_footer_sha256": signed_footer_hash,
+                              "output_footer_sha256": observed_footer_hash,
+                              "compatibility": ("invalid" if not footer_matches else
+                                                "legacy-dirty-to-clean/1" if signed_footer_hash != observed_footer_hash else "exact")})
             source_rels = load_part(original,"word/_rels/document.xml.rels")
             out_rels = load_part(output,"word/_rels/document.xml.rels")
             relations = {n.get("Id"):n for n in out_rels}
@@ -1130,6 +1313,31 @@ def inspect_master_output(data, project, template, source, report):
             source_relation_signatures = {_relationship_target_signature(n, original) for n in source_rels}
             output_relation_signatures = {_relationship_target_signature(n, output) for n in out_rels}
             check("source_relationships",source_relation_signatures.issubset(output_relation_signatures),"source relationships")
+            # A set of targets cannot detect two section IDs swapping their
+            # header/footer targets. Bind each surviving section reference to
+            # the exact source relationship; the separately checked generated
+            # body footer is the only allowed new section relationship.
+            source_by_id = {node.get("Id"): node for node in source_rels}
+            section_parts_good = len(source_by_id) == len(source_rels)
+            for ref in root.xpath(".//w:sectPr/w:headerReference | .//w:sectPr/w:footerReference", namespaces=NS):
+                relation_id = ref.get(qn("r:id"))
+                output_relation = relations.get(relation_id)
+                if page_policy and ref.tag == qn("w:footerReference") and relation_id == REL_ID:
+                    continue  # validated by body_page_footer and body_page_relationship
+                source_relation = source_by_id.get(relation_id)
+                expected_type = ("http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+                                 + ("header" if ref.tag == qn("w:headerReference") else "footer"))
+                if (source_relation is None or output_relation is None
+                        or source_relation.get("Type") != expected_type
+                        or output_relation.get("Type") != expected_type
+                        or source_relation.get("TargetMode") is not None
+                        or output_relation.get("TargetMode") is not None
+                        or _relationship_target_signature(source_relation, original)
+                           != _relationship_target_signature(output_relation, output)
+                        or posixpath.normpath(posixpath.join("word", output_relation.get("Target", ""))) not in output_names):
+                    section_parts_good = False
+            check("section_part_relationships", section_parts_good, "section headers and footers",
+                  expected="each section reference retains its confirmed source relationship")
             if page_policy:
                 relation = relations.get(REL_ID)
                 check("body_page_relationship", relation is not None and relation.get("Type") == REL_TYPE
@@ -1195,6 +1403,25 @@ def inspect_master_output(data, project, template, source, report):
                         style=paragraph.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
                         if style is not None and style.get(qn("w:val")) in toc_styles and paragraph.getparent() is body:
                             body.remove(paragraph)
+            fixed_relationship_ids = {
+                value for node in actual_static.iter() for name, value in node.attrib.items()
+                if etree.QName(name).namespace == NS["r"]
+            }
+            fixed_relationships_good = True
+            for relation_id in fixed_relationship_ids:
+                if page_policy and relation_id == REL_ID:
+                    continue  # validated by body_page_footer and body_page_relationship
+                source_relation, output_relation = source_by_id.get(relation_id), relations.get(relation_id)
+                if (source_relation is None or output_relation is None
+                        or _relationship_target_signature(source_relation, original)
+                           != _relationship_target_signature(output_relation, output)):
+                    fixed_relationships_good = False
+                    continue
+                if (output_relation.get("TargetMode") != "External"
+                        and posixpath.normpath(posixpath.join("word", output_relation.get("Target", ""))) not in output_names):
+                    fixed_relationships_good = False
+            check("fixed_part_relationships", fixed_relationships_good, "fixed template content",
+                  expected="fixed objects and links retain their confirmed source relationships")
             def structural(node):
                 return [node.tag,sorted(node.attrib.items()),node.text or "",[structural(c) for c in node]]
             check("fixed_body_and_sections",digest(structural(actual_static))==profile["protected_document_sha256"],"cover, fixed text, section breaks, heading order")
@@ -1349,10 +1576,11 @@ def inspect_master_output(data, project, template, source, report):
 
             decoration_keys = {"font.bold", "font.italic", "font.underline", "font.highlight", "font.vertical_alignment"}
 
-            def style(p, expected, obj, content_decoration=False, digit_font=False, color_scope=None):
+            def style(p, expected, obj, content_decoration=False, digit_font=False, color_scope=None, unit=None):
                 properties,_,runs,_ = resolver.paragraph(p, include_whitespace=True)
                 layers = _paragraph_property_layers(resolver, p)
-                good = True
+                unit = unit or p.getroottree().getpath(p)
+                color_good = True
                 # Color needs an explicit check even when the frozen template
                 # contains no color rule: accepting a new white override could
                 # make the student text disappear against a white page.
@@ -1361,19 +1589,22 @@ def inspect_master_output(data, project, template, source, report):
                 scoped_nodes = list((color_scope if color_scope is not None else p).iter(qn("w:r")))
                 nodes_by_path = {node.getroottree().getpath(node): node for node in scoped_nodes}
                 distinct_highlights = True
+                visible_colors = []
                 for run in runs:
                     node = nodes_by_path.get(run["path"])
                     if node is None:
                         if color_scope is None:
-                            good = False
+                            color_good = False
                         continue  # e.g. a fixed cover label outside the field
                     if run["text"].strip():
+                        visible_colors.append(_text_color_is_visible(
+                            node, run["properties"], white_document=_known_white_document_background(root)))
                         distinct_highlights &= _highlight_is_distinct_from_text(
                             node, run["properties"], white_document=_known_white_document_background(root))
                     rpr = node.findall(qn("w:rPr"))
                     colors = rpr[0].findall(qn("w:color")) if len(rpr) == 1 else []
                     if len(rpr) > 1 or len(colors) > 1:
-                        good = False
+                        color_good = False
                         continue
                     direct = None
                     if colors:
@@ -1382,31 +1613,52 @@ def inspect_master_output(data, project, template, source, report):
                         if (set(color.attrib) != {qn("w:val")} or len(color)
                                 or (color.text or "").strip()
                                 or not re.fullmatch(r"(?:auto|[0-9a-f]{6})", direct)):
-                            good = False
+                            color_good = False
                             continue
                     wanted = expected.get("font.color")
                     actual = run["properties"].get("font.color")
                     if wanted is None or isinstance(wanted, str) and wanted.lower() == "auto":
                         # A direct auto value resets inherited colors. Without
                         # it, an effective literal color is not automatic.
-                        good &= direct == "auto" if direct is not None else actual in (None, "auto")
+                        color_good &= direct == "auto" if direct is not None else actual in (None, "auto")
                     elif isinstance(wanted, str) and re.fullmatch(r"[0-9a-fA-F]{6}", wanted):
-                        good &= (direct is None or direct == wanted.lower()) and (
+                        color_good &= (direct is None or direct == wanted.lower()) and (
                             isinstance(actual, str) and actual.lower() == wanted.lower())
                     else:
-                        good = False
+                        color_good = False
                 check("highlight_color_distinct", bool(distinct_highlights), obj,
-                      expected="effective foreground differs from the highlight; known colors only")
+                      expected="effective foreground differs from the highlight; known colors only", unit=unit)
+                if any(value is False for value in visible_colors):
+                    color_status = "fail"
+                elif any(value is None for value in visible_colors):
+                    color_status = "unverifiable"
+                else:
+                    color_status = "pass"
+                check("text_color_visibility", color_status == "pass", obj,
+                      expected="text is visible on the verified page background",
+                      actual=visible_colors, unit=unit, status=color_status)
                 for key,value in expected.items():
                     if key.startswith("paragraph."):
-                        good &= _paragraph_property_matches(key,value,properties.get(key),properties,expected,layers)
+                        property_good = _paragraph_property_matches(
+                            key, value, properties.get(key), properties, expected, layers,
+                        )
                     elif key.startswith("font.") and key != "font.color" and not (content_decoration and key in decoration_keys):
-                        for run in runs:
-                            if (digit_font and key in {"font.ascii", "font.hAnsi", "font.eastAsia", "font.cs"}
-                                    and run["text"] and all("0" <= char <= "9" for char in run["text"])):
-                                continue
-                            good &= run["properties"].get(key)==value
-                check("effective_format",bool(good),obj)
+                        property_good = all(
+                            run["properties"].get(key) == value
+                            for run in runs
+                            if not (digit_font and key in {"font.ascii", "font.hAnsi", "font.eastAsia", "font.cs"}
+                                    and run["text"] and all("0" <= char <= "9" for char in run["text"]))
+                        )
+                    elif key == "font.color":
+                        property_good = color_good
+                    else:
+                        continue
+                    check("effective_format", bool(property_good), obj,
+                          expected={key: value}, unit=f"{unit}#{key}")
+                if "font.color" not in expected:
+                    check("effective_format", bool(color_good), obj,
+                          expected={"font.color": "preserve the source profile color"},
+                          unit=f"{unit}#font.color")
 
             def digit_style(p, obj, font):
                 _, _, runs, _ = resolver.paragraph(p, include_whitespace=True)
@@ -1452,8 +1704,10 @@ def inspect_master_output(data, project, template, source, report):
                         "font.vertical_alignment": vertical if vertical is not None else expected.get("font.vertical_alignment", "baseline"),
                     }
 
-                good = sum(length for length, _ in segments) == len(text)
-                good &= sum(run["character_count"] for run in actual_runs) == len(text)
+                mapping_good = sum(length for length, _ in segments) == len(text)
+                mapping_good &= sum(run["character_count"] for run in actual_runs) == len(text)
+                decoration_good = mapping_good
+                vertical_good = mapping_good
                 segment_index = 0
                 segment_remaining = segments[0][0] if segments else 0
                 for run in actual_runs:
@@ -1466,7 +1720,10 @@ def inspect_master_output(data, project, template, source, report):
                             observed = actual.get(key, default)
                             if key == "font.highlight" and isinstance(value, str) and isinstance(observed, str):
                                 value, observed = value.lower(), observed.lower()
-                            good &= observed == value
+                            if key == "font.vertical_alignment":
+                                vertical_good &= observed == value
+                            else:
+                                decoration_good &= observed == value
                         consumed = min(remaining, segment_remaining)
                         remaining -= consumed
                         segment_remaining -= consumed
@@ -1474,8 +1731,11 @@ def inspect_master_output(data, project, template, source, report):
                             segment_index += 1
                             if segment_index < len(segments):
                                 segment_remaining = segments[segment_index][0]
-                    good &= remaining == 0
-                check("inline_decoration", bool(good), block.id)
+                    decoration_good &= remaining == 0
+                    vertical_good &= remaining == 0
+                check("inline_decoration", bool(decoration_good), block.id)
+                check("inline_vertical_alignment", bool(vertical_good), block.id,
+                      expected="preserve baseline, superscript and subscript semantics")
 
             for field in profile["fields"]:
                 content = get("pg-field:"+field["key"])
@@ -1491,10 +1751,32 @@ def inspect_master_output(data, project, template, source, report):
                         check("field_label_visibility", _generated_content_visible(p, styles_root)
                               and _cover_label_visible(source_root, field, content, styles_root), field["key"],
                               expected="cover field and its label visible in Word and web layout")
-                        style(p,{k:v for k,v in field["properties"].items() if k.startswith("font.")},field["key"],color_scope=content)
+                        paragraph_rules = next((item["properties"] for item in profile.get("cover_table_overrides", [])
+                                                if item["path"] == field["path"]), {})
+                        expected = {k: v for k, v in field["properties"].items() if k.startswith("font.")}
+                        expected.update({k: v for k, v in paragraph_rules.items() if k.startswith("paragraph.")})
+                        style(p, expected, field["key"], color_scope=content)
             expected_regions = [h["key"] for h in profile["headings"] if h["kind"]!="toc"]
             check("project_sections",[s.key for s in project.sections]==expected_regions,"project section order")
             sections = {s.key:s for s in project.sections}
+            if uses_sequential_reference_numbering(project, blocking_only=True):
+                reference_blocks = [block for section in project.sections
+                    if str(getattr(section.type, "value", section.type)) == "references" or section.key == "references"
+                    for block in section.paragraphs
+                    if block.type == BlockType.PARAGRAPH and reference_block_text(block).strip()]
+                actual_numbers = []
+                complete = True
+                for block in reference_blocks:
+                    controls = root.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val=$tag]/w:sdtContent", namespaces=NS, tag="pg-block:" + block.id)
+                    paragraphs = controls[0].findall(qn("w:p")) if len(controls) == 1 else []
+                    match = re.match(r"^\[(\d+)\](?:\s|$)", paragraph_text(paragraphs[0])) if len(paragraphs) == 1 else None
+                    if match:
+                        actual_numbers.append(int(match.group(1)))
+                    else:
+                        complete = False
+                expected_numbers = list(range(1, len(reference_blocks) + 1))
+                check("reference_sequential_numbers", complete and actual_numbers == expected_numbers,
+                      "references", expected=expected_numbers, actual=actual_numbers)
             chapter=figure=table_number=0
             measured_headings = [h for h in profile["headings"] if h["kind"] != "toc"]
             for heading_index, heading in enumerate(measured_headings):
@@ -1668,8 +1950,12 @@ def inspect_master_output(data, project, template, source, report):
                                   block.id, expected=expected_xml_borders, actual=actual_borders)
                             alignment = tblpr.find(qn("w:jc")) if tblpr is not None else None
                             check("table_alignment", alignment is not None and alignment.get(qn("w:val")) == "center", block.id)
-                            for p in table.findall(".//"+qn("w:p")):
-                                style(p,{**profile["object_properties"]["table_text"],"paragraph.indent.first_line":{"value":0,"unit":"character"}},block.id)
+                            for row_index, row in enumerate(table.findall(qn("w:tr"))):
+                                for cell_index, cell in enumerate(row.findall(qn("w:tc"))):
+                                    for paragraph_index, paragraph in enumerate(cell.findall(".//" + qn("w:p"))):
+                                        style(paragraph, {**profile["object_properties"]["table_text"],
+                                              "paragraph.indent.first_line":{"value":0,"unit":"character"}},
+                                              block.id, unit=f"table-cell:{row_index}:{cell_index}:{paragraph_index}")
                             check("table_header",_table_header_matches_policy(table),block.id)
                             check("table_row_height", _table_direct_row_heights_allow_growth(table), block.id,
                                   expected="no fixed or invalid direct row height")
@@ -1681,14 +1967,18 @@ def inspect_master_output(data, project, template, source, report):
                             same_page, pages = _object_page_relation(block, layout_receipt)
                             check("table_caption_pagination", same_page, block.id,
                                   expected="caption and table start on the same Word page", actual=pages)
-                            native = (layout_receipt or {}).get("word_native") or {}
+                            native = (layout_receipt or {}).get("server_layout") or (layout_receipt or {}).get("word_native") or {}
                             if "table_rows" in native:
                                 located, details = _table_row_page_relation(block, layout_receipt)
                                 check("table_row_pagination", located, block.id,
                                       expected="every table row has an ordered Word page location", actual=details)
-                            elif layout_receipt is not None:
-                                report.setdefault("layout_evidence_limitations", []).append(
-                                    "旧版排版回执不含表格逐行定位证据：" + block.id)
+                            else:
+                                reason = ("旧版 Word 排版回执不含表格逐行定位证据"
+                                          if layout_receipt is not None else "Word 排版回执缺失，无法验证表格逐行分页")
+                                check("table_row_pagination", False, block.id,
+                                      expected="every table row has an ordered Word page location",
+                                      actual=reason, status="unverifiable")
+                                report.setdefault("layout_evidence_limitations", []).append(reason + ":" + block.id)
                         if len(nodes)==2:
                             style(nodes[0],{**{k:v for k,v in profile["object_properties"]["table_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_next":True,"paragraph.keep_lines":True},block.id+":caption")
                     elif block.type==BlockType.EQUATION and block.equation:
@@ -1714,5 +2004,7 @@ def inspect_master_output(data, project, template, source, report):
     report["check_count"]=len(report["checks"])
     report["passed_count"]=sum(c["status"]=="pass" for c in report["checks"])
     report["status"]="pass" if report["check_count"] and report["check_count"]==report["passed_count"] else "fail"
+    from app.services.output_acceptance import apply_1101_acceptance_contract
+    apply_1101_acceptance_contract(report)
     _apply_master_layout_review_policy(report, layout_receipt)
     return report

@@ -13,6 +13,52 @@ from app.services.references import reference_block_text, reference_number_for, 
 
 _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 _DATE_RE = re.compile(r"^((?:19|20)\d{2})(?:年(\d{1,2})月(?:(\d{1,2})日)?|[-/.](\d{1,2})(?:[-/.](\d{1,2}))?)?$")
+_LEGACY_1101_COVER_FIELDS = [
+    "title", "college", "department", "major", "class_name", "author", "student_id", "advisor", "date",
+]
+_LEGACY_1101_COVER_DESCRIPTION = (
+    "封面须包含题目、学生所在学院、系别、专业、班级、姓名、学号、指导教师、提交日期"
+)
+_LEGACY_1101_REFERENCE_DESCRIPTION = (
+    "参考文献按引用或参考先后顺序编号，中文文献在前英文文献在后，序号用[1][2]...格式"
+)
+
+
+def _normalize_legacy_1101_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Restore two exact 1101 rules saved before their automatic checkers existed."""
+    if item.get("type") != "manual" or item.get("checker"):
+        return item
+    if (item.get("id") == "cover_required_fields"
+            and item.get("description") == _LEGACY_1101_COVER_DESCRIPTION
+            and item.get("params") == {"min": 0, "max": 35}):
+        return {
+            **item,
+            "type": "auto",
+            "target": "cover",
+            "checker": "cover.fields_present",
+            "params": {"field_keys": list(_LEGACY_1101_COVER_FIELDS)},
+        }
+    if (item.get("id") == "references_format"
+            and item.get("description") == _LEGACY_1101_REFERENCE_DESCRIPTION
+            and item.get("params") == {
+                "order": "sequential",
+                "bracket": "square",
+                "style": "顺序编码制",
+                "language_order": "中文在前，英文在后",
+            }):
+        return {
+            **item,
+            "type": "auto",
+            "target": "references",
+            "checker": "references.list_facts",
+            "params": {
+                "required": True,
+                "numbering": "sequential",
+                "bracket_style": "square",
+                "language_order": "zh_before_en",
+            },
+        }
+    return item
 
 
 def _defense_year(value: str) -> int | None:
@@ -200,7 +246,8 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
     sections = {section.key: section for section in project.sections}
     format_item_ids = set(snapshot.get("format_item_ids") or [])
 
-    for item in snapshot.get("resolved_items", []):
+    for raw_item in snapshot.get("resolved_items", []):
+        item = _normalize_legacy_1101_item(raw_item)
         checker = item.get("checker", "")
         item_type = item.get("type", "auto")
         descriptor = {
@@ -280,7 +327,8 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
         if checker == "cover.fields_present":
             keys = params.get("field_keys")
             declared = {field.key: field.label for field in template.meta_fields} if template else {}
-            if (not isinstance(keys, list) or not keys or any(not isinstance(key, str) or not key for key in keys)
+            if (set(params) != {"field_keys"} or not isinstance(keys, list) or not keys
+                    or any(not isinstance(key, str) or not key for key in keys)
                     or len(keys) != len(set(keys)) or any(key not in declared for key in keys)):
                 not_checked.append({
                     **{key: descriptor[key] for key in ("id", "description", "type", "severity", "enforce", "source", "source_version", "sources")},
@@ -292,12 +340,29 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
                 findings.append(_finding(descriptor, "封面缺少：" + "、".join(absent), absent, "所列封面字段均已填写", "cover"))
             continue
         if checker == "references.list_facts":
+            ordered_checks = {"numbering", "bracket_style", "language_order"} & set(params)
+            params_supported = (
+                set(params).issubset({"required", "numbering", "bracket_style", "language_order"})
+                and ("required" not in params or type(params["required"]) is bool)
+                and ("numbering" not in params or params["numbering"] == "sequential")
+                and ("bracket_style" not in params or params["bracket_style"] == "square")
+                and ("language_order" not in params or params["language_order"] == "zh_before_en")
+                and ("required" in params or bool(ordered_checks))
+            )
+            if not params_supported:
+                not_checked.append({
+                    **{key: descriptor[key] for key in ("id", "description", "type", "severity", "enforce", "source", "source_version", "sources")},
+                    "reason": "unsupported_checker_parameters", "checker": checker, "fixable": False,
+                })
+                continue
             section = section or _section_for(project, "references", params)
+            list_required = params.get("required", bool(ordered_checks))
             if section is None:
-                if params.get("required"):
+                if list_required:
                     findings.append(_finding(descriptor, "缺少参考文献章节", False, True, "references"))
                 continue
             position = 0
+            prior_language_rank = -1
             for block in section.paragraphs:
                 if block.type.value != "paragraph":
                     findings.append(_finding(descriptor, "参考文献列表包含非文献内容", block.id, "参考文献条目", section.key))
@@ -310,7 +375,38 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
                 for issue in issues:
                     findings.append(_finding(descriptor, f"参考文献第 {position} 条：{issue}",
                                              {"block_id": block.id}, "事实完整并保留原文", section.key))
-            if not position and params.get("required"):
+                if params.get("numbering") == "sequential":
+                    actual_number = reference_number_for(block, position)
+                    if actual_number != position:
+                        findings.append(_finding(
+                            descriptor, f"参考文献第 {position} 条编号不连续", actual_number, position, section.key,
+                        ))
+                if params.get("bracket_style") == "square":
+                    number = reference_number_for(block, position)
+                    rendered = reference_block_text(block, number)
+                    if not re.match(rf"^\[\s*{number}\s*\]\s+\S", rendered):
+                        findings.append(_finding(
+                            descriptor, f"参考文献第 {position} 条未使用方括号编号",
+                            rendered[:80], f"[{number}] 文献内容", section.key,
+                        ))
+                if params.get("language_order") == "zh_before_en":
+                    fact = reference.language_fact if reference else None
+                    languages = set(fact.languages) if fact else set()
+                    confirmed = bool(fact and fact.status == "confirmed" and fact.confirmed_by and fact.confirmed_at)
+                    if not confirmed or len(languages) != 1 or not languages.issubset({"zh", "en"}):
+                        findings.append(_finding(
+                            descriptor, f"参考文献第 {position} 条语种未确认，无法检查中英文排序",
+                            sorted(languages), "已确认中文或英文", section.key,
+                        ))
+                    else:
+                        language_rank = 0 if languages == {"zh"} else 1
+                        if language_rank < prior_language_rank:
+                            findings.append(_finding(
+                                descriptor, f"参考文献第 {position} 条违反中文在前、英文在后的顺序",
+                                sorted(languages), "先中文、后英文", section.key,
+                            ))
+                        prior_language_rank = max(prior_language_rank, language_rank)
+            if not position and list_required:
                 findings.append(_finding(descriptor, "参考文献列表为空", 0, ">= 1", section.key))
             continue
         if checker == "references.count":

@@ -78,6 +78,19 @@ export class PaperGuardPage {
     return dialog
   }
 
+  async assignBusinessRole(username: string, role: 'teacher' | 'student') {
+    const dialog = await this.openUserDetails(username)
+    const roleLabel = role === 'teacher' ? '设为教师' : '设为学生'
+    await expect(dialog.getByRole('button', { name: roleLabel, exact: true })).toBeVisible()
+    await this.waitForMutation('/role-status', async () => {
+      await dialog.getByRole('button', { name: roleLabel, exact: true }).click()
+    }, 'PUT')
+    await this.closeDetails()
+    const row = await this.userRow(username)
+    await expect(row.locator('.role-label')).toHaveText(role === 'teacher' ? '指导教师' : '学生')
+    if (role === 'teacher') await expect(row).toContainText('已认证')
+  }
+
   async closeDetails() {
     await this.page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).first().click()
     await expect(this.page.getByRole('dialog')).toHaveCount(0)

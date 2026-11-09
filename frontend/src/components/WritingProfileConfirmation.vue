@@ -6,7 +6,7 @@
     <p v-if="dirty" role="status">{{ L('有尚未保存的修改，请先保存草稿。', 'Save your changes before preparing a preview.') }}</p>
     <details v-if="conflicts.length"><summary>{{ L('选择存在差异的格式', 'Resolve observed variations') }} ({{ conflicts.length }})</summary>
       <label v-for="rule in conflicts" :key="rule.id" class="rule-choice">
-        <span>{{ rule.scope.region_title }} · {{ rule.scope.role }} · {{ rule.property }}</span>
+        <span>{{ rule.scope.region_title }} · {{ contentRoleLabel(rule.scope.role) }} · {{ propertyLabel(rule.property) }}</span>
         <select :value="selected[rule.id] || JSON.stringify(rule.expected)" @change="choose(rule.id, $event.target.value)">
           <option :value="JSON.stringify(rule.expected)">{{ L('建议：', 'Suggested: ') }}{{ valueLabel(rule.expected) }}</option>
           <option v-for="(alternative, i) in rule.alternatives" :key="i" :value="JSON.stringify(alternative.expected)">{{ valueLabel(alternative.expected) }}</option>
@@ -20,12 +20,25 @@
       <label class="rule-choice">{{ L('页码字体', 'Page-number font') }}<input v-model.trim="bodyPageNumberFont" maxlength="128" @input="invalidatePageNumber" /></label>
       <label class="rule-choice">{{ L('页码字号（磅）', 'Page-number size (pt)') }}<input v-model.number="bodyPageNumberSize" type="number" min="6" max="36" step="0.5" @input="invalidatePageNumber" /></label>
     </div>
-    <button type="button" class="small" :disabled="busy || dirty" @click="prepare">{{ L('预览执行配置', 'Preview execution plan') }}</button>
+    <label class="ack"><input v-model="coverPaginationEnabled" data-test="cover-pagination-enabled" type="checkbox" :disabled="busy" @change="invalidatePageNumber" />{{ L('按确认的封面规则检查多余空白页', 'Check cover pages against the confirmed blank-page rule') }}</label>
+    <div v-if="coverPaginationEnabled" data-test="cover-pagination-settings">
+      <label class="ack"><input v-model="coverBoundaryNewPage" data-test="cover-boundary-new-page" type="checkbox" :disabled="busy" @change="invalidatePageNumber" />{{ L('首个内容章节必须从新的一页开始', 'Start the first content section on a new page') }}</label>
+      <label class="rule-choice">{{ L('模板明确要求留白的页面：填写相对首个内容章节向前的页数，多个数字用逗号分隔；无留白则不填。', 'Intentional blank pages: enter offsets before the first content section, separated by commas; leave empty for none.') }}
+        <input v-model.trim="coverBlankOffsets" data-test="cover-blank-offsets" placeholder="1, 2" :disabled="busy" @input="invalidatePageNumber" />
+      </label>
+      <p v-if="!coverOffsetsValid" class="error" role="alert">{{ L('请输入不重复的 1–63 整数，用逗号分隔。', 'Enter distinct integers from 1 to 63, separated by commas.') }}</p>
+    </div>
+    <button data-test="writing-profile-prepare" type="button" class="small" :disabled="busy || dirty || !coverOffsetsValid" @click="prepare">{{ L('预览执行配置', 'Preview execution plan') }}</button>
     <div v-if="proposal" class="execution-preview" data-test="writing-profile-plan">
       <p>{{ L('以下格式来自源稿和已选项。母版中的单个示例尺寸不会作为所有新图片或表格的固定尺寸。', 'The following styles use source evidence and your choices. Individual example dimensions do not become universal object dimensions.') }}</p>
       <p v-if="proposal.trials">{{ L('普通正文和长正文的母版试填检查已通过。', 'Normal and long-content trial checks passed.') }}</p>
       <p v-else role="status">{{ L('请先确认数字字体规则，再重新预览并执行试填检查。', 'Confirm the digit-font rule, then preview again to run the trials.') }}</p>
+      <details v-if="plan.heading_semantic_corrections?.length" open data-test="heading-semantic-corrections">
+        <summary>{{ L('根据母版编号修正章节层级', 'Heading levels corrected from source numbering') }} ({{ plan.heading_semantic_corrections.length }})</summary>
+        <ul><li v-for="item in plan.heading_semantic_corrections" :key="item.key">{{ item.title }} · {{ L('二级调整为三级，归入', 'Level 2 changed to level 3 under') }} {{ plan.headings.find(heading => heading.key === item.parent_key)?.title }}</li></ul>
+      </details>
       <details v-if="plan.removed_toc_entries?.length"><summary>{{ L('将清理的失配目录项', 'Unmatched TOC entries to remove') }} ({{ plan.removed_toc_entries.length }})</summary><ul><li v-for="(entry, i) in plan.removed_toc_entries" :key="i">{{ entry }}</li></ul></details>
+      <p v-if="plan.cover_pagination" data-test="cover-pagination-preview">{{ L('封面检查：首个内容章节', 'Cover check: first content section') }} {{ plan.headings.find(heading => heading.key === plan.cover_pagination.boundary_key)?.title }} · {{ L('允许留白的相对位置', 'Allowed blank-page offsets') }}: {{ plan.cover_pagination.allowed_blank_offsets.join(', ') || L('无', 'none') }}</p>
       <details><summary>{{ L('封面字段', 'Cover fields') }} ({{ plan.fields.length }})</summary>
         <details v-for="field in plan.fields" :key="field.key"><summary>{{ field.key }}：{{ fontLabel(field.properties) }}</summary><dl><template v-for="(value, key) in field.properties" :key="key"><dt>{{ propertyLabel(key) }}</dt><dd>{{ valueLabel(value) }}</dd></template></dl></details>
       </details>
@@ -83,7 +96,7 @@
       <label class="ack"><input v-model="acceptObjects" type="checkbox" />{{ L('采用上述图表样式和按章编号；新增图片适应版心并保持比例，表格适应版心并重复表头。未从示例推断全局固定大小。', 'Accept the displayed object styles and chapter-based captions. Images fit the text area and retain their ratio; tables fit and repeat their header. These are explicit layout defaults.') }}</label>
       <p v-if="!inlineLabelsMatchPreview" role="status">{{ L('关键词标签已修改，请重新预览后再发布。', 'Keyword labels changed. Preview again before publishing.') }}</p>
       <p>{{ L('正式交付前须通过系统的排版与成品验证。', 'Final delivery requires system layout and output verification.') }}</p>
-      <button type="button" class="small primary" :disabled="busy || dirty || !accepted || !removeInstructions || !acceptObjects || !contentSelectionMatchesPreview || !inlineLabelsMatchPreview || (plan.removed_toc_entries?.length && !removeUnmatchedToc)" @click="publish">{{ L('确认并发布此版本', 'Confirm and publish version') }}</button>
+      <button data-test="writing-profile-publish" type="button" class="small primary" :disabled="busy || dirty || !accepted || !removeInstructions || !acceptObjects || !contentSelectionMatchesPreview || !inlineLabelsMatchPreview || (plan.removed_toc_entries?.length && !removeUnmatchedToc)" @click="publish">{{ L('确认并发布此版本', 'Confirm and publish version') }}</button>
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
   </section>
@@ -107,6 +120,14 @@ const preserveManuscriptStructure = ref(!!props.template.source_execution?.prese
 const bodyPageNumberEnabled = ref(!!props.template.source_execution?.body_page_number)
 const bodyPageNumberFont = ref(props.template.source_execution?.body_page_number?.font || 'Times New Roman')
 const bodyPageNumberSize = ref(props.template.source_execution?.body_page_number?.size_pt || 9)
+const coverPaginationEnabled = ref(!!props.template.source_execution?.cover_pagination)
+const coverBoundaryNewPage = ref(props.template.source_execution?.cover_pagination?.require_boundary_new_page ?? true)
+const coverBlankOffsets = ref((props.template.source_execution?.cover_pagination?.allowed_blank_offsets || []).join(', '))
+const coverOffsetsValid = computed(() => {
+  if (!coverPaginationEnabled.value || !coverBlankOffsets.value) return true
+  const parts = coverBlankOffsets.value.split(/[,，]/).map(value => value.trim())
+  return parts.every(value => /^[1-9]\d*$/.test(value) && Number(value) <= 63) && new Set(parts.map(Number)).size === parts.length
+})
 const conflicts = computed(() => (props.template.writing_specification?.rules || []).filter(r => r.confidence === 'conflict' && (r.property.startsWith('font.') || r.property.startsWith('paragraph.'))))
 const plan = computed(() => proposal.value?.template.source_execution)
 function canonicalInlineLabels(labels) {
@@ -131,13 +152,27 @@ const contentSelectionMatchesPreview = computed(() => {
 function valueLabel(value) { return typeof value === 'object' ? `${value.value ?? ''} ${{pt:L('磅','pt'),line:L('行','lines'),multiple:L('倍','multiple'),character:L('字符','characters')}[value.unit] ?? value.unit ?? JSON.stringify(value)}` : typeof value === 'boolean' ? (value ? L('是','Yes') : L('否','No')) : String(value) }
 function propertyLabel(key) {
   const labels = {'font.eastAsia':'中文字体','font.ascii':'西文字体','font.hAnsi':'西文扩展字体','font.cs':'复杂文字字体','font.size':'字号','font.bold':'加粗','font.italic':'斜体','font.color':'颜色','paragraph.align':'对齐','paragraph.spacing.line':'行距','paragraph.spacing.before':'段前间距','paragraph.spacing.after':'段后间距','paragraph.indent.first_line':'首行缩进','paragraph.indent.left':'左缩进','paragraph.indent.right':'右缩进','paragraph.indent.hanging':'悬挂缩进','paragraph.page_break_before':'段前分页','paragraph.keep_next':'与下段同页','paragraph.keep_lines':'段中不分页','paragraph.widow_control':'孤行控制'}
-  return lang.value === 'zh' ? labels[key] || key : key.replaceAll('.', ' ').replaceAll('_', ' ')
+  return lang.value === 'zh' ? labels[key] || '其他格式属性' : key.replaceAll('.', ' ').replaceAll('_', ' ')
 }
-function objectLabel(role) { return lang.value === 'zh' ? {figure_caption:'图题',table_caption:'表题',table_text:'表格文字'}[role] || role : role.replaceAll('_',' ') }
+function contentRoleLabel(role) {
+  const labels = {
+    body: '正文', cover: '封面', cover_title: '封面标题', cover_meta: '封面信息',
+    abstract: '中文摘要正文', abstract_title: '中文摘要标题', english_abstract: '英文摘要正文',
+    english_abstract_title: '英文摘要标题', keywords: '中文关键词', english_keywords: '英文关键词',
+    toc: '目录标题', toc_entry: '目录条目', heading1: '一级标题', heading2: '二级标题',
+    heading3: '三级标题', heading4: '四级标题', figure_caption: '图题', table_caption: '表题',
+    table_text: '表格文字', table: '表格', image: '图片', equation: '公式', chart: '原生图表',
+    section: '页面与分节', header: '页眉', footer: '页脚', references: '参考文献正文',
+    references_title: '参考文献标题', acknowledgement: '致谢正文', acknowledgement_title: '致谢标题',
+    appendix: '附录正文', appendix_title: '附录标题', instruction: '模板中的说明',
+  }
+  return lang.value === 'zh' ? labels[role] || '其他内容类型' : String(role || '').replaceAll('_', ' ')
+}
+function objectLabel(role) { return contentRoleLabel(role) }
 function fontLabel(p) { return `${p['font.eastAsia'] || ''} / ${p['font.ascii'] || ''} · ${valueLabel(p['font.size'] || {})} · ${L('行距', 'line')} ${valueLabel(p['paragraph.spacing.line'] || {})}` }
 function choose(id, value) { selected.value[id] = value; proposal.value = null; accepted.value = false }
 function invalidatePageNumber() { proposal.value = null; accepted.value = false }
-function confirmation() { return { expected_specification_sha256: props.template.writing_specification?.specification_sha256 || '', overrides: Object.fromEntries(Object.entries(selected.value).map(([k,v]) => [k,JSON.parse(v)])), confirmed_content_rule_ids: [...confirmedContentRules.value], confirmed_digit_font_rule_ids: [...confirmedDigitFontRules.value], inline_label_overrides: { ...inlineLabelOverrides.value }, body_page_number: bodyPageNumberEnabled.value ? { font: bodyPageNumberFont.value, size_pt: bodyPageNumberSize.value } : null, defense_date_field_key: defenseDateFieldKey.value, remove_unmatched_toc_entries: removeUnmatchedToc.value, preserve_manuscript_structure: preserveManuscriptStructure.value } }
+function confirmation() { return { expected_specification_sha256: props.template.writing_specification?.specification_sha256 || '', overrides: Object.fromEntries(Object.entries(selected.value).map(([k,v]) => [k,JSON.parse(v)])), confirmed_content_rule_ids: [...confirmedContentRules.value], confirmed_digit_font_rule_ids: [...confirmedDigitFontRules.value], inline_label_overrides: { ...inlineLabelOverrides.value }, body_page_number: bodyPageNumberEnabled.value ? { font: bodyPageNumberFont.value, size_pt: bodyPageNumberSize.value } : null, cover_pagination: coverPaginationEnabled.value ? { allowed_blank_offsets: coverBlankOffsets.value ? coverBlankOffsets.value.split(/[,，]/).map(value => Number(value.trim())).sort((a, b) => a - b) : [], require_boundary_new_page: coverBoundaryNewPage.value } : null, defense_date_field_key: defenseDateFieldKey.value, remove_unmatched_toc_entries: removeUnmatchedToc.value, preserve_manuscript_structure: preserveManuscriptStructure.value } }
 async function prepare() {
   busy.value = true; error.value = ''; proposal.value = null
   try { proposal.value = props.candidate ? await prepareCandidateWritingProfile(props.candidate,confirmation()) : await proposeWritingProfile(props.template.id, confirmation()); accepted.value = removeInstructions.value = acceptObjects.value = false }
@@ -163,6 +198,9 @@ watch(() => [props.template.id, props.template.updated_at, props.dirty], () => {
   bodyPageNumberEnabled.value = !!props.template.source_execution?.body_page_number
   bodyPageNumberFont.value = props.template.source_execution?.body_page_number?.font || 'Times New Roman'
   bodyPageNumberSize.value = props.template.source_execution?.body_page_number?.size_pt || 9
+  coverPaginationEnabled.value = !!props.template.source_execution?.cover_pagination
+  coverBoundaryNewPage.value = props.template.source_execution?.cover_pagination?.require_boundary_new_page ?? true
+  coverBlankOffsets.value = (props.template.source_execution?.cover_pagination?.allowed_blank_offsets || []).join(', ')
 })
 </script>
 
