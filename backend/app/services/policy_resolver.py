@@ -99,6 +99,8 @@ def _set_applies(requirement_set: RequirementSet, context: dict[str, str]) -> tu
     matched = [binding.id for binding in requirement_set.bindings if _binding_matches(binding.model_dump(), context)]
     if matched:
         return True, matched
+    if requirement_set.bindings:
+        return False, []
 
     # 兼容旧数据：教师要求按指导教师继承，项目要求按 project_id 绑定。
     level = requirement_set.level.value
@@ -120,11 +122,19 @@ def _family_id(requirement_set: RequirementSet) -> str:
     return requirement_set.family_id or requirement_set.id
 
 
-def _latest_effective_set(store: Store, requirement_set: RequirementSet, now: datetime) -> RequirementSet | None:
+def _latest_effective_set(store: Store, requirement_set: RequirementSet, now: datetime,
+                          context: dict[str, str], *, explicit: bool = False) -> RequirementSet | None:
     family_id = _family_id(requirement_set)
+    def scope(value: RequirementSet) -> tuple:
+        bindings = sorted((item.scope_type, item.scope_id, item.enabled) for item in value.bindings)
+        return (value.level, value.scope_id, value.owner_id, value.stage, value.course_id,
+                content_hash(value.applies_to), tuple(bindings))
+
     candidates = [
         value for value in store.list_requirement_sets()
         if _family_id(value) == family_id and _is_effective(value, now)
+        and (_set_applies(value, context)[0]
+             or (explicit and not value.bindings and scope(value) == scope(requirement_set)))
     ]
     return max(candidates, key=lambda value: (value.updated_at or value.created_at or "", value.version)) if candidates else None
 
@@ -461,7 +471,7 @@ def build_requirement_snapshot(
 
     for set_id in template.requirement_set_ids:
         requirement_set = store.get_requirement_set(set_id)
-        requirement_set = _latest_effective_set(store, requirement_set, now) if requirement_set else None
+        requirement_set = _latest_effective_set(store, requirement_set, now, context, explicit=True) if requirement_set else None
         if requirement_set and _family_id(requirement_set) not in seen_families:
             sets.append(hydrate_requirement_set(requirement_set))
             matched_bindings[requirement_set.id] = ["template"]
@@ -473,7 +483,7 @@ def build_requirement_snapshot(
             continue
         applies, binding_ids = _set_applies(requirement_set, context)
         if applies:
-            latest = _latest_effective_set(store, requirement_set, now)
+            latest = _latest_effective_set(store, requirement_set, now, context)
             if latest is None or _family_id(latest) in seen_families:
                 continue
             requirement_set = latest
