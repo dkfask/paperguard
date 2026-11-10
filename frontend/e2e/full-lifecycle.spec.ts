@@ -21,6 +21,24 @@ const files = {
   cover: path.join(DATA_ROOT, '0-过程性文档封面.doc'),
 }
 
+function e2ePython() {
+  return process.env.E2E_PYTHON_BIN
+    ?? (fs.existsSync(path.resolve(process.cwd(), '../.venv/bin/python'))
+      ? path.resolve(process.cwd(), '../.venv/bin/python')
+      : 'python3')
+}
+
+function prepare1101Revision(source: string, destination: string) {
+  const configured = process.env.E2E_TEMPLATE_FILE
+  if (configured) return configured
+  execFileSync(e2ePython(), [
+    path.join(process.cwd(), 'e2e', 'prepare-1101-revision.py'),
+    source,
+    destination,
+  ], { stdio: 'pipe' })
+  return destination
+}
+
 function suffix() {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 }
@@ -205,19 +223,45 @@ async function completeRequiredWriterGates(page: Page, thesisTitle: string) {
   const titleInput = page.locator('.meta-row').filter({ hasText: /题目/ }).locator('input').first()
   await expect(titleInput).toBeVisible()
   await titleInput.fill(thesisTitle)
+  const coverValues: Record<string, string> = {
+    学院: '计算机与软件学院',
+    系别: '物联网工程系',
+    专业: '物联网工程',
+    班级: '物联网22201',
+    姓名: '浏览器回归学生',
+    学号: '2026110901',
+    指导教师: '浏览器回归教师',
+    日期: '2026年11月',
+  }
+  for (const [label, value] of Object.entries(coverValues)) {
+    const input = page.locator('.meta-row').filter({ hasText: new RegExp(label) }).locator('input').first()
+    await expect(input, `cover field is available: ${label}`).toBeVisible()
+    await input.fill(value)
+  }
   await new PaperGuardPage(page).waitForMutation('/meta', async () => {
     await page.getByRole('button', { name: '保存封面信息' }).click()
   }, 'PUT')
   await expect(page.locator('.writer-save-status')).not.toContainText('未保存')
+  const savedProject = await page.request.get(`/api/projects/${projectId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  expect(savedProject.ok()).toBeTruthy()
+  expect((await savedProject.json()).meta).toMatchObject({
+    title: thesisTitle, college: coverValues.学院, department: coverValues.系别,
+    major: coverValues.专业, class_name: coverValues.班级, author: coverValues.姓名,
+    student_id: coverValues.学号, advisor: coverValues.指导教师, date: coverValues.日期,
+  })
 }
 
 test.describe('PaperGuard browser lifecycle', () => {
-  test('admin teacher student complete lifecycle with real thesis files', async ({ browser }, testInfo) => {
+  test('admin teacher student complete lifecycle with revised 1101 and real thesis materials', async ({ browser }, testInfo) => {
     // Includes two submissions, return/revision, and an actual archive worker/download.
     test.setTimeout(1_800_000)
     test.skip(testInfo.project.name !== 'chromium', 'Full lifecycle is intentionally desktop-only; responsive shell is covered below.')
     if (!ADMIN_PASSWORD) throw new Error('E2E_ADMIN_PASSWORD is required')
-    for (const file of Object.values(files)) expect(fs.existsSync(file), `missing test file: ${file}`).toBeTruthy()
+    const templatePath = prepare1101Revision(files.template, testInfo.outputPath('1101-test-revision.docx'))
+    const testFiles = { ...files, template: templatePath }
+    for (const file of Object.values(testFiles)) expect(fs.existsSync(file), `missing test file: ${file}`).toBeTruthy()
 
     const run = suffix()
     const teacherUsername = `e2e_teacher_${run}`
@@ -298,7 +342,7 @@ test.describe('PaperGuard browser lifecycle', () => {
       await new LoginPage(teacher).login(teacherUsername, teacherPassword)
       await teacher.goto('/templates')
       await new PaperGuardPage(teacher).waitForMutation('/templates/parse', async () => {
-        await teacher.locator('input[type=file]').first().setInputFiles(files.template)
+        await teacher.locator('input[type=file]').first().setInputFiles(testFiles.template)
       })
       await expect(teacher.getByText(/识别结果/)).toBeVisible()
       const headingStyles = teacher.getByRole('region', { name: '标题层级', exact: true })
@@ -352,7 +396,10 @@ test.describe('PaperGuard browser lifecycle', () => {
       })
       expect(importedTemplate.ok()).toBeTruthy()
       const importedDefinition = await importedTemplate.json()
-      const templateSourceSha256 = sha256(fs.readFileSync(files.template))
+      expect(importedDefinition.meta_fields.map((field: { key: string }) => field.key)).toEqual(
+        expect.arrayContaining(['title', 'college', 'department', 'major', 'class_name', 'author', 'student_id', 'advisor', 'date']),
+      )
+      const templateSourceSha256 = sha256(fs.readFileSync(testFiles.template))
       expect(importedDefinition.admission_provenance.source_docx_sha256).toBe(templateSourceSha256)
       expect(importedDefinition.admission_provenance.candidate_id).toMatch(/^tplcand-/)
       expect(importedDefinition.admission_provenance.trial_evidence_sha256).toMatch(/^[a-f0-9]{64}$/)
@@ -790,8 +837,7 @@ test.describe('PaperGuard browser lifecycle', () => {
       await admin.locator('.archive-row').getByRole('button', { name: '下载', exact: true }).click()
       const archivePath = await (await archiveDownload).path()
       expect(archivePath).toBeTruthy()
-      const python = process.env.E2E_PYTHON_BIN || 'python'
-      const archiveCheck = JSON.parse(execFileSync(python, ['-c',
+      const archiveCheck = JSON.parse(execFileSync(e2ePython(), ['-c',
         'import zipfile,json,sys,hashlib; z=zipfile.ZipFile(sys.argv[1]); m=json.loads(z.read("manifest.json")); final=z.read("final.docx"); entry=next(f for f in m["files"] if f["name"]=="final.docx"); print(json.dumps({"bad_file":z.testzip(),"names":z.namelist(),"hashes_match":all(hashlib.sha256(z.read(f["name"])).hexdigest()==f["sha256"] for f in m["files"]),"archive_id":m["archive_id"],"submission_id":m["submission_id"],"project_version_id":m["project_version_id"],"content_hash":m["content_hash"],"final_sha256":hashlib.sha256(final).hexdigest(),"manifest_final_sha256":entry["sha256"]}))',
         archivePath!,
       ], { encoding: 'utf8' }))

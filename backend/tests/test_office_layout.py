@@ -146,7 +146,33 @@ def test_server_layout_is_signed_and_binds_output_without_claiming_word(server_l
     assert receipt['version'] == office_layout.SERVER_TOC_VERSION
     assert receipt['pagination_source'] == 'libreoffice_server'
     assert receipt['server_layout']['extra_bookmarks'][0]['physical_page'] == 8
+    assert receipt['pagination_measurement'] == 'two_refreshed_layouts'
     assert 'word_native' not in receipt
+
+
+@pytest.mark.parametrize('pair', ['previous', 'mixed', 'unknown'])
+def test_server_layout_accepts_only_known_signed_engine_pairs(server_layout_fixture, pair):
+    from app.services.server_layout import _PREVIOUS_PROBE_SHA256
+
+    path, profile, project, _ = server_layout_fixture
+    office_layout.refresh_master_layout(path, project, profile)
+    with zipfile.ZipFile(path) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+    receipt = json.loads(parts[office_layout.RECEIPT_PART])
+    receipt.pop('signature')
+    receipt.pop('pagination_measurement')
+    receipt['worker_sha256'] = office_layout.PREVIOUS_WORKER_SHA256
+    if pair == 'previous':
+        receipt['probe_sha256'] = _PREVIOUS_PROBE_SHA256
+    elif pair == 'unknown':
+        receipt['probe_sha256'] = '0' * 64
+    receipt['signature'] = office_layout._mac(receipt, office_layout.SERVER_TOC_VERSION)
+    parts[office_layout.RECEIPT_PART] = json.dumps(receipt).encode()
+    if pair == 'previous':
+        assert office_layout.verify_layout_receipt(_archive_parts(parts), project, profile)['state_stable']
+    else:
+        with pytest.raises(ProfileError):
+            office_layout.verify_layout_receipt(_archive_parts(parts), project, profile)
 
 
 @pytest.mark.parametrize('damage', ['position', 'page_count', 'toc', 'pdf_hash', 'probe', 'signature'])
@@ -430,6 +456,12 @@ def test_layout_receipt_binds_live_reference_output_and_rejects_old_static_forma
     assert receipt['version']==office_layout.VERSION
     assert receipt['page_reference_mode']=='bookmark_pageref'
     with zipfile.ZipFile(path) as archive:parts={n:archive.read(n) for n in archive.namelist()}
+    previous = dict(receipt)
+    previous.pop('signature', None)
+    previous['worker_sha256'] = office_layout.PREVIOUS_WORKER_SHA256
+    previous['signature'] = office_layout._mac(previous, office_layout.VERSION)
+    parts[office_layout.RECEIPT_PART] = json.dumps(previous).encode()
+    assert office_layout.verify_layout_receipt(_archive_parts(parts), project, profile)['state_stable']
     # Even a correctly signed old receipt must no longer validate as this exporter.
     receipt.pop('signature',None);receipt['version']='office-layout/9'
     receipt['signature']=office_layout._mac(receipt)
@@ -884,6 +916,47 @@ def _archive_parts(parts):
         for name, content in parts.items():
             archive.writestr(name, content)
     return data.getvalue()
+
+
+def test_server_probe_unwraps_only_generated_toc_in_a_copy():
+    from app.services.server_layout import _server_layout_input_parts
+
+    root = etree.Element(qn('w:document'), nsmap={'w': NS['w']})
+    body = etree.SubElement(root, qn('w:body'))
+    control = etree.SubElement(body, qn('w:sdt'))
+    props = etree.SubElement(control, qn('w:sdtPr'))
+    etree.SubElement(props, qn('w:tag')).set(qn('w:val'), 'pg-toc:placeholder')
+    content = etree.SubElement(control, qn('w:sdtContent'))
+    paragraph = etree.SubElement(content, qn('w:p'))
+    field = etree.SubElement(paragraph, qn('w:fldSimple'))
+    field.set(qn('w:instr'), 'TOC \\o "1-3" \\h \\z \\u')
+    etree.SubElement(etree.SubElement(field, qn('w:r')), qn('w:t')).text = '目录将在发布时更新'
+    unrelated = etree.SubElement(etree.SubElement(body, qn('w:p')), qn('w:fldSimple'))
+    unrelated.set(qn('w:instr'), 'PAGE')
+    parts = {'word/document.xml': etree.tostring(root), 'other': b'unchanged'}
+    before = dict(parts)
+
+    prepared = _server_layout_input_parts(parts, {})
+    assert parts == before and prepared['other'] == b'unchanged'
+    result = etree.fromstring(prepared['word/document.xml'])
+    assert not result.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-toc:placeholder"]', namespaces=NS)
+    assert result.xpath('.//w:fldSimple/@w:instr', namespaces=NS) == ['PAGE']
+    assert result.xpath('.//w:fldChar/@w:fldCharType', namespaces=NS) == ['begin', 'separate', 'end']
+    assert result.xpath('.//w:instrText/text()', namespaces=NS) == [' TOC \\o "1-3" \\h \\z \\u ']
+    assert result.xpath('.//w:t/text()', namespaces=NS) == ['目录将在发布时更新']
+
+
+def test_server_probe_rejects_unknown_generated_toc_placeholder():
+    from app.services.server_layout import _server_layout_input_parts
+
+    root = etree.Element(qn('w:document'), nsmap={'w': NS['w']})
+    body = etree.SubElement(root, qn('w:body'))
+    control = etree.SubElement(body, qn('w:sdt'))
+    props = etree.SubElement(control, qn('w:sdtPr'))
+    etree.SubElement(props, qn('w:tag')).set(qn('w:val'), 'pg-toc:placeholder')
+    etree.SubElement(control, qn('w:sdtContent'))
+    with pytest.raises(ProfileError, match='目录占位符结构无效'):
+        _server_layout_input_parts({'word/document.xml': etree.tostring(root)}, {})
 
 
 def test_word_directory_rows_use_original_styles_and_only_copy_confirmed_toc(toc_package, tmp_path):

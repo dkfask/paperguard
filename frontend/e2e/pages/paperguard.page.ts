@@ -92,8 +92,12 @@ export class PaperGuardPage {
   }
 
   async closeDetails() {
-    await this.page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).first().click()
-    await expect(this.page.getByRole('dialog')).toHaveCount(0)
+    const dialogs = this.page.getByRole('dialog')
+    let remaining = await dialogs.count()
+    while (remaining > 0) {
+      await dialogs.last().getByRole('button', { name: '关闭', exact: true }).first().click()
+      await expect(dialogs).toHaveCount(--remaining)
+    }
   }
 
   async logout() {

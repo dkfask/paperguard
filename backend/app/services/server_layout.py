@@ -27,11 +27,63 @@ from app.services.word_native_layout import (
     WordNativeLayoutError, _directory_references, _validate_extra_bookmarks, _validate_table_targets,
 )
 
+# Identifies the server probe deployed with 39aef3f. Historical signed files
+# remain verifiable only with their exact original worker/probe pair.
+_PREVIOUS_PROBE_SHA256 = "219666dd6b691a709fa4fcaa9672006b765c9ddf8beda6ef02af38b50df77bbd"
+
 
 def _write_package(path: Path, parts: dict[str, bytes]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, data in parts.items():
             archive.writestr(name, data)
+
+
+def _server_layout_input_parts(parts: dict[str, bytes], profile: dict) -> dict[str, bytes]:
+    """Unwrap the generated TOC only in the copy sent to LibreOffice."""
+    prepared = layout._layout_input_parts(parts, profile)
+    root = etree.fromstring(prepared["word/document.xml"], safe_xml_parser())
+    controls = root.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val='pg-toc:placeholder']", namespaces=NS)
+    if not controls:
+        return prepared
+    if len(controls) != 1:
+        raise ProfileError("服务器排版目录占位符不唯一")
+    control = controls[0]
+    body = root.find(qn("w:body"))
+    content = control.find(qn("w:sdtContent"))
+    fields = control.xpath(".//w:fldSimple", namespaces=NS)
+    if (control.getparent() is not body or content is None or len(fields) != 1
+            or not re.match(r"^\s*TOC(?:\s|$)", fields[0].get(qn("w:instr"), ""), re.I)):
+        raise ProfileError("服务器排版目录占位符结构无效")
+    field = fields[0]
+    parent = field.getparent()
+    index = parent.index(field)
+    for kind in ("begin", "instruction", "separate"):
+        run = etree.Element(qn("w:r"))
+        if kind == "instruction":
+            instruction = etree.SubElement(run, qn("w:instrText"))
+            instruction.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            instruction.text = " " + field.get(qn("w:instr")) + " "
+        else:
+            etree.SubElement(run, qn("w:fldChar")).set(qn("w:fldCharType"), kind)
+        parent.insert(index, run)
+        index += 1
+    for child in list(field):
+        field.remove(child)
+        parent.insert(index, child)
+        index += 1
+    end = etree.Element(qn("w:r"))
+    etree.SubElement(end, qn("w:fldChar")).set(qn("w:fldCharType"), "end")
+    parent.insert(index, end)
+    parent.remove(field)
+    index = body.index(control)
+    for child in list(content):
+        content.remove(child)
+        body.insert(index, child)
+        index += 1
+    body.remove(control)
+    return {**prepared, "word/document.xml": etree.tostring(
+        root, xml_declaration=True, encoding="UTF-8", standalone=True,
+    )}
 
 
 def _instrument_rows(parts: dict[str, bytes], targets: list[dict]) -> tuple[dict[str, bytes], list[dict]]:
@@ -108,7 +160,7 @@ def _probe(parts: dict[str, bytes], project, profile, rows: list[dict], director
         _validate_table_targets(raw.getvalue(), targets)
     except (WordNativeLayoutError, KeyError, ValueError, zipfile.BadZipFile) as exc:
         raise ProfileError("服务器分页书签与当前文件不一致") from exc
-    measured_parts, tables = _instrument_rows(layout._layout_input_parts(parts, profile), targets)
+    measured_parts, tables = _instrument_rows(_server_layout_input_parts(parts, profile), targets)
     source = directory / "probe.docx"
     _write_package(source, measured_parts)
     layout._office_roundtrip(source, directory / "render", named_destinations=True)
@@ -153,7 +205,7 @@ def refresh_server_layout(output_path: Path, project, profile) -> None:
         for attempt in range(4):
             check_export_budget()
             source = directory / f"input-{attempt}.docx"
-            _write_package(source, layout._layout_input_parts(parts, profile))
+            _write_package(source, _server_layout_input_parts(parts, profile))
             run = directory / f"round-{attempt}"
             layout._office_roundtrip(source, run, named_destinations=True)
             before, after = layout._pdf_state(run / "before.pdf"), layout._pdf_state(run / "after.pdf")
@@ -184,6 +236,7 @@ def refresh_server_layout(output_path: Path, project, profile) -> None:
         manifest = digest({name: hashlib.sha256(data).hexdigest() for name, data in sorted(parts.items())})
         receipt = {"version": layout.SERVER_TOC_VERSION, "page_reference_mode": "bookmark_pageref",
                    "pagination_source": "libreoffice_server", "state_stable": True,
+                   "pagination_measurement": "two_refreshed_layouts",
                    "worker_sha256": hashlib.sha256(layout.WORKER.read_bytes()).hexdigest(),
                    "probe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                    "dependency_sha256": json.loads(layout.DEPENDENCY.read_text())["sha256"],
@@ -216,13 +269,17 @@ def verify_server_receipt(data: bytes, project, profile, receipt: dict) -> dict:
         parts = {name: archive.read(name) for name in archive.namelist() if name != layout.RECEIPT_PART}
     manifest = digest({name: hashlib.sha256(payload).hexdigest() for name, payload in sorted(parts.items())})
     server = receipt.get("server_layout")
+    engine_pair = (receipt.get("worker_sha256"), receipt.get("probe_sha256"))
+    current_pair = (hashlib.sha256(layout.WORKER.read_bytes()).hexdigest(), hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
+    previous_pair = (layout.PREVIOUS_WORKER_SHA256, _PREVIOUS_PROBE_SHA256)
+    engine_valid = ((engine_pair == current_pair and receipt.get("pagination_measurement") == "two_refreshed_layouts")
+                    or (engine_pair == previous_pair and "pagination_measurement" not in receipt))
     if (receipt.get("pagination_source") != "libreoffice_server" or receipt.get("state_stable") is not True
             or receipt.get("page_reference_mode") != "bookmark_pageref"
             or receipt.get("document_manifest_sha256") != manifest
             or receipt.get("source_profile_sha256") != profile.get("profile_sha256")
             or receipt.get("project_content_hash") != project_content_hash(project)
-            or receipt.get("worker_sha256") != hashlib.sha256(layout.WORKER.read_bytes()).hexdigest()
-            or receipt.get("probe_sha256") != hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+            or not engine_valid
             or receipt.get("dependency_sha256") != json.loads(layout.DEPENDENCY.read_text())["sha256"]
             or not isinstance(server, dict) or type(receipt.get("page_count")) is not int
             or not 1 <= receipt["page_count"] <= 500 or server.get("page_count") != receipt["page_count"]

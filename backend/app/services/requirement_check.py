@@ -30,7 +30,10 @@ def _normalize_legacy_1101_item(item: dict[str, Any]) -> dict[str, Any]:
         return item
     if (item.get("id") == "cover_required_fields"
             and item.get("description") == _LEGACY_1101_COVER_DESCRIPTION
-            and item.get("params") == {"min": 0, "max": 35}):
+            and item.get("params") in (
+                {"min": 0, "max": 35},
+                {"fields": ["题目", "学院", "系别", "专业", "班级", "姓名", "学号", "指导教师", "提交日期"]},
+            )):
         return {
             **item,
             "type": "auto",
