@@ -945,17 +945,18 @@ async function prepareCandidate(task) {
 
 async function handleConfirmSubmission() {
   if (submitting.value || !selectedCandidate.value) return
-  if (submissionAttempt.value?.candidate_id !== selectedCandidate.value.id) {
-    submissionAttempt.value = {
-      candidate_id: selectedCandidate.value.id,
-      idempotency_key: crypto.randomUUID(),
-      warning_acknowledged: warningAcknowledged.value,
-    }
-  }
   submitting.value = true
   error.value = ''
   candidateError.value = ''
   try {
+    if (submissionAttempt.value?.candidate_id !== selectedCandidate.value.id) {
+      const bytes = crypto.getRandomValues(new Uint8Array(16))
+      submissionAttempt.value = {
+        candidate_id: selectedCandidate.value.id,
+        idempotency_key: Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join(''),
+        warning_acknowledged: warningAcknowledged.value,
+      }
+    }
     await confirmSubmission(submissionAttempt.value)
     selectedCandidate.value = null; submissionAttempt.value = null
     await loadAll()

@@ -324,6 +324,22 @@ describe('workflow usage regressions', () => {
     expect(dialog.textContent).not.toContain('提交预检')
     expect(dialog.textContent).not.toContain('尚无正式提交')
   })
+  it('submits over HTTP without randomUUID and retains the request identity on retry', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
+    const initial = { ...participant, state: 'in_progress', current_submission: null }
+    api.fetchMyTasks.mockResolvedValue([initial])
+    api.createSubmissionCandidate.mockResolvedValue({ id: 'candidate-http', status: 'ready', gates: [], warning_count: 0 })
+    api.confirmSubmission.mockRejectedValueOnce(new Error('网络中断')).mockResolvedValueOnce({})
+
+    await open(); await button('测试论文').trigger('click')
+    await button('提交预检').trigger('click'); await flushPromises()
+    await button('确认正式提交').trigger('click'); await flushPromises()
+    const first = api.confirmSubmission.mock.calls[0][0]
+    expect(first.idempotency_key).toMatch(/^[0-9a-f]{32}$/)
+    await button('确认正式提交').trigger('click'); await flushPromises()
+    expect(api.confirmSubmission.mock.calls[1][0]).toEqual(first)
+  })
+
   it('retries the same submission with the original request identity after a lost response', async () => {
     const initial = { ...participant, state: 'in_progress', current_submission: null }
     const submitted = { ...initial, state: 'submitted', current_submission: { id: 'submission-1', number: 'SUB-1' } }
