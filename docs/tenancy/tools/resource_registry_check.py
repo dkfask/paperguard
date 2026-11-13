@@ -377,8 +377,8 @@ def measure_routes(app: pathlib.Path) -> dict:
     by_guard = {g: sum(1 for r in rows if g in r["guards"]) for g in ROLE_GUARDS}
     by_guard["none_public"] = sum(1 for r in rows if not (r["guards"] & set(ROLE_GUARDS)))
     # 登记表那个**派生分类**的口径：带 require_manager **且** 带 feature flag。
-    # ★ `require_manager` 与派生量**同名不同口径**：登记表里的 `require_manager: 20`
-    #   是「不带 flag」的那部分，而全量是 29。**同名不同口径是本轮反复出现的坑**，
+    # ★ `require_manager` 与派生量**同名不同口径**：登记表里的 `require_manager`
+    #   是「不带 flag」的那部分，不是签名里全部 `require_manager`。**同名不同口径是本轮反复出现的坑**，
     #   所以两个量都显式给出，不让任何一个含糊。
     mgr_total = by_guard["require_manager"]
     by_guard["require_manager_with_flag"] = sum(

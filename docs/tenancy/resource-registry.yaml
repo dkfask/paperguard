@@ -900,15 +900,16 @@ authorization_matrix:
       #   （document_packages / document_projects / specs 的 `APIRouter(dependencies=[...])`），
       #   于是那 5 条被错标成「纯 manager」。INC-86 实测正确互斥划分为 **20 + 9 = 29**。
       #   **六项之和仍等于 214**（划分不变量没破），所以原值**看起来完全自洽**。
-      require_manager: 20
-      require_admin: 7
+      #   POST /api/organizations 现为 require_admin，纯 manager 与 require_admin 各挪 1。
+      require_manager: 19
+      require_admin: 8
       trusted_context: 19
       require_template_manager: 6
       # ★ 这个名字**不是代码里的标识符**（全仓 grep 0 命中），而是一个**派生分类**。
       #   真实守卫名是 `require_general_document_platform`（`core/feature_flags.py:22`），
       #   它是 **feature flag**、**不出现在任何处理器签名里**，只出现在
       #   `APIRouter(dependencies=[...])`（3 个模块）与路由级 `dependencies=[...]`（4 条）。
-      #   本项口径 = 「签名带 `require_manager` **且** 带该 flag」= 20 之外的 9 条
+      #   本项口径 = 「签名带 `require_manager` **且** 带该 flag」= 19 之外的 9 条
       #   （templates 4 + specs 4 + document_packages 1）。
       #   **按名字 grep 核对会得到 0**——所以必须写明它是派生量、也必须数全两种挂载位置。
       require_general_document_platform_plus_manager: 9
