@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.auth import _save_user_metadata, current_user, require_manager
+from app.auth import _save_user_metadata, current_user, require_admin, require_manager
 from app.db import Store, new_id
 from app.models.organization import OrganizationType, OrganizationUnit
 from app.services.access_service import visible_organization_ids
@@ -62,18 +62,14 @@ def get_organization(unit_id: str, store: Store = Depends(get_store), user: dict
 
 @router.post("", status_code=201)
 def create_organization(payload: dict, store: Store = Depends(get_store),
-                        user: dict = Depends(require_manager)) -> OrganizationUnit:
+                        admin: dict = Depends(require_admin)) -> OrganizationUnit:
+    """创建组织节点。仅活跃的系统管理员；不沿用教师的模板管理权限。"""
     try:
         data = dict(payload)
         data["id"] = data.get("id") or new_id("org")
         unit = OrganizationUnit.model_validate(data)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"组织数据无效: {exc}") from exc
-    if user["role"] == "college_admin":
-        if unit.type == OrganizationType.SCHOOL:
-            raise HTTPException(status_code=403, detail="学院管理员不能创建学校")
-        if unit.parent_id and unit.parent_id not in _visible_unit_ids(store, user):
-            raise HTTPException(status_code=403, detail="只能维护本人组织范围内的下级组织")
     if store.get_organization_unit(unit.id):
         raise HTTPException(status_code=409, detail="组织 ID 已存在")
     _validate_parent(unit, store)
