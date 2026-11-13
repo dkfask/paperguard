@@ -51,7 +51,8 @@ def _server_layout_input_parts(parts: dict[str, bytes], profile: dict) -> dict[s
     body = root.find(qn("w:body"))
     content = control.find(qn("w:sdtContent"))
     fields = control.xpath(".//w:fldSimple", namespaces=NS)
-    if (control.getparent() is not body or content is None or len(fields) != 1
+    anchor_parent = control.getparent()
+    if (not layout._accepted_toc_anchor_parent(anchor_parent, body) or content is None or len(fields) != 1
             or not re.match(r"^\s*TOC(?:\s|$)", fields[0].get(qn("w:instr"), ""), re.I)):
         raise ProfileError("服务器排版目录占位符结构无效")
     field = fields[0]
@@ -75,12 +76,14 @@ def _server_layout_input_parts(parts: dict[str, bytes], profile: dict) -> dict[s
     etree.SubElement(end, qn("w:fldChar")).set(qn("w:fldCharType"), "end")
     parent.insert(index, end)
     parent.remove(field)
-    index = body.index(control)
+    # Unwrap only the generated placeholder. A Word Table of Contents control
+    # stays in place, so the refreshed field remains inside that one directory.
+    index = anchor_parent.index(control)
     for child in list(content):
         content.remove(child)
-        body.insert(index, child)
+        anchor_parent.insert(index, child)
         index += 1
-    body.remove(control)
+    anchor_parent.remove(control)
     return {**prepared, "word/document.xml": etree.tostring(
         root, xml_declaration=True, encoding="UTF-8", standalone=True,
     )}

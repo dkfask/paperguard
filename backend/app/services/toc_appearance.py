@@ -164,7 +164,15 @@ def source_toc_appearance(source, profile):
         raise ProfileError("母版目录或样式缺失")
     levels = {str(style): str(level) for level, style in profile.get("toc_style_by_level", {}).items()}
     observed = {level: {"label": set(), "leader": set(), "page": set()} for level in levels.values()}
-    for paragraph in body.findall(qn("w:p")):
+    from app.services.office_layout import _is_body_toc_gallery_sdt
+    paragraphs = list(body.findall(qn("w:p")))
+    for sdt in body.findall(qn("w:sdt")):
+        if not _is_body_toc_gallery_sdt(sdt, body):
+            continue
+        content = sdt.find(qn("w:sdtContent"))
+        if content is not None:
+            paragraphs.extend(content.findall(qn("w:p")))
+    for paragraph in paragraphs:
         style = paragraph.find(qn("w:pPr") + "/" + qn("w:pStyle"))
         level = levels.get(style.get(qn("w:val"), "")) if style is not None else None
         if level is None:
