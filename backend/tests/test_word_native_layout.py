@@ -486,6 +486,24 @@ def test_word_toc_busy_does_not_close_someone_elses_document(tmp_path, monkeypat
         word_native_layout._run_word_toc(tmp_path / "copy.docx", 1)
 
 
+def test_word_toc_rejects_non_unique_table_of_contents(tmp_path, monkeypatch):
+    monkeypatch.setattr(word_native_layout.sys, "platform", "darwin")
+    monkeypatch.setattr(word_native_layout.subprocess, "run", lambda *_a, **_kw:
+                        SimpleNamespace(returncode=1, stderr="PAPERGUARD_TOC_COUNT", stdout=""))
+    monkeypatch.setattr(word_native_layout, "_cleanup_word_temporary_document", lambda *_: True)
+    with pytest.raises(WordNativeLayoutError, match="必须包含唯一目录"):
+        word_native_layout._run_word_toc(tmp_path / "paperguard-word-test" / "copy.docx", 1)
+
+
+def test_word_toc_rejects_path_binding_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(word_native_layout.sys, "platform", "darwin")
+    monkeypatch.setattr(word_native_layout.subprocess, "run", lambda *_a, **_kw:
+                        SimpleNamespace(returncode=1, stderr="PAPERGUARD_WORD_PATH", stdout=""))
+    monkeypatch.setattr(word_native_layout, "_cleanup_word_temporary_document", lambda *_: True)
+    with pytest.raises(WordNativeLayoutError, match="绑定受控临时文档"):
+        word_native_layout._run_word_toc(tmp_path / "paperguard-word-test" / "copy.docx", 1)
+
+
 def _row_probe_docx():
     doc = Document(io.BytesIO(_docx()))
     table = doc.add_table(rows=3, cols=1)
@@ -514,6 +532,32 @@ def _row_probe_output():
 
 def _row_probe_targets():
     return [{"bookmark": "PGBtable", "end_bookmark": "PGEtable", "row_count": 3}]
+
+
+def test_word_workspace_uses_owned_configured_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPERGUARD_WORD_DOCUMENTS_DIR", str(tmp_path))
+    with word_native_layout._word_workspace() as directory:
+        assert directory.parent == tmp_path.resolve()
+        assert directory.name.startswith("paperguard-word-")
+        assert directory.stat().st_uid == os.getuid()
+
+
+def test_word_workspace_rejects_unowned_configured_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("PAPERGUARD_WORD_DOCUMENTS_DIR", str(tmp_path / "missing"))
+    with pytest.raises(WordNativeLayoutError, match="文档目录不可用"):
+        with word_native_layout._word_workspace():
+            pass
+
+
+def test_word_workspace_rejects_symlinked_configured_directory(tmp_path, monkeypatch):
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(target, target_is_directory=True)
+    monkeypatch.setenv("PAPERGUARD_WORD_DOCUMENTS_DIR", str(link))
+    with pytest.raises(WordNativeLayoutError, match="文档目录不可用"):
+        with word_native_layout._word_workspace():
+            pass
 
 
 def test_native_table_row_probe_binds_unchanged_source_and_double_pagination(tmp_path, monkeypatch):
