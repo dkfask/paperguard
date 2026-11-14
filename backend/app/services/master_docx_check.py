@@ -25,6 +25,23 @@ from app.services.source_template_profile import verify_profile, digest, comment
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 PIC = "http://schemas.openxmlformats.org/drawingml/2006/picture"
+
+
+def _toc_row_parent_matches_profile(paragraph, body, profile):
+    """Accept directory rows only in the container confirmed by the master profile."""
+    from app.services.office_layout import _accepted_toc_anchor_parent, _is_body_toc_gallery_sdt
+
+    parent = paragraph.getparent()
+    if not _accepted_toc_anchor_parent(parent, body):
+        return False
+    component = str(profile.get("toc_container_path") or "").rsplit("/", 1)[-1]
+    name = component.split(":")[-1].split("[")[0]
+    if parent is body:
+        return name in {"", "body"}
+    return (name == "sdtContent"
+            and sum(_is_body_toc_gallery_sdt(node, body) for node in body.findall(qn("w:sdt"))) == 1)
+
+
 _UNMODELED_OBJECTS = (
     ".//w:pict | .//w:object | .//w:control | "
     ".//*[namespace-uri()='urn:schemas-microsoft-com:vml'] | "
@@ -1428,8 +1445,9 @@ def inspect_master_output(data, project, template, source, report):
                     body=doc.find(qn("w:body"))
                     for paragraph in list(doc.findall(".//"+qn("w:p"))):
                         style=paragraph.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
-                        if style is not None and style.get(qn("w:val")) in toc_styles and paragraph.getparent() is body:
-                            body.remove(paragraph)
+                        if (style is not None and style.get(qn("w:val")) in toc_styles
+                                and _toc_row_parent_matches_profile(paragraph, body, profile)):
+                            paragraph.getparent().remove(paragraph)
             fixed_relationship_ids = {
                 value for node in actual_static.iter() for name, value in node.attrib.items()
                 if etree.QName(name).namespace == NS["r"]
@@ -1476,7 +1494,7 @@ def inspect_master_output(data, project, template, source, report):
                 style_levels={str(style):int(level) for level,style in profile.get("toc_style_by_level",{}).items()}
                 style_levels.update({str(style):int(level) for level,style in profile.get("toc_style_by_level",{}).items() if str(level).isdigit()})
                 for paragraph in root.findall(".//"+qn("w:p")):
-                    if paragraph.getparent() is not root.find(qn("w:body")):
+                    if not _toc_row_parent_matches_profile(paragraph, root.find(qn("w:body")), profile):
                         continue
                     style=paragraph.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
                     if style is None or style.get(qn("w:val")) not in set(profile.get("toc_style_ids", [])):
@@ -1972,7 +1990,7 @@ def inspect_master_output(data, project, template, source, report):
                             table=tables[0]; grid=table.findall(f"{qn('w:tblGrid')}/{qn('w:gridCol')}")
                             width=sum(int(c.get(qn("w:w"),"0")) for c in grid)/567
                             check("table_geometry",len(grid)==block.table.cols and abs(width-maximum_width)<.03 and all(abs(int(c.get(qn("w:w"),"0"))/567-maximum_width/block.table.cols)<.01 for c in grid),block.id)
-                            from app.services.table_borders import EDGES, default_table_borders
+                            from app.services.table_borders import EDGES, default_table_borders, has_cell_border_overrides
                             expected_borders = profile.get("table_borders") or (block.table.borders.model_dump() if block.table.borders else None) or default_table_borders()
                             tblprs = table.findall(qn("w:tblPr"))
                             tblpr = tblprs[0] if len(tblprs) == 1 else None
@@ -1995,7 +2013,7 @@ def inspect_master_output(data, project, template, source, report):
                             expected_xml_borders = {edge: {key: str(value) for key, value in rule.items()}
                                                     for edge, rule in expected_borders.items()}
                             check("table_borders", safe_borders and actual_borders == expected_xml_borders
-                                  and not table.xpath(".//w:tcBorders", namespaces=NS),
+                                  and not has_cell_border_overrides(table),
                                   block.id, expected=expected_xml_borders, actual=actual_borders)
                             alignment = tblpr.find(qn("w:jc")) if tblpr is not None else None
                             check("table_alignment", alignment is not None and alignment.get(qn("w:val")) == "center", block.id)

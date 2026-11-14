@@ -233,7 +233,7 @@ def test_image_alignment_checks_inherited_indent_when_word_omits_zero(master, tm
                and c['status'] == 'fail' for c in report['checks'])
 
 
-@pytest.mark.parametrize('damage', ['duplicate_set', 'duplicate_edge', 'theme_color', 'cell_override', 'logical_edge'])
+@pytest.mark.parametrize('damage', ['duplicate_set', 'duplicate_edge', 'theme_color', 'cell_override', 'cell_unknown_attribute', 'logical_edge'])
 def test_table_border_inspection_rejects_unmodeled_overrides(master, tmp_path, damage):
     _add_objects(master)
     data = rendered(master, tmp_path)
@@ -253,13 +253,54 @@ def test_table_border_inspection_rejects_unmodeled_overrides(master, tmp_path, d
             borders.find(qn('w:top')).set(qn('w:themeColor'), 'accent1')
         elif damage == 'logical_edge':
             borders.append(etree.Element(qn('w:start')))
+        elif damage == 'cell_override':
+            tcpr = table.find('.//' + qn('w:tcPr'))
+            border = etree.SubElement(tcpr, qn('w:tcBorders'))
+            etree.SubElement(border, qn('w:bottom')).set(qn('w:val'), 'single')
         else:
             tcpr = table.find('.//' + qn('w:tcPr'))
-            etree.SubElement(tcpr, qn('w:tcBorders'))
+            etree.SubElement(tcpr, qn('w:tcBorders')).set(qn('w:unknown'), '1')
 
     report = inspect(master, rewrite(data, 'word/document.xml', corrupt))
     assert any(c['rule'] == 'master.table_borders' and c['object'] == 'visibility-table'
                and c['status'] == 'fail' for c in report['checks'])
+
+
+def test_empty_cell_borders_preserve_table_rules_and_pass_inspection(master, tmp_path):
+    from app.services.table_borders import observe_table_borders
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    table.style = 'Table Grid'
+    expected = observe_table_borders(table)
+    etree.SubElement(table.cell(0, 0)._tc.get_or_add_tcPr(), qn('w:tcBorders'))
+    assert observe_table_borders(table) == expected
+
+    _add_objects(master)
+    data = rendered(master, tmp_path)
+    def add_empty(root):
+        table = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-block:visibility-table"]//w:tbl', namespaces=NS)[0]
+        etree.SubElement(table.find('.//' + qn('w:tcPr')), qn('w:tcBorders'))
+    report = inspect(master, rewrite(data, 'word/document.xml', add_empty))
+    assert any(c['rule'] == 'master.table_borders' and c['object'] == 'visibility-table'
+               and c['status'] == 'pass' for c in report['checks'])
+
+
+@pytest.mark.parametrize('kind', ['edge', 'attribute', 'text'])
+def test_cell_border_overrides_remain_unsupported(kind):
+    from app.services.table_borders import observe_table_borders
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    borders = etree.SubElement(table.cell(0, 0)._tc.get_or_add_tcPr(), qn('w:tcBorders'))
+    if kind == 'edge':
+        etree.SubElement(borders, qn('w:bottom')).set(qn('w:val'), 'single')
+    elif kind == 'attribute':
+        borders.set(qn('w:unknown'), '1')
+    else:
+        borders.text = 'unexpected'
+    with pytest.raises(ValueError, match='单元格独立边框'):
+        observe_table_borders(table)
 
 
 @pytest.mark.parametrize('edge', ['start', 'end'])

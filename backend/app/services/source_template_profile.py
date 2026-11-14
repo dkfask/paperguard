@@ -852,18 +852,27 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
         raise ProfileError("模板包含多个目录域，当前版本要求一个主目录域")
     toc_range_paths = []
     toc_container_path = ""
+    entry_order = source_order
     if toc_active:
+        from app.services.office_layout import _accepted_toc_anchor_parent
         anchor = toc_field_paragraphs[0]
         parent = anchor.getparent()
-        if parent is None or parent.tag != qn("w:body"):
+        # Direct body paragraphs stay on the original index. A Word automatic
+        # directory is the only extra container: its rows live in w:sdtContent.
+        if not _accepted_toc_anchor_parent(parent, body):
             raise ProfileError("目录域必须位于正文主流程，当前模板结构暂不支持")
+        if parent is body:
+            container_children = children
+        else:
+            container_children = list(parent)
+            entry_order = {child.getroottree().getpath(child): index for index, child in enumerate(container_children)}
         toc_container_path = parent.getroottree().getpath(parent)
-        row_indexes = [source_order[n.path] for n in spec.nodes if n.part == "word/document.xml" and n.role == "toc_entry" and n.path in source_order]
-        anchor_index = source_order.get(anchor.getroottree().getpath(anchor))
+        row_indexes = [entry_order[n.path] for n in spec.nodes if n.part == "word/document.xml" and n.role == "toc_entry" and n.path in entry_order]
+        anchor_index = entry_order.get(anchor.getroottree().getpath(anchor))
         if anchor_index is None:
             raise ProfileError("目录域段落无法定位到正文")
         first = min(row_indexes + [anchor_index]); last = max(row_indexes + [anchor_index])
-        for child in children[first:last+1]:
+        for child in container_children[first:last+1]:
             if child.tag != qn("w:p"):
                 raise ProfileError("目录区域含有非段落对象，无法安全重建")
             style = child.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
@@ -876,8 +885,8 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
     toc_style_ids = sorted({style_id for style_id in style_names if toc_level(style_id) is not None}
                            | {n.details.get("style_id", "") for n in spec.nodes if n.role == "toc_entry" and n.details.get("style_id")})
     toc_evidence = sorted((n for n in spec.nodes if n.role == "toc_entry"),
-                          key=lambda n: source_order.get(n.path, 10**9))
-    if any(n.path not in source_order for n in toc_evidence):
+                          key=lambda n: entry_order.get(n.path, 10**9))
+    if any(n.path not in entry_order for n in toc_evidence):
         raise ProfileError("目录行必须是正文中的独立段落，表格目录暂不支持")
     for index, evidence in enumerate(toc_evidence):
         text = evidence.text.strip()

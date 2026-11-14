@@ -82,6 +82,25 @@ def test_thesis_template_round_trip_preserves_legacy_data() -> None:
     assert restored.model_dump(mode="json") == original.model_dump(mode="json")
 
 
+def test_domain_sections_reference_real_style_or_legacy_body_fallback() -> None:
+    template = _template().model_copy(deep=True)
+    template.sections[0].children.append(
+        LegacyTemplateSection(key='appendix', type=SectionType.APPENDIX, title='附录')
+    )
+    _, version = paper_template_to_domain(template)
+    cover = version.definition.sections[0]
+    assert cover.style_ref == 'body'
+    assert cover.children[0].style_ref == 'body'
+    assert cover.children[1].style_ref == 'body'
+    assert cover.children[0].style.font_zh == 'Arial'
+    template.styles['appendix'] = TextStyle(font_zh='黑体', size_pt=14)
+    _, specific = paper_template_to_domain(template)
+    assert specific.definition.sections[0].children[1].style_ref == 'appendix'
+    del template.styles['body']
+    _, missing_fallback = paper_template_to_domain(template)
+    assert missing_fallback.definition.sections[0].style_ref == 'cover'
+
+
 def test_published_template_version_is_immutable() -> None:
     _, version = paper_template_to_domain(_template())
 

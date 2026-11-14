@@ -229,6 +229,33 @@ def _toc_level(name):
     return int(match.group(1)) if match else None
 
 
+_TOC_GALLERY = "Table of Contents"
+
+
+def _doc_part_gallery(sdt) -> str:
+    if sdt is None or sdt.tag != qn("w:sdt"):
+        return ""
+    gallery = sdt.find(f"{qn('w:sdtPr')}/{qn('w:docPartObj')}/{qn('w:docPartGallery')}")
+    if gallery is None:
+        return ""
+    return gallery.get(qn("w:val"), "")
+
+
+def _is_body_toc_gallery_sdt(sdt, body) -> bool:
+    """Word's automatic directory control, only when it is a direct body child."""
+    return (sdt is not None and sdt.tag == qn("w:sdt") and body is not None
+            and sdt.getparent() is body and _doc_part_gallery(sdt) == _TOC_GALLERY)
+
+
+def _accepted_toc_anchor_parent(parent, body) -> bool:
+    """Body paragraphs, or the inside of one body-level Table of Contents control."""
+    if parent is None or body is None:
+        return False
+    if parent is body:
+        return True
+    return parent.tag == qn("w:sdtContent") and _is_body_toc_gallery_sdt(parent.getparent(), body)
+
+
 def _text_content(paragraph):
     pieces=[]
     for node in paragraph.iter():
@@ -407,13 +434,13 @@ def _word_generated_toc_rows(parts, updated: bytes, profile, scratch: Path):
     placeholders = original.xpath(
         ".//w:sdt[w:sdtPr/w:tag/@w:val='pg-toc:placeholder']", namespaces=NS,
     )
-    if original_body is None or len(placeholders) != 1 or placeholders[0].getparent() is not original_body:
+    if original_body is None or len(placeholders) != 1 or not _accepted_toc_anchor_parent(placeholders[0].getparent(), original_body):
         raise ProfileError("母版目录锚点缺失、重复或不在正文中")
     with zipfile.ZipFile(io.BytesIO(updated)) as archive:
         root = etree.fromstring(archive.read("word/document.xml"), safe_xml_parser())
     body = root.find(qn("w:body"))
     controls = root.xpath(".//w:sdt[w:sdtPr/w:tag/@w:val='pg-toc:placeholder']", namespaces=NS)
-    if body is None or len(controls) != 1 or controls[0].getparent() is not body:
+    if body is None or len(controls) != 1 or not _accepted_toc_anchor_parent(controls[0].getparent(), body):
         raise ProfileError("Word 目录锚点缺失、重复或不在正文中")
     containers = controls[0].findall(qn("w:sdtContent"))
     if len(containers) != 1:
@@ -496,11 +523,15 @@ def _replace_toc_rows(parts, rows, profile, *, character_styles_root=None):
             nodes.append(paragraph)
     if placeholder:
         anchor=placeholder[0];parent=anchor.getparent()
-        if parent is None:raise ProfileError("目录锚点已脱离正文")
+        if parent is None or not _accepted_toc_anchor_parent(parent, body):
+            raise ProfileError("目录锚点已脱离正文")
+        if any(node.getparent() is not parent for node in nodes):
+            raise ProfileError("母版目录区域分散，无法安全替换")
         first=parent.index(anchor);parent.remove(anchor)
     elif nodes:
         parent=nodes[0].getparent()
-        if any(node.getparent() is not parent for node in nodes):raise ProfileError("母版目录区域分散，无法安全替换")
+        if any(node.getparent() is not parent for node in nodes) or not _accepted_toc_anchor_parent(parent, body):
+            raise ProfileError("母版目录区域分散，无法安全替换")
         first=min(parent.index(node) for node in nodes)
     else:
         raise ProfileError("母版目录锚点或目录行已变化")
@@ -606,20 +637,29 @@ def _remove_toc_field_controls(body,toc_style_ids=()):
     # Some Word files leave an unmatched field-end paragraph immediately after
     # the TOC domain. Associate only that empty adjacent marker with the TOC;
     # unrelated fields elsewhere in the document remain untouched.
-    direct_children=list(body)
-    toc_positions=[]
-    for index,node in enumerate(direct_children):
-        if node.tag==qn("w:sdt") and node.xpath("./w:sdtPr/w:tag[@w:val='pg-toc:placeholder']",namespaces=NS):
-            toc_positions.append(index)
-        elif node.tag==qn("w:p"):
-            style=node.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
-            if style is not None and style.get(qn("w:val"),"") in set(toc_style_ids):
-                toc_positions.append(index)
+    def sibling_positions(container):
+        positions=[]
+        for index,node in enumerate(list(container)):
+            if node.tag==qn("w:sdt") and node.xpath("./w:sdtPr/w:tag[@w:val='pg-toc:placeholder']",namespaces=NS):
+                positions.append(index)
+            elif node.tag==qn("w:p"):
+                style=node.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+                if style is not None and style.get(qn("w:val"),"") in set(toc_style_ids):
+                    positions.append(index)
+        return positions
+    containers=[body]
+    for sdt in body.findall(qn("w:sdt")):
+        if _is_body_toc_gallery_sdt(sdt, body):
+            content=sdt.find(qn("w:sdtContent"))
+            if content is not None:
+                containers.append(content)
     for node in unmatched:
         paragraph=next((ancestor for ancestor in node.iterancestors() if ancestor.tag==qn("w:p")),None)
-        if paragraph is None or paragraph.getparent() is not body:continue
-        index=body.index(paragraph)
-        if not any(abs(index-position)==1 for position in toc_positions):continue
+        if paragraph is None:continue
+        parent=paragraph.getparent()
+        if parent not in containers:continue
+        index=parent.index(paragraph)
+        if not any(abs(index-position)==1 for position in sibling_positions(parent)):continue
         if paragraph.xpath(".//w:t[normalize-space(.)]",namespaces=NS):continue
         for control_node in paragraph.findall(".//"+qn("w:fldChar")):
             if control_node.getparent() is not None:control_node.getparent().remove(control_node)
@@ -673,15 +713,33 @@ def _layout_destinations(destinations, rows):
     return bound
 
 
+def _styled_toc_rows(container, styles):
+    rows=[]
+    for paragraph in container.findall(qn("w:p")):
+        style=paragraph.find(f"{qn('w:pPr')}/{qn('w:pStyle')}")
+        if style is not None and style.get(qn("w:val")) in styles:
+            rows.append(paragraph)
+    return rows
+
+
 def _layout_input_parts(parts,profile):
     """Refresh page references on every pass, including already static rows."""
     root=etree.fromstring(parts["word/document.xml"])
     if root.xpath(".//w:sdtPr/w:tag[@w:val='pg-toc:placeholder']",namespaces=NS):
         return parts
     body=root.find(qn("w:body"));styles=set(profile.get("toc_style_ids",[]))
-    rows=[p for p in body.findall(qn("w:p"))
-          if p.find(f"{qn('w:pPr')}/{qn('w:pStyle')}") is not None
-          and p.find(f"{qn('w:pPr')}/{qn('w:pStyle')}").get(qn("w:val")) in styles]
+    body_rows=_styled_toc_rows(body, styles) if body is not None else []
+    gallery_rows=[]
+    if body is not None:
+        for sdt in body.findall(qn("w:sdt")):
+            if not _is_body_toc_gallery_sdt(sdt, body):
+                continue
+            content=sdt.find(qn("w:sdtContent"))
+            if content is not None:
+                gallery_rows.extend(_styled_toc_rows(content, styles))
+    if body_rows and gallery_rows:
+        raise ProfileError("母版目录区域分散，无法安全重建")
+    rows=body_rows or gallery_rows
     if not rows:raise ProfileError("目录排版输入缺少已确认目录行")
     controls=[]
     for kind in ("begin","instruction","separate"):
