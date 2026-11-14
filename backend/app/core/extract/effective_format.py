@@ -173,7 +173,21 @@ class EffectiveFormatResolver:
             layers.append((style.find(qn("w:pPr")), style.find(qn("w:rPr")), True))
         layers.append((ppr, None, False))
         for p_layer, r_layer, is_style in layers:
-            for key, value in para_props(p_layer).items():
+            layer_properties = para_props(p_layer)
+            first_line_keys = ("paragraph.indent.first_line", "paragraph.indent.first_line_chars")
+            hanging_keys = ("paragraph.indent.hanging", "paragraph.indent.hanging_chars")
+            # These are alternative representations of the first-line offset.
+            # A more-specific layer choosing one replaces the inherited other;
+            # preserve same-layer conflicts so the checker can reject them.
+            if any(key in layer_properties for key in hanging_keys) and not any(key in layer_properties for key in first_line_keys):
+                for key in first_line_keys:
+                    praw.pop(key, None)
+                    psources.pop(key, None)
+            elif any(key in layer_properties for key in first_line_keys) and not any(key in layer_properties for key in hanging_keys):
+                for key in hanging_keys:
+                    praw.pop(key, None)
+                    psources.pop(key, None)
+            for key, value in layer_properties.items():
                 praw[key] = value
                 prefix = "word/styles.xml:" if p_layer.getroottree().getroot().tag == qn("w:styles") else ""
                 psources[key] = [f"{prefix}{location(p_layer)}"]

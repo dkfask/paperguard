@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.models.project import ParagraphBlock, ProjectSection, ReferenceEntry, ReferenceLanguageFact, ReferenceYearFact, WritingProject
+from app.models.project import ImageBlock, ParagraphBlock, ProjectSection, ReferenceEntry, ReferenceLanguageFact, ReferenceYearFact, TableBlock, WritingProject
 from app.models.template import MetaField
 from app.services.project_check import check_project
 from app.services.projects import default_template
@@ -71,6 +71,720 @@ def test_document_checkers_return_findings_and_manual_items():
     assert not_checked[0]["reason"] == "manual"
 
 
+def test_format_classification_does_not_skip_automatic_checker():
+    from app.services.policy_resolver import hydrate_snapshot_format_overrides
+
+    project = _project()
+    snapshot = {
+        "format_overrides": {"body": {"font_zh": "宋体", "size_pt": 12}},
+        "resolved_items": [
+            {
+                "id": "mixed-rule", "type": "auto", "target": "abstract",
+                "checker": "abstract.word_count", "params": {"min": 10},
+                "severity": "error", "enforce": "hard",
+                "description": "摘要不少于十字，字号遵循模板",
+            },
+            {
+                "id": "future-rule", "type": "auto", "target": "document",
+                "checker": "future.unsupported", "params": {},
+                "severity": "error", "enforce": "hard",
+                "description": "图中字样字号满足规范",
+            },
+            {
+                "id": "format-only", "type": "manual", "target": "body",
+                "checker": "", "params": {}, "severity": "warning",
+                "enforce": "soft", "description": "正文小四号宋体",
+            },
+        ],
+    }
+    snapshot["policy_sets"] = [{"items": snapshot["resolved_items"]}]
+    snapshot = hydrate_snapshot_format_overrides(snapshot)
+    assert set(snapshot["format_item_ids"]) == {"mixed-rule", "future-rule", "format-only"}
+
+    findings, not_checked = check_requirements(project, snapshot)
+
+    assert [item["requirement_item_id"] for item in findings] == ["mixed-rule"]
+    assert [(item["id"], item["reason"], item["enforce"]) for item in not_checked] == [
+        ("mixed-rule", "format_rule_unverified", "hard"),
+        ("future-rule", "unsupported_checker", "hard"),
+        ("format-only", "format_rule_unverified", "soft"),
+    ]
+
+    project.requirement_snapshot = {**snapshot, "rule_pack_selection_version": 1}
+    report = check_project(project, default_template())
+    assert {item["requirement_item_id"] for item in report["findings"]} == {"mixed-rule"}
+    assert [item["id"] for item in report["not_checked"]] == ["mixed-rule", "future-rule", "format-only"]
+    assert not report["applied"]
+
+    from app.api.workflow import _gate
+
+    assert any(item["key"] == "automatic_unverified" for item in _gate({"check_report": report}))
+
+
+@pytest.mark.parametrize("enforce", ["hard", "soft"])
+def test_word_count_does_not_claim_compound_font_rule_is_verified(enforce):
+    from app.api.projects import _current_export_requirement_checks
+    from app.api.workflow import _gate
+
+    project = _project()
+    project.requirement_snapshot = {
+        "rule_pack_selection_version": 1,
+        # Legacy snapshots can lack format_item_ids entirely.
+        "resolved_items": [{
+            "id": "combined", "type": "auto", "target": "abstract",
+            "checker": "abstract.word_count", "params": {"min": 1},
+            "severity": "error", "enforce": enforce,
+            "description": "摘要不少于1字，正文使用黑体",
+        }],
+    }
+    template = default_template()
+    report = check_project(project, template)
+    assert not any(item.get("requirement_item_id") == "combined" for item in report["findings"])
+    assert [(item["id"], item["reason"]) for item in report["not_checked"]] == [
+        ("combined", "format_rule_unverified"),
+    ]
+    assert bool(_current_export_requirement_checks(project, template)) == (enforce == "hard")
+    assert any(item["key"] == "automatic_unverified" for item in _gate({"check_report": report})) == (enforce == "hard")
+
+
+def test_plain_word_count_rule_remains_verifiable():
+    snapshot = {"resolved_items": [{
+        "id": "count", "type": "auto", "target": "abstract",
+        "checker": "abstract.word_count", "params": {"min": 1},
+        "severity": "error", "enforce": "hard", "description": "摘要不少于1字",
+    }]}
+    findings, not_checked = check_requirements(_project(), snapshot, default_template())
+    assert not findings
+    assert not not_checked
+
+
+@pytest.mark.parametrize("checker,target,params,description", [
+    ("section.exists", "abstract", {}, "摘要必须存在，正文使用黑体"),
+    ("section.table_required", "abstract", {"min": 0}, "摘要表格不少于零个，正文使用黑体"),
+    ("keywords.count", "keywords", {"min": 1}, "关键词不少于1个，关键词使用黑体"),
+    ("cover.field_present", "title", {}, "封面必须填写题目，题目使用黑体"),
+    ("cover.fields_present", "cover", {"field_keys": ["title"]}, "封面必须填写题目，题目使用黑体"),
+    ("references.list_facts", "references", {"required": False}, "文献事实完整，文献使用黑体"),
+    ("references.count", "references", {"min": 1}, "文献不少于1条，文献使用黑体"),
+    ("references.recent_count", "references", {"min": 0}, "近期文献不少于0条，文献使用黑体"),
+    ("references.recent_ratio", "references", {"min": 0}, "近期文献比例不少于零，文献使用黑体"),
+    ("references.recent_language_summary", "references", {}, "文献统计提示，文献使用黑体"),
+    ("references.format", "references", {}, "文献包含序号和年份，文献使用黑体"),
+    ("ai.usage_declared", "document", {}, "声明AI使用情况，正文使用黑体"),
+    ("chapter.page_break", "abstract", {}, "章节另起一页，标题使用黑体"),
+])
+def test_auto_checker_keeps_additional_format_unverified(checker, target, params, description):
+    project = _project()
+    project.meta["title"] = "测试标题"
+    template = default_template()
+    template.meta_fields = [MetaField(key="title", label="题目")]
+    rule = {"id": "mixed", "type": "auto", "checker": checker, "target": target,
+            "params": params, "severity": "error", "enforce": "hard", "description": description}
+    _, unchecked = check_requirements(project, {"resolved_items": [rule]}, template)
+    assert any(item["id"] == "mixed" and item["reason"] == "format_rule_unverified" for item in unchecked)
+
+
+def test_page_break_rule_does_not_mark_its_own_pagination_unverified():
+    rule = {"id": "break", "type": "auto", "checker": "chapter.page_break", "target": "abstract",
+            "params": {}, "severity": "error", "enforce": "hard", "description": "摘要另起一页"}
+    _, unchecked = check_requirements(_project(), {"resolved_items": [rule], "format_item_ids": ["break"]}, default_template())
+    assert not unchecked
+
+
+def test_english_content_words_do_not_create_format_blocker():
+    from app.services.policy_resolver import hydrate_snapshot_format_overrides
+
+    rule = {"id": "english-count", "type": "auto", "checker": "abstract.word_count", "target": "abstract",
+            "params": {"min": 1}, "severity": "error", "enforce": "hard",
+            "description": "Abstract description and caption must contain at least one word"}
+    snapshot = hydrate_snapshot_format_overrides({"resolved_items": [rule], "policy_sets": [{"items": [rule]}]})
+    findings, unchecked = check_requirements(_project(), snapshot, default_template())
+    assert not snapshot["format_item_ids"]
+    assert not findings
+    assert not unchecked
+
+
+def test_legacy_english_unit_false_positive_is_rechecked_against_original_rule():
+    rule = {"id": "legacy", "type": "auto", "checker": "abstract.word_count", "target": "abstract",
+            "params": {"min": 1}, "severity": "error", "enforce": "hard",
+            "description": "Abstract description and caption must contain at least one word"}
+    snapshot = {"resolved_items": [rule], "policy_sets": [{"items": [rule]}], "format_item_ids": ["legacy"]}
+    findings, unchecked = check_requirements(_project(), snapshot, default_template())
+    assert not findings
+    assert not unchecked
+
+
+@pytest.mark.parametrize("source", [
+    [],
+    [{"items": [{"id": "legacy", "params": {}, "description": "摘要不少于1字，正文必须使用黑体"}]}],
+    [{"items": [{"id": "legacy", "params": {"format_override": True},
+                 "description": "Abstract description and caption must contain at least one word"}]}],
+])
+def test_legacy_classification_is_retained_if_original_format_cannot_be_excluded(source):
+    rule = {"id": "legacy", "type": "auto", "checker": "abstract.word_count", "target": "abstract",
+            "params": {"min": 1}, "severity": "error", "enforce": "hard",
+            "description": "Abstract description and caption must contain at least one word"}
+    snapshot = {"resolved_items": [rule], "policy_sets": source, "format_item_ids": ["legacy"]}
+    _, unchecked = check_requirements(_project(), snapshot, default_template())
+    assert any(item["id"] == "legacy" and item["reason"] == "format_rule_unverified" for item in unchecked)
+
+
+@pytest.mark.parametrize("source_kind", ["policy", "template"])
+def test_legacy_merged_auto_format_rule_is_not_silently_lost(source_kind):
+    plain = {"id": "plain", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+             "params": {"min": 1}, "enforce": "hard", "severity": "error", "description": "摘要不少于1字"}
+    hidden = {**plain, "id": "hidden", "description": "摘要不少于1字，正文使用黑体"}
+    snapshot = {"resolved_items": [plain], "format_item_ids": ["hidden"]}
+    if source_kind == "policy":
+        snapshot["policy_sets"] = [{"id": "policy", "name": "学校规范", "version": "1", "items": [plain, hidden]}]
+    else:
+        snapshot["template_instruction_items"] = [plain, hidden]
+    findings, unchecked = check_requirements(_project(), snapshot, default_template())
+    assert not findings
+    assert any(item["reason"] == "format_rule_unverified" and item["enforce"] == "hard"
+               and item["description"] == hidden["description"] for item in unchecked)
+
+
+def test_legacy_merged_pagination_only_does_not_create_format_blocker():
+    plain = {"id": "plain", "type": "auto", "target": "abstract", "checker": "chapter.page_break",
+             "params": {}, "enforce": "hard", "severity": "error", "description": "摘要另起一页"}
+    hidden = {**plain, "id": "hidden", "description": "摘要章前分页"}
+    snapshot = {"resolved_items": [plain], "policy_sets": [{"id": "policy", "items": [plain, hidden]}]}
+    _, unchecked = check_requirements(_project(), snapshot, default_template())
+    assert not unchecked
+
+
+def test_legacy_merged_manual_format_with_duplicate_id_is_recovered():
+    from app.services.policy_resolver import apply_requirement_format_overrides
+
+    font = {"id": "format", "type": "manual", "target": "body", "checker": "", "params": {"format_override": True},
+            "enforce": "hard", "severity": "error", "description": "正文中文字体为黑体"}
+    border = {**font, "target": "table", "params": {"format_override": True},
+              "description": "表格边框必须为黑色"}
+    snapshot = {"resolved_items": [font], "format_item_ids": ["format"],
+                "policy_sets": [{"name": "学校", "items": [font]}, {"name": "专业", "items": [border]}],
+                "format_overrides": {"body": {"font_zh": "黑体"}}, "rule_pack_selection_version": 1}
+    project = _project()
+    template = apply_requirement_format_overrides(default_template(), snapshot)
+    _, unchecked = check_requirements(project, snapshot, template)
+    assert any(item["description"] == border["description"] and item["enforce"] == "hard"
+               and item["reason"] == "format_rule_unverified" for item in unchecked)
+
+
+def test_duplicate_id_with_both_descriptions_resolved_does_not_recover_extra_copy():
+    font = {"id": "format", "type": "manual", "target": "body", "checker": "", "params": {"format_override": True},
+            "enforce": "hard", "severity": "error", "description": "正文中文字体为黑体"}
+    border = {**font, "target": "table", "description": "表格边框必须为黑色"}
+    snapshot = {"resolved_items": [font, border], "format_item_ids": ["format"],
+                "policy_sets": [{"name": "学校", "items": [font]}, {"name": "专业", "items": [border]}]}
+    _, unchecked = check_requirements(_project(), snapshot, default_template())
+    assert not any(item["id"].startswith("merged-format-") for item in unchecked)
+
+
+def test_legacy_duplicate_id_and_description_with_different_target_is_recovered():
+    first = {"id": "format", "type": "manual", "target": "body", "checker": "",
+             "params": {"format_override": True}, "enforce": "hard", "severity": "error",
+             "description": "必须使用黑体"}
+    second = {**first, "target": "figure_caption"}
+    snapshot = {"resolved_items": [first], "format_item_ids": ["format"],
+                "policy_sets": [{"name": "学校", "items": [first]}, {"name": "专业", "items": [second]}]}
+    _, unchecked = check_requirements(_project(), snapshot, default_template())
+    assert any(item["id"].startswith("merged-format-") and item["source"] == "专业" for item in unchecked)
+
+
+def test_legacy_auto_rule_with_lost_format_marker_is_recovered():
+    resolved = {"id": "shared", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+                "params": {"min": 1}, "enforce": "hard", "severity": "error", "description": "摘要不少于1字"}
+    original = {**resolved, "params": {"min": 1, "format_override": True}}
+    snapshot = {"resolved_items": [resolved], "policy_sets": [{"name": "学校", "items": [original]}]}
+    _, unchecked = check_requirements(_project(), snapshot, default_template())
+    assert any(item["reason"] == "format_rule_unverified" and item["enforce"] == "hard" for item in unchecked)
+
+
+def test_format_id_collision_does_not_turn_unrelated_auto_rule_into_format_rule():
+    from app.services.policy_resolver import apply_requirement_format_overrides
+
+    font = {"id": "shared", "type": "manual", "target": "body", "checker": "",
+            "params": {"format_override": True}, "enforce": "hard", "severity": "error",
+            "description": "正文中文字体为黑体"}
+    count = {"id": "shared", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+             "params": {"min": 1}, "enforce": "hard", "severity": "error", "description": "摘要不少于1字"}
+    snapshot = {"resolved_items": [font, count], "format_item_ids": ["shared"],
+                "policy_sets": [{"items": [font]}, {"items": [count]}],
+                "format_overrides": {"body": {"font_zh": "黑体"}}}
+    _, unchecked = check_requirements(_project(), snapshot,
+                                      apply_requirement_format_overrides(default_template(), snapshot))
+    assert not unchecked
+    # An explicit marker on the automatic rule remains authoritative even
+    # when a different rule shares the same ID.
+    count["params"]["format_override"] = True
+    _, unchecked = check_requirements(_project(), snapshot,
+                                      apply_requirement_format_overrides(default_template(), snapshot))
+    assert any(item["description"] == count["description"] and item["reason"] == "format_rule_unverified"
+               for item in unchecked)
+
+
+def test_source_rule_target_mapping_does_not_create_spurious_recovery():
+    original = {"id": "format", "type": "manual", "target": "ch1", "checker": "",
+                "params": {"format_override": True}, "enforce": "hard", "severity": "error",
+                "description": "必须使用黑体"}
+    resolved = {**original, "target": "section-1"}
+    snapshot = {"resolved_items": [resolved], "format_item_ids": ["format"],
+                "policy_sets": [{"name": "学校", "items": [original]}],
+                "manuscript_target_mapping": {"section_key_map": {"ch1": "section-1"},
+                                              "source_section_keys": ["ch1"]}}
+    _, unchecked = check_requirements(_project(), snapshot, default_template())
+    assert not any(item["id"].startswith("merged-format-") for item in unchecked)
+
+
+def test_hard_format_classification_does_not_prove_a_compound_requirement():
+    from app.api.workflow import _gate
+    from app.services.policy_resolver import hydrate_snapshot_format_overrides
+
+    rule = {
+        "id": "table-border", "type": "manual", "target": "document", "checker": "",
+        "params": {}, "severity": "error", "enforce": "hard",
+        "description": "表格边框必须为黑色，字号遵守规范",
+    }
+    snapshot = hydrate_snapshot_format_overrides({
+        "policy_sets": [{"items": [rule]}], "resolved_items": [rule],
+        "format_overrides": {"body": {"size_pt": 12}}, "rule_pack_selection_version": 1,
+    })
+    project = _project()
+    project.requirement_snapshot = snapshot
+    report = check_project(project, default_template())
+
+    assert [(item["id"], item["reason"]) for item in report["not_checked"]] == [
+        ("table-border", "format_rule_unverified"),
+    ]
+    assert not report["applied"]
+    assert any(item["key"] == "automatic_unverified" for item in _gate({"check_report": report}))
+
+
+def test_soft_unmapped_format_rule_is_unverified_without_becoming_hard():
+    from app.api.workflow import _gate
+    from app.services.policy_resolver import hydrate_snapshot_format_overrides
+
+    rule = {"id": "soft-border", "type": "manual", "target": "document", "checker": "",
+            "params": {}, "severity": "warning", "enforce": "soft",
+            "description": "表格边框为黑色，字号遵守规范"}
+    project = _project()
+    project.requirement_snapshot = hydrate_snapshot_format_overrides({
+        "policy_sets": [{"items": [rule]}], "resolved_items": [rule],
+        "format_overrides": {"body": {"size_pt": 12}}, "rule_pack_selection_version": 1,
+    })
+    report = check_project(project, default_template())
+    assert [(item["id"], item["reason"], item["enforce"]) for item in report["not_checked"]] == [
+        ("soft-border", "format_rule_unverified", "soft"),
+    ]
+    assert not report["applied"]
+    assert not any(item["key"] == "automatic_unverified" for item in _gate({"check_report": report}))
+
+
+@pytest.mark.parametrize("enforce", ["hard", "soft"])
+def test_simple_body_font_requires_matching_effective_style(enforce):
+    from app.services.policy_resolver import apply_requirement_format_overrides, hydrate_snapshot_format_overrides
+
+    rule = {
+        "id": "body-font", "type": "manual", "target": "body", "checker": "",
+        "params": {}, "severity": "error", "enforce": enforce,
+        "description": "正文中文字体为黑体",
+    }
+    snapshot = hydrate_snapshot_format_overrides({
+        "policy_sets": [{"items": [rule]}], "resolved_items": [rule],
+        "format_overrides": {"body": {"font_zh": "黑体"}}, "rule_pack_selection_version": 1,
+    })
+    project = _project()
+    project.requirement_snapshot = snapshot
+    base = default_template()
+    mismatch = check_project(project, base)
+    assert [(item["id"], item["reason"]) for item in mismatch["not_checked"]] == [
+        ("body-font", "format_rule_unverified"),
+    ]
+    effective = apply_requirement_format_overrides(base, snapshot)
+    verified = check_project(project, effective)
+    assert not verified["not_checked"]
+    assert [item["id"] for item in verified["applied"]] == ["body-font"]
+
+
+@pytest.mark.parametrize("changes", [
+    {"description": "正文中文字体为黑体，段前距12磅"},
+    {"target": "figure_caption"},
+    {"params": {"format_override": True, "min": 10}},
+    {"description": "正文中文字体为宋体"},
+])
+def test_simple_body_font_does_not_certify_extra_or_mismatched_requirements(changes):
+    from app.services.policy_resolver import apply_requirement_format_overrides, hydrate_snapshot_format_overrides
+
+    rule = {"id": "font", "type": "manual", "target": "body", "checker": "", "params": {},
+            "severity": "error", "enforce": "hard", "description": "正文中文字体为黑体", **changes}
+    snapshot = hydrate_snapshot_format_overrides({
+        "policy_sets": [{"items": [rule]}], "resolved_items": [rule],
+        "format_overrides": {"body": {"font_zh": "黑体"}}, "rule_pack_selection_version": 1,
+    })
+    project = _project()
+    project.requirement_snapshot = snapshot
+    template = apply_requirement_format_overrides(default_template(), snapshot)
+    report = check_project(project, template)
+    assert [(item["id"], item["reason"]) for item in report["not_checked"]] == [
+        ("font", "format_rule_unverified"),
+    ]
+    assert not report["applied"]
+
+
+@pytest.mark.parametrize("description", [
+    "图中标注符号和文字的字号不大于图题字号，建议五号",
+    "图片内文字的字体大小不得大于图题",
+    "插图中的标注文字字号不能超过图题",
+])
+def test_image_internal_typography_is_not_reported_as_applied_format(description):
+    from app.api.workflow import _gate
+    from app.services.policy_resolver import hydrate_snapshot_format_overrides
+
+    image_rule = {
+        "id": "image-font", "type": "manual", "target": "document", "checker": "",
+        "params": {"format_override": True}, "severity": "error", "enforce": "hard",
+        "description": description,
+    }
+    caption_rule = {
+        "id": "caption-font", "type": "manual", "target": "figure_caption", "checker": "",
+        "params": {"format_override": True}, "severity": "warning", "enforce": "soft",
+        "description": "图题字号五号，居中",
+    }
+    items = [image_rule, caption_rule]
+    snapshot = hydrate_snapshot_format_overrides({
+        "policy_sets": [{"items": items}], "resolved_items": items,
+        "format_item_ids": ["image-font"],  # Already-classified legacy snapshots must also be safe.
+        "format_overrides": {"figure_caption": {"size_pt": 10.5}},
+        "rule_pack_selection_version": 1,
+    })
+    project = _project()
+    project.requirement_snapshot = snapshot
+
+    report = check_project(project, default_template())
+
+    assert [item["id"] for item in report["not_checked"]] == ["image-font", "caption-font"]
+    assert report["not_checked"][0]["reason"] == "image_typography_unverified"
+    assert report["not_checked"][1]["reason"] == "format_rule_unverified"
+    assert not report["applied"]
+    assert any(item["key"] == "automatic_unverified" for item in _gate({"check_report": report}))
+
+
+def test_imported_image_font_limit_remains_unverified_and_hard_in_snapshot(tmp_path):
+    from app.api.workflow import _gate
+    from app.db import Store
+    from app.models.policy import RequirementSet
+    from app.services.policy_import import normalize_ai_policy
+    from app.services.policy_resolver import build_requirement_snapshot
+
+    policy, _ = normalize_ai_policy(
+        '{"items":[]}', 'guide.pdf', '图中标注符号文字字号不大于图题的字号，建议五号字体。',
+    )
+    item = next(item for item in policy['items']
+                if item['params'].get('image_typography_constraint') == 'caption_font_size_upper_bound')
+    # A display-name change must not hide the structured requirement.
+    item['description'] = '图中文字上限'
+    store = Store(tmp_path / 'policy.db')
+    store.save_requirement_set(RequirementSet(
+        id='image-policy', name='image policy', status='published', items=[item],
+        format_overrides={'figure_caption': {'size_pt': 10.5}},
+    ))
+    snapshot = build_requirement_snapshot(store, default_template())
+    assert snapshot['resolved_items'][0]['params'] == item['params']
+    project = _project()
+    project.sections[0].paragraphs.append(ParagraphBlock(id='image', type='image', image=ImageBlock(url='/media/test.png')))
+    project.requirement_snapshot = snapshot
+    report = check_project(project, default_template())
+    assert [(entry['id'], entry['reason'], entry['enforce']) for entry in report['not_checked']] == [
+        (item['id'], 'image_typography_unverified', 'hard'),
+    ]
+    assert not any(entry['id'] == item['id'] for entry in report['applied'])
+    assert any(entry['key'] == 'automatic_unverified' for entry in _gate({'check_report': report}))
+
+
+def test_imported_image_limit_does_not_block_plain_document_without_images():
+    from app.api.workflow import _gate
+    from app.services.policy_import import normalize_ai_policy
+
+    policy, _ = normalize_ai_policy(
+        '{"items":[]}', 'guide.pdf', '图中标注符号文字字号不大于图题的字号，建议五号字体。',
+    )
+    item = next(item for item in policy['items']
+                if item['params'].get('image_typography_constraint') == 'caption_font_size_upper_bound')
+    project = _project()
+    project.requirement_snapshot = {'resolved_items': [item], 'rule_pack_selection_version': 1}
+    template = default_template()
+    report = check_project(project, template)
+    assert not report['not_checked']
+    assert not any(entry['key'] == 'automatic_unverified' for entry in _gate({'check_report': report}))
+
+    # A source master or imported table XML may retain drawings that are not
+    # represented as image blocks; absence of an image block alone is no proof.
+    template.source_docx = 'master.docx'
+    assert check_requirements(project, project.requirement_snapshot, template)[1][0]['reason'] == 'image_typography_unverified'
+    template.source_docx = ''
+    project.sections[0].paragraphs.append(ParagraphBlock(
+        id='table', type='table', table=TableBlock(source_xml='<w:tbl/>'),
+    ))
+    assert check_requirements(project, project.requirement_snapshot, template)[1][0]['reason'] == 'image_typography_unverified'
+
+
+def test_image_limit_applicability_does_not_skip_an_automatic_checker():
+    item = {'id': 'future', 'type': 'auto', 'target': 'document',
+            'checker': 'future.unsupported',
+            'params': {'image_typography_constraint': 'caption_font_size_upper_bound'},
+            'enforce': 'hard', 'severity': 'error', 'description': 'future rule'}
+    _, unchecked = check_requirements(_project(), {'resolved_items': [item]}, default_template())
+    assert [(entry['id'], entry['reason'], entry['enforce']) for entry in unchecked] == [
+        ('future', 'unsupported_checker', 'hard'),
+    ]
+
+
+def test_legacy_snapshot_recovers_image_limit_from_frozen_policy_text_without_mutation():
+    import copy
+    from app.api.workflow import _gate
+
+    project = _project()
+    project.sections[0].paragraphs.append(ParagraphBlock(id='image', type='image', image=ImageBlock(url='/media/test.png')))
+    snapshot = {'rule_pack_selection_version': 1, 'content_hash': 'frozen-policy-hash',
+                'policy_sets': [{'id': 'legacy-policy', 'name': '学校规范', 'version': '1',
+                    'markdown_content': '图题用五号宋体。图中标注符号文字字号不大于图题的字号，建议五号字体。',
+                    'items': []}], 'resolved_items': []}
+    original = copy.deepcopy(snapshot)
+    project.requirement_snapshot = snapshot
+    report = check_project(project, default_template())
+    assert [(entry['reason'], entry['enforce'], entry['source']) for entry in report['not_checked']] == [
+        ('image_typography_unverified', 'hard', '学校规范')]
+    assert any(entry['key'] == 'automatic_unverified' for entry in _gate({'check_report': report}))
+    assert project.requirement_snapshot == original
+
+
+def test_legacy_image_limit_recovery_preserves_unrelated_and_optional_policies():
+    project = _project()
+    for text in ('建议图中标注符号文字字号不大于图题的字号。', '正文宋体小四号。'):
+        snapshot = {'policy_sets': [{'id': 'unrelated', 'markdown_content': text}], 'resolved_items': []}
+        assert check_requirements(project, snapshot, default_template())[1] == []
+    snapshot = {'policy_sets': [{'id': 'with-rule', 'markdown_content':
+        '图中标注符号文字字号不大于图题的字号，建议五号字体。'}], 'resolved_items': []}
+    assert check_requirements(project, snapshot, default_template())[1] == []
+    template = default_template()
+    template.source_docx = 'master.docx'
+    unchecked = check_requirements(project, snapshot, template)[1]
+    assert len(unchecked) == 1 and unchecked[0]['enforce'] == 'hard'
+
+
+def test_legacy_image_limit_recovery_does_not_duplicate_existing_hard_rule():
+    from app.services.policy_import import normalize_ai_policy
+    text = '图中标注符号文字字号不大于图题的字号，建议五号字体。'
+    policy, _ = normalize_ai_policy('{"items":[]}', 'guide.pdf', text)
+    item = next(item for item in policy['items'] if item['params'].get('image_typography_constraint'))
+    project = _project()
+    project.sections[0].paragraphs.append(ParagraphBlock(id='image', type='image', image=ImageBlock(url='/media/test.png')))
+    snapshot = {'policy_sets': [{'id': 'current', 'markdown_content': text}], 'resolved_items': [item]}
+    unchecked = check_requirements(project, snapshot, default_template())[1]
+    assert len(unchecked) == 1 and unchecked[0]['id'] == item['id']
+
+
+def test_legacy_image_limit_recovered_from_frozen_item_when_markdown_was_omitted():
+    project = _project()
+    project.sections[0].paragraphs.append(ParagraphBlock(id='image', type='image', image=ImageBlock(url='/media/test.png')))
+    item = {'id': 'old-source', 'type': 'manual', 'checker': '', 'severity': 'warning',
+            'enforce': 'soft', 'params': {'format_override': True},
+            'description': '原文格式要求：图中标注符号文字字号不大于图题的字号，建议五号字体。'}
+    snapshot = {'policy_sets': [{'id': 'legacy', 'name': '学校规范', 'version': '1', 'items': [item]}],
+                'resolved_items': [item], 'format_item_ids': ['old-source']}
+    _, unchecked = check_requirements(project, snapshot, default_template())
+    assert any(entry['enforce'] == 'hard' and entry['reason'] == 'image_typography_unverified'
+               and entry['source'] == '学校规范' for entry in unchecked)
+
+
+def test_legacy_attachment_recovers_frozen_rule_without_mutating_snapshot(tmp_path, monkeypatch):
+    import copy
+    import hashlib
+    from app.api import policies
+
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', tmp_path)
+    data = '图题用五号宋体。图中标注符号文字字号不大于图题的字号，建议五号字体。'.encode()
+    (tmp_path / 'legacy').mkdir()
+    (tmp_path / 'legacy' / 'guide.txt').write_bytes(data)
+    snapshot = {'policy_sets': [{'id': 'legacy', 'name': '学校规范', 'version': '1',
+        'markdown_content': '', 'items': [], 'documents': [{'id': 'guide', 'storage_key': 'guide.txt',
+        'filename': 'guide.txt', 'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}]}],
+        'resolved_items': []}
+    original = copy.deepcopy(snapshot)
+    project = _project()
+    project.sections[0].paragraphs.append(ParagraphBlock(id='image', type='image', image=ImageBlock(url='/media/test.png')))
+    _, unchecked = check_requirements(project, snapshot, default_template())
+    assert [(x['reason'], x['enforce'], x['source']) for x in unchecked] == [
+        ('image_typography_unverified', 'hard', '学校规范')]
+    assert snapshot == original
+
+
+@pytest.mark.parametrize('failure', ['missing', 'mismatch', 'bad_key', 'bad_policy', 'symlink',
+                                   'policy_symlink', 'checksum_missing', 'oversized', 'malformed'])
+def test_legacy_attachment_unavailable_never_silently_passes_with_images(tmp_path, monkeypatch, failure):
+    import hashlib
+    from app.api import policies
+
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', tmp_path / 'documents')
+    data = b'plain policy text'
+    directory = policies._DOCUMENT_DIR / 'legacy'
+    directory.mkdir(parents=True)
+    path = directory / 'guide.txt'
+    path.write_bytes(data)
+    document = {'id': 'guide', 'storage_key': 'guide.txt', 'filename': 'guide.txt',
+                'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}
+    policy = {'id': 'legacy', 'name': '学校规范', 'version': '1', 'documents': [document]}
+    if failure == 'missing':
+        path.unlink()
+    elif failure == 'mismatch':
+        path.write_bytes(b'changed')
+    elif failure == 'bad_key':
+        document['storage_key'] = '../outside.txt'
+    elif failure == 'bad_policy':
+        policy['id'] = '../outside'
+    elif failure == 'symlink':
+        path.unlink()
+        target = tmp_path / 'outside.txt'
+        target.write_bytes(data)
+        path.symlink_to(target)
+    elif failure == 'policy_symlink':
+        path.unlink()
+        directory.rmdir()
+        target = tmp_path / 'outside'
+        target.mkdir()
+        (target / 'guide.txt').write_bytes(data)
+        directory.symlink_to(target, target_is_directory=True)
+    elif failure == 'checksum_missing':
+        document['checksum'] = ''
+    elif failure == 'oversized':
+        monkeypatch.setattr(policies, '_MAX_DOCUMENT_BYTES', len(data) - 1)
+    else:
+        path.write_bytes(b'not a pdf')
+        document.update(storage_key='guide.pdf', filename='guide.pdf',
+                        checksum='sha256:' + hashlib.sha256(b'not a pdf').hexdigest())
+        path.rename(directory / 'guide.pdf')
+    snapshot = {'policy_sets': [policy], 'resolved_items': []}
+    project = _project()
+    project.sections[0].paragraphs.append(ParagraphBlock(id='image', type='image', image=ImageBlock(url='/media/test.png')))
+    _, unchecked = check_requirements(project, snapshot, default_template())
+    assert len(unchecked) == 1
+    assert unchecked[0]['reason'] == 'policy_attachment_unverified'
+    assert unchecked[0]['enforce'] == 'hard'
+    assert str(tmp_path) not in unchecked[0]['description']
+
+
+def test_legacy_attachment_unrelated_text_and_no_image_do_not_block(tmp_path, monkeypatch):
+    import hashlib
+    from app.api import policies
+
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', tmp_path)
+    data = '正文宋体小四号。'.encode()
+    (tmp_path / 'legacy').mkdir()
+    (tmp_path / 'legacy' / 'guide.txt').write_bytes(data)
+    snapshot = {'policy_sets': [{'id': 'legacy', 'documents': [{'id': 'guide', 'storage_key': 'guide.txt',
+        'filename': 'guide.txt', 'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}]}], 'resolved_items': []}
+    project = _project()
+    project.sections[0].paragraphs.append(ParagraphBlock(id='image', type='image', image=ImageBlock(url='/media/test.png')))
+    assert check_requirements(project, snapshot, default_template())[1] == []
+    (tmp_path / 'legacy' / 'guide.txt').unlink()
+    unchecked = check_requirements(_project(), snapshot, default_template())[1]
+    assert [(item['reason'], item['enforce']) for item in unchecked] == [('policy_attachment_unverified', 'hard')]
+
+
+@pytest.mark.parametrize('description', ['正文必须使用黑体。', '正文中文字体必须使用黑体。'])
+def test_unmapped_mandatory_body_font_from_frozen_attachment_is_not_silent(tmp_path, monkeypatch, description):
+    import hashlib
+    from app.api import policies
+    from app.api.projects import _current_export_requirement_checks
+
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', tmp_path)
+    data = description.encode()
+    (tmp_path / 'legacy').mkdir()
+    (tmp_path / 'legacy' / 'guide.txt').write_bytes(data)
+    snapshot = {'policy_sets': [{'id': 'legacy', 'documents': [{'id': 'guide', 'storage_key': 'guide.txt',
+        'filename': 'guide.txt', 'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}]}], 'resolved_items': []}
+    project = _project()
+    project.requirement_snapshot = snapshot
+    template = default_template()
+    template.styles['body'].font_zh = '宋体'
+    _, unchecked = check_requirements(project, snapshot, template)
+    assert [(item['reason'], item['enforce']) for item in unchecked] == [('format_rule_unverified', 'hard')]
+    assert _current_export_requirement_checks(project, template)
+
+
+@pytest.mark.parametrize('description', [
+    '建议正文使用黑体。', '正文不得使用黑体。', '例如：正文必须使用黑体。',
+    '图中文字必须使用黑体。',
+])
+def test_body_font_recovery_does_not_guess_other_clauses(tmp_path, monkeypatch, description):
+    import hashlib
+    from app.api import policies
+
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', tmp_path)
+    data = description.encode()
+    (tmp_path / 'legacy').mkdir()
+    (tmp_path / 'legacy' / 'guide.txt').write_bytes(data)
+    snapshot = {'policy_sets': [{'id': 'legacy', 'documents': [{'id': 'guide', 'storage_key': 'guide.txt',
+        'filename': 'guide.txt', 'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}]}], 'resolved_items': []}
+    assert check_requirements(_project(), snapshot, default_template())[1] == []
+
+
+def test_compound_body_requirement_is_not_reduced_to_font_only():
+    snapshot = {'policy_sets': [{'id': 'legacy', 'markdown_content':
+        '正文必须使用黑体、并且每段不少于100字。'}], 'resolved_items': []}
+    unchecked = check_requirements(_project(), snapshot, default_template())[1]
+    assert [(item['reason'], item['enforce']) for item in unchecked] == [('format_rule_unverified', 'hard')]
+    assert '每段不少于100字' in unchecked[0]['description']
+
+
+@pytest.mark.parametrize('resolved', [[], [{'id': 'original', 'type': 'manual', 'enforce': 'soft',
+                                            'description': '其他建议'}]])
+def test_unmapped_legacy_policy_item_still_recovers_mandatory_body_font(resolved):
+    snapshot = {'policy_sets': [{'id': 'legacy', 'items': [
+        {'id': 'original', 'description': '正文必须使用黑体。'}]}], 'resolved_items': resolved}
+    unchecked = check_requirements(_project(), snapshot, default_template())[1]
+    assert any(item['reason'] == 'format_rule_unverified' and item['enforce'] == 'hard'
+               and '正文必须使用黑体' in item['description'] for item in unchecked)
+
+
+def test_recovered_explicit_chinese_font_uses_verified_effective_style():
+    from app.models.template import TemplateSection, TextStyle
+    from app.services.policy_resolver import apply_requirement_format_overrides
+
+    snapshot = {'policy_sets': [{'id': 'legacy', 'markdown_content': '正文中文字体必须使用黑体。'}],
+        'resolved_items': [], 'format_overrides': {'body': {'font_zh': '黑体'}}}
+    base = default_template()
+    assert check_requirements(_project(), snapshot, base)[1][0]['reason'] == 'format_rule_unverified'
+    effective = apply_requirement_format_overrides(base, snapshot)
+    assert check_requirements(_project(), snapshot, effective)[1] == []
+    effective.sections.append(TemplateSection(key='outer', type='heading1', title='章', children=[
+        TemplateSection(key='custom-body', type='body', title='正文', style=TextStyle(font_zh='宋体'))]))
+    assert check_requirements(_project(), snapshot, effective)[1][0]['reason'] == 'format_rule_unverified'
+    effective.sections[-1].children[0].style.font_zh = '黑体'
+    # The unqualified wording might include Latin text and must not be
+    # certified by the east-Asian font setting alone.
+    snapshot['policy_sets'][0]['markdown_content'] = '正文必须使用黑体。'
+    assert check_requirements(_project(), snapshot, effective)[1][0]['reason'] == 'format_rule_unverified'
+
+
+def test_existing_image_rule_does_not_hide_another_attachment(tmp_path, monkeypatch):
+    import hashlib
+    from app.api import policies
+
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', tmp_path)
+    data = '正文必须使用黑体。'.encode()
+    (tmp_path / 'legacy').mkdir()
+    (tmp_path / 'legacy' / 'guide.txt').write_bytes(data)
+    image_rule = {'id': 'figure', 'type': 'manual', 'checker': '', 'target': 'document',
+        'params': {'image_typography_constraint': 'caption_font_size_upper_bound'},
+        'enforce': 'hard', 'severity': 'error', 'description': '图中文字字号要求'}
+    snapshot = {'resolved_items': [image_rule], 'policy_sets': [{'id': 'legacy', 'documents': [
+        {'id': 'guide', 'storage_key': 'guide.txt', 'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}]}]}
+    unchecked = check_requirements(_project(), snapshot, default_template())[1]
+    assert [(item['reason'], item['enforce']) for item in unchecked] == [('format_rule_unverified', 'hard')]
+
+
 def test_required_section_is_checked_for_presence_and_content():
     project = _project()
     findings, _ = check_requirements(project, {
@@ -108,7 +822,9 @@ def test_reference_format_checker_and_chapter_page_break_checker():
     assert {finding["requirement_item_id"] for finding in findings} == {
         "reference-format", "chapter-break",
     }
-    assert not not_checked
+    assert [(item["id"], item["reason"]) for item in not_checked] == [
+        ("reference-format", "reference_standard_unverified"),
+    ]
 
     project = _project().model_copy(deep=True)
     project.sections[-1].paragraphs[0].text = "[1] 作者. 研究. 2025."
@@ -130,6 +846,97 @@ def test_reference_format_checker_and_chapter_page_break_checker():
         "checker": "references.format", "params": {}, "severity": "warning", "enforce": "soft",
     }]}, template)
     assert findings == []
+
+
+@pytest.mark.parametrize("params", [
+    {"format_check": "apa"},
+    {"format_check": "number_and_year", "punctuation": "gbt"},
+    {"prefix_pattern": "("},
+])
+def test_reference_format_does_not_claim_unsupported_snapshot_parameters(params):
+    project = _project()
+    project.sections[-1].paragraphs[0].text = "[1] 作者. 研究. 2025."
+    project.sections[-1].paragraphs[1].text = "[2] 作者. 研究. 2024."
+    rule = {"id": "reference-format-unknown", "type": "auto", "target": "references",
+            "checker": "references.format", "params": params,
+            "severity": "error", "enforce": "hard", "description": "文献格式检查"}
+    _, unchecked = check_requirements(project, {"resolved_items": [rule]}, default_template())
+    assert any(item["id"] == rule["id"] and item["reason"] == "unsupported_checker_parameters"
+               for item in unchecked)
+
+
+@pytest.mark.parametrize("description", [
+    "参考文献应符合 APA 7 格式",
+    "参考文献应符合著录格式",
+    "参考文献应遵循 IEEE 标准",
+    "参考文献须符合 GB/T 7714 著录规则",
+])
+@pytest.mark.parametrize("params", [{}, {"format_check": "number_and_year"}])
+def test_number_year_check_does_not_claim_broad_reference_standard(description, params):
+    project = _project()
+    project.sections[-1].paragraphs[0].text = "[1] 作者. 研究. 2025."
+    project.sections[-1].paragraphs[1].text = "[2] 作者. 研究. 2024."
+    rule = {"id": "broad-reference", "type": "auto", "target": "references",
+            "checker": "references.format", "params": params,
+            "severity": "error", "enforce": "hard", "description": description}
+    _, unchecked = check_requirements(project, {"resolved_items": [rule]}, default_template())
+    assert any(item["id"] == rule["id"] and item["reason"] == "reference_standard_unverified"
+               for item in unchecked)
+
+
+@pytest.mark.parametrize("enforce", ["hard", "soft"])
+def test_broad_reference_standard_retains_gate_and_number_year_failures(enforce):
+    from app.api.projects import _current_export_requirement_checks
+    from app.api.workflow import _gate
+
+    project = _project()
+    project.sections[-1].paragraphs[0].text = "缺少年份"
+    project.requirement_snapshot = {"rule_pack_selection_version": 1, "resolved_items": [{
+        "id": "broad-reference", "type": "auto", "target": "references",
+        "checker": "references.format", "params": {"format_check": "number_and_year"},
+        "severity": "error", "enforce": enforce, "description": "参考文献应符合 APA 7 格式",
+    }]}
+    template = default_template()
+    report = check_project(project, template)
+    assert any(item.get("requirement_item_id") == "broad-reference" for item in report["findings"])
+    assert any(item["id"] == "broad-reference" and item["reason"] == "reference_standard_unverified"
+               for item in report["not_checked"])
+    assert bool(_current_export_requirement_checks(project, template)) == (enforce == "hard")
+    assert any(item["key"] == "automatic_unverified" for item in _gate({"check_report": report})) == (enforce == "hard")
+
+
+@pytest.mark.parametrize("params", [{}, {"format_check": "number_and_year"}])
+def test_reference_format_keeps_supported_number_and_year_check(params):
+    project = _project()
+    project.sections[-1].paragraphs[0].text = "[1] 作者. 研究. 2025."
+    project.sections[-1].paragraphs[1].text = "[2] 作者. 研究. 2024."
+    rule = {"id": "number-year", "type": "auto", "target": "references",
+            "checker": "references.format", "params": params,
+            "severity": "error", "enforce": "hard", "description": "参考文献需有序号和年份"}
+    assert check_requirements(project, {"resolved_items": [rule]}, default_template()) == ([], [])
+    project.sections[-1].paragraphs[1].text = "缺少年份的文献"
+    findings, unchecked = check_requirements(project, {"resolved_items": [rule]}, default_template())
+    assert any(item["requirement_item_id"] == rule["id"] for item in findings)
+    assert not unchecked
+
+
+@pytest.mark.parametrize("enforce", ["hard", "soft"])
+def test_unsupported_reference_format_keeps_its_delivery_gate(enforce):
+    from app.api.projects import _current_export_requirement_checks
+    from app.api.workflow import _gate
+
+    project = _project()
+    project.requirement_snapshot = {"rule_pack_selection_version": 1, "resolved_items": [{
+        "id": "unknown-standard", "type": "auto", "target": "references",
+        "checker": "references.format", "params": {"format_check": "apa"},
+        "severity": "error", "enforce": enforce, "description": "文献格式检查",
+    }]}
+    template = default_template()
+    report = check_project(project, template)
+    assert any(item["id"] == "unknown-standard" and item["reason"] == "unsupported_checker_parameters"
+               for item in report["not_checked"])
+    assert bool(_current_export_requirement_checks(project, template)) == (enforce == "hard")
+    assert any(item["key"] == "automatic_unverified" for item in _gate({"check_report": report})) == (enforce == "hard")
 
 
 def test_cover_fields_checker_uses_declared_template_keys_and_reports_each_missing_field():

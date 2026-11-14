@@ -30,15 +30,15 @@ meta:
   source_sha: 6cf37f902b6ff453611c505c17d1a3b929e3cc29
   branch: fix/ui-review-findings-20260929
   generated_at: "2026-10-05"
-  store_public_methods: 133        # 实测：ast 解析，排除 _ 前缀
-  store_total_methods: 149         # 实测：含私有方法
+  store_public_methods: 137        # 实测：ast 解析，排除 _ 前缀
+  store_total_methods: 153         # 实测：含私有方法
   store_construction_points: 18    # 实测：16 × Store() + 1 × Store(db_path)
   store_construction_by_phase:
     request: 15        # Depends(get_store) 12×api/* + auth.py:617 + main.py:178
     startup: 1         # main.py:77
     worker: 1          # worker.py:35
     cli: 1             # cli/migrate.py:19（Store(db_path)）
-  depends_get_store: 219          # 实测：**AST 表达式计数**，口径 = 真实的
+  depends_get_store: 239          # 实测：**AST 表达式计数**，口径 = 真实的
                                   # `Depends(get_store)` 调用，不含文档字符串/注释。
                                   # INC-85：原写 202，是 grep 行数——`auth.py:613`
                                   # 的 docstring 里有一句「全项目统一用 `Depends(get_store)` 注入」
@@ -240,7 +240,7 @@ tables:
     kind: table
     location: backend/app/db.py:100
     ddl_shape: "id PK, data TEXT, updated_at"
-    store_methods: [save_template, get_template, list_templates, delete_template]
+    store_methods: [save_template, insert_template_if_absent, get_template, list_templates, delete_template]
     external_readers: [api/templates.py, api/projects.py, api/workflow.py,
                        api/process_records.py, api/operations.py, main.py,
                        services/template_source.py, services/import_template.py,
@@ -264,7 +264,9 @@ tables:
     location: backend/app/db.py:105
     ddl_shape: "id PK, template_id, data TEXT, updated_at；pilot tenant/member持久化在data JSON，非全表RLS隔离"
     store_methods: [save_project, get_project, list_projects, delete_project,
-                    update_project_check_runs, update_project_if_revision]
+                    update_project_check_runs, update_project_if_revision,
+                    update_project_if_revision_conn, update_project_snapshots,
+                    iter_upload_reference_payloads_conn]
     external_readers: [api/projects.py, api/templates.py, api/workflow.py,
                        api/document_projects.py, api/policies.py, api/routes.py,
                        main.py, domain/documents/schemas.py,
@@ -304,7 +306,8 @@ tables:
     location: backend/app/db.py:256
     ddl_shape: "id PK, package_id, owner_id, data TEXT, revision, updated_at"
     store_methods: [save_document_project, get_document_project,
-                    list_document_projects, update_document_project_if_revision]
+                    list_document_projects, update_document_project_if_revision,
+                    iter_upload_reference_payloads_conn]
     external_readers: [api/ai.py, main.py]
     background_consumers: []
     sensitivity: customer_content
@@ -368,7 +371,7 @@ tables:
     ddl_shape: "PK(kind, id), data TEXT, created_at, updated_at"
     store_methods: [save_workflow_record, save_workflow_record_conn,
                     get_workflow_record, list_workflow_records,
-                    delete_workflow_record]
+                    delete_workflow_record, iter_upload_reference_payloads_conn]
     external_readers: [repositories/workflow_repository.py, api/workflow.py,
                        services/workflow_jobs.py, services/export_jobs.py,
                        services/document_render_jobs.py, api/document_projects.py, services/ai_usage_facts.py, services/ai_recovery.py, api/ai.py]
@@ -649,6 +652,14 @@ tables:
 # ──────────────────────────────────────────────────────────────────────────
 access_surfaces:
 
+  - id: upload-reference-inventory
+    description: "图片孤儿清理前在事务内扫描全部项目、通用文档和流程记录的载荷"
+    locations: [backend/app/db.py, backend/app/services/image_cleanup.py]
+    reads_tables: [projects, document_projects, workflow_records]
+    methods: [iter_upload_reference_payloads_conn]
+    status: unscoped_system_maintenance
+    finding: "扫描无租户过滤；清理前依靠全局引用保护文件，后续租户化须同时设计存储路径和清理范围，不能直接改成单租户扫描。"
+
   - id: ai-quota-reservation-pilot
     description: "request登记、tenant/member限定非货币quota双窗口原子预留；quota拒绝保留pre-dispatch事实；unknown冻结且不自动释放；billable恒false"
     locations: [backend/app/api/ai.py, backend/app/services/ai_governance.py, backend/app/db.py, backend/app/services/ai_usage_facts.py, backend/app/services/ai_recovery.py]
@@ -810,8 +821,9 @@ access_surfaces:
               revoke_user_sessions, save_email_code, get_email_code, delete_email_code, bump_email_code_attempts,
               bind_mini_program, get_mini_program_binding_by_openid, get_mini_program_binding_by_user,
               delete_mini_program_binding, create_mini_program_bind_ticket, get_mini_program_bind_ticket,
-              save_template, get_template, list_templates, delete_template, save_project, get_project,
+              save_template, insert_template_if_absent, get_template, list_templates, delete_template, save_project, get_project,
               list_projects, delete_project, update_project_check_runs, update_project_if_revision,
+              update_project_if_revision_conn, update_project_snapshots, iter_upload_reference_payloads_conn,
               save_document_package, get_document_package, get_document_package_bundle, list_document_package_bundles,
               save_document_project, get_document_project, list_document_projects, update_document_project_if_revision,
               save_requirement_set, get_requirement_set, list_requirement_sets, delete_requirement_set,
@@ -832,7 +844,7 @@ access_surfaces:
               # ↓ 仅经 delegated-methods 登记（逐表 store_methods 里没有它们）
               get_user_by_identifier, workflow_transaction, retry_job,
               register_ai_request, register_ai_request_with_reservation, create_ai_request, create_tenant, ensure_legacy_tenant_membership, get_ai_request_by_idempotency, get_ai_quota_reservation, get_membership, get_membership_for_user, get_tenant, list_ai_requests, list_memberships_for_tenant, list_memberships_for_user, list_tenants, save_membership, update_ai_request, mark_ai_request_dispatching, mark_ai_request_outcome, release_ai_request_reservation, get_scoped_ai_request, list_scoped_ai_requests, mark_ai_reconciliation]
-    count: 133
+    count: 137
     # 与 delegated-methods 的关系（INC-85）：**两个集合允许重叠，不要相加**。
     # 逐表 store_methods 的口径是「这个方法访问哪张表」；
     # delegated-methods 的口径是「这个方法体内不出现任何表名字符串」。
@@ -880,7 +892,7 @@ authorization_matrix:
   document: docs/tenancy/permission-matrix.md
   satisfies: "总设计 2.3 节 U-02 的设计侧交付物；27.3 文档包第 1 项剩余部分"
   route_inventory:
-    total: 230
+    total: 252
     method: "AST 解析 @router.* 装饰器 + 参数默认值中的 Depends()"
     # ★ INC-86（2026-10-02）：上面这句方法说明**不完整**，而两种「显而易见的实现」
     #   都会得到错数。RR-5 按本段口径实算，缺这段说明时门禁无法自证方法未被改窄。
@@ -894,36 +906,34 @@ authorization_matrix:
       ③ `Depends()` 有**三种出现位置**：参数默认值、路由级 `dependencies=[...]`、
       router 级 `APIRouter(dependencies=[...])`；还必须识别 `Annotated[..., Depends(...)]`。只扫参数默认值**看不见**后两种。
     by_guard:
-      current_user: 157
+      current_user: 171
       # ↓ 口径：签名带 `require_manager` **且不带** feature flag 依赖的路由。
       #   **本值原为 25，且原分类只数了「路由级」flag，漏掉 3 个 router 级挂载的 5 条**
       #   （document_packages / document_projects / specs 的 `APIRouter(dependencies=[...])`），
-      #   于是那 5 条被错标成「纯 manager」。INC-86 实测正确互斥划分为 **20 + 9 = 29**。
-      #   **六项之和仍等于 214**（划分不变量没破），所以原值**看起来完全自洽**。
+      #   于是那 5 条被错标成「纯 manager」。合并组织创建权限收紧后，静态口径为 19 + 12 = 31。
       #   POST /api/organizations 现为 require_admin，纯 manager 与 require_admin 各挪 1。
       require_manager: 19
       require_admin: 8
       trusted_context: 19
-      require_template_manager: 6
+      require_template_manager: 9
       # ★ 这个名字**不是代码里的标识符**（全仓 grep 0 命中），而是一个**派生分类**。
       #   真实守卫名是 `require_general_document_platform`（`core/feature_flags.py:22`），
       #   它是 **feature flag**、**不出现在任何处理器签名里**，只出现在
       #   `APIRouter(dependencies=[...])`（3 个模块）与路由级 `dependencies=[...]`（4 条）。
-      #   本项口径 = 「签名带 `require_manager` **且** 带该 flag」= 19 之外的 9 条
-      #   （templates 4 + specs 4 + document_packages 1）。
+      #   本项口径 = 「签名带 `require_manager` **且** 带该 flag」，当前 12 条。
       #   **按名字 grep 核对会得到 0**——所以必须写明它是派生量、也必须数全两种挂载位置。
-      require_general_document_platform_plus_manager: 9
-      # ↓ 口径：**完全不依赖任何签名级守卫**的路由（实测 12）
-      none_public: 12
-    # ★ `public_routes`（15）与 `by_guard.none_public`（12）是**两个不同口径**，不可互换：
-    #   · `none_public` = 无任何签名级守卫（12 条，含 4 条 /health* 与 2 条 /packs*）
-    #   · `public_routes` = **无需角色守卫**（15 条 = 上面 12 条 + 3 条
+      require_general_document_platform_plus_manager: 12
+      # ↓ 口径：未命中所列角色守卫的路由，2026-11-13 静态实测 14；不等同于安全审计。
+      none_public: 14
+    # ★ `public_routes`（17）与 `by_guard.none_public`（14）是**两个不同口径**，不可互换：
+    #   · `none_public` = 无所列角色守卫（14 条，含健康、packs、version、认证及重置密码入口）
+    #   · `public_routes` = **无需角色守卫**（17 条 = 上面 14 条 + 3 条
     #     `/mp/bind-email`、`/mp/unbind`、`/mp/subscribe`）
     #   ★ **那 3 条实测都带 `current_user`**（`api/auth.py` 的小程序端点），
     #     **它们不是匿名可访问的**。把它们叫「public」只表示「不要求管理员/经理角色」。
     #     混用会得出「15 ≠ 12，文件写错了」——**原文正是因此看起来自相矛盾**。
     public_routes_note: "本列表口径 = 无需角色守卫（可能仍需登录）；与 none_public 不同口径，见 method_note ③"
-    public_routes: ["/register","/login","/email/code","/mp/login","/mp/bind",
+    public_routes: ["/register","/login","/email/code","/reset-password","/version","/mp/login","/mp/bind",
                     "/mp/register","/mp/bind-email","/mp/unbind","/mp/subscribe",
                     "/logout","/health","/health/live","/health/ready","/packs","/packs/{pack_id}"]
   organization_visibility:
@@ -938,7 +948,7 @@ authorization_matrix:
     - {id: GAP-P-05, sev: medium, desc: "审计 CSV 导出无二次确认/水印/审批", owner: W-10}
     - {id: GAP-P-06, sev: medium, desc: "require_manager 命名与授予面不符（25 路由含全部 active 教师）", owner: W-03}
     - {id: GAP-P-07, sev: medium, desc: "organization_context 管理员路径无键名白名单/类型校验（自助路径有）", owner: W-03, ref: "Q-05 §7 INC-01"}
-    - {id: GAP-P-08, sev: medium, desc: "160 条 current_user 路由的处理器内判定未逐条核验", owner: W-03}
+    - {id: GAP-P-08, sev: medium, desc: "171 条 current_user 路由的处理器内资源判定未逐条核验；静态守卫分类不证明资源级授权", owner: W-03}
     - {id: GAP-P-09, sev: medium, desc: "无 support_grants 实体与流程", owner: W-10}
     - {id: GAP-P-10, sev: medium, desc: "无租户退出/恢复/删除授权路径", owner: W-10}
   at_blocked: [AT-01, AT-02, AT-03, AT-07, AT-16, AT-30]
@@ -950,7 +960,8 @@ command_contracts:
   document: docs/tenancy/command-contracts.md
   satisfies: "27.3 文档包第 3 项的第一部分（状态/幂等/事务契约）"
   scope_note: "OpenAPI 契约与前端类型**尚未产出**，第 3 项未全部完成"
-  write_operations: 138
+  write_operations: 149
+  classification_scope_note: "以下分类为历史取证，合计 132 项；当前 149 条写操作尚未逐条重新分类，不能由计数推断事务或幂等覆盖。"
   classification:
     A_idempotent: 2
     B_transaction_only: 38
@@ -991,8 +1002,8 @@ command_contracts:
       metered_ai_commands:
         - {name: test_ai_config,           loc: "backend/app/api/ai.py:772"}
         - {name: test_admin_ai_config,     loc: "backend/app/api/ai.py:877"}
-        - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:209"}
-        - {name: assist_requirement_check, loc: "backend/app/api/projects.py:1345"}
+        - {name: import_policy_with_ai,    loc: "backend/app/api/policies.py:210"}
+        - {name: assist_requirement_check, loc: "backend/app/api/projects.py:2022"}
         - {name: parse_spec_candidate,     loc: "backend/app/api/specs.py:64"}
     # ↓ 以下为**原始（已作废）**记录，逐字保留供追溯；**RR-6 按标记跳过**
     desc_ORIGINAL_INVALID: "ai_governance.begin_call 全仓仅 1 个调用点（api/ai.py:676，在 ai_assist 内）；6 条外部 AI 写操作中 5 条无配额门禁与用量记录"

@@ -269,7 +269,9 @@ def assess_template_definition(
         except Exception:
             blockers.append({"code": "style_invalid", "message": f"样式“{style_path}”包含无法核验的显式约束。", "path": style_path})
             continue
-        for issue in style_capability_issues(style):
+        for issue in style_capability_issues(style, allow_caption_gap=style_path in {
+            "definition.styles.figure_caption", "definition.styles.table_caption",
+        }):
             blockers.append({
                 "code": issue["code"],
                 "message": f"样式“{style_path}”包含暂不支持的约束：{issue['property']}。",

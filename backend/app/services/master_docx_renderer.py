@@ -19,7 +19,7 @@ from app.core.extract.xml_utils import NS, load_part, qn
 from app.models.project import BlockType
 from app.services.document_assets import resolve_document_image_path
 from app.services.digit_font_rules import BODY_KINDS, HEADING_KINDS, apply_digit_font
-from app.services.master_layout_anchors import block_bookmark_name
+from app.services.master_layout_anchors import block_bookmark_name, leading_blank_heading_blocks
 from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
 from app.services.source_template_profile import ProfileError, verify_profile, commentless_source, package_manifest, digest, _heading_instruction
 
@@ -125,12 +125,26 @@ def apply_properties(paragraph, properties: dict):
                 spacing.attrib.pop(qn("w:" + suffix), None)
             attr = name + "Lines" if value.get("unit") == "line" else name
             spacing.set(qn("w:" + attr), str(round(value["value"] * (100 if attr.endswith("Lines") else 20))))
+    hanging = properties.get("paragraph.indent.hanging")
+    first_line = properties.get("paragraph.indent.first_line")
+    has_hanging = isinstance(hanging, dict) and hanging.get("value", 0) != 0
+    if has_hanging and isinstance(first_line, dict) and first_line.get("value", 0) != 0:
+        raise ProfileError("段落不能同时设置首行缩进和悬挂缩进")
+    if has_hanging:
+        existing_indent = ppr.find(qn("w:ind"))
+        if existing_indent is not None:
+            for attr in ("firstLine", "firstLineChars"):
+                existing_indent.attrib.pop(qn("w:" + attr), None)
     for name, attr in (("first_line", "firstLine"), ("hanging", "hanging"), ("left", "left"), ("right", "right")):
         value = properties.get("paragraph.indent." + name)
         if not isinstance(value, dict):
             continue
         indent = child(ppr, "w:ind")
         indent.attrib.pop(qn("w:" + attr), None); indent.attrib.pop(qn("w:" + attr + "Chars"), None)
+        # First-line and hanging indents are alternatives in one w:ind.
+        # Even an explicit firstLine=0 can suppress a nonzero hanging indent.
+        if name == "first_line" and has_hanging:
+            continue
         chars = value.get("unit") == "character"
         indent.set(qn("w:" + attr + ("Chars" if chars else "")), str(round(value["value"] * (100 if chars else 20))))
         # Word can retain an inherited physical first-line offset even when
@@ -185,6 +199,20 @@ def text_paragraph(text: str, properties: dict):
                 etree.SubElement(run, qn("w:tab"))
             t = etree.SubElement(run, qn("w:t")); t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve"); t.text = part
     apply_properties(paragraph, properties)
+    return paragraph
+
+
+def caption_paragraph(prefix, caption, properties, one_character):
+    if not one_character or not caption:
+        return text_paragraph(f"{prefix} {caption}".rstrip(), properties)
+    from app.core.export.caption_format import set_one_character_gap_width
+    paragraph = text_paragraph(prefix, properties)
+    for value in ("\u3000", caption):
+        fragment = text_paragraph(value, properties)
+        run = fragment.find(qn("w:r"))
+        if value == "\u3000":
+            set_one_character_gap_width(run)
+        paragraph.append(run)
     return paragraph
 
 
@@ -569,8 +597,11 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
     baseline_styles = {}
     source_style_ids = {item.get(qn("w:styleId")) for item in styles.findall(qn("w:style"))}
     for heading in profile["headings"]:
-        indent = heading.get("properties", {}).get("paragraph.indent.first_line", {})
-        if heading.get("inline") or indent.get("unit") != "character" or not indent.get("value"):
+        properties = heading.get("properties", {})
+        indents = (properties.get("paragraph.indent.first_line", {}),
+                   properties.get("paragraph.indent.hanging", {}))
+        if heading.get("inline") or not any(indent.get("unit") == "character" and indent.get("value")
+                                            for indent in indents):
             continue
         size = heading["properties"].get("font.size", {})
         value = size.get("value") if size.get("unit") == "pt" else None
@@ -598,6 +629,11 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
     scratch = Document()
     blocks = []
     chapter = figure = table_number = 0
+    measured_headings = [h for h in profile["headings"] if h["kind"] != "toc"]
+    blank_keep_blocks = set()
+    for index, item in enumerate(measured_headings):
+        following = measured_headings[index + 1] if index + 1 < len(measured_headings) else None
+        blank_keep_blocks.update(leading_blank_heading_blocks(item, sections[item["key"]], following))
     for heading in profile["headings"]:
         if heading["kind"] == "toc":
             continue
@@ -635,6 +671,8 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                     p = text_paragraph(text, props)
                     for run in p.findall(qn("w:r")):
                         apply_content_decoration(run, block)
+                if block.id in blank_keep_blocks:
+                    apply_properties(p, {"paragraph.keep_next": True})
                 if heading["kind"] in BODY_KINDS and profile.get("digit_font_rule"):
                     apply_digit_font(p, profile["digit_font_rule"]["font"])
                 nodes = [p]
@@ -664,14 +702,16 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                                      "paragraph.indent.right": {"value":0,"unit":"pt"}, "paragraph.keep_next": True})
                 nodes.append(copy.deepcopy(p))
                 caption = re.sub(r"^图\s*\d+(?:[.\-]\d+)*\s*", "", block.image.caption).strip()
-                nodes.append(text_paragraph(f"图 {chapter}.{figure} {caption}".rstrip(), {**{k:v for k,v in profile["object_properties"]["figure_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_lines":True}))
+                one_character = profile.get("caption_number_title_gap", {}).get("figure_caption") == "one_character"
+                nodes.append(caption_paragraph(f"图 {chapter}.{figure}", caption, {**{k:v for k,v in profile["object_properties"]["figure_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":profile["object_properties"]["figure_caption"].get("paragraph.align", "center"),"paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_lines":True}, one_character))
             elif block.type == BlockType.TABLE and block.table:
                 table_number += 1
                 data = block.table
                 if data.rows < 1 or data.cols < 1 or len(data.cells) != data.rows or any(len(row) != data.cols for row in data.cells):
                     raise ProfileError("表格行列与单元格数据不一致")
                 caption = re.sub(r"^表\s*\d+(?:[.\-]\d+)*\s*", "", data.caption).strip()
-                nodes.append(text_paragraph(f"表 {chapter}.{table_number} {caption}".rstrip(), {**{k:v for k,v in profile["object_properties"]["table_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_next":True,"paragraph.keep_lines":True}))
+                one_character = profile.get("caption_number_title_gap", {}).get("table_caption") == "one_character"
+                nodes.append(caption_paragraph(f"表 {chapter}.{table_number}", caption, {**{k:v for k,v in profile["object_properties"]["table_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":profile["object_properties"]["table_caption"].get("paragraph.align", "center"),"paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_next":True,"paragraph.keep_lines":True}, one_character))
                 table = scratch.add_table(rows=data.rows, cols=data.cols)
                 table.autofit = False
                 child(table._tbl.tblPr, "w:jc", val="center")

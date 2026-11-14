@@ -26,7 +26,6 @@ export interface LoginInput {
 
 const TOKEN_KEY = 'pg_token'
 const USER_KEY = 'pg_user'
-const RECOVERY_PREFIX = 'pg_recovery:'
 
 function getStorage(): Storage | null {
   if (typeof window === 'undefined') return null
@@ -75,16 +74,6 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     storage?.removeItem(TOKEN_KEY)
     storage?.removeItem(USER_KEY)
-    try {
-      if (typeof localStorage !== 'undefined') {
-        for (let index = localStorage.length - 1; index >= 0; index -= 1) {
-          const key = localStorage.key(index)
-          if (key?.startsWith(RECOVERY_PREFIX)) localStorage.removeItem(key)
-        }
-      }
-    } catch {
-      // Storage cleanup must never prevent logout.
-    }
   }
 
   async function restore() {

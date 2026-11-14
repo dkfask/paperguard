@@ -16,7 +16,9 @@ from docx.oxml.ns import qn
 from fastapi import HTTPException
 
 from app.services.policy_format import (
+    extract_explicit_body_chinese_font,
     extract_format_overrides,
+    extract_image_font_size_limit,
     extract_layout_overrides,
     format_override_count,
     merge_format_overrides,
@@ -134,8 +136,16 @@ def _extract_pdf_text(data: bytes) -> str:
         raise HTTPException(status_code=422, detail=f"PDF 规范文档无法读取: {exc}") from exc
 
 
-def extract_policy_text(data: bytes, filename: str) -> tuple[str, bool]:
-    """提取文本并限制发送给 AI 的长度，返回 (文本, 是否截断)。"""
+def limit_policy_text_for_model(text: str) -> tuple[str, bool]:
+    """限制模型输入长度；本地规则解析仍可使用完整原文。"""
+    if len(text) <= MAX_POLICY_TEXT_CHARS:
+        return text, False
+    head_size = MAX_POLICY_TEXT_CHARS - 6000
+    return f"{text[:head_size]}\n\n[中间内容过长，已省略]\n\n{text[-6000:]}", True
+
+
+def extract_policy_text(data: bytes, filename: str, *, full_text: bool = False) -> tuple[str, bool]:
+    """提取文本；默认保持有长度上限的调用契约。"""
     suffix = Path(filename or "").suffix.lower()
     if suffix in {".md", ".markdown", ".txt"}:
         text = _decode_text(data)
@@ -159,10 +169,9 @@ def extract_policy_text(data: bytes, filename: str) -> tuple[str, bool]:
     if not text:
         raise HTTPException(status_code=422, detail="规范文档中没有可供 AI 读取的文字内容")
 
-    if len(text) <= MAX_POLICY_TEXT_CHARS:
+    if full_text:
         return text, False
-    head_size = MAX_POLICY_TEXT_CHARS - 6000
-    return f"{text[:head_size]}\n\n[中间内容过长，已省略]\n\n{text[-6000:]}", True
+    return limit_policy_text_for_model(text)
 
 
 def build_policy_import_messages(filename: str, text: str) -> list[dict[str, str]]:
@@ -410,16 +419,28 @@ def _format_requirement_items(source_text: str, filename: str, used: set[str]) -
     for raw in re.split(r"\n{2,}", source_text):
         paragraph = re.sub(r"[ \t]*\n[ \t]*", " ", raw)
         paragraph = re.sub(r"\s+", " ", paragraph).strip()
-        if not paragraph or paragraph in seen or not _FORMAT_TERM_RE.search(paragraph):
+        if not paragraph or not _FORMAT_TERM_RE.search(paragraph):
             continue
-        seen.add(paragraph)
-        paragraphs.append(paragraph)
+        start = 0
+        while start < len(paragraph):
+            end = min(start + 800, len(paragraph))
+            sentence_end = -1
+            if end < len(paragraph):
+                sentence_end = max(paragraph.rfind(mark, start, end) for mark in "。！？；")
+                if sentence_end >= start:
+                    end = sentence_end + 1
+            part = paragraph[start:end].strip()
+            if part and part not in seen and _FORMAT_TERM_RE.search(part):
+                seen.add(part)
+                paragraphs.append(part)
+            if end == len(paragraph):
+                break
+            # A long sentence without punctuation needs overlapping windows so
+            # formatting terms are not split and lost at the 800-character edge.
+            start = end if sentence_end >= start else end - 80
 
     items: list[dict[str, Any]] = []
     for index, paragraph in enumerate(paragraphs, start=1):
-        description = paragraph[:800]
-        if len(paragraph) > 800:
-            description += "..."
         items.append({
             "id": _clean_id(f"source-format-{index}", index, used),
             "type": "manual",
@@ -428,7 +449,25 @@ def _format_requirement_items(source_text: str, filename: str, used: set[str]) -
             "params": {"format_override": True},
             "severity": "warning",
             "enforce": "soft",
-            "description": f"原文格式要求：{description}",
+            "description": f"原文格式要求：{paragraph}",
+            "source": f"{filename}（格式条款）",
+            "rule_pack_id": "",
+            "rule_pack_params": {},
+        })
+    # The 1101 guideline separates a mandatory upper bound from its optional
+    # five-point suggestion. Keep the former as an independent, unverified
+    # requirement until the image-content checker can prove it.
+    image_limit = extract_image_font_size_limit(source_text)
+    if image_limit:
+        items.append({
+            "id": _clean_id("source-image-font-size-limit", len(items) + 1, used),
+            "type": "manual",
+            "target": "document",
+            "checker": "",
+            "params": {"image_typography_constraint": "caption_font_size_upper_bound"},
+            "severity": "error",
+            "enforce": "hard",
+            "description": image_limit,
             "source": f"{filename}（格式条款）",
             "rule_pack_id": "",
             "rule_pack_params": {},
@@ -503,10 +542,12 @@ def normalize_ai_policy(
         markdown = _generated_markdown(name, description, items)
     markdown = _append_source_markdown(markdown, source_text)
     # 模型结果只作补充，原文解析结果最后合并，保证规范原文优先于模型猜测。
-    format_overrides = merge_format_overrides(
-        data.get("format_overrides"),
-        extract_format_overrides(source_text or markdown),
-    )
+    source_overrides = extract_format_overrides(source_text or markdown)
+    explicit_font = extract_explicit_body_chinese_font(source_text)
+    source_body_font = source_overrides.get("body", {}).get("font_zh")
+    if explicit_font and source_body_font in (None, explicit_font):
+        source_overrides.setdefault("body", {})["font_zh"] = explicit_font
+    format_overrides = merge_format_overrides(data.get("format_overrides"), source_overrides)
     layout_overrides = normalize_layout_overrides(data.get("layout_overrides"))
     layout_overrides.update(extract_layout_overrides(source_text or markdown))
     source = source_text.strip()

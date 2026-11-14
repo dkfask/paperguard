@@ -66,6 +66,18 @@ export function useI18n() {
 
 export const translations = {
   zh: {
+    'workflow.archiveRequirementUnavailable': '当前规范尚无法自动核验，请联系系统团队处理。',
+    'writer.imageTypographyUnavailable': '图内文字字号暂无法自动核验，系统团队正在适配。',
+    'writer.imageLocationsScope': '论文中的图片如下；此列表不表示图片不合格，也不包含模板或表格中的对象。',
+    'writer.imageWithoutCaption': '未填写图题',
+    'writer.imageBlockPosition': '第 {count} 块',
+    'writer.imageLocationMissing': '图片位置已变化，请重新检查后定位。',
+    'writer.imageLocationPendingDraft': '请先处理未应用的草稿，再定位图片。',
+    'writer.formatRuleUnavailable': '该格式要求暂无法自动核验，系统团队正在适配。',
+    'writer.changedRequirements': '变更要求 {count} 条。',
+    'writer.requirementAdded': '新增要求', 'writer.requirementRemoved': '移除要求',
+    'writer.beforeUpgrade': '更新前', 'writer.afterUpgrade': '更新后',
+    'writer.requirementMin': '最小值', 'writer.requirementMax': '最大值',
     'workflow.precheckNetworkError': '未能取得预检结果，请检查网络连接或稍后重试。',
     'workflow.submissionNetworkError': '未能取得提交结果，请重新点击确认正式提交，系统会使用同一请求重试。',
     'workflow.submissionConfirmedRefreshFailed': '提交已成功，但工作台信息未完全刷新，请点击“刷新工作台”查看。',
@@ -102,6 +114,7 @@ export const translations = {
     'writer.sectionTextPending': '请先应用整节输入的文字，再切换章节或继续操作。',
     'writer.sectionDocumentInvalid': '章节中存在无法保留的内容或格式，请先在分块编辑中处理。',
     'writer.recoveryLegacyUnsupported': '这份旧版整节草稿没有保存图片、表格或文字格式的位置。请先复制草稿文字，再关闭恢复提示并在章节中逐段合并。',
+    'writer.recoveryDeviceNotice': '未同步草稿保存在此设备的浏览器中；重新登录后可恢复，共用设备请注意保护论文内容。',
     'tiptap.underline': '下划线', 'tiptap.superscript': '上标', 'tiptap.subscript': '下标',
     'tiptap.media.image': '图片', 'tiptap.media.table': '表格', 'tiptap.media.equation': '公式',
     'tiptap.unsupportedPaste': '剪贴板包含当前整节编辑器不能完整保留的对象，请在分块编辑中粘贴图片或表格，其他内容请先处理。',
@@ -248,6 +261,18 @@ export const translations = {
     'writer.backToTheses': '返回我的论文', 'writer.unsaved': '有 {count} 项待保存', 'writer.savedAt': '已保存 {time}', 'writer.characters': '字', 'writer.sectionsDone': '节完成', 'writer.aiSettings': 'AI 设置', 'writer.aiAssistant': 'AI 写作助手', 'writer.switchTemplateTitle': '把本项目换成其它模板的排版规范', 'writer.switchTemplate': '换模板', 'writer.check': '检查', 'writer.fixTitle': '修复检查结果中可自动处理的警告和错误', 'writer.fixing': '修复中…', 'writer.fix': '一键修复', 'writer.importTitle': '预览并导入 Word 正文', 'writer.importing': '导入中…', 'writer.importBody': '导入正文', 'writer.previewTitle': '预览当前导出内容', 'writer.preview': '预览', 'writer.exporting': '导出中…', 'writer.export': '导出', 'writer.formatCheck': '规范检查', 'writer.checking': '正在检查...', 'writer.autoFix': '自动修复', 'writer.requestWaiver': '申请豁免', 'writer.noIssues': '未发现格式问题，符合规范要求', 'writer.unknownSection': '未知章节', 'writer.outline': '章节大纲', 'writer.addSection': '添加章节', 'writer.lockedTitle': '导师已锁定论文框架', 'writer.locked': '框架锁定', 'writer.incomplete': '未完成', 'writer.moveUp': '上移章节', 'writer.moveDown': '下移章节', 'writer.deleteSection': '删除此章节', 'writer.completion': '完成度', 'writer.totalCharacters': '总字数', 'writer.missingRequired': '缺失必填章节', 'writer.coverInfo': '封面信息', 'writer.addParagraph': '添加段落', 'writer.aiExpand': 'AI 扩写', 'writer.paragraphPlaceholder': '段落 {number}', 'writer.referencePlaceholder': '作者. 文献标题[J]. 期刊名, 年份, 卷(期): 页码.', 'writer.addReference': '添加文献', 'writer.selectSection': '← 请从左侧选择章节开始编辑', 'writer.aiConfig': 'AI 配置', 'writer.model': '模型', 'writer.saveConfig': '保存配置', 'writer.quickActions': '快速操作', 'writer.aiPolish': '润色文字', 'writer.aiSummarize': '生成摘要', 'writer.aiTranslate': '中英互译', 'writer.aiResult': 'AI 生成结果', 'writer.applyResult': '应用到编辑器', 'writer.discardResult': '放弃',
   },
   en: {
+    'workflow.archiveRequirementUnavailable': 'Current requirements cannot be verified automatically; contact the system team.',
+    'writer.imageTypographyUnavailable': 'Image text size cannot currently be verified automatically; the system team is working on support.',
+    'writer.imageLocationsScope': 'Manuscript images are listed below. This does not mean they are noncompliant; objects in templates or tables are not included.',
+    'writer.imageWithoutCaption': 'Untitled image',
+    'writer.imageBlockPosition': 'Block {count}',
+    'writer.imageLocationMissing': 'The image location has changed. Check again before navigating.',
+    'writer.imageLocationPendingDraft': 'Resolve the unapplied draft before locating the image.',
+    'writer.formatRuleUnavailable': 'This formatting requirement cannot currently be verified automatically; the system team is working on support.',
+    'writer.changedRequirements': '{count} requirements changed.',
+    'writer.requirementAdded': 'Added requirement', 'writer.requirementRemoved': 'Removed requirement',
+    'writer.beforeUpgrade': 'Before', 'writer.afterUpgrade': 'After',
+    'writer.requirementMin': 'Minimum', 'writer.requirementMax': 'Maximum',
     'workflow.precheckNetworkError': 'The precheck result could not be obtained. Check your connection or try again later.',
     'workflow.submissionNetworkError': 'The submission result could not be obtained. Click Confirm submission again to retry the same request.',
     'workflow.submissionConfirmedRefreshFailed': 'Submission succeeded, but the workspace could not be fully refreshed. Click Refresh workspace to check it.',
@@ -284,6 +309,7 @@ export const translations = {
     'writer.sectionTextPending': 'Apply the section text before switching sections or continuing.',
     'writer.sectionDocumentInvalid': 'Some content or formatting cannot be preserved. Resolve it in block editing first.',
     'writer.recoveryLegacyUnsupported': 'This older section draft did not retain media positions or text formatting. Copy its text, dismiss recovery, and merge it into the section.',
+    'writer.recoveryDeviceNotice': 'Unsynced drafts remain in this browser on this device and can be recovered after signing in. Protect thesis content on shared devices.',
     'tiptap.underline': 'Underline', 'tiptap.superscript': 'Superscript', 'tiptap.subscript': 'Subscript',
     'tiptap.media.image': 'Image', 'tiptap.media.table': 'Table', 'tiptap.media.equation': 'Equation',
     'tiptap.unsupportedPaste': 'This clipboard content cannot be preserved here. Paste images or tables in block editing and resolve other objects first.',
@@ -623,6 +649,7 @@ Object.assign(translations.en, {
 Object.assign(translations.zh, {
   'writer.automaticCheckPendingTitle': '模板自动检查尚未完成',
   'writer.automaticCheckPendingDetail': '该模板需要系统团队完成适配后才能导出，你可以继续编辑并保存论文。',
+  'writer.automaticCheckPendingRules': '系统尚未完成自动检查的项目：',
   'writer.manualReviewTitle': '该导出文件还需要 Word/WPS 人工核查',
   'writer.manualReviewTeacherDetail': '先下载下方候选文件，在目标 Word/WPS 中核对后逐项确认；确认后才能下载正式成品。',
   'writer.manualReviewStudentDetail': '请联系指导教师核对该文件。教师确认前，正式成品不会开放下载。',
@@ -639,6 +666,7 @@ Object.assign(translations.zh, {
 Object.assign(translations.en, {
   'writer.automaticCheckPendingTitle': 'Automatic template checks are not ready',
   'writer.automaticCheckPendingDetail': 'The system team must adapt this template before export. You can continue editing and saving your thesis.',
+  'writer.automaticCheckPendingRules': 'Items awaiting automatic checks:',
   'writer.manualReviewTitle': 'This export needs a Word/WPS review',
   'writer.manualReviewTeacherDetail': 'Download the candidate, inspect it in the target Word/WPS version, and confirm each item before downloading the final file.',
   'writer.manualReviewStudentDetail': 'Ask your advisor to review this file. The final file stays unavailable until the advisor confirms it.',
@@ -789,7 +817,11 @@ Object.assign(translations.zh, {
   'writer.refLanguageUnconfirmed': '语种待确认', 'writer.refLanguageConfirmed': '语种已确认', 'writer.refLanguageConfirm': '确认语种',
   'writer.refYearFact': '出版年份核对', 'writer.refYearEvidence': '年份依据（可选）',
   'writer.refYearUnconfirmed': '年份待确认', 'writer.refYearConfirmed': '年份已确认', 'writer.refYearConfirm': '确认年份',
-  'writer.referenceQuality': '文献内容提示'
+  'writer.referenceQuality': '文献内容提示',
+  'writer.templateSourceNotes': '模板示例说明',
+  'writer.templatePlaceholderRemoved': '以下占位文字仅作为模板来源保留，导出时将按模板配置排除。',
+  'writer.templateContentGuidance': '模板写作建议',
+  'writer.templateContentGuidanceExplanation': '以下为模板中的内容建议，系统未判断论文内容或篇幅是否符合；示例说明按模板配置从成品中排除。'
 })
 
 Object.assign(translations.en, {
@@ -823,7 +855,11 @@ Object.assign(translations.en, {
   'writer.refLanguageZh': 'Chinese', 'writer.refLanguageEn': 'English', 'writer.refLanguageJa': 'Japanese', 'writer.refLanguageKo': 'Korean',
   'writer.refLanguageFr': 'French', 'writer.refLanguageDe': 'German', 'writer.refLanguageRu': 'Russian', 'writer.refLanguageOther': 'Other',
   'writer.refLanguageUnconfirmed': 'Language unconfirmed', 'writer.refLanguageConfirmed': 'Language confirmed', 'writer.refLanguageConfirm': 'Confirm language',
-  'writer.referenceQuality': 'Reference content guidance'
+  'writer.referenceQuality': 'Reference content guidance',
+  'writer.templateSourceNotes': 'Template example notes',
+  'writer.templatePlaceholderRemoved': 'These placeholders are retained as source notes and will be excluded on export according to the template configuration.',
+  'writer.templateContentGuidance': 'Template writing guidance',
+  'writer.templateContentGuidanceExplanation': 'These are content suggestions from the template. The system has not assessed your content or length. Example instructions are excluded according to the template configuration.'
 })
 
 Object.assign(translations.zh, {

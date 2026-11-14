@@ -2547,16 +2547,18 @@ class Store:
         now_text = now.isoformat(timespec="seconds")
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-            if not row or row["state"] != "running" or (row["lease_token"] and row["lease_token"] != lease_token):
+            if not row or row["state"] != "running" or not lease_token or row["lease_token"] != lease_token:
                 return None
             attempts = int(row["attempt_count"] or 0)
             next_state = "failed" if attempts >= int(row["max_attempts"] or 1) else "queued"
             available_at = (now + timedelta(seconds=max(0, int(retry_delay_seconds)))).isoformat(timespec="seconds")
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE jobs SET state = ?, available_at = ?, lease_until = NULL, lease_token = NULL, leased_by = NULL, "
-                "last_error = ?, updated_at = ? WHERE id = ?",
-                (next_state, available_at, error[:2000], now_text, job_id),
+                "last_error = ?, updated_at = ? WHERE id = ? AND state = 'running' AND lease_token = ?",
+                (next_state, available_at, error[:2000], now_text, job_id, lease_token),
             )
+            if cur.rowcount != 1:
+                return None
             updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._job_row(updated)
 
@@ -2712,16 +2714,17 @@ class Store:
         """Release a lease and either return the event to pending or park it as failed."""
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM workflow_events WHERE id = ?", (event_id,)).fetchone()
-            if row is None or row["delivery_status"] == "delivered":
-                return None
-            if row["lease_token"] and row["lease_token"] != lease_token:
+            if (row is None or row["delivery_status"] != "processing"
+                    or not lease_token or row["lease_token"] != lease_token):
                 return None
             next_status = "failed" if int(row["attempt_count"] or 0) >= max_attempts else "pending"
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE workflow_events SET delivery_status = ?, lease_until = NULL, lease_token = NULL, "
-                "leased_by = NULL, last_error = ? WHERE id = ? AND delivery_status != 'delivered'",
-                (next_status, error, event_id),
+                "leased_by = NULL, last_error = ? WHERE id = ? AND delivery_status = 'processing' AND lease_token = ?",
+                (next_status, error, event_id, lease_token),
             )
+            if cur.rowcount != 1:
+                return None
             updated = conn.execute("SELECT * FROM workflow_events WHERE id = ?", (event_id,)).fetchone()
         item = dict(updated)
         item["data"] = json.loads(item["data"])

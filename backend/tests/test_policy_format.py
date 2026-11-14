@@ -5,7 +5,7 @@ import pytest
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import PaperTemplate, TextStyle
 from app.core.export.docx_exporter import export_project_to_docx
-from app.services.policy_format import extract_format_overrides, extract_layout_overrides
+from app.services.policy_format import extract_explicit_body_chinese_font, extract_format_overrides, extract_layout_overrides
 from app.services.policy_resolver import apply_requirement_format_overrides
 from app.services.project_check import check_project
 
@@ -24,6 +24,37 @@ GUIDELINE = """
 三、格式要求（一）毕业设计报告（论文）用纸、页面设置要求
 纸张大小：标准A4复印纸（210mm×297mm）。页边距：上、下、左、右各25mm。页眉距边距：1.5cm，页脚距边距：1.75cm。
 """
+
+
+@pytest.mark.parametrize('font', ['宋体', '黑体', '仿宋', '楷体'])
+@pytest.mark.parametrize('verb', ['必须使用', '必须采用'])
+def test_simple_explicit_body_chinese_font_is_extracted(font, verb):
+    assert extract_explicit_body_chinese_font(f'正文中文字体{verb}{font}。') == font
+
+
+@pytest.mark.parametrize('source', [
+    '建议正文中文字体使用黑体。',
+    '例如：正文中文字体必须使用黑体。',
+    '正文必须使用黑体。',
+    '正文中文字体使用黑体。',
+    '正文中文字体不得使用黑体。',
+    '正文中文字体必须使用黑体，段落不少于100字。',
+    '正文中文字体必须使用黑体。正文中文字体必须使用宋体。',
+])
+def test_body_chinese_font_extraction_does_not_guess_ambiguous_requirements(source):
+    assert not extract_explicit_body_chinese_font(source)
+
+
+def test_import_only_extraction_does_not_rewrite_legacy_snapshot():
+    from copy import deepcopy
+    from app.services.policy_resolver import hydrate_snapshot_format_overrides
+
+    snapshot = {'policy_sets': [{'id': 'legacy', 'markdown_content': '正文中文字体必须使用黑体。'}],
+                'resolved_items': [], 'format_overrides': {}}
+    original = deepcopy(snapshot)
+    hydrated = hydrate_snapshot_format_overrides(snapshot)
+    assert 'font_zh' not in hydrated['format_overrides'].get('body', {})
+    assert snapshot == original
 
 
 def test_guideline_format_and_page_constraints_are_extracted_by_scope():
@@ -66,6 +97,57 @@ def test_guideline_format_and_page_constraints_are_extracted_by_scope():
         "header_distance_cm": 1.5,
         "footer_distance_cm": 1.75,
     }
+
+
+def test_figure_and_table_caption_rules_follow_their_own_source_sentences():
+    source = (
+        "3.图表及公式格式要求\n"
+        "插图：图题用五号宋体，须全文统一。"
+        "图中标注符号文字字号不大于图题的字号，建议小五号字体。\n"
+        "表：表应有表题，用五号宋体，与表号之间置一字空格，置于表的上方居中，"
+        "且表题与表在同一页。表中文字用小五号宋体，须全文统一。"
+        "表中的内容和项目字号不大于表题的字号，建议六号字体。\n"
+        "（四）毕业设计报告（论文）结尾部分格式要求"
+    )
+
+    overrides = extract_format_overrides(source)
+
+    assert overrides["figure_caption"] == {"size_pt": 10.5, "font_zh": "宋体"}
+    assert overrides["table_caption"] == {"size_pt": 10.5, "font_zh": "宋体", "align": "center", "number_title_gap": "one_character"}
+    assert overrides["table_cell"] == {"size_pt": 9.0, "font_zh": "宋体"}
+
+
+def test_figure_caption_style_does_not_absorb_following_image_advice():
+    source = (
+        "3.图表及公式格式要求 插图：图题用黑体。"
+        "图中文字建议五号字体。"
+        "（四）毕业设计报告（论文）结尾部分格式要求"
+    )
+
+    assert extract_format_overrides(source)["figure_caption"] == {"font_zh": "黑体"}
+
+
+def test_pilot_number_title_gap_is_extracted_for_each_caption():
+    source = (
+        "3.图表及公式格式要求 插图：图号与图题文字间置\n一字空格，置于图的正下方。"
+        "图题用五号宋体。表：表应有表题，用五号宋体，"
+        "与表号之间置一字空格，置于表的上方居中。"
+        "（四）毕业设计报告（论文）结尾部分格式要求"
+    )
+    styles = extract_format_overrides(source)
+    assert styles['figure_caption']['number_title_gap'] == 'one_character'
+    assert styles['table_caption']['number_title_gap'] == 'one_character'
+    assert 'number_title_gap' not in extract_format_overrides(
+        '3.图表及公式格式要求 图号与图题之间建议空一字。'
+        '（四）毕业设计报告（论文）结尾部分格式要求'
+    ).get('figure_caption', {})
+    for role, suggestion in [
+        ('figure_caption', '建议：图号与图题文字间置一字空格。'),
+        ('table_caption', '建议表应有表题，用五号宋体，与表号之间置一字空格。'),
+    ]:
+        extracted = extract_format_overrides('3.图表及公式格式要求 ' + suggestion +
+                                            '（四）毕业设计报告（论文）结尾部分格式要求')
+        assert 'number_title_gap' not in extracted.get(role, {})
 
 
 def test_policy_overrides_win_over_template_and_rule_pack_defaults():
@@ -240,3 +322,11 @@ def test_signed_abstract_title_and_body_policy_styles_stay_distinct(tmp_path, mo
         paragraph = next(p for p in paragraphs if ''.join(p.itertext(qn('w:t'))) == text)
         sizes = [node.get(qn('w:val')) for node in paragraph.findall('.//' + qn('w:sz'))]
         assert sizes and set(sizes) == {half_points}
+
+
+def test_format_terms_do_not_match_units_inside_english_words():
+    from app.services.policy_format import is_format_requirement
+
+    assert not is_format_requirement("Abstract description and caption must contain at least two words")
+    assert is_format_requirement("Text size 10 pt")
+    assert is_format_requirement("Image width 2cm")

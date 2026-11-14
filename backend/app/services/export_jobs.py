@@ -81,11 +81,12 @@ def export_job_is_current(record: dict, identity: dict[str, Any] | None) -> bool
 
 
 def export_job_view(record: dict, *, current_identity: dict[str, Any] | None = None,
-                    check_current: bool = False) -> dict:
+                    check_current: bool = False,
+                    current_requirement_checks: list[str] | None = None) -> dict:
     """Return a public task projection without content snapshots or paths."""
     hidden = {"file_path", "project_snapshot", "template_snapshot", "output_check", "requirement_manual_checks"}
     result = {key: value for key, value in record.items() if key not in hidden}
-    report = record.get("output_check") or {}
+    report = bind_requirement_manual_checks(record.get("output_check") or {}, current_requirement_checks)
     requires_automation = review_required(report)
     result["output_check_status"] = "unverifiable" if requires_automation else report.get("status", "unverified")
     result["output_check_count"] = report.get("check_count", 0)

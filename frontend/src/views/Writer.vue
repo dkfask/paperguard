@@ -143,6 +143,10 @@
       </div>
       <section v-if="manualReview?.status === 'required'" class="manual-review-panel" data-test="writer-manual-review" :aria-label="t('writer.automaticCheckPendingTitle')">
         <p>{{ t('writer.automaticCheckPendingDetail') }}</p>
+        <template v-if="manualReview.checklist?.length">
+          <strong>{{ t('writer.automaticCheckPendingRules') }}</strong>
+          <ul><li v-for="(item, index) in manualReview.checklist" :key="`${item.id}-${index}`">{{ item.description }}</li></ul>
+        </template>
       </section>
       <div v-if="templateNotice" class="notice-banner">✅ {{ templateNotice }}</div>
       <div v-if="fixNotice" class="notice-banner" role="status">{{ fixNotice }}</div>
@@ -155,6 +159,7 @@
         <div>
           <strong>{{ t('writer.recoveryFound') }}</strong>
           <span>{{ t('writer.recoverySavedAt', { time: recoveryDraft.saved_at, revision: recoveryDraft.base_revision }) }}</span>
+          <span>{{ t('writer.recoveryDeviceNotice') }}</span>
           <label v-if="recoveryDraft.section_text_draft" class="recovery-section-text">
             <span>{{ t('writer.recoverySectionText', { section: recoveryDraft.section_text_draft.section_key }) }}</span>
             <textarea :value="recoveryDraft.section_text_draft.text" readonly rows="5" data-test="recovery-section-text" />
@@ -166,7 +171,7 @@
         </div>
       </div>
       <div v-if="failedSave" class="recovery-banner save-failure" role="alert">
-        <span>{{ t('writer.saveFailure') }}</span>
+        <span>{{ t('writer.saveFailure') }} {{ t('writer.recoveryDeviceNotice') }}</span>
         <button @click="retryFailedSaves">{{ t('writer.retrySave') }}</button>
       </div>
       <div v-if="conflictSave" class="recovery-banner conflict-banner" role="alert">
@@ -210,7 +215,25 @@
           <h3>{{ t('writer.upgradeTitle') }}</h3>
           <p class="hint">{{ t('writer.versionUpgradeDetail', { from: upgradePreview.from_snapshot_hash?.slice(0, 18) + '…', to: upgradePreview.to_snapshot_hash?.slice(0, 18) + '…' }) }}</p>
           <p v-if="!upgradePreview.diff.changed" class="ok-banner">{{ t('writer.latestVersion') }}</p>
-          <div v-else class="upgrade-summary"><p>{{ t('writer.addedRuleSets', { count: upgradePreview.diff.added_sets.length, removed: upgradePreview.diff.removed_sets.length, changed: upgradePreview.diff.changed_sets.length }) }}</p><p>{{ t('writer.addedRequirements', { added: upgradePreview.diff.added_items.length, removed: upgradePreview.diff.removed_items.length }) }}</p></div>
+          <div v-else class="upgrade-summary">
+            <p>{{ t('writer.addedRuleSets', { count: upgradePreview.diff.added_sets.length, removed: upgradePreview.diff.removed_sets.length, changed: upgradePreview.diff.changed_sets.length }) }}</p>
+            <p>{{ t('writer.addedRequirements', { added: upgradePreview.diff.added_items.length, removed: upgradePreview.diff.removed_items.length }) }}</p>
+            <div v-for="item in upgradePreview.diff.added_items" :key="`added-${item.id}`" class="upgrade-rule-change">
+              <p>{{ t('writer.requirementAdded') }}：{{ item.description }}</p>
+              <p v-for="(value, key) in item.params" :key="`added-${key}`">{{ requirementParamLabel(key) }}：{{ formatRequirementParam(value) }}</p>
+            </div>
+            <div v-for="item in upgradePreview.diff.removed_items" :key="`removed-${item.id}`" class="upgrade-rule-change">
+              <p>{{ t('writer.requirementRemoved') }}：{{ item.description }}</p>
+              <p v-for="(value, key) in item.params" :key="`removed-${key}`">{{ requirementParamLabel(key) }}：{{ formatRequirementParam(value) }}</p>
+            </div>
+            <p>{{ t('writer.changedRequirements', { count: (upgradePreview.diff.changed_items || []).length }) }}</p>
+            <div v-for="change in (upgradePreview.diff.changed_items || [])" :key="change.after.id" class="upgrade-rule-change">
+              <p>{{ t('writer.beforeUpgrade') }}：{{ change.before.description }}</p>
+              <p v-for="(value, key) in change.before.params" :key="`before-${key}`">{{ requirementParamLabel(key) }}：{{ formatRequirementParam(value) }}</p>
+              <p>{{ t('writer.afterUpgrade') }}：{{ change.after.description }}</p>
+              <p v-for="(value, key) in change.after.params" :key="`after-${key}`">{{ requirementParamLabel(key) }}：{{ formatRequirementParam(value) }}</p>
+            </div>
+          </div>
           <div class="form-row"><button v-if="upgradePreview.diff.changed" class="primary" :disabled="upgradeBusy" @click="applyUpgrade">{{ t('writer.applyToProject') }}</button><button @click="upgradePreview = null">{{ t('common.close') }}</button></div>
         </div>
       </div>
@@ -498,6 +521,18 @@
           <p v-for="item in checkResult.quality_advisories" :key="item.rule_id">{{ item.message }}</p>
         </div>
 
+        <details v-if="checkOpen && checkResult?.source_notes?.length" class="not-checked-list" data-test="template-source-notes">
+          <summary>{{ t('writer.templateSourceNotes') }}</summary>
+          <p>{{ t('writer.templatePlaceholderRemoved') }}</p>
+          <p v-for="note in checkResult.source_notes" :key="note.id">{{ note.description }}<span class="not-checked-source"> · {{ note.source }}</span></p>
+        </details>
+
+        <details v-if="checkOpen && checkResult?.source_guidance?.length" class="not-checked-list" data-test="template-content-guidance">
+          <summary>{{ t('writer.templateContentGuidance') }}</summary>
+          <p>{{ t('writer.templateContentGuidanceExplanation') }}</p>
+          <p v-for="note in checkResult.source_guidance" :key="note.id">{{ note.description }}<span class="not-checked-source"> · {{ note.source }}</span></p>
+        </details>
+
         <div v-if="checkOpen && checkResult && checkResult.waived?.length" class="waived-list">
           <strong>{{ t('writer.waived') }}</strong>
           <span v-for="item in checkResult.waived" :key="item.rule_id">{{ item.message }} · {{ item.waiver?.reason }}</span>
@@ -513,7 +548,18 @@
               <span class="manual-dot"></span>
               <span>{{ item.description }}<span class="not-checked-source"> · {{ item.source }}</span></span>
             </div>
-            <template v-if="item.type === 'manual'">
+            <template v-if="item.reason === 'image_typography_unverified'">
+              <span>{{ t('writer.imageTypographyUnavailable') }}</span>
+              <div v-if="manuscriptImageLocations.length" class="image-location-list">
+                <span>{{ t('writer.imageLocationsScope') }}</span>
+                <button v-for="location in manuscriptImageLocations" :key="`${location.sectionKey}-${location.position}-${location.blockId}`"
+                        type="button" class="check-action-btn" data-test="image-location" @click="locateManuscriptImage(location)">
+                  {{ location.sectionTitle }} · {{ location.caption || t('writer.imageWithoutCaption') }} · {{ t('writer.imageBlockPosition', { count: location.position }) }}
+                </button>
+              </div>
+            </template>
+            <span v-if="item.reason === 'format_rule_unverified'">{{ t('writer.formatRuleUnavailable') }}</span>
+            <template v-if="item.type === 'manual' && !['image_typography_unverified', 'format_rule_unverified'].includes(item.reason)">
               <div class="not-checked-actions">
                 <span v-if="assistResultFor(item.id)" class="assist-saved-tag"><span class="material-symbols-outlined" aria-hidden="true">check_circle</span>{{ t('writer.saved') }}</span>
                 <button v-if="assistResultFor(item.id)" class="check-action-btn secondary" @click.stop="showAssistResult(assistResultFor(item.id))">
@@ -765,6 +811,7 @@ const route = useRoute()
 const router = useRouter()
 const { t, formatDate: formatLocaleDate } = useI18n()
 const projectId = route.params.id
+const recoveryUserId = auth.user?.id || ''
 
 const project = ref(null)
 const template = ref(null)
@@ -858,6 +905,11 @@ const sectionInputMode = ref('blocks')
 const sectionText = ref('')
 const sectionTextDraft = ref(null)
 const sectionDocument = ref({ type: 'doc', content: [{ type: 'paragraph' }] })
+const manuscriptImageLocations = computed(() => (project.value?.sections || []).flatMap(section =>
+  (section.paragraphs || []).flatMap((block, index) => block.type === 'image' && block.id
+    ? [{ sectionKey: section.key, sectionTitle: section.title || section.key, blockId: block.id,
+        caption: block.image?.caption || '', position: index + 1 }]
+    : [])))
 const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract', 'english_abstract', 'keywords', 'english_keywords']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
 const headingAffectedKeys = ref([])
@@ -1767,6 +1819,38 @@ async function select(node) {
   } catch (e) { error.value = e.message || t('writer.saveSectionFailed') }
 }
 
+async function locateManuscriptImage(location) {
+  if (recoveryDraft.value) {
+    error.value = t('writer.imageLocationPendingDraft')
+    return
+  }
+  try {
+    await flushPendingSaves()
+    const section = project.value?.sections?.find(item => item.key === location.sectionKey)
+    const matches = (section?.paragraphs || []).filter(block => block.id === location.blockId && block.type === 'image')
+    if (matches.length !== 1) {
+      error.value = t('writer.imageLocationMissing')
+      return
+    }
+    sectionInputMode.value = 'blocks'
+    current.value = section.key
+    contextOpen.value = false
+    await nextTick()
+    const elements = [...(writerShell.value?.querySelectorAll('[data-review-block-id]') || [])]
+    const targets = elements.filter(element => element.getAttribute('data-review-block-id') === location.blockId)
+    if (targets.length !== 1) {
+      error.value = t('writer.imageLocationMissing')
+      return
+    }
+    for (const element of elements) element.classList.remove('review-target')
+    targets[0].classList.add('review-target')
+    targets[0].scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    targets[0].querySelector('.image-block')?.focus()
+  } catch (e) {
+    error.value = e.message || t('writer.saveSectionFailed')
+  }
+}
+
 function focusOutline() {
   const panel = outlinePanelRef.value
   if (!panel) return
@@ -1780,7 +1864,7 @@ function clone(value) {
 }
 
 function recoveryStorageKey() {
-  return `pg_recovery:${auth.user?.id || 'anonymous'}:${projectId}`
+  return `pg_recovery:${recoveryUserId || 'anonymous'}:${projectId}`
 }
 
 function hasRecoveryStorage() {
@@ -1798,7 +1882,7 @@ function hasRecoveryStorage() {
 function localRecoveryPayload() {
   return {
     project_id: projectId,
-    user_id: auth.user?.id || '',
+    user_id: recoveryUserId,
     base_revision: project.value.revision,
     saved_at: new Date().toISOString(),
     snapshot: editableSnapshot(),
@@ -1903,7 +1987,7 @@ async function restoreLocalDraft() {
     void runCheckNow()
   } catch (e) {
     error.value = e.message || t('writer.restoreDraftFailed')
-    if (e.status === 409) conflictSave.value = { key: '__recovery' }
+    if (e.code === 'project_revision_conflict') conflictSave.value = { key: '__recovery' }
   }
 }
 
@@ -2028,7 +2112,7 @@ function enqueueSectionSave(key, payload, version) {
       }
       failedSave.value = true
       persistLocalRecovery()
-      if (e.status === 409) conflictSave.value = { key, revision: e.revision }
+      if (e.code === 'project_revision_conflict') conflictSave.value = { key, revision: e.revision }
       error.value = e.message || t('writer.saveSectionFailed')
       throw e
     } finally {
@@ -2053,7 +2137,7 @@ function enqueueMetaSave(payload, version) {
       }
       failedSave.value = true
       persistLocalRecovery()
-      if (e.status === 409) conflictSave.value = { key: '__meta', revision: e.revision }
+      if (e.code === 'project_revision_conflict') conflictSave.value = { key: '__meta', revision: e.revision }
       error.value = e.message || t('writer.saveCoverFailed')
       throw e
     } finally {
@@ -2106,7 +2190,11 @@ async function saveMeta() {
   const version = (saveVersions.get('__meta') || 0) + 1
   saveVersions.set('__meta', version)
   markDirty('__meta')
-  await enqueueMetaSave(clone(project.value.meta), version)
+  try {
+    await enqueueMetaSave(clone(project.value.meta), version)
+  } catch {
+    // enqueueMetaSave records the error and preserves the recovery draft.
+  }
 }
 
 async function retryFailedSaves() {
@@ -2228,6 +2316,14 @@ async function decideDispute(dispute, status) {
   } catch (e) { error.value = e.message || t('writer.disputeReviewFailed') }
 }
 
+function requirementParamLabel(key) {
+  if (key === 'min') return t('writer.requirementMin')
+  if (key === 'max') return t('writer.requirementMax')
+  return key
+}
+function formatRequirementParam(value) {
+  return typeof value === 'object' ? JSON.stringify(value) : String(value)
+}
 async function openUpgradePreview() {
   upgradeBusy.value = true
   try { upgradePreview.value = await previewRequirementUpgrade(projectId) }
@@ -2243,7 +2339,7 @@ async function confirmUpgrade() {
   upgradeConfirm.value = false
   upgradeBusy.value = true
   try {
-    const result = await upgradeRequirements(projectId, { expected_snapshot_hash: upgradePreview.value.from_snapshot_hash, reason: t('writer.upgradeReasonDefault'), confirm: true })
+    const result = await upgradeRequirements(projectId, { expected_snapshot_hash: upgradePreview.value.from_snapshot_hash, expected_resolution_hash: upgradePreview.value.to_resolution_hash, reason: t('writer.upgradeReasonDefault'), confirm: true })
     project.value = result.project; upgradePreview.value = null; await runCheckNow()
   } catch (e) { error.value = e.message || t('writer.upgradeApplyFailed') }
   finally { upgradeBusy.value = false }

@@ -30,11 +30,11 @@ from app.services.references import (ReferenceInlineMappingError, reference_bloc
 from app.services.upload_security import validate_docx_bytes
 
 
-INSPECTOR_VERSION = "docx-output-check/7"
-MASTER_INSPECTOR_VERSION = "docx-output-check/10-master"
+INSPECTOR_VERSION = "docx-output-check/9"
+MASTER_INSPECTOR_VERSION = "docx-output-check/16-master"
 _PREVIOUS_INSPECTOR_VERSIONS = {
-    INSPECTOR_VERSION: frozenset({"docx-output-check/5"}),
-    MASTER_INSPECTOR_VERSION: frozenset({"docx-output-check/6-master", "docx-output-check/9-master"}),
+    INSPECTOR_VERSION: frozenset({"docx-output-check/5", "docx-output-check/7", "docx-output-check/8"}),
+    MASTER_INSPECTOR_VERSION: frozenset({"docx-output-check/6-master", "docx-output-check/9-master", "docx-output-check/10-master", "docx-output-check/11-master", "docx-output-check/12-master", "docx-output-check/13-master", "docx-output-check/14-master", "docx-output-check/15-master"}),
 }
 _CHART_NS = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
@@ -161,10 +161,10 @@ def _style_for(project_section, template: PaperTemplate, block_index: int) -> Te
     if block_index == -1 and kind in {"references", "acknowledgement", "appendix"}:
         return template.styles.get("heading1") or TextStyle()
     block_kind = str(getattr(project_section.paragraphs[block_index].type, "value", project_section.paragraphs[block_index].type)) if block_index >= 0 else ""
-    if block_kind == "paragraph" and block_index > 0:
-        previous_kind = str(getattr(project_section.paragraphs[block_index - 1].type, "value", project_section.paragraphs[block_index - 1].type))
-        caption_label = "图" if previous_kind == "image" else "表" if previous_kind == "table" else ""
-        if caption_label and _is_caption_text(project_section.paragraphs[block_index].text, caption_label):
+    if block_kind == "paragraph":
+        for caption_label in ("图", "表"):
+            if not _is_caption_text(project_section.paragraphs[block_index].text, caption_label):
+                continue
             key = "figure_caption" if caption_label == "图" else "table_caption"
             style = template.styles.get(key) or template.styles.get("body") or TextStyle()
             return style
@@ -194,7 +194,7 @@ def _flatten(nodes):
         yield from _flatten(node.children)
 
 
-def _expected_text(project: WritingProject) -> list[tuple[str, str, int]]:
+def _expected_text(project: WritingProject, template: PaperTemplate) -> list[tuple[str, str, int]]:
     """Return required heading/text paragraphs in source order."""
     expected: list[tuple[str, str, int]] = []
     chapter = 0
@@ -218,6 +218,11 @@ def _expected_text(project: WritingProject) -> list[tuple[str, str, int]]:
                 if kind == "references" and has_reference_content:
                     reference_number += 1
                 text = reference_block_text(block, reference_number_for(block, reference_number) if kind == "references" and has_reference_content else None)
+                if any(_is_caption_text(text, label) for label in ("图", "表")):
+                    style = _style_for(section, template, index)
+                    if getattr(style, "number_title_gap", None) == "one_character":
+                        from app.core.export.caption_format import caption_with_one_character_gap
+                        text, _ = caption_with_one_character_gap(text, [])
                 if kind in {"keywords", "english_keywords"} and text.strip():
                     prefix = "关键词：" if kind == "keywords" else "Key Words: "
                     if not text.strip().startswith(("关键词", "Key Words", "Keywords")):
@@ -235,7 +240,9 @@ def _expected_text(project: WritingProject) -> list[tuple[str, str, int]]:
                     number = table_number
                 if not _has_explicit_neighbor_caption(section.paragraphs, index, label):
                     caption = _strip_caption_number(str(getattr(details, "caption", "") or "")) if details else ""
-                    expected.append((f"{label} {chapter}.{number}" + (f" {caption}" if caption else ""), section.key, index))
+                    style = _style_for(section, template, index)
+                    gap = "\u3000" if getattr(style, "number_title_gap", None) == "one_character" else " "
+                    expected.append((f"{label} {chapter}.{number}" + (f"{gap}{caption}" if caption else ""), section.key, index))
             # Table cells and image geometry are checked from emitted objects below.
     return expected
 
@@ -650,10 +657,12 @@ _HIGHLIGHT_XML = {
 }
 
 
-def style_capability_issues(style: TextStyle) -> list[dict[str, Any]]:
+def style_capability_issues(style: TextStyle, *, allow_caption_gap: bool = False) -> list[dict[str, Any]]:
     """Return explicit TextStyle values that this exporter/checker cannot verify."""
     issues: list[dict[str, Any]] = []
     for key in sorted(style.model_extra or {}):
+        if key == "number_title_gap" and allow_caption_gap and style.model_extra[key] == "one_character":
+            continue
         issues.append({
             "code": "unsupported_style_property",
             "property": key,
@@ -673,8 +682,8 @@ def style_capability_issues(style: TextStyle) -> list[dict[str, Any]]:
     return issues
 
 
-def _style_capabilities(style: TextStyle, obj: str, check, unsupported: list[str]) -> None:
-    for issue in style_capability_issues(style):
+def _style_capabilities(style: TextStyle, obj: str, check, unsupported: list[str], *, allow_caption_gap: bool = False) -> None:
+    for issue in style_capability_issues(style, allow_caption_gap=allow_caption_gap):
         reason = f"{issue['message']} at {obj}"
         unsupported.append(reason)
         check(
@@ -694,10 +703,10 @@ def _effective_rpr_value(run, paragraph, tag: str, attr: str = "w:val") -> str |
     return None
 
 
-def _check_run_style(check, run, paragraph, style: TextStyle, obj: str, *, bold_extra: bool = False, italic_extra: bool = False, underline_extra: bool = False, highlight_override: str | None = None, vert_align_override: str | None = None, unsupported: list[str] | None = None) -> None:
+def _check_run_style(check, run, paragraph, style: TextStyle, obj: str, *, bold_extra: bool = False, italic_extra: bool = False, underline_extra: bool = False, highlight_override: str | None = None, vert_align_override: str | None = None, unsupported: list[str] | None = None, allow_caption_gap: bool = False) -> None:
     if unsupported is None:
         unsupported = []
-    _style_capabilities(style, obj, check, unsupported)
+    _style_capabilities(style, obj, check, unsupported, allow_caption_gap=allow_caption_gap)
     for prop, expected in (("bold", bool(style.bold or bold_extra)), ("italic", bool(style.italic or italic_extra)), ("underline", bool(style.underline or underline_extra))):
         actual_value = _effective_run_property(run, prop, paragraph)
         actual = bool(actual_value) if actual_value is not None else False
@@ -976,6 +985,16 @@ def inspect_docx_output(
         result["check_count"] = len(result["checks"])
         return result
     check("docx.open", "pass", obj="document", expected="valid DOCX", actual="opened", evidence="parsed emitted DOCX bytes")
+    unexpected_object_query = (
+        ".//w:pict | .//w:object | .//w:control | "
+        ".//*[namespace-uri()='urn:schemas-microsoft-com:vml'] | "
+        ".//*[namespace-uri()='http://schemas.openxmlformats.org/markup-compatibility/2006' and local-name()='AlternateContent'] | "
+        ".//*[namespace-uri()='http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing' and local-name()='anchor']"
+    )
+    unexpected_objects = doc.element.body.xpath(unexpected_object_query)
+    check("structure.unmodeled_objects", "fail" if unexpected_objects else "pass", obj="document",
+          expected="no unmodeled VML, floating, embedded or alternate objects",
+          actual=len(unexpected_objects), evidence="inspect actual emitted body OOXML for unsupported objects")
 
     unsupported: list[str] = []
     if chart_parts:
@@ -991,7 +1010,7 @@ def inspect_docx_output(
         if source_charts:
             unsupported.append("源模板中的 Office 图表对象尚未映射到成品检查规则")
             check("capability.source_chart_objects", "unverifiable", obj="template", expected="no unsupported Office chart objects", actual=source_charts, evidence="source template contains chart parts or DrawingML chart markers")
-    expected = _expected_text(project)
+    expected = _expected_text(project, template)
     actual_paragraphs = _content_paragraphs(doc)
     actual_text = [paragraph.text for paragraph in actual_paragraphs]
     cursor = 0
@@ -1072,7 +1091,18 @@ def inspect_docx_output(
             continue
         style = _style_for(section, template, block_index)
         par_index = actual_paragraphs.index(paragraph)
-        _style_capabilities(style, f"paragraph:{par_index}", check, unsupported)
+        source_block = section.paragraphs[block_index] if block_index >= 0 else None
+        block_kind = str(getattr(source_block.type, "value", source_block.type)) if source_block else ""
+        caption_style = block_kind in {"image", "table"} or (
+            block_kind == "paragraph" and any(_is_caption_text(source_block.text, label) for label in ("图", "表"))
+        )
+        if caption_style and getattr(style, "number_title_gap", None) == "one_character" and "\u3000" in paragraph.text:
+            from app.core.export.caption_format import has_one_character_gap_width
+            gap_ok = has_one_character_gap_width(paragraph._p)
+            check("format.caption_gap_width", "pass" if gap_ok else "fail", obj=f"paragraph:{par_index}",
+                  expected="one unscaled full-width space with zero tracking", actual=gap_ok,
+                  evidence="read gap run and direct character geometry from DOCX")
+        _style_capabilities(style, f"paragraph:{par_index}", check, unsupported, allow_caption_gap=caption_style)
         _check_page_break_before(doc, paragraph, style, f"paragraph:{par_index}", check)
         if block_index == -1:
             kind = str(getattr(section.type, "value", section.type))
@@ -1131,7 +1161,6 @@ def inspect_docx_output(
         if not runs:
             check("format.runs_present", "unverifiable", obj=f"paragraph:{par_index}", expected="text runs", actual=0, evidence="paragraph text has no readable runs")
             continue
-        source_block = section.paragraphs[block_index] if block_index >= 0 else None
         inline_specs = []
         if source_block is not None and source_block.inline_runs:
             if "".join(item.text for item in source_block.inline_runs) != source_block.text:
@@ -1142,6 +1171,9 @@ def inspect_docx_output(
                     is_reference = str(getattr(section.type, "value", section.type)) == "references"
                     marker = re.match(r"^\[(\d+)\] ", paragraph.text) if is_reference else None
                     inline_specs = reference_inline_runs(source_block, int(marker.group(1))) if marker else [item for item in source_block.inline_runs if item.text]
+                    if caption_style and getattr(style, "number_title_gap", None) == "one_character":
+                        from app.core.export.caption_format import caption_with_one_character_gap
+                        _, inline_specs = caption_with_one_character_gap(source_block.text, inline_specs)
                 except ReferenceInlineMappingError:
                     unsupported.append(f"参考文献行内格式无法与输出文字关联: {section_key}/{block_index}")
                     check("capability.inline_run_mapping", "unverifiable", obj=f"paragraph:{par_index}", expected="reference text mapped to formatting", actual="unmappable reference", evidence="structured reference body differs from source text")
@@ -1176,6 +1208,7 @@ def inspect_docx_output(
                     highlight_override=(inline.highlight if inline and inline.highlight is not None else source_block.highlight if source_block and source_block.highlight is not None else None),
                     vert_align_override=(inline.vert_align if inline and inline.vert_align is not None else source_block.vert_align if source_block and source_block.vert_align is not None else None),
                     unsupported=unsupported,
+                    allow_caption_gap=caption_style,
                 )
     for paragraph_index, paragraph in enumerate(actual_paragraphs):
         if paragraph_index in matched_indices:
@@ -1198,6 +1231,11 @@ def inspect_docx_output(
         for index, section in enumerate(doc.sections)
     ]
     for story_name, story in story_parts:
+        story_objects = story._element.xpath(unexpected_object_query + " | .//w:drawing")
+        if story_objects:
+            check("structure.unmodeled_objects", "fail", obj=story_name,
+                  expected="no unsupported header or footer objects", actual=len(story_objects),
+                  evidence="inspect emitted header or footer OOXML for visual objects")
         story_runs = [run for paragraph in story.paragraphs for run in paragraph.runs if run.text]
         story_fields = _field_records(story._element)
         if story_name.endswith("/header"):

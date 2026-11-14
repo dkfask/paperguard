@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe('API Client', () => {
   it('should be importable', async () => {
@@ -22,5 +24,20 @@ describe('Projects API', () => {
     expect(api.fetchProjects).toBeDefined()
     expect(api.createProject).toBeDefined()
     expect(api.updateProjectSection).toBeDefined()
+  })
+
+  it.each([
+    ['updateProjectSection', ['p1', 'chapter', {}, 1]],
+    ['updateProjectMeta', ['p1', {}, 1]],
+    ['restoreProjectSnapshot', ['p1', {}, 1]],
+  ])('preserves the revision-conflict code in %s', async (method, args) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 409,
+      json: async () => ({ detail: { code: 'project_revision_conflict', message: '版本已变化', revision: 2 } }),
+    }))
+    const api = await import('../src/api.js')
+    await expect(api[method](...args)).rejects.toMatchObject({
+      status: 409, code: 'project_revision_conflict', revision: 2,
+    })
   })
 })

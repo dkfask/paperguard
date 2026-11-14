@@ -101,6 +101,28 @@ describe('writing profile publication', () => {
     await wrapper.get('button').trigger('click'); await flushPromises()
     expect(proposeWritingProfile).toHaveBeenLastCalledWith('t1', expect.objectContaining({ confirmed_content_rule_ids: ['quality'], defense_date_field_key: 'date' }))
   })
+  it('separates only removed pure example placeholders in the teacher preview', async () => {
+    const reviewPlan = { ...plan, removals: ['/p1', '/p2', '/p3'], content_rule_review: {
+      candidates: [], manual_items: [
+        { rule_id: 'one', source_text: '（以下略）', source_path: '/p1', region_title: '示例章节' },
+        { rule_id: 'two', source_text: '（以下略）请说明硬件选型', source_path: '/p2' },
+        { rule_id: 'three', source_text: '以下略', source_path: '/not-removed' },
+        { rule_id: 'four', source_text: '以下略）', source_path: '/p3' },
+      ]
+    } }
+    proposeWritingProfile.mockResolvedValueOnce({ ...proposal, template: { source_execution: reviewPlan } })
+    const wrapper = mount(WritingProfileConfirmation, { props: { template } })
+    await wrapper.get('button').trigger('click'); await flushPromises()
+    const examples = wrapper.get('[data-test="template-example-placeholders"]')
+    const manual = wrapper.get('[data-test="manual-source-instructions"]')
+    expect(examples.text()).toContain('示例章节')
+    expect(examples.text()).toContain('/p1')
+    expect(examples.findAll('li')).toHaveLength(2)
+    expect(manual.text()).toContain('请说明硬件选型')
+    expect(manual.text()).toContain('/not-removed')
+    expect(manual.findAll('li')).toHaveLength(2)
+    expect(reviewPlan.content_rule_review.manual_items).toHaveLength(4)
+  })
   it('requires confirming the digit rule and previewing it before publication', async () => {
     const digitPlan = { ...plan, confirmed_digit_font_rule_ids: [], digit_font_review: { candidates: [
       { rule_id: 'digits', source_text: '标题、正文数字使用 Times New Roman', source_part: 'word/comments.xml', source_path: '/comment' }
