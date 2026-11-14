@@ -38,18 +38,21 @@ def _style_to_legacy(style: StyleDefinition) -> TextStyle:
     return TextStyle.model_validate(style.model_dump(mode="json"))
 
 
-def _section_to_domain(node: LegacyTemplateSection, order: int = 0) -> TemplateSection:
+def _section_to_domain(node: LegacyTemplateSection, styles: dict[str, TextStyle], order: int = 0) -> TemplateSection:
     children = [
-        _section_to_domain(child, child_order)
+        _section_to_domain(child, styles, child_order)
         for child_order, child in enumerate(node.children)
     ]
+    # Match the legacy exporter's type-style -> body-style fallback without
+    # fabricating a reference to an absent named style.
+    style_ref = node.type.value if node.type.value in styles or "body" not in styles else "body"
     return TemplateSection(
         key=node.key,
         title=node.title,
         kind=node.type.value,
         order=order,
         required=node.required,
-        style_ref=node.type.value,
+        style_ref=style_ref,
         style=_style_to_domain(node.style) if node.style else None,
         children=children,
         extensions={"legacy_type": node.type.value},
@@ -84,7 +87,7 @@ def paper_template_to_domain(
     definition = TemplateDefinition(
         mode="structured_document",
         export_strategy="legacy_adapter",
-        sections=[_section_to_domain(section, order) for order, section in enumerate(template.sections)],
+        sections=[_section_to_domain(section, template.styles, order) for order, section in enumerate(template.sections)],
         fields=[
             TemplateField(
                 key=field.key,

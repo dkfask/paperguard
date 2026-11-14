@@ -84,6 +84,43 @@ def _active(element: etree._Element) -> bool:
     return not bool(element.xpath("ancestor::mc:Fallback[../mc:Choice]", namespaces=_NS))
 
 
+def _safe_cover_font_callout(paragraph: etree._Element, text: str) -> bool:
+    """Only remove one self-contained text callout and its equivalent fallback."""
+    ancestors = paragraph.xpath("ancestor::mc:AlternateContent[1]", namespaces=_NS)
+    if len(ancestors) != 1:
+        return False
+    alternate = ancestors[0]
+    choices = alternate.findall(f"{{{_NS['mc']}}}Choice")
+    fallbacks = alternate.findall(f"{{{_NS['mc']}}}Fallback")
+    if len(alternate) != 2 or len(choices) != 1 or len(fallbacks) != 1:
+        return False
+    for branch, drawing_tag, shape_tag in (
+        (choices[0], qn("w:drawing"), "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}wsp"),
+        (fallbacks[0], qn("w:pict"), "{urn:schemas-microsoft-com:vml}shape"),
+    ):
+        drawings = [node for node in branch.iter() if node.tag in {qn("w:drawing"), qn("w:pict")}]
+        boxes = list(branch.iter(qn("w:txbxContent")))
+        shapes = list(branch.iter(shape_tag))
+        if len(drawings) != 1 or drawings[0].tag != drawing_tag or len(boxes) != 1 or len(shapes) != 1:
+            return False
+        shape_nodes = [node for node in branch.iter() if isinstance(node.tag, str)
+                       and etree.QName(node).localname in {"wsp", "shape", "sp", "cxnSp", "graphicFrame"}]
+        if shape_nodes != shapes:
+            return False
+        if boxes[0] not in shapes[0].iter() or _text(boxes[0]).strip() != text.strip():
+            return False
+        for node in branch.iter():
+            if not isinstance(node.tag, str):
+                return False
+            if etree.QName(node).localname in {"blip", "imagedata", "object", "control", "OLEObject", "pic", "grpSp", "wgp", "AlternateContent"}:
+                return False
+            if any(etree.QName(attr).namespace == _NS.get("r") for attr in node.attrib):
+                return False
+            if node.tag == qn("w:t") and boxes[0] not in node.iterancestors():
+                return False
+    return True
+
+
 def _heading(paragraph: etree._Element, style_id: str, resolver: EffectiveFormatResolver, text: str) -> int:
     for ppr in [paragraph.find(qn("w:pPr")),
                 *[s.find(qn("w:pPr")) for s in reversed(resolver.chain(style_id))]]:
@@ -355,16 +392,29 @@ def extract_writing_specification(docx_path: str | Path) -> WritingSpecification
                 if total_runs > _MAX_RUNS:
                     raise ValueError("模板文字片段数量超过规范抽取预算")
                 table = p.xpath("ancestor::w:tbl[1]", namespaces=_NS)
+                # A concise cover callout can name the label and value fonts
+                # without using the word “字体”. Restrict this interpretation to
+                # a cover textbox so ordinary document prose is not removed.
+                cover_font_hint = bool(
+                    location(p) in cover_paths
+                    and p.xpath("ancestor::w:txbxContent", namespaces=_NS)
+                    and re.fullmatch(
+                        r"\s*标签\s*(?:使用|采用|为)?\s*(?:宋体|黑体|仿宋|楷体)\s*[，,、；;]\s*"
+                        r"内容\s*(?:使用|采用|为)?\s*(?:宋体|黑体|仿宋|楷体)\s*[。.]?\s*", text
+                    )
+                )
+                if cover_font_hint and not _safe_cover_font_callout(p, text):
+                    raise ValueError("模板封面说明框包含无法安全区分的其他对象，不能自动移除")
                 heading_details = {}
                 if part != "word/document.xml":
                     role = "header" if "/header" in part else "footer"
                     node_region = part
                     node_region_title = "页眉" if role == "header" else "页脚"
                 elif table:
-                    role, node_region = "instruction" if _instruction(text) else "table_text", location(table[0])
+                    role, node_region = "instruction" if _instruction(text) or cover_font_hint else "table_text", location(table[0])
                     node_region_title = "封面表格" if location(p) in cover_paths else "表格内文字"
                 elif location(p) in cover_paths:
-                    role, node_region = "instruction" if _instruction(text) else "cover", "cover"
+                    role, node_region = "instruction" if _instruction(text) or cover_font_hint else "cover", "cover"
                     node_region_title = "封面"
                 else:
                     declared_heading = _heading(p, style_id, resolver, text)

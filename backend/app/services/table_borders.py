@@ -50,9 +50,15 @@ def _read_border_set(node):
     return result
 
 
+def has_cell_border_overrides(table_element):
+    """Treat only completely empty cell-border containers as having no override."""
+    return any(len(node) or node.attrib or (node.text or '').strip()
+               for node in table_element.iter(qn('w:tcBorders')))
+
+
 def observe_table_borders(table):
     """Observe direct and base-style edges; reject conditional/cell overrides."""
-    if table._tbl.xpath('.//w:tcBorders'):
+    if has_cell_border_overrides(table._tbl):
         raise ValueError('表格含单元格独立边框，当前无法完整保留')
     layers = []
     style = table.style

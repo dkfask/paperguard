@@ -36,6 +36,53 @@ def _normal_document() -> Document:
     return doc
 
 
+@pytest.mark.parametrize('mixed_object', [False, 'image', 'extra_shape', 'different_fallback'])
+def test_cover_font_instruction_in_textbox_is_extracted_and_removed_without_losing_label(tmp_path, mixed_object):
+    from app.core.extract.xml_utils import load_part
+    from app.services.master_docx_renderer import prepare_source
+
+    doc = _normal_document()
+    doc.add_paragraph('毕业设计报告')
+    table = doc.add_table(rows=1, cols=1)
+    paragraph = table.cell(0, 0).paragraphs[0]
+    paragraph.add_run('学院：')
+    run = paragraph.add_run()._r
+    mc = 'http://schemas.openxmlformats.org/markup-compatibility/2006'
+    alternate = etree.SubElement(run, '{%s}AlternateContent' % mc, nsmap={'mc': mc})
+    for branch_name in ('Choice', 'Fallback'):
+        branch = etree.SubElement(alternate, '{%s}%s' % (mc, branch_name))
+        drawing = etree.SubElement(branch, qn('w:drawing') if branch_name == 'Choice' else qn('w:pict'))
+        shape_ns = ('http://schemas.microsoft.com/office/word/2010/wordprocessingShape'
+                    if branch_name == 'Choice' else 'urn:schemas-microsoft-com:vml')
+        shape = etree.SubElement(drawing, '{%s}%s' % (shape_ns, 'wsp' if branch_name == 'Choice' else 'shape'))
+        textbox = etree.SubElement(shape, qn('w:txbxContent'))
+        p = etree.SubElement(textbox, qn('w:p'))
+        r = etree.SubElement(p, qn('w:r'))
+        etree.SubElement(r, qn('w:t')).text = ('其他内容' if mixed_object == 'different_fallback' and branch_name == 'Fallback' else '标签黑体、内容宋体。')
+        if mixed_object == 'image' and branch_name == 'Choice':
+            etree.SubElement(drawing, '{http://schemas.openxmlformats.org/drawingml/2006/main}blip')
+        if mixed_object == 'extra_shape' and branch_name == 'Choice':
+            etree.SubElement(drawing, '{%s}wsp' % shape_ns)
+    doc.add_heading('摘要', level=1)
+    doc.add_paragraph('标签黑体、内容宋体。')
+    source = _save(doc, tmp_path)
+    if mixed_object:
+        with pytest.raises(ValueError, match='说明框.*其他对象'):
+            extract_writing_specification(source)
+        return
+    spec = extract_writing_specification(source)
+    matching = [node for node in spec.nodes if node.text == '标签黑体、内容宋体。']
+    assert len(matching) == 2
+    note = next(node for node in matching if 'txbxContent' in node.path)
+    assert note.role == 'instruction' and note.details.get('in_cover')
+    assert next(node for node in matching if 'txbxContent' not in node.path).role != 'instruction'
+    with zipfile.ZipFile(source) as archive:
+        root = load_part(archive, 'word/document.xml')
+    prepared = prepare_source(root, {'fields': [], 'removals': [note.path], 'headings': []})
+    assert not prepared.xpath('.//mc:AlternateContent', namespaces={'mc': mc})
+    assert '学院：' in ''.join(prepared.itertext())
+
+
 def _save(doc: Document, tmp_path: Path, name: str = 'source.docx') -> Path:
     path = tmp_path / name
     doc.save(path)
