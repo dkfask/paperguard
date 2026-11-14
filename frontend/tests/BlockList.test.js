@@ -370,6 +370,24 @@ describe('BlockList image paste handling', () => {
     wrapper.unmount()
   })
 
+  it('renumbers figures after moving, removing and adding blocks without changing their captions', async () => {
+    const paragraphs = ['甲', '乙', '丙'].map((caption, index) => ({
+      id: `img${index}`, type: 'image', image: { url: `/media/${index}.png`, caption },
+    }))
+    const wrapper = mount(BlockList, { props: { paragraphs, projectId: 'p1', chapter: 3 } })
+    const captions = () => wrapper.findAll('.image-block').map((block) => [
+      block.get('.caption-num').text(), block.get('.caption-input').element.value,
+    ])
+
+    await wrapper.findAll('.para-toolbar')[2].findAll('button')[0].trigger('click')
+    expect(captions()).toEqual([['图 3.1', '甲'], ['图 3.2', '丙'], ['图 3.3', '乙']])
+    await wrapper.findAll('.para-toolbar')[1].get('button.danger').trigger('click')
+    expect(captions()).toEqual([['图 3.1', '甲'], ['图 3.2', '乙']])
+    await wrapper.findAll('.insert-row button')[1].trigger('click')
+    expect(captions()).toEqual([['图 3.1', '甲'], ['图 3.2', '乙'], ['图 3.3', '']])
+    wrapper.unmount()
+  })
+
   it('continues table numbers from preceding sections of the same chapter', () => {
     const paragraphs = [{ id: 'tbl1', type: 'table', table: { rows: 1, cols: 1, cells: [['值']], caption: '' } }]
     const wrapper = mount(BlockList, { props: { paragraphs, projectId: 'p1', chapter: 3, tableOffset: 2 } })

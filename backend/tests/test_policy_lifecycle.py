@@ -266,8 +266,20 @@ def test_published_version_is_used_by_upgrade_preview_and_application():
     preview = client.get(f"/api/projects/{project_id}/requirements/upgrade-preview", headers=admin)
     assert preview.status_code == 200, preview.text
     assert preview.json()["diff"]["changed"] is True
-    applied = client.post(f"/api/projects/{project_id}/requirements/upgrade", headers=admin, json={
+    missing_target = client.post(f"/api/projects/{project_id}/requirements/upgrade", headers=admin, json={
         "confirm": True, "expected_snapshot_hash": preview.json()["from_snapshot_hash"], "reason": "采用年度新规范",
+    })
+    assert missing_target.status_code == 428
+    assert missing_target.json()["detail"]["code"] == "REQUIREMENT_UPGRADE_PREVIEW_REQUIRED"
+    stale_target = client.post(f"/api/projects/{project_id}/requirements/upgrade", headers=admin, json={
+        "confirm": True, "expected_snapshot_hash": preview.json()["from_snapshot_hash"],
+        "expected_resolution_hash": "sha256:stale", "reason": "采用年度新规范",
+    })
+    assert stale_target.status_code == 409
+    assert stale_target.json()["detail"]["code"] == "REQUIREMENT_UPGRADE_TARGET_CHANGED"
+    applied = client.post(f"/api/projects/{project_id}/requirements/upgrade", headers=admin, json={
+        "confirm": True, "expected_snapshot_hash": preview.json()["from_snapshot_hash"],
+        "expected_resolution_hash": preview.json()["to_resolution_hash"], "reason": "采用年度新规范",
     })
     assert applied.status_code == 200, applied.text
     assert applied.json()["project"]["requirement_snapshot"]["policy_sets"][0]["version"] == "2"

@@ -635,6 +635,142 @@ def test_submission_requires_hard_rules_to_be_checked(
         assert any(item["key"] == "automatic_unverified" for item in submitted.json()["detail"]["gates"])
 
 
+@pytest.mark.parametrize("already_archived", [False, True])
+@pytest.mark.parametrize("rule_source", ["item", "legacy_text", "legacy_attachment", "body_attachment", "compound_format", "legacy_auto_compound", "legacy_manual_duplicate"])
+def test_historical_workflow_artifact_rechecks_hard_rules_after_checker_update(
+    ready_submission_candidate, monkeypatch, tmp_path, already_archived, rule_source,
+):
+    from app.services import project_check, requirement_check
+    from app.models.project import ImageBlock, ParagraphBlock
+
+    fixture = ready_submission_candidate
+    store = Store()
+    previous = store.get_workflow_record("candidate", fixture["candidate_id"])
+    project = store.get_project(previous["project_id"])
+    rule = {
+        "id": "image-font", "type": "manual", "target": "document", "checker": "",
+        "params": {"format_override": True}, "severity": "error", "enforce": "hard",
+        "description": "图中标注符号和文字的字号不大于图题字号，建议五号",
+    }
+    if rule_source in {"legacy_text", "legacy_attachment", "body_attachment"}:
+        if rule_source != "body_attachment":
+            png = base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
+            )
+            uploaded = client.post(f"/api/projects/{project.id}/images", headers=fixture["student"], files={
+                "file": ("figure.png", png, "image/png"),
+            })
+            assert uploaded.status_code == 201, uploaded.text
+            section = next(section for section in project.sections if section.key == "ch1")
+            section.paragraphs.append(ParagraphBlock(id="legacy-image", type="image",
+                image=ImageBlock(url=uploaded.json()["url"], caption="系统结构")))
+        project.requirement_snapshot = {
+            "policy_sets": [{"id": "legacy", "version": "1", "name": "学校规范", "items": [],
+                             "markdown_content": "图中标注符号文字字号不大于图题的字号，建议五号字体。"}],
+            "resolved_items": [], "rule_pack_selection_version": 1,
+        }
+        if rule_source in {"legacy_attachment", "body_attachment"}:
+            import hashlib
+            from app.api import policies
+
+            monkeypatch.setattr(policies, "_DOCUMENT_DIR", tmp_path / "documents")
+            directory = policies._DOCUMENT_DIR / "legacy"
+            directory.mkdir(parents=True)
+            source_text = project.requirement_snapshot["policy_sets"][0].pop("markdown_content")
+            data = ("正文必须使用黑体。" if rule_source == "body_attachment" else source_text).encode()
+            (directory / "guide.txt").write_bytes(data)
+            project.requirement_snapshot["policy_sets"][0]["documents"] = [{
+                "id": "guide", "storage_key": "guide.txt", "filename": "guide.txt",
+                "checksum": "sha256:" + hashlib.sha256(data).hexdigest(),
+            }]
+    elif rule_source == "legacy_auto_compound":
+        plain = {"id": "plain", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+                 "params": {"min": 1}, "severity": "error", "enforce": "hard", "description": "摘要不少于1字"}
+        hidden = {**plain, "id": "hidden", "description": "摘要不少于1字，正文使用黑体"}
+        project.requirement_snapshot = {
+            "policy_sets": [{"items": [plain, hidden]}], "resolved_items": [plain],
+            "format_item_ids": ["hidden"], "rule_pack_selection_version": 1,
+        }
+    elif rule_source == "legacy_manual_duplicate":
+        font = {"id": "format", "type": "manual", "target": "body", "checker": "",
+                "params": {"format_override": True}, "severity": "error", "enforce": "hard",
+                "description": "正文中文字体为黑体"}
+        border = {**font, "target": "table", "description": "表格边框必须为黑色"}
+        project.requirement_snapshot = {
+            "policy_sets": [{"name": "学校", "items": [font]}, {"name": "专业", "items": [border]}],
+            "resolved_items": [font], "format_item_ids": ["format"], "rule_pack_selection_version": 1,
+        }
+    else:
+        if rule_source == "compound_format":
+            rule = {**rule, "id": "table-border", "params": {},
+                    "description": "表格边框必须为黑色，字号遵守规范"}
+        project.requirement_snapshot = {
+            "policy_sets": [{"items": [rule]}], "resolved_items": [rule],
+            "format_item_ids": [rule["id"]], "rule_pack_selection_version": 1,
+        }
+    store.save_project(project)
+    acknowledged = client.post(f"/api/stage-participants/{fixture['participant_id']}/acknowledge",
+                               headers=fixture["student"], json={})
+    assert acknowledged.status_code == 200, acknowledged.text
+    current_requirements = project_check.check_requirements
+    with monkeypatch.context() as old_checker:
+        old_checker.setattr(project_check, "is_image_internal_typography", lambda _item: False)
+        old_checker.setattr(requirement_check, "is_image_internal_typography", lambda _item: False)
+        old_checker.setattr(requirement_check, "_verified_simple_body_font", lambda *_args: True)
+        old_checker.setattr(requirement_check, "extract_image_font_size_limit", lambda _text: "")
+        if rule_source == "legacy_auto_compound":
+            old_checker.setattr(requirement_check, "is_format_requirement", lambda _text: False)
+        if rule_source == "legacy_manual_duplicate":
+            def old_requirements(*args, **kwargs):
+                findings, unchecked = current_requirements(*args, **kwargs)
+                return findings, [item for item in unchecked if not item["id"].startswith("merged-format-")]
+            old_checker.setattr(project_check, "check_requirements", old_requirements)
+        if rule_source == "body_attachment":
+            old_checker.setattr(requirement_check, "_frozen_attachment_text", lambda *_args: "")
+        candidate = client.post("/api/submission-candidates", headers=fixture["student"], json={
+            "participant_id": fixture["participant_id"],
+        })
+        assert candidate.status_code == 201 and candidate.json()["status"] == "ready", candidate.text
+        candidate_id = candidate.json()["id"]
+        if already_archived:
+            submission = client.post("/api/submissions", headers=fixture["student"], json={
+                "candidate_id": candidate_id, "idempotency_key": f"old-checker-{uuid.uuid4().hex}",
+            })
+            assert submission.status_code == 200, submission.text
+            submission_id = submission.json()["submission"]["id"]
+            approved = client.post(f"/api/submissions/{submission_id}/reviews", headers=fixture["teacher"],
+                                   json={"decision": "approved"})
+            assert approved.status_code == 200, approved.text
+            archive_id = approved.json()["archive"]["id"]
+            run_once()
+            assert client.get(f"/api/submissions/{submission_id}/document", headers=fixture["teacher"]).status_code == 200
+            assert client.get(f"/api/archives/{archive_id}/download", headers=fixture["student"]).status_code == 200
+
+    if already_archived:
+        document = client.get(f"/api/submissions/{submission_id}/document", headers=fixture["teacher"])
+        archive = client.get(f"/api/archives/{archive_id}/download", headers=fixture["student"])
+        assert (document.status_code, archive.status_code) == (409, 409)
+        record = store.get_workflow_record("archive", archive_id)
+        assert record["status"] == "succeeded"
+        archive_view = client.get(f"/api/archives/{archive_id}", headers=fixture["student"]).json()
+        assert archive_view["requirement_recheck"] == "unverifiable"
+        assert "download_url" not in archive_view
+        archives = client.get("/api/archives", headers=fixture["student"]).json()
+        assert "download_url" not in next(item for item in archives if item["id"] == archive_id)
+        job = client.get(f"/api/jobs/{record['job_id']}", headers=fixture["student"]).json()
+        assert "download_url" not in job["archive"]
+    else:
+        candidate_view = client.get(f"/api/submission-candidates/{candidate_id}", headers=fixture["student"])
+        assert candidate_view.status_code == 200 and candidate_view.json()["status"] == "blocked"
+        assert any(gate["key"] == "automatic_unverified" and gate["blocking"]
+                   for gate in candidate_view.json()["gates"])
+        response = client.post("/api/submissions", headers=fixture["student"], json={
+            "candidate_id": candidate_id, "idempotency_key": f"new-checker-{uuid.uuid4().hex}",
+        })
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "SUBMISSION_ARTIFACT_INVALID"
+
+
 def test_candidate_artifact_failure_logs_location_without_document_data(
     ready_submission_candidate, monkeypatch, caplog,
 ):
@@ -977,7 +1113,7 @@ def test_previous_candidate_report_is_rechecked_for_submission_download_and_new_
     with zipfile.ZipFile(io.BytesIO(archived.content)) as bundle:
         assert bundle.read("final.docx") == original
         manifest = json.loads(bundle.read("manifest.json"))
-    assert manifest["output_check"]["inspector_version"] == "docx-output-check/7"
+    assert manifest["output_check"]["inspector_version"] == "docx-output-check/9"
     assert store.get_workflow_record("candidate", candidate["id"])["artifact"]["output_check"]["inspector_version"] == "docx-output-check/5"
     assert "workflow-archive-download" in calls
 
@@ -1080,10 +1216,13 @@ def test_content_advisory_follows_submission_and_does_not_block_review(ready_sub
     assert submitted.status_code == 200, submitted.text
     submission_id = submitted.json()["submission"]["id"]
 
-    def no_live_check(*_args, **_kwargs):
-        raise AssertionError("review must read the frozen submission report")
+    rechecked = []
 
-    monkeypatch.setattr(workflow_api, "check_project", no_live_check)
+    def check_without_frozen_advisory(*args, **kwargs):
+        rechecked.append(True)
+        return original_check(*args, **kwargs)
+
+    monkeypatch.setattr(workflow_api, "check_project", check_without_frozen_advisory)
     detail = client.get(f"/api/submissions/{submission_id}", headers=fixture["teacher"])
     assert detail.status_code == 200, detail.text
     assert advisory in detail.json()["candidate"]["check_report"]["quality_advisories"]
@@ -1091,6 +1230,7 @@ def test_content_advisory_follows_submission_and_does_not_block_review(ready_sub
         "decision": "approved",
     })
     assert approved.status_code == 200, approved.text
+    assert rechecked, "delivery must recheck hard rules against the frozen project"
 
 
 def test_required_material_is_bound_to_each_submission(ready_submission_candidate, tmp_path, monkeypatch):

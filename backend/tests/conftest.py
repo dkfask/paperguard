@@ -27,6 +27,17 @@ os.environ["PAPERGUARD_TEMPLATE_DIR"] = str(Path(_TEST_DB_DIR) / "templates")
 os.environ["PAPERGUARD_DATA_DIR"] = str(Path(_TEST_DB_DIR) / "data")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolated_policy_documents():
+    """Keep policy attachments created by API tests under the test root."""
+    from app.api import policies
+
+    original = policies._DOCUMENT_DIR
+    policies._DOCUMENT_DIR = Path(_TEST_DB_DIR) / "policy-documents"
+    yield
+    policies._DOCUMENT_DIR = original
+
+
 @pytest.fixture(scope="session")
 def qapp():
     """共享 :class:`QApplication` 单例（session 作用域）。"""

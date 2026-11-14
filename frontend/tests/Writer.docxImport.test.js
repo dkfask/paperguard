@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const api = vi.hoisted(() => ({
   fetchProject: vi.fn(), fetchProjectExportJobs: vi.fn(), fetchProjectCapabilities: vi.fn(),
-  updateProjectSection: vi.fn(), previewProjectDocx: vi.fn(),
+  updateProjectSection: vi.fn(), updateProjectMeta: vi.fn(), previewProjectDocx: vi.fn(),
   fetchProjectDocxCandidate: vi.fn(), reviseProjectDocxCandidate: vi.fn(),
   applyProjectDocxCandidate: vi.fn(), restoreProjectSnapshot: vi.fn(),
 }))
@@ -18,6 +18,7 @@ vi.mock('../src/i18n', () => ({ useI18n: () => ({ t: key => key, formatDate: val
 
 import Writer from '../src/views/Writer.vue'
 import TiptapSectionEditor from '../src/features/writer/components/TiptapSectionEditor.vue'
+import { auth } from '../src/auth'
 
 const baseSection = { key: 'chapter', type: 'heading1', title: '原章节', paragraphs: [{ id: 'old', type: 'paragraph', text: '原有草稿' }] }
 function project() {
@@ -70,6 +71,28 @@ beforeEach(() => {
 afterEach(() => { document.body.innerHTML = ''; vi.useRealTimers() })
 
 describe('whole Word manuscript import', () => {
+  it('keeps the editor usable and preserves recovery when an explicit cover save fails', async () => {
+    const source = project()
+    source.sections = [{ key: 'cover', type: 'cover', title: '封面', paragraphs: [] }]
+    source.template_snapshot.sections = [{ key: 'cover', type: 'cover', title: '封面' }]
+    source.template_snapshot.meta_fields = [{ key: 'class', label: '班级' }]
+    api.fetchProject.mockResolvedValue(source)
+    api.updateProjectMeta.mockRejectedValue(new Error('项目已归档'))
+    const onError = vi.fn()
+    const wrapper = mount(Writer, { attachTo: document.body, global: { config: { errorHandler: onError }, stubs: {
+      Teleport: true, BaseModal: true, RouterLink: true, BlockList: true,
+    } } })
+    await flushPromises()
+    await wrapper.get('.meta-row input').setValue('未保存班级')
+    await wrapper.findAll('button').find(button => button.text().includes('writer.saveCover')).trigger('click')
+    await flushPromises()
+    expect(onError).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('项目已归档')
+    expect(wrapper.find('.save-failure').exists()).toBe(true)
+    expect(JSON.parse(localStorage.getItem('pg_recovery:student:p1')).snapshot.meta.class).toBe('未保存班级')
+    wrapper.unmount()
+  })
+
   it('hides the import entry when its capability is closed or unavailable', async () => {
     api.fetchProjectCapabilities.mockResolvedValueOnce({ manuscript_import_enabled: false })
     const closed = open(); await flushPromises()
@@ -124,6 +147,22 @@ describe('whole Word manuscript import', () => {
     wrapper.unmount()
   })
 
+  it('does not offer another account’s local recovery draft', async () => {
+    const draft = { project_id: 'p1', user_id: 'student', base_revision: 2, saved_at: '2026-10-28',
+      snapshot: { title: '其他用户的草稿', meta: {}, sections: [baseSection] } }
+    localStorage.setItem('pg_recovery:student:p1', JSON.stringify(draft))
+    auth.user = { id: 'another-student', role: 'student', status: 'active' }
+    const wrapper = open()
+    try {
+      await flushPromises()
+      expect(wrapper.text()).not.toContain('writer.recoveryFound')
+      expect(JSON.parse(localStorage.getItem('pg_recovery:student:p1'))).toEqual(draft)
+    } finally {
+      auth.user = { id: 'student', role: 'student', status: 'active' }
+      wrapper.unmount()
+    }
+  })
+
   it('does not import while section text has not been applied', async () => {
     const wrapper = open(); await flushPromises(); await selectChapter(wrapper)
     await wrapper.findAll('.editor-head button').find(button => button.text().includes('writer.sectionModeBlocks')).trigger('click')
@@ -142,6 +181,39 @@ describe('whole Word manuscript import', () => {
     await selectFile(wrapper)
     expect(api.previewProjectDocx).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('保存失败')
+    expect(JSON.parse(localStorage.getItem('pg_recovery:student:p1')).snapshot.sections[0].title).toBe('未保存标题')
+    wrapper.unmount()
+  })
+
+  it('keeps the original user recovery key when authentication expires during a save', async () => {
+    api.updateProjectSection.mockImplementationOnce(async () => {
+      auth.user = null
+      throw new Error('会话已过期')
+    })
+    const wrapper = open(); await flushPromises(); await selectChapter(wrapper)
+    try {
+      await wrapper.get('.heading-input').setValue('会话过期前的未保存标题')
+      await selectFile(wrapper)
+      const draft = JSON.parse(localStorage.getItem('pg_recovery:student:p1'))
+      expect(draft.user_id).toBe('student')
+      expect(draft.snapshot.sections[0].title).toBe('会话过期前的未保存标题')
+      expect(localStorage.getItem('pg_recovery:anonymous:p1')).toBeNull()
+    } finally {
+      auth.user = { id: 'student', role: 'student', status: 'active' }
+      wrapper.unmount()
+    }
+  })
+
+  it.each([
+    ['阶段已归档', undefined, false],
+    ['服务器版本已变化', 'project_revision_conflict', true],
+  ])('only shows the revision conflict recovery for a revision conflict: %s', async (message, code, conflict) => {
+    api.updateProjectSection.mockRejectedValue(Object.assign(new Error(message), { status: 409, code }))
+    const wrapper = open(); await flushPromises(); await selectChapter(wrapper)
+    await wrapper.get('.heading-input').setValue('未保存标题')
+    await selectFile(wrapper)
+    expect(wrapper.text()).toContain(message)
+    expect(wrapper.find('.conflict-banner').exists()).toBe(conflict)
     expect(JSON.parse(localStorage.getItem('pg_recovery:student:p1')).snapshot.sections[0].title).toBe('未保存标题')
     wrapper.unmount()
   })

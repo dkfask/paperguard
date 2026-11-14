@@ -351,6 +351,7 @@ export async function updateProjectSection(projectId, sectionKey, data, baseRevi
     const err = new Error(detail.detail?.message || detail.detail || '保存章节失败')
     err.status = resp.status
     err.revision = detail.detail?.revision
+    err.code = detail.detail?.code
     throw err
   }
   return resp.json()
@@ -369,6 +370,7 @@ export async function updateProjectMeta(projectId, meta, baseRevision = null) {
     const err = new Error(detail.detail?.message || detail.detail || '保存封面信息失败')
     err.status = resp.status
     err.revision = detail.detail?.revision
+    err.code = detail.detail?.code
     throw err
   }
   return resp.json()
@@ -385,6 +387,7 @@ export async function restoreProjectSnapshot(projectId, snapshot, baseRevision) 
     const err = new Error(detailMessage(detail, '恢复本地草稿失败'))
     err.status = resp.status
     err.revision = detail.detail?.revision
+    err.code = detail.detail?.code
     throw err
   }
   return resp.json()

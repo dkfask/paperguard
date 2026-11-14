@@ -324,7 +324,8 @@ def test_output_check_reference_numbering_ignores_non_reference_blocks():
             ParagraphBlock(id="second", reference=ReferenceEntry(kind="journal", authors="李四", title="乙")),
         ],
     )
-    actual = [text for text, section_key, _ in _expected_text(type("Project", (), {"sections": [section]})()) if section_key == "references" and text.startswith("[")]
+    from app.services.projects import default_template
+    actual = [text for text, section_key, _ in _expected_text(type("Project", (), {"sections": [section]})(), default_template()) if section_key == "references" and text.startswith("[")]
     assert actual == ["[1] 张三. 甲[J]", "[2] 李四. 乙[J]"]
 
 

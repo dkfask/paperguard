@@ -121,13 +121,187 @@ def _full_default_gb7713_sample(tmp_path):
     return output.read_bytes(), project, template
 
 
+@pytest.mark.parametrize('kind', ['vml', 'alternate_content', 'floating_drawing'])
+def test_generated_text_paragraph_rejects_unexpected_vml_object(tmp_path, kind):
+    data, project, template = _sample(tmp_path)
+    assert inspect_docx_output(data, project, template)['status'] == 'pass'
+    document = Document(BytesIO(data))
+    paragraph = next(p for p in document.paragraphs if p.text == '第一段包含多个 run')
+    run = etree.SubElement(paragraph._p, qn('w:r'))
+    if kind == 'vml':
+        pict = etree.SubElement(run, qn('w:pict'))
+        etree.SubElement(pict, '{urn:schemas-microsoft-com:vml}shape', id='unexpected-shape')
+    elif kind == 'alternate_content':
+        etree.SubElement(run, '{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent')
+    else:
+        drawing = etree.SubElement(run, qn('w:drawing'))
+        etree.SubElement(drawing, '{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}anchor')
+    output = BytesIO()
+    document.save(output)
+    report = inspect_docx_output(output.getvalue(), project, template)
+    assert report['status'] == 'fail'
+    assert any(item['rule'] == 'structure.unmodeled_objects' and item['status'] == 'fail'
+               for item in report['checks'])
+
+
+@pytest.mark.parametrize('story_name', ['header', 'footer'])
+def test_generated_header_footer_rejects_unexpected_vml_object(tmp_path, story_name):
+    data, project, template = _sample(tmp_path)
+    document = Document(BytesIO(data))
+    story = getattr(document.sections[0], story_name)
+    run = etree.SubElement(story.paragraphs[0]._p, qn('w:r'))
+    pict = etree.SubElement(run, qn('w:pict'))
+    etree.SubElement(pict, '{urn:schemas-microsoft-com:vml}shape', id='unexpected-shape')
+    output = BytesIO()
+    document.save(output)
+    report = inspect_docx_output(output.getvalue(), project, template)
+    assert report['status'] == 'fail'
+    assert any(item['rule'] == 'structure.unmodeled_objects' and item['object'].endswith(story_name)
+               and item['status'] == 'fail' for item in report['checks'])
+
+
+@pytest.mark.parametrize('inject_vml', [False, True])
+def test_previous_generated_candidate_is_rechecked_for_vml(tmp_path, monkeypatch, inject_vml):
+    import hashlib
+    from app.api import workflow
+    from app.services.project_versions import project_attachment_refs, project_content_hash
+
+    data, project, template = _sample(tmp_path)
+    project.template_snapshot = template.model_dump(mode='json')
+    if inject_vml:
+        document = Document(BytesIO(data))
+        paragraph = next(p for p in document.paragraphs if p.text == '第一段包含多个 run')
+        run = etree.SubElement(paragraph._p, qn('w:r'))
+        pict = etree.SubElement(run, qn('w:pict'))
+        etree.SubElement(pict, '{urn:schemas-microsoft-com:vml}shape', id='unexpected-shape')
+        output = BytesIO()
+        document.save(output)
+        data = output.getvalue()
+    current = inspect_docx_output(data, project, template)
+    old_report = copy.deepcopy(current)
+    old_report['checks'] = [item for item in old_report['checks'] if item['rule'] != 'structure.unmodeled_objects']
+    assert all(item['status'] == 'pass' for item in old_report['checks'])
+    old_report.update(inspector_version='docx-output-check/8', status='pass',
+                      check_count=len(old_report['checks']), passed_count=len(old_report['checks']))
+    assert verify_report_binding(old_report, data, allow_previous_inspector=True)
+    artifact = tmp_path / 'historical-candidate.docx'
+    artifact.write_bytes(data)
+    monkeypatch.setattr(workflow, '_candidate_artifact_path', lambda _: artifact)
+    version = {'id': 'version-test', 'project_id': project.id, 'content_hash': project_content_hash(project),
+               'content_snapshot': project.model_dump(mode='json'), 'attachment_refs': project_attachment_refs(project)}
+    candidate = {'id': 'candidate-test', 'project_id': project.id, 'project_version_id': version['id'],
+                 'content_hash': version['content_hash'],
+                 'artifact': {'docx_sha256': hashlib.sha256(data).hexdigest(), 'output_check': old_report}}
+    if inject_vml:
+        with pytest.raises(DocxOutputCheckError):
+            workflow._verified_candidate_artifact(None, candidate, version)
+    else:
+        checked, fresh = workflow._verified_candidate_artifact(None, candidate, version)
+        assert checked == data and fresh['inspector_version'] == 'docx-output-check/9'
+
+
+def test_generated_table_caption_one_character_gap_is_checked(tmp_path):
+    _, project, template = _full_default_gb7713_sample(tmp_path)
+    from app.services.policy_resolver import apply_requirement_format_overrides
+    template = apply_requirement_format_overrides(template, {'format_overrides': {
+        'table_caption': {'number_title_gap': 'one_character'},
+    }})
+    chapter = next(section for section in project.sections if section.key == 'ch1')
+    chapter.paragraphs.append(ParagraphBlock(
+        id='one-character-table', type=BlockType.TABLE,
+        table=TableBlock(rows=1, cols=1, cells=[['内容']], caption='表格标题'),
+    ))
+    output = tmp_path / 'table-gap.docx'
+    export_project_to_docx(project, template, str(output))
+    doc = Document(output)
+    caption = next(p for p in doc.paragraphs if p.text.startswith('表 1.1'))
+    assert caption.text == '表 1.1\u3000表格标题'
+    assert inspect_docx_output(output.read_bytes(), project, template)['status'] == 'pass'
+    next(run for run in caption.runs if run.text == '\u3000').text = ' '
+    doc.save(output)
+    assert inspect_docx_output(output.read_bytes(), project, template)['status'] == 'fail'
+
+
+@pytest.mark.parametrize('damage', ['scaled', 'tracking', 'missing', 'duplicate'])
+def test_generated_table_caption_rejects_invalid_gap_geometry(tmp_path, damage):
+    _, project, template = _full_default_gb7713_sample(tmp_path)
+    from app.services.policy_resolver import apply_requirement_format_overrides
+    template = apply_requirement_format_overrides(template, {'format_overrides': {
+        'table_caption': {'number_title_gap': 'one_character'},
+    }})
+    chapter = next(section for section in project.sections if section.key == 'ch1')
+    chapter.paragraphs.append(ParagraphBlock(id='gap-table', type=BlockType.TABLE,
+        table=TableBlock(rows=1, cols=1, cells=[['内容']], caption='标题')))
+    output = tmp_path / 'invalid-gap.docx'
+    export_project_to_docx(project, template, str(output))
+    doc = Document(output)
+    gap = next(run for paragraph in doc.paragraphs for run in paragraph.runs if run.text == '\u3000')
+    rpr = gap._r.rPr
+    if damage == 'scaled':
+        rpr.find(qn('w:w')).set(qn('w:val'), '50')
+    elif damage == 'tracking':
+        rpr.find(qn('w:spacing')).set(qn('w:val'), '20')
+    elif damage == 'missing':
+        rpr.remove(rpr.find(qn('w:w')))
+    else:
+        etree.SubElement(rpr, qn('w:w')).set(qn('w:val'), '100')
+    doc.save(output)
+    report = inspect_docx_output(output.read_bytes(), project, template)
+    assert any(item['rule'] == 'format.caption_gap_width' and item['status'] == 'fail'
+               for item in report['checks'])
+
+
+def test_explicit_table_caption_gap_is_normalized_without_losing_emphasis(tmp_path):
+    _, project, template = _full_default_gb7713_sample(tmp_path)
+    from app.services.policy_resolver import apply_requirement_format_overrides
+    template = apply_requirement_format_overrides(template, {'format_overrides': {
+        'table_caption': {'number_title_gap': 'one_character'},
+    }})
+    chapter = next(section for section in project.sections if section.key == 'ch1')
+    chapter.paragraphs.extend([
+        ParagraphBlock(id='table-explicit', type=BlockType.TABLE,
+                       table=TableBlock(rows=1, cols=1, cells=[['内容']])),
+        ParagraphBlock(id='table-caption-explicit', text='表 1.1 重要标题', inline_runs=[
+            InlineTextRun(text='表 1.1 '), InlineTextRun(text='重要', bold=True), InlineTextRun(text='标题'),
+        ]),
+    ])
+    output = tmp_path / 'table-explicit-gap.docx'
+    export_project_to_docx(project, template, str(output))
+    doc = Document(output)
+    caption = next(p for p in doc.paragraphs if p.text.startswith('表 1.1'))
+    assert caption.text == '表 1.1\u3000重要标题'
+    assert any(run.text == '重要' and run.bold for run in caption.runs)
+    assert inspect_docx_output(output.read_bytes(), project, template)['status'] == 'pass'
+
+
+@pytest.mark.parametrize('runs', [[], [InlineTextRun(text='表 1.', bold=True),
+                                    InlineTextRun(text='1 '), InlineTextRun(text='标题', italic=True)]])
+def test_explicit_caption_gap_handles_plain_and_split_runs(tmp_path, runs):
+    _, project, template = _full_default_gb7713_sample(tmp_path)
+    from app.services.policy_resolver import apply_requirement_format_overrides
+    template = apply_requirement_format_overrides(template, {'format_overrides': {
+        'table_caption': {'number_title_gap': 'one_character'},
+    }})
+    chapter = next(section for section in project.sections if section.key == 'ch1')
+    chapter.paragraphs.append(ParagraphBlock(id='explicit-gap', text='表 1.1 标题', inline_runs=runs))
+    output = tmp_path / 'explicit-gap.docx'
+    export_project_to_docx(project, template, str(output))
+    caption = next(p for p in Document(output).paragraphs if p.text == '表 1.1\u3000标题')
+    assert any(run.text == '\u3000' for run in caption.runs)
+    if runs:
+        assert any(run.text == '表 1.' and run.bold for run in caption.runs)
+        assert any(run.text == '标题' and run.italic for run in caption.runs)
+    report = inspect_docx_output(output.read_bytes(), project, template)
+    assert report['status'] == 'pass', [item for item in report['checks'] if item['status'] != 'pass']
+
+
 def test_generated_docx_passes_and_report_binds_output_bytes(tmp_path):
     data, project, template = _sample(tmp_path)
 
     report = require_docx_output_pass(data, project, template)
 
     assert report["status"] == "pass"
-    assert report["inspector_version"] == "docx-output-check/7"
+    assert report["inspector_version"] == "docx-output-check/9"
     assert report["check_count"] > 0
     assert report["passed_count"] == report["check_count"]
     assert report["project_revision"] == 7
@@ -488,9 +662,17 @@ def test_report_identity_is_bound_to_the_frozen_project_and_template_snapshot(tm
 
 
 @pytest.mark.parametrize(("current_version", "previous_version", "master"), [
-    ("docx-output-check/7", "docx-output-check/5", False),
-    ("docx-output-check/10-master", "docx-output-check/6-master", True),
-    ("docx-output-check/10-master", "docx-output-check/9-master", True),
+    ("docx-output-check/9", "docx-output-check/5", False),
+    ("docx-output-check/9", "docx-output-check/7", False),
+    ("docx-output-check/9", "docx-output-check/8", False),
+    ("docx-output-check/16-master", "docx-output-check/6-master", True),
+    ("docx-output-check/16-master", "docx-output-check/9-master", True),
+    ("docx-output-check/16-master", "docx-output-check/10-master", True),
+    ("docx-output-check/16-master", "docx-output-check/11-master", True),
+    ("docx-output-check/16-master", "docx-output-check/12-master", True),
+    ("docx-output-check/16-master", "docx-output-check/13-master", True),
+    ("docx-output-check/16-master", "docx-output-check/14-master", True),
+    ("docx-output-check/16-master", "docx-output-check/15-master", True),
 ])
 def test_previous_inspector_needs_explicit_recheck_and_exact_identity(
         tmp_path, current_version, previous_version, master):
@@ -578,6 +760,24 @@ def test_second_run_font_mutation_is_detected(tmp_path):
         for item in report["checks"]
     )
     assert any(item["rule"] == "format.font_size" and item["status"] == "fail" and item["object"].endswith("run:1") for item in report["checks"])
+
+
+def test_matching_body_font_rule_is_checked_on_actual_docx(tmp_path):
+    from app.services.policy_resolver import apply_requirement_format_overrides
+
+    _, project, template = _sample(tmp_path)
+    template = apply_requirement_format_overrides(template, {"format_overrides": {"body": {"font_zh": "黑体"}}})
+    path = tmp_path / "body-font.docx"
+    export_project_to_docx(project, template, str(path))
+    assert inspect_docx_output(path.read_bytes(), project, template)["status"] == "pass"
+
+    doc = Document(path)
+    paragraph = next(p for p in doc.paragraphs if p.text == "第一段包含多个 run")
+    paragraph.runs[0]._r.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+    doc.save(path)
+    report = inspect_docx_output(path.read_bytes(), project, template)
+    assert report["status"] == "fail"
+    assert any(item["rule"] == "format.font_east_asia" and item["status"] == "fail" for item in report["checks"])
 
 
 def test_paragraph_and_character_style_inheritance_is_resolved(tmp_path):

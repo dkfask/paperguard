@@ -61,7 +61,7 @@ from app.services.access_service import visible_organization_ids
 from app.services.document_access import can_access_template
 from app.services.audit_service import list_audit_events
 from app.services.projects import create_project_from_template
-from app.services.project_check import check_project
+from app.services.project_check import check_project, hard_requirement_checks
 from app.services.project_validation import validate_heading_hierarchy, validate_project_completeness
 from app.services.project_versions import project_attachment_refs, project_content_hash, project_snapshot, resolve_project_attachment
 from app.services.references import ReferenceNumberError, merge_reference_number_owners, reconcile_reference_numbers
@@ -169,6 +169,8 @@ def _verified_candidate_artifact(store: Store, candidate: dict, version: dict) -
             or project_attachment_refs(project) != version.get("attachment_refs")):
         raise ValueError("submission snapshot or attachments changed")
     template = PaperTemplate.model_validate(project.template_snapshot or project.template_source_snapshot)
+    if any(hard_requirement_checks(check_project(project, template, pack=None, store=None))):
+        raise ValueError("frozen submission has failed or unverified hard requirements")
     source_path = resolve_template_source(template.source_docx) if template.source_docx else None
     source = source_template_bytes(source_path)
     if template.source_docx and source is None:
@@ -951,7 +953,14 @@ def _latest_review(store: Store, submission: dict) -> dict | None:
     return _public_review(reviews[0])
 
 
-def _archive_view(archive: dict) -> dict:
+def _snapshot_hard_requirement_checks(version: dict) -> list[str]:
+    project = WritingProject.model_validate(version["content_snapshot"])
+    template = PaperTemplate.model_validate(project.template_snapshot or project.template_source_snapshot)
+    failed, unchecked = hard_requirement_checks(check_project(project, template, pack=None, store=None))
+    return failed + unchecked
+
+
+def _archive_view(archive: dict, store: Store) -> dict:
     """Return the public archive contract without exposing server filesystem paths."""
     result = {key: value for key, value in archive.items() if key != "file_path"}
     result.setdefault("job_id", archive.get("id", ""))
@@ -959,16 +968,38 @@ def _archive_view(archive: dict) -> dict:
         report = (archive.get("manifest") or {}).get("output_check")
         result["manual_review"] = review_view(report, None)
     if archive.get("status") == "succeeded":
-        # Office/Word review is a visible follow-up item. It does not replace
-        # the automatic output checks and must not hide a successfully verified
-        # archive from the student or teacher.
-        result["download_url"] = f"/api/archives/{archive['id']}/download"
+        try:
+            submission = store.get_workflow_record("submission", archive["submission_id"])
+            version = store.get_workflow_record("project_version", submission["project_version_id"])
+            blocked = bool(_snapshot_hard_requirement_checks(version))
+        except Exception as exc:
+            LOGGER.warning("archive requirement recheck unavailable archive_id=%s error_type=%s",
+                           archive.get("id", ""), type(exc).__name__)
+            blocked = True
+        if blocked:
+            result["requirement_recheck"] = "unverifiable"
+        else:
+            result["download_url"] = f"/api/archives/{archive['id']}/download"
     return result
 
 
-def _candidate_view(candidate: dict) -> dict:
+def _candidate_view(candidate: dict, store: Store) -> dict:
     """Expose Office review as a todo while preserving the automatic gate result."""
     result = dict(candidate)
+    if candidate.get("status") == "ready":
+        try:
+            version = store.get_workflow_record("project_version", candidate["project_version_id"])
+            checks = _snapshot_hard_requirement_checks(version)
+        except Exception as exc:
+            LOGGER.warning("candidate requirement recheck unavailable candidate_id=%s error_type=%s",
+                           candidate.get("id", ""), type(exc).__name__)
+            checks = ["当前规范检查暂不可用，请联系系统团队处理。"]
+        if checks:
+            result["status"] = "blocked"
+            result["gates"] = [*result.get("gates", []), {
+                "key": "automatic_unverified", "label": "必需规则未通过当前检查",
+                "passed": False, "blocking": True, "detail": checks,
+            }]
     report = (candidate.get("artifact") or {}).get("output_check")
     if isinstance(report, dict):
         result["manual_review"] = review_view(report, None)
@@ -2027,7 +2058,7 @@ def create_candidate(req: CandidateCreate, store: Store = Depends(get_store), us
         if candidate.get("material_snapshot"):
             shutil.rmtree(_candidate_material_dir(candidate["id"]).parent, ignore_errors=True)
         raise
-    return _candidate_view(candidate)
+    return _candidate_view(candidate, store)
 
 
 @router.get("/submission-candidates/{candidate_id}", dependencies=[Depends(require_m2_workflow)])
@@ -2036,7 +2067,7 @@ def get_candidate(candidate_id: str, store: Store = Depends(get_store), user: di
     participant, _, _, _ = _participant_access(store, user, candidate["participant_id"])
     if user["role"] == "student" and participant["student_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="无权访问此提交候选版本")
-    return _candidate_view(candidate)
+    return _candidate_view(candidate, store)
 
 
 @router.post("/submissions", dependencies=[Depends(require_m2_workflow)])
@@ -2140,7 +2171,7 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
         _notify(store, conn, teacher_id, "submission.created", "submission", submission["id"], "有新的论文提交待审核")
         _audit(store, conn, actor_id=user["id"], action="submission.confirm", resource_type="submission", resource_id=submission["id"], organization_id=cohort["organization_id"])
         response = {"submission": submission, "participant": current_participant,
-                    "candidate": _candidate_view(current_candidate)}
+                    "candidate": _candidate_view(current_candidate, store)}
         store.save_workflow_idempotency_conn(conn, user_id=user["id"], action="submission.confirm", idem_key=req.idempotency_key, request_hash=request_hash, response=response)
         if deadline and datetime.now(timezone.utc) > deadline:
             raise _conflict("DEADLINE_PASSED", "已超过服务器确认的有效截止时间")
@@ -2463,7 +2494,7 @@ def decide_submission(submission_id: str, req: ReviewDecision, store: Store = De
         cohort = _must(store, "cohort", participant["cohort_id"], "批次")
         _audit(store, conn, actor_id=user["id"], action=f"submission.{req.decision}", resource_type="submission", resource_id=submission_id, organization_id=cohort["organization_id"], reason=req.reason)
     return {"review": review, "submission": submission, "participant": participant,
-            "archive": _archive_view(archive) if archive else None}
+            "archive": _archive_view(archive, store) if archive else None}
 
 
 @router.post("/submissions/{submission_id}/comments", status_code=201, dependencies=[Depends(require_m2_workflow)])
@@ -2624,7 +2655,7 @@ def create_archive(req: ArchiveCreate,
         if current.get("archive_id") != archive["id"]:
             current["archive_id"] = archive["id"]
             _record(store, "participant", current, expected_revision=current.get("revision", 0), conn=conn)
-    return _archive_view(archive)
+    return _archive_view(archive, store)
 
 
 def recover_pending_archives(store: Store) -> None:
@@ -2981,7 +3012,7 @@ def list_archives(store: Store = Depends(get_store), user: dict = Depends(curren
         if not participant:
             continue
         if _participant_visible(store, user, participant):
-            result.append(_archive_view(archive))
+            result.append(_archive_view(archive, store))
     return result
 
 
@@ -2991,7 +3022,7 @@ def get_archive(archive_id: str, store: Store = Depends(get_store), user: dict =
     participant = _must(store, "participant", archive["participant_id"], "阶段任务")
     if not _participant_visible(store, user, participant):
         raise HTTPException(status_code=404, detail="归档不存在或无权访问")
-    return _archive_view(archive)
+    return _archive_view(archive, store)
 
 
 @router.post("/archives/{archive_id}/retry", dependencies=[Depends(require_m2_workflow)])
@@ -3024,7 +3055,7 @@ def retry_archive(archive_id: str, req: RetryRequest, store: Store = Depends(get
                 raise _conflict("ARCHIVE_JOB_NOT_RETRYABLE", "归档任务正在处理或已结束，请刷新后重试")
         _audit(store, conn, actor_id=user["id"], action="archive.retry", resource_type="archive",
                resource_id=archive_id, organization_id=cohort["organization_id"], reason=req.reason)
-    return _archive_view(archive)
+    return _archive_view(archive, store)
 
 
 def _verified_archive_output(store: Store, archive_id: str, archive: dict) -> tuple[bytes, bytes, dict]:
@@ -3080,6 +3111,8 @@ def _verified_archive_output(store: Store, archive_id: str, archive: dict) -> tu
     if validate_heading_hierarchy(project.sections):
         raise ValueError("frozen project has invalid heading hierarchy")
     template = PaperTemplate.model_validate(project.template_snapshot or project.template_source_snapshot)
+    if any(hard_requirement_checks(check_project(project, template, pack=None, store=None))):
+        raise ValueError("frozen archive has failed or unverified hard requirements")
     source_path = resolve_template_source(template.source_docx) if template.source_docx else None
     source = source_template_bytes(source_path)
     source_hash = hashlib.sha256(source).hexdigest() if source is not None else ""
@@ -3176,12 +3209,20 @@ def get_job(job_id: str, store: Store = Depends(get_store), user: dict = Depends
     if job.get("resource_type") == "archive":
         archive = store.get_workflow_record("archive", job.get("resource_id", ""))
         if archive:
-            result["archive"] = _archive_view(archive)
+            result["archive"] = _archive_view(archive, store)
     elif job.get("resource_type") == "project_export":
         record = store.get_workflow_record("project_export", job.get("resource_id", ""))
         if record:
-            from app.services.export_jobs import export_job_view
-            result["export"] = export_job_view(record)
+            from app.api.projects import _current_export_requirement_checks, _project_template
+            from app.services.export_jobs import export_identity, export_job_is_current, export_job_view
+            project = store.get_project(record["project_id"])
+            if project is None:
+                raise HTTPException(status_code=404, detail="任务不存在或无权访问")
+            identity = export_identity(project)
+            checks = (_current_export_requirement_checks(project, _project_template(project, store))
+                      if record.get("status") == "succeeded" and export_job_is_current(record, identity) else [])
+            result["export"] = export_job_view(record, current_identity=identity, check_current=True,
+                                               current_requirement_checks=checks)
     return result
 
 

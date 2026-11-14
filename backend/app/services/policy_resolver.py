@@ -151,16 +151,24 @@ def _severity_rank(value: str) -> int:
 
 def _merge_items(items: list[dict]) -> tuple[list[dict], list[dict]]:
     """同一目标/检查器去重，取更严格阈值并保留冲突来源。"""
-    merged: dict[str, dict] = {}
+    merged: dict[tuple[str, int | None], dict] = {}
     conflicts: list[dict] = []
-    for item in items:
+    for index, item in enumerate(items):
         key = _item_key(item)
-        current = merged.get(key)
+        is_format = bool((item.get("params") or {}).get("format_override"))
+        # A rule ID is only unique within one policy. Formatting and manual
+        # rules cannot be merged by an ID shared across different policies.
+        separate = (is_format or item.get("type", "auto") != "auto" or not item.get("checker")
+                    or is_format_requirement(item.get("description")))
+        merge_key = (key, index if separate else None)
+        current = merged.get(merge_key)
         incoming_detail = dict(item.get("source_detail") or {})
         if current is None:
             value = dict(item)
+            if isinstance(item.get("params"), dict):
+                value["params"] = dict(item["params"])
             value["sources"] = [incoming_detail]
-            merged[key] = value
+            merged[merge_key] = value
             continue
 
         current["sources"].append(incoming_detail)
@@ -391,6 +399,8 @@ def apply_requirement_format_overrides(
                 profile["object_properties"][profile_key] = _merge_profile_style(
                     dict(profile["object_properties"].get(profile_key) or {}), overrides[style_key],
                 )
+                if style_key in {"figure_caption", "table_caption"} and "number_title_gap" in overrides[style_key]:
+                    profile.setdefault("caption_number_title_gap", {})[style_key] = overrides[style_key]["number_title_gap"]
         profile["policy_layout_overrides"] = {**profile.get("policy_layout_overrides", {}), **layout_overrides}
         with zipfile.ZipFile(io.BytesIO(commentless_source(source_bytes))) as package:
             profile["protected_document_sha256"] = freeze_protected_structure(load_part(package, "word/document.xml"), profile)

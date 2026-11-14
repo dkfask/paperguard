@@ -320,6 +320,24 @@ def test_heading_page_check_uses_table_caption_or_next_heading():
     assert _heading_page_relation(heading, section, None, receipt)[0] is None
 
 
+def test_empty_heading_does_not_bind_to_the_next_chapter():
+    from app.services.master_docx_check import _heading_page_relation
+
+    heading = {"bookmark_name": "PGHchapter", "kind": "heading1"}
+    section = ProjectSection(key="ch1", type="heading1", title="第一章", paragraphs=[])
+    receipt = {"server_layout": {"extra_bookmarks": [
+        {"bookmark": "PGHchapter", "physical_page": 4},
+        {"bookmark": "PGHnext", "physical_page": 5},
+    ]}}
+
+    # A new chapter is not content belonging to the preceding empty chapter.
+    next_chapter = {"bookmark_name": "PGHnext", "kind": "heading1"}
+    assert _heading_page_relation(heading, section, next_chapter, receipt)[0] is None
+    # A child heading still belongs to the parent and must follow it on-page.
+    next_child = {"bookmark_name": "PGHnext", "kind": "heading2"}
+    assert _heading_page_relation(heading, section, next_child, receipt)[0] is False
+
+
 @pytest.fixture
 def toc_package(tmp_path):
     doc=Document()

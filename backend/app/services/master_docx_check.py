@@ -17,7 +17,7 @@ from app.core.extract.xml_utils import NS, load_part, qn
 from app.models.project import BlockType
 from app.services.document_assets import resolve_document_image_path
 from app.services.digit_font_rules import BODY_KINDS, HEADING_KINDS, numbering_font_error
-from app.services.master_layout_anchors import block_bookmark_name
+from app.services.master_layout_anchors import block_bookmark_name, leading_blank_heading_blocks
 from app.services.references import (ReferenceInlineMappingError, reference_block_text, reference_inline_runs,
                                      reference_number_for, uses_sequential_reference_numbering)
 from app.services.source_template_profile import verify_profile, digest, commentless_source, package_manifest
@@ -25,6 +25,11 @@ from app.services.source_template_profile import verify_profile, digest, comment
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 PIC = "http://schemas.openxmlformats.org/drawingml/2006/picture"
+_UNMODELED_OBJECTS = (
+    ".//w:pict | .//w:object | .//w:control | "
+    ".//*[namespace-uri()='urn:schemas-microsoft-com:vml'] | "
+    ".//*[namespace-uri()='http://schemas.openxmlformats.org/markup-compatibility/2006' and local-name()='AlternateContent']"
+)
 
 _MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -751,7 +756,11 @@ def _heading_page_relation(heading, section, next_heading, layout_receipt):
         following = block_bookmark_name(block.id, role)
         break
     if following is None and next_heading:
-        following = next_heading.get("bookmark_name")
+        levels = {"heading1": 1, "heading2": 2, "heading3": 3}
+        current_level = levels.get(heading.get("kind"))
+        next_level = levels.get(next_heading.get("kind"))
+        if current_level is None or next_level is None or next_level > current_level:
+            following = next_heading.get("bookmark_name")
     if not following:
         return None, {"heading": positions.get(heading.get("bookmark_name")), "following": None}
     pages = {"heading": positions.get(heading.get("bookmark_name")),
@@ -980,11 +989,27 @@ def _paragraph_property_matches(key, wanted, actual, properties, expected, layer
                         int(raw)
                     except ValueError:
                         return False
+        if (key == "paragraph.indent.hanging" and isinstance(wanted, dict)
+                and wanted.get("value", 0) != 0):
+            direct = layers[-1].find(qn("w:ind")) if layers[-1] is not None else None
+            if direct is not None and any(direct.get(qn("w:" + name)) is not None
+                                          for name in ("firstLine", "firstLineChars")):
+                return False
         if key == "paragraph.indent.first_line":
             hanging = properties.get("paragraph.indent.hanging")
             if hanging is not None and hanging != expected.get("paragraph.indent.hanging"):
                 if not isinstance(hanging, dict) or hanging.get("value") != 0:
                     return False
+            expected_hanging = expected.get("paragraph.indent.hanging")
+            if (isinstance(expected_hanging, dict) and expected_hanging.get("value", 0) != 0
+                    and isinstance(wanted, dict) and wanted.get("value") == 0):
+                # A directly applied hanging indent replaces the first-line
+                # indentation; even zero-valued direct firstLine attributes
+                # can suppress it in the layout engine.
+                direct = layers[-1].find(qn("w:ind")) if layers[-1] is not None else None
+                return bool(direct is not None and hanging == expected_hanging
+                            and all(direct.get(qn("w:" + name)) is None
+                                    for name in ("firstLine", "firstLineChars")))
             # Resolve both physical and character values independently.  A
             # zero character value alone does not cancel inherited firstLine
             # in Word, even though the normalized resolver prefers characters.
@@ -1017,8 +1042,10 @@ def _generated_indent_baselines(source_styles, output_styles, root, profile, *, 
     expected = {}
     for heading in profile.get("headings", []):
         properties = heading.get("properties", {})
-        indent = properties.get("paragraph.indent.first_line", {})
-        if heading.get("inline") or indent.get("unit") != "character" or not indent.get("value"):
+        indents = (properties.get("paragraph.indent.first_line", {}),
+                   properties.get("paragraph.indent.hanging", {}))
+        if heading.get("inline") or not any(indent.get("unit") == "character" and indent.get("value")
+                                            for indent in indents):
             continue
         size = properties.get("font.size", {})
         value = size.get("value") if size.get("unit") == "pt" else None
@@ -1741,6 +1768,10 @@ def inspect_master_output(data, project, template, source, report):
                 content = get("pg-field:"+field["key"])
                 check("field_value",content is not None and paragraph_text(content)==project.meta.get(field["key"],""),field["key"])
                 if content is not None:
+                    unexpected = content.xpath(_UNMODELED_OBJECTS + " | .//w:drawing", namespaces=NS)
+                    if unexpected:
+                        check("unmodeled_field_object", False, field["key"],
+                              expected="text-only cover field", actual=len(unexpected))
                     check("content_visibility", _generated_content_visible(content, styles_root), field["key"],
                           expected="field text visible in Word and web layout")
                     check("content_direct_shading", _generated_content_has_no_direct_shading(content), field["key"],
@@ -1753,7 +1784,8 @@ def inspect_master_output(data, project, template, source, report):
                               expected="cover field and its label visible in Word and web layout")
                         paragraph_rules = next((item["properties"] for item in profile.get("cover_table_overrides", [])
                                                 if item["path"] == field["path"]), {})
-                        expected = {k: v for k, v in field["properties"].items() if k.startswith("font.")}
+                        expected = {k: v for k, v in field["properties"].items()
+                                    if k.startswith(("font.", "paragraph."))}
                         expected.update({k: v for k, v in paragraph_rules.items() if k.startswith("paragraph.")})
                         style(p, expected, field["key"], color_scope=content)
             expected_regions = [h["key"] for h in profile["headings"] if h["kind"]!="toc"]
@@ -1786,9 +1818,10 @@ def inspect_master_output(data, project, template, source, report):
                 blocks=sections.get(heading["key"])
                 if region is None or blocks is None:
                     check("region",False,heading["key"]); continue
+                following_heading = (measured_headings[heading_index + 1]
+                                     if heading_index + 1 < len(measured_headings) else None)
+                blank_keep_blocks = leading_blank_heading_blocks(heading, blocks, following_heading)
                 if toc_active and heading["kind"] in HEADING_KINDS:
-                    following_heading = (measured_headings[heading_index + 1]
-                                         if heading_index + 1 < len(measured_headings) else None)
                     together, pages = _heading_page_relation(heading, blocks, following_heading, layout_receipt)
                     if together is not None:
                         check("heading_pagination", together, heading["key"],
@@ -1805,6 +1838,13 @@ def inspect_master_output(data, project, template, source, report):
                     content=get("pg-block:"+block.id)
                     if content is None:
                         check("block",False,block.id); continue
+                    unexpected = content.xpath(_UNMODELED_OBJECTS, namespaces=NS)
+                    drawings = content.xpath(".//w:drawing", namespaces=NS)
+                    expected_drawings = 1 if block.type == BlockType.IMAGE and block.image else 0
+                    if unexpected or len(drawings) != expected_drawings:
+                        check("unmodeled_block_object", False, block.id,
+                              expected={"unmodeled": 0, "drawings": expected_drawings},
+                              actual={"unmodeled": len(unexpected), "drawings": len(drawings)})
                     check("content_visibility", _generated_content_visible(content, styles_root), block.id,
                           expected="student text and images visible in Word and web layout")
                     check("content_direct_shading", _generated_content_has_no_direct_shading(content), block.id,
@@ -1812,6 +1852,9 @@ def inspect_master_output(data, project, template, source, report):
                     nodes=content_nodes(content)
                     props=heading["properties"]
                     if block.type==BlockType.PARAGRAPH:
+                        text_only = not content.xpath(
+                            _UNMODELED_OBJECTS + " | .//w:drawing | .//w:instrText | .//w:fldSimple | .//w:fldChar",
+                            namespaces=NS)
                         is_reference=heading["kind"]=="references" and bool(reference_block_text(block).strip())
                         if is_reference: reference_number+=1
                         text=reference_block_text(block,reference_number_for(block,reference_number) if is_reference else None)
@@ -1829,7 +1872,7 @@ def inspect_master_output(data, project, template, source, report):
                         if heading.get("inline"):
                             nodes = [node for node in nodes if node.tag not in {qn("w:bookmarkStart"), qn("w:bookmarkEnd")}]
                             actual_p=next((n for n in content.iterancestors() if n.tag==qn("w:p")),None)
-                            check("inline_slot",len(blocks.paragraphs)==1 and not block.inline_runs and '\n' not in text and bool(nodes) and all(n.tag==qn("w:r") for n in nodes) and paragraph_text(content)==text,block.id)
+                            check("inline_slot",len(blocks.paragraphs)==1 and not block.inline_runs and '\n' not in text and bool(nodes) and all(n.tag==qn("w:r") for n in nodes) and paragraph_text(content)==text and text_only,block.id)
                             if actual_p is not None:
                                 label_override = (profile.get("inline_label_overrides") or {}).get(heading["key"])
                                 if label_override:
@@ -1857,11 +1900,12 @@ def inspect_master_output(data, project, template, source, report):
                         check("text",len(nodes)==1 and nodes[0].tag==qn("w:p") and paragraph_text(nodes[0])==text,block.id)
                         if len(nodes)==1 and nodes[0].tag==qn("w:p"):
                             apply_digits = bool(digit_rule and heading["kind"] in BODY_KINDS)
-                            style(nodes[0],props,block.id,content_decoration=True,digit_font=apply_digits)
+                            expected_props = {**props, "paragraph.keep_next": True} if block.id in blank_keep_blocks else props
+                            style(nodes[0],expected_props,block.id,content_decoration=True,digit_font=apply_digits)
                             if apply_digits:
                                 digit_style(nodes[0],block.id,digit_rule["font"])
                             content_style(nodes[0],props,block,text,inline_runs)
-                            check("text_only",not nodes[0].xpath(".//w:drawing | .//w:object | .//w:instrText | .//w:fldSimple | .//w:fldChar",namespaces=NS),block.id)
+                            check("text_only",text_only,block.id)
                     elif block.type==BlockType.IMAGE and block.image:
                         path=resolve_document_image_path(project.id,block.image.url)
                         embeds=content.findall(".//{"+A+"}blip")
@@ -1912,9 +1956,14 @@ def inspect_master_output(data, project, template, source, report):
                             check("figure_pagination", same_page, block.id,
                                   expected="image and caption on the same Word page", actual=pages)
                         caption=re.sub(r"^图\s*\d+(?:[.\-]\d+)*\s*","",block.image.caption).strip()
-                        check("figure_caption",len(nodes)==2 and paragraph_text(nodes[-1])==f"图 {chapter}.{figure} {caption}".rstrip(),block.id)
+                        gap = "\u3000" if profile.get("caption_number_title_gap", {}).get("figure_caption") == "one_character" else " "
+                        check("figure_caption",len(nodes)==2 and paragraph_text(nodes[-1])==f"图 {chapter}.{figure}{gap}{caption}".rstrip(),block.id)
+                        if len(nodes) == 2 and caption and gap == "\u3000":
+                            from app.core.export.caption_format import has_one_character_gap_width
+                            check("figure_caption_gap_width", has_one_character_gap_width(nodes[-1]), block.id,
+                                  expected="one unscaled full-width space with zero tracking")
                         if len(nodes)==2:
-                            style(nodes[-1],{**{k:v for k,v in profile["object_properties"]["figure_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_lines":True},block.id+":caption")
+                            style(nodes[-1],{**{k:v for k,v in profile["object_properties"]["figure_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":profile["object_properties"]["figure_caption"].get("paragraph.align", "center"),"paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_lines":True},block.id+":caption")
                     elif block.type==BlockType.TABLE and block.table:
                         tables=[n for n in nodes if n.tag==qn("w:tbl")]
                         actual=[[paragraph_text(c) for c in r.findall(qn("w:tc"))] for r in tables[0].findall(qn("w:tr"))] if len(tables)==1 else []
@@ -1962,7 +2011,12 @@ def inspect_master_output(data, project, template, source, report):
                             check("table_style_row_height", _table_style_row_heights_allow_growth(table, styles_root), block.id,
                                   expected="no fixed or invalid inherited table-style row height")
                         caption=re.sub(r"^表\s*\d+(?:[.\-]\d+)*\s*","",block.table.caption).strip()
-                        check("table_caption",len(nodes)==2 and paragraph_text(nodes[0])==f"表 {chapter}.{table_number} {caption}".rstrip() and nodes[-1].tag==qn("w:tbl"),block.id)
+                        gap = "\u3000" if profile.get("caption_number_title_gap", {}).get("table_caption") == "one_character" else " "
+                        check("table_caption",len(nodes)==2 and paragraph_text(nodes[0])==f"表 {chapter}.{table_number}{gap}{caption}".rstrip() and nodes[-1].tag==qn("w:tbl"),block.id)
+                        if len(nodes) == 2 and caption and gap == "\u3000":
+                            from app.core.export.caption_format import has_one_character_gap_width
+                            check("table_caption_gap_width", has_one_character_gap_width(nodes[0]), block.id,
+                                  expected="one unscaled full-width space with zero tracking")
                         if toc_active:
                             same_page, pages = _object_page_relation(block, layout_receipt)
                             check("table_caption_pagination", same_page, block.id,
@@ -1980,7 +2034,7 @@ def inspect_master_output(data, project, template, source, report):
                                       actual=reason, status="unverifiable")
                                 report.setdefault("layout_evidence_limitations", []).append(reason + ":" + block.id)
                         if len(nodes)==2:
-                            style(nodes[0],{**{k:v for k,v in profile["object_properties"]["table_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":"center","paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_next":True,"paragraph.keep_lines":True},block.id+":caption")
+                            style(nodes[0],{**{k:v for k,v in profile["object_properties"]["table_caption"].items() if k != "paragraph.indent.hanging"},"paragraph.align":profile["object_properties"]["table_caption"].get("paragraph.align", "center"),"paragraph.indent.first_line":{"value":0,"unit":"character"},"paragraph.indent.left":{"value":0,"unit":"pt"},"paragraph.indent.right":{"value":0,"unit":"pt"},"paragraph.keep_next":True,"paragraph.keep_lines":True},block.id+":caption")
                     elif block.type==BlockType.EQUATION and block.equation:
                         from app.domain.documents.schemas import ContentBlock
                         from app.services.docx_anchors import _safe_omml

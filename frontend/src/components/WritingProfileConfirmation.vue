@@ -87,8 +87,12 @@
           </label>
         </div>
         <p v-if="!contentSelectionMatchesPreview" role="status">{{ L('内容要求选择已变化，请重新预览后再发布。', 'Content-rule choices changed. Preview again before publishing.') }}</p>
-        <details v-if="plan.content_rule_review.manual_items?.length"><summary>{{ L('保留人工核查的原文要求', 'Instructions retained for manual review') }} ({{ plan.content_rule_review.manual_items.length }})</summary>
-          <ul><li v-for="item in plan.content_rule_review.manual_items" :key="item.rule_id"><strong>{{ item.region_title || L('未定位章节', 'Unmapped section') }}</strong> · {{ item.source_text }}</li></ul>
+        <details v-if="examplePlaceholders.length" data-test="template-example-placeholders"><summary>{{ L('拟移除的模板示例占位', 'Example placeholders proposed for removal') }} ({{ examplePlaceholders.length }})</summary>
+          <p>{{ L('以下仅为模板占位文字，确认发布时将按预览配置移除。', 'These are example placeholders proposed for removal when the configuration is published.') }}</p>
+          <ul><li v-for="item in examplePlaceholders" :key="item.rule_id"><strong>{{ item.region_title || L('未定位章节', 'Unmapped section') }}</strong> · {{ item.source_text }} · {{ item.source_path }}</li></ul>
+        </details>
+        <details v-if="manualSourceInstructions.length" data-test="manual-source-instructions"><summary>{{ L('保留人工核查的原文要求', 'Instructions retained for manual review') }} ({{ manualSourceInstructions.length }})</summary>
+          <ul><li v-for="item in manualSourceInstructions" :key="item.rule_id"><strong>{{ item.region_title || L('未定位章节', 'Unmapped section') }}</strong> · {{ item.source_text }} · {{ item.source_path }}</li></ul>
         </details>
       </details>
       <label class="ack"><input v-model="accepted" type="checkbox" />{{ L('已核对原文要求、差异项和上述执行格式；采用此配置并冻结章节结构。', 'I reviewed the source instructions, variations and execution styles and accept the frozen structure.') }}</label>
@@ -130,6 +134,13 @@ const coverOffsetsValid = computed(() => {
 })
 const conflicts = computed(() => (props.template.writing_specification?.rules || []).filter(r => r.confidence === 'conflict' && (r.property.startsWith('font.') || r.property.startsWith('paragraph.'))))
 const plan = computed(() => proposal.value?.template.source_execution)
+const examplePlaceholders = computed(() => (plan.value?.content_rule_review?.manual_items || []).filter(item =>
+  typeof item.source_text === 'string' && typeof item.source_path === 'string' && item.source_path &&
+  Array.isArray(plan.value?.removals) && plan.value.removals.includes(item.source_path) &&
+  /^(?:\(以下略\)|以下略\)|以下略)$/.test(item.source_text.normalize('NFKC').replace(/\s+/g, ''))
+))
+const manualSourceInstructions = computed(() => (plan.value?.content_rule_review?.manual_items || [])
+  .filter(item => !examplePlaceholders.value.includes(item)))
 function canonicalInlineLabels(labels) {
   return JSON.stringify(Object.fromEntries(Object.entries(labels || {}).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, { text: value.text, separator: value.separator, bold: value.bold ?? null }])))
 }

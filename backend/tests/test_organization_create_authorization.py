@@ -18,7 +18,7 @@ from app.main import app
 
 
 client = TestClient(app)
-PASSWORD = "OrgCreateFixture123"
+PASSWORD = f"Test-{uuid.uuid4().hex}-A1"
 
 
 def _account(store: Store, role: str, **fields) -> dict:

@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import uuid
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from docx import Document as DocxDocument
 from fastapi.testclient import TestClient
 
 from app.api import ai as ai_api
+from app.api import policies as policies_api
 from app.main import app
 from app.services.policy_import import normalize_ai_policy
 
@@ -118,6 +122,8 @@ def test_ai_import_creates_draft_and_keeps_source_document(monkeypatch):
     assert policy["items"][1]["type"] == "manual"
     assert policy["items"][1]["checker"] == ""
     assert policy["documents"][0]["filename"] == "school-guide.md"
+    saved_path = policies_api._policy_document_path(policy["id"], policy["documents"][0]["storage_key"])
+    assert saved_path.is_relative_to(Path(os.environ["PAPERGUARD_DATA_DIR"]).resolve().parent)
     assert body["analysis"]["auto_rule_count"] == 1
     assert "正文不少于 8000 字" in captured["prompt"]
 
@@ -184,6 +190,129 @@ def test_policy_import_preserves_optional_sequential_reference_check():
     policy, _ = normalize_ai_policy(json.dumps({"items": [item]}), "guide.md")
     assert policy["items"][0]["type"] == "auto"
     assert policy["items"][0]["params"] == item["params"]
+
+
+def test_policy_import_derives_body_font_from_explicit_source_not_model_guess():
+    policy, _ = normalize_ai_policy(
+        json.dumps({'items': [], 'format_overrides': {'body': {'font_zh': '宋体'}}}),
+        'guide.txt', '正文中文字体必须使用黑体。',
+    )
+    assert policy['format_overrides']['body']['font_zh'] == '黑体'
+    assert '正文中文字体必须使用黑体' in policy['markdown_content']
+
+
+def test_policy_import_does_not_choose_between_conflicting_body_fonts():
+    source = '正文中文字体必须使用黑体。正文中文字体必须使用宋体。'
+    policy, _ = normalize_ai_policy('{"items":[]}', 'guide.txt', source)
+    assert 'font_zh' not in policy['format_overrides'].get('body', {})
+
+
+def test_upload_import_saves_explicit_body_font_in_draft(monkeypatch):
+    _enable_ai(monkeypatch)
+    monkeypatch.setattr(ai_api, '_chat_completion', lambda *_args, **_kwargs: '{"items":[]}')
+    source = '正文中文字体必须使用黑体。'
+    response = client.post('/api/policies/import', headers=_admin_headers(),
+        files={'file': ('guide.txt', source, 'text/plain')})
+    assert response.status_code == 201, response.text
+    policy = response.json()['policy']
+    assert policy['format_overrides']['body']['font_zh'] == '黑体'
+    assert source in policy['markdown_content']
+    assert policy['documents'][0]['checksum'] == 'sha256:' + hashlib.sha256(source.encode()).hexdigest()
+
+
+def test_policy_import_preserves_format_rules_after_long_source_paragraph():
+    source = ("这是一条没有具体格式要求的说明。" * 60
+              + "图中标注符号文字字号不大于图题的字号，建议五号字体。")
+    policy, _ = normalize_ai_policy('{"items":[]}', "guide.pdf", source)
+    assert any("图中标注符号文字字号不大于图题的字号" in item["description"]
+               for item in policy["items"])
+    assert source in policy["markdown_content"]
+
+
+def test_policy_import_extracts_mandatory_image_font_limit_separately_from_suggestion():
+    source = ('图题用五号宋体，须全文统一。'
+              '图中标注符号文字字号不大于图题的字号，建议五号字\n体。'
+              '表中文字用五号宋体。')
+    policy, _ = normalize_ai_policy('{"items":[]}', "guide.pdf", source)
+    rules = [item for item in policy["items"]
+             if item["params"].get("image_typography_constraint") == "caption_font_size_upper_bound"]
+    assert len(rules) == 1
+    rule = rules[0]
+    assert rule["type"] == "manual"
+    assert rule["enforce"] == "hard" and rule["severity"] == "error"
+    assert "不大于图题的字号" in rule["description"]
+    assert "建议五号" not in rule["description"]
+    assert source in policy["markdown_content"]
+
+
+@pytest.mark.parametrize('source', [
+    '图中标注文字字号建议五号，图题采用五号宋体。',
+    '建议图中标注符号文字字号不大于图题的字号。',
+])
+def test_policy_import_does_not_treat_image_font_suggestion_as_hard_limit(source):
+    policy, _ = normalize_ai_policy('{"items":[]}', "guide.pdf", source)
+    assert not any(item["params"].get("image_typography_constraint") for item in policy["items"])
+
+
+def test_policy_import_keeps_a_rule_crossing_an_unpunctuated_split():
+    rule = "图中标注符号文字字号不大于图题的字号"
+    source = "说明" * 396 + rule + "，建议五号字体。"
+    policy, _ = normalize_ai_policy('{"items":[]}', "guide.pdf", source)
+    matches = [item for item in policy["items"] if rule in item["description"]
+               and item["id"].startswith("source-format-")]
+    assert len(matches) == 1
+    assert matches[0]["source"].startswith("guide.pdf")
+    assert all(len(item["description"]) <= len("原文格式要求：") + 800
+               for item in policy["items"])
+
+
+def test_ai_import_keeps_format_rule_late_in_a_word_paragraph(monkeypatch):
+    _enable_ai(monkeypatch)
+    monkeypatch.setattr(ai_api, "_chat_completion", lambda *_args, **_kwargs: '{"name":"规范","items":[]}')
+    rule = "图中标注符号文字字号不大于图题的字号"
+    document = DocxDocument()
+    document.add_paragraph("这是一条背景说明。" * 100 + rule + "，建议五号字体。")
+    stream = BytesIO()
+    document.save(stream)
+
+    response = client.post(
+        "/api/policies/import", headers=_admin_headers(),
+        files={"file": ("guide.docx", stream.getvalue(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+
+    assert response.status_code == 201, response.text
+    matches = [item for item in response.json()["policy"]["items"] if rule in item["description"]
+               and item["id"].startswith("source-format-")]
+    assert len(matches) == 1
+    assert matches[0]["source"].startswith("guide.docx")
+    limit = next(item for item in response.json()["policy"]["items"]
+                 if item["params"].get("image_typography_constraint") == "caption_font_size_upper_bound")
+    assert (limit["type"], limit["severity"], limit["enforce"]) == ("manual", "error", "hard")
+
+
+def test_ai_import_preserves_middle_of_long_source_without_sending_it_to_model(monkeypatch):
+    _enable_ai(monkeypatch)
+    prompts = []
+    def fake_completion(_cfg, messages, _temperature, **_kwargs):
+        prompts.append(messages[1]["content"])
+        return '{"name":"规范","items":[]}'
+    monkeypatch.setattr(ai_api, "_chat_completion", fake_completion)
+    rule = "图中标注符号文字字号不大于图题的字号"
+    source = "一般说明。" * 5000 + rule + "。" + "其他说明。" * 5000
+
+    response = client.post(
+        "/api/policies/import", headers=_admin_headers(),
+        files={"file": ("long-guide.md", source.encode(), "text/markdown")},
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["analysis"]["source_truncated"] is True
+    assert body["analysis"]["source_characters"] == len(source)
+    assert rule not in prompts[0]
+    assert rule in body["policy"]["markdown_content"]
+    assert any(rule in item["description"] for item in body["policy"]["items"])
 
 
 def test_ai_import_extracts_docx_text_before_calling_model(monkeypatch):

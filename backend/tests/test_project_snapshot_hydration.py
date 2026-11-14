@@ -7,6 +7,7 @@ from app.db import Store
 from app.models.project import ParagraphBlock, ProjectSection, WritingProject
 from app.services.projects import default_template
 from app.services.project_versions import project_content_hash
+from app.services.policy_resolver import content_hash
 
 
 def _setup(tmp_path):
@@ -71,6 +72,65 @@ def test_snapshot_hydration_preserves_check_metadata_and_changes_content_binding
     assert final.template_snapshot == saved.template_snapshot
     assert final.requirement_snapshot == saved.requirement_snapshot
     assert project_content_hash(final) == project_content_hash(saved)
+
+
+@pytest.mark.parametrize("concurrent_edit", [True, False])
+def test_requirement_upgrade_does_not_overwrite_concurrent_project_changes(monkeypatch, tmp_path, concurrent_edit):
+    store, project, template = _setup(tmp_path)
+    project.requirement_snapshot = {"content_hash": "old", "resolved_items": [], "policy_sets": []}
+    project.template_source_snapshot = template.model_dump(mode="json")
+    store.save_project(project)
+    new_snapshot = {"content_hash": "new", "resolved_items": [{"id": "new"}], "policy_sets": []}
+
+    calls = 0
+    def resolve(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            return new_snapshot
+        current = store.get_project(project.id)
+        if concurrent_edit:
+            current.sections[0].paragraphs[0].text = "另一窗口的新正文"
+            assert store.update_project_if_revision(current, current.revision)
+        else:
+            assert store.update_project_check_runs(project.id, ["new-check"], current.revision)
+        return new_snapshot
+
+    monkeypatch.setattr(api, "_project_template", lambda *_args: template)
+    monkeypatch.setattr(api, "_ensure_requirement_snapshot", lambda *_args: None)
+    monkeypatch.setattr(api, "_current_requirement_snapshot", resolve)
+    req = api.RequirementUpgradeRequest(confirm=True, expected_snapshot_hash="old",
+        expected_resolution_hash=content_hash({k: v for k, v in new_snapshot.items() if k != "content_hash"}))
+    actor = {"id": "admin", "role": "admin"}
+    if concurrent_edit:
+        with pytest.raises(HTTPException) as error:
+            api.upgrade_requirements(project.id, req, store, actor)
+        assert error.value.status_code == 409
+        assert store.get_project(project.id).sections[0].paragraphs[0].text == "另一窗口的新正文"
+        assert store.get_project(project.id).requirement_snapshot["content_hash"] == "old"
+    else:
+        result = api.upgrade_requirements(project.id, req, store, actor)
+        assert result["project"].check_run_ids == ["new-check"]
+        assert store.get_project(project.id).check_run_ids == ["new-check"]
+
+
+def test_requirement_upgrade_rechecks_target_inside_write_transaction(monkeypatch, tmp_path):
+    store, project, template = _setup(tmp_path)
+    project.requirement_snapshot = {"content_hash": "old", "resolved_items": [], "policy_sets": []}
+    store.save_project(project)
+    target = {"content_hash": "one", "resolved_items": [{"id": "first"}], "policy_sets": []}
+    changed_target = {"content_hash": "two", "resolved_items": [{"id": "second"}], "policy_sets": []}
+    targets = iter([target, changed_target])
+    monkeypatch.setattr(api, "_project_template", lambda *_args: template)
+    monkeypatch.setattr(api, "_ensure_requirement_snapshot", lambda *_args: None)
+    monkeypatch.setattr(api, "_current_requirement_snapshot", lambda *_args: next(targets))
+    req = api.RequirementUpgradeRequest(confirm=True, expected_snapshot_hash="old",
+        expected_resolution_hash=content_hash({k: v for k, v in target.items() if k != "content_hash"}))
+
+    with pytest.raises(HTTPException) as error:
+        api.upgrade_requirements(project.id, req, store, {"id": "admin", "role": "admin"})
+    assert error.value.status_code == 409
+    assert store.get_project(project.id).requirement_snapshot["content_hash"] == "old"
 
 
 def test_legacy_table_without_borders_retains_hash_after_model_hydration():

@@ -14,8 +14,8 @@ from app.main import app
 from app.services import emailer
 
 client = TestClient(app)
-OLD_PASSWORD = "OldFixturePassword123"
-NEW_PASSWORD = "NewFixturePassword456"
+OLD_PASSWORD = f"Old-{uuid.uuid4().hex}-A1"
+NEW_PASSWORD = f"New-{uuid.uuid4().hex}-A1"
 CODE = "123456"
 
 
