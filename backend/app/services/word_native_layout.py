@@ -272,12 +272,13 @@ end run
 _WORD_TOC_SCRIPT = r'''
 on run argv
     set inputPath to item 1 of argv
+    set documentName to item 2 of argv
     with timeout of 80 seconds
         tell application "Microsoft Word"
             if (count documents) is not 0 then error "PAPERGUARD_WORD_BUSY"
             try
                 open (POSIX file inputPath) read only false add to recent files false
-                set docRef to active document
+                set docRef to document documentName
                 if (posix full name of docRef) is not inputPath then error "PAPERGUARD_WORD_PATH"
                 if (count tables of contents of docRef) is not 1 then error "PAPERGUARD_TOC_COUNT"
                 update table of contents 1 of docRef
@@ -287,10 +288,8 @@ on run argv
                 return "OK"
             on error errorText number errorNumber
                 try
-                    if (count documents) is not 0 then
-                        set closeRef to active document
-                        if (posix full name of closeRef) is inputPath then close closeRef saving no
-                    end if
+                    set closeRef to document documentName
+                    if (posix full name of closeRef) is inputPath then close closeRef saving no
                 end try
                 error errorText number errorNumber
             end try
@@ -812,7 +811,7 @@ def _run_word_toc(path: Path, timeout: int) -> None:
         raise WordNativeLayoutError("本机 Word 目录更新仅支持 macOS")
     try:
         result = subprocess.run(
-            ["/usr/bin/osascript", "-", str(path)], input=_WORD_TOC_SCRIPT,
+            ["/usr/bin/osascript", "-", str(path), path.name], input=_WORD_TOC_SCRIPT,
             capture_output=True, text=True, timeout=timeout, check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -825,6 +824,12 @@ def _run_word_toc(path: Path, timeout: int) -> None:
     if result.returncode or result.stdout.strip() != "OK":
         if "PAPERGUARD_WORD_BUSY" in result.stderr:
             raise WordNativeLayoutError("Word 正在使用其他文档，请关闭后重试")
+        if "PAPERGUARD_TOC_COUNT" in result.stderr:
+            _cleanup_word_temporary_document(path)
+            raise WordNativeLayoutError("Word 文档必须包含唯一目录，请检查模板后重试")
+        if "PAPERGUARD_WORD_PATH" in result.stderr:
+            _cleanup_word_temporary_document(path)
+            raise WordNativeLayoutError("Word 未能绑定受控临时文档，请稍后重试")
         _cleanup_word_temporary_document(path)
         raise WordNativeLayoutError("Word 未能安全更新唯一目录，请稍后重试")
 
@@ -856,9 +861,20 @@ def refresh_word_toc(source_path: Path, *, word_documents_dir: Path | None = Non
 @contextmanager
 def _word_workspace(word_documents_dir: Path | None = None):
     """Serialize local Word use and keep temporary files in its sandbox."""
-    directory = word_documents_dir or Path.home() / "Library/Containers/com.microsoft.Word/Data/Documents"
-    directory = Path(directory).resolve()
-    if not directory.is_dir():
+    configured_directory = os.environ.get("PAPERGUARD_WORD_DOCUMENTS_DIR", "").strip()
+    raw_directory = (word_documents_dir
+                     or (Path(configured_directory).expanduser() if configured_directory else None)
+                     or Path.home() / "Library/Containers/com.microsoft.Word/Data/Documents")
+    raw_directory = Path(raw_directory)
+    if raw_directory.is_symlink():
+        raise WordNativeLayoutError("本机 Word 的文档目录不可用")
+    directory = raw_directory.resolve()
+    try:
+        info = directory.stat()
+    except OSError as exc:
+        raise WordNativeLayoutError("本机 Word 的文档目录不可用") from exc
+    if (not stat.S_ISDIR(info.st_mode) or directory.is_symlink()
+            or info.st_uid != os.getuid()):
         raise WordNativeLayoutError("本机 Word 的文档目录不可用")
     lock_path = Path(tempfile.gettempdir()) / f"paperguard-word-layout-{os.getuid()}.lock"
     flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
