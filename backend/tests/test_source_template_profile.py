@@ -77,6 +77,289 @@ def inspect(master,data):
     return inspect_docx_output(data,project,template,source_template_bytes=source.read_bytes())
 
 
+def test_image_rule_ignores_removed_master_examples_but_not_retained_or_student_images(master, tmp_path, monkeypatch):
+    from app.services.requirement_check import check_requirements
+
+    source, old_template, project, _ = master
+    image = tmp_path / 'example.png'
+    Image.new('RGB', (12, 12), 'blue').save(image)
+    document = Document(source)
+    next(p for p in document.paragraphs if p.text.startswith('这是源模板')).add_run().add_picture(str(image))
+    document.sections[0].header.paragraphs[0].add_run().add_picture(str(image))
+    document.save(source)
+    spec = extract_writing_specification(source)
+    draft = PaperTemplate(id=old_template.id, name='普通母版', source_docx='local.docx',
+                          sections=extract_section_tree(source), styles=import_template_styles(source)['styles'],
+                          meta_fields=old_template.meta_fields)
+    confirmation = ConfirmWritingProfile(expected_specification_sha256=spec.specification_sha256,
+        accept_recommended=True, remove_template_instructions=True, accept_new_object_defaults=True)
+    template = compile_profile(draft, source, confirmation, actor='teacher-test')
+    monkeypatch.setattr('app.services.template_source.resolve_template_source', lambda _: source)
+    rule = {'id': 'image-font', 'type': 'manual', 'checker': '', 'target': 'document',
+            'params': {'image_typography_constraint': 'caption_font_size_upper_bound'},
+            'severity': 'error', 'enforce': 'hard', 'description': '图中文字字号不得大于图题'}
+    snapshot = {'resolved_items': [rule]}
+    project.requirement_snapshot = snapshot
+
+    assert check_requirements(project, snapshot, template)[1] == []
+    output = rendered((source, template, project, confirmation), tmp_path)
+    with zipfile.ZipFile(io.BytesIO(output)) as archive:
+        root = load_part(archive, 'word/document.xml')
+        assert not root.xpath('//*[local-name()="drawing" or local-name()="pict" or local-name()="object"]')
+        assert any(b'<w:drawing' in archive.read(name) for name in archive.namelist()
+                   if name.startswith('word/header') and name.endswith('.xml'))
+
+    project.sections[0].paragraphs.append(ParagraphBlock(id='student-image', type='image',
+        image=ImageBlock(url='/media/uploads/student.png')))
+    assert check_requirements(project, snapshot, template)[1][0]['reason'] == 'image_typography_unverified'
+    project.sections[0].paragraphs.pop()
+    project.sections[0].paragraphs.append(ParagraphBlock(id='table', type='table', table=TableBlock(source_xml='<w:tbl/>')))
+    assert check_requirements(project, snapshot, template)[1][0]['reason'] == 'image_typography_unverified'
+    project.sections[0].paragraphs.pop()
+    invalid = template.model_copy(deep=True)
+    invalid.source_execution['signature'] = 'invalid'
+    assert check_requirements(project, snapshot, invalid)[1][0]['reason'] == 'image_typography_unverified'
+    source.write_bytes(source.read_bytes() + b'tampered')
+    assert check_requirements(project, snapshot, template)[1][0]['reason'] == 'image_typography_unverified'
+
+
+def test_image_rule_blocks_master_graphic_retained_in_document_body(master, tmp_path, monkeypatch):
+    from app.services.requirement_check import check_requirements
+
+    source, old_template, project, _ = master
+    image = tmp_path / 'cover.png'
+    Image.new('RGB', (12, 12), 'blue').save(image)
+    document = Document(source)
+    document.paragraphs[0].add_run().add_picture(str(image))
+    document.save(source)
+    spec = extract_writing_specification(source)
+    draft = PaperTemplate(id=old_template.id, name='普通母版', source_docx='local.docx',
+                          sections=extract_section_tree(source), styles=import_template_styles(source)['styles'],
+                          meta_fields=old_template.meta_fields)
+    confirmation = ConfirmWritingProfile(expected_specification_sha256=spec.specification_sha256,
+        accept_recommended=True, remove_template_instructions=True, accept_new_object_defaults=True)
+    template = compile_profile(draft, source, confirmation, actor='teacher-test')
+    monkeypatch.setattr('app.services.template_source.resolve_template_source', lambda _: source)
+    rule = {'id': 'image-font', 'type': 'manual', 'checker': '', 'target': 'document',
+            'params': {'image_typography_constraint': 'caption_font_size_upper_bound'},
+            'severity': 'error', 'enforce': 'hard', 'description': '图中文字字号不得大于图题'}
+    assert check_requirements(project, {'resolved_items': [rule]}, template)[1][0]['reason'] == 'image_typography_unverified'
+    output = rendered((source, template, project, confirmation), tmp_path)
+    with zipfile.ZipFile(io.BytesIO(output)) as archive:
+        assert load_part(archive, 'word/document.xml').xpath('//*[local-name()="drawing"]')
+
+
+def test_source_bound_placeholder_is_a_note_not_an_unchecked_rule(master, tmp_path, monkeypatch):
+    from app.services.project_check import check_project
+    from app.services.requirement_check import check_requirements
+
+    source, old_template, project, _ = master
+    document = Document(source)
+    paragraph = next(p for p in document.paragraphs if p.text.startswith('这里要包括'))
+    paragraph.text = '（以下略）'
+    document.save(source)
+    spec = extract_writing_specification(source)
+    draft = PaperTemplate(id=old_template.id, name='普通母版', source_docx='local.docx',
+                          sections=extract_section_tree(source), styles=import_template_styles(source)['styles'],
+                          meta_fields=old_template.meta_fields)
+    confirmation = ConfirmWritingProfile(expected_specification_sha256=spec.specification_sha256,
+        accept_recommended=True, remove_template_instructions=True, accept_new_object_defaults=True)
+    template = compile_profile(draft, source, confirmation, actor='teacher-test')
+    item = next(i for i in template.source_execution['content_requirements'] if i['description'] == '（以下略）')
+    project.requirement_snapshot = {'resolved_items': [item], 'format_item_ids': [item['id']],
+                                    'rule_pack_selection_version': 1}
+    monkeypatch.setattr('app.services.template_source.resolve_template_source', lambda _: source)
+    report = check_project(project, template)
+    assert not report['not_checked'] and not report['applied']
+    assert [(n['id'], n['reason']) for n in report['source_notes']] == [
+        (item['id'], 'template_example_placeholder_removed')]
+    assert report['source_notes'][0]['provenance']['source_path'] in template.source_execution['removals']
+    assert report['source_notes'][0]['source'] == template.name
+    assert report['source_notes'][0]['original_source'] == item['source']
+
+    data = rendered((source, template, project, confirmation), tmp_path)
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        assert '以下略' not in archive.read('word/document.xml').decode()
+    assert inspect((source, template, project, confirmation), data)['status'] == 'pass'
+
+    # Changed evidence, source, duplicate IDs, and substantive requirements do
+    # not inherit the placeholder exemption.
+    altered = copy.deepcopy(item)
+    altered['enforce'] = 'hard'
+    assert check_requirements(project, {'resolved_items': [altered]}, template)[1][0]['enforce'] == 'hard'
+    altered = copy.deepcopy(item)
+    altered['description'] = '（以下略）正文使用黑体'
+    assert check_requirements(project, {'resolved_items': [altered]}, template)[1]
+    assert len(check_requirements(project, {'resolved_items': [item, item]}, template)[1]) == 2
+    invalid = template.model_copy(deep=True)
+    invalid.source_execution['signature'] = 'invalid'
+    assert check_requirements(project, {'resolved_items': [item]}, invalid)[1]
+    from app.services.source_template_profile import sign_profile
+    invalid = template.model_copy(deep=True)
+    invalid.source_execution['removals'].remove(item['provenance']['source_path'])
+    invalid.source_execution = sign_profile(invalid.source_execution)
+    assert check_requirements(project, {'resolved_items': [item]}, invalid)[1]
+    source.write_bytes(source.read_bytes() + b'tampered')
+    assert check_requirements(project, {'resolved_items': [item]}, template)[1]
+
+
+def test_source_bound_content_advice_is_visible_without_claiming_it_was_checked(master, tmp_path, monkeypatch):
+    from app.services.project_check import check_project
+    from app.services.requirement_check import check_requirements
+
+    source, old_template, project, _ = master
+    document = Document(source)
+    paragraph = next(p for p in document.paragraphs if p.text.startswith('这里要包括'))
+    advice = '（以下略）这里要包括硬件选型和电路设计'
+    paragraph.text = advice
+    document.save(source)
+    spec = extract_writing_specification(source)
+    draft = PaperTemplate(id=old_template.id, name='普通母版', source_docx='local.docx',
+                          sections=extract_section_tree(source), styles=import_template_styles(source)['styles'],
+                          meta_fields=old_template.meta_fields)
+    confirmation = ConfirmWritingProfile(expected_specification_sha256=spec.specification_sha256,
+        accept_recommended=True, remove_template_instructions=True, accept_new_object_defaults=True)
+    template = compile_profile(draft, source, confirmation, actor='teacher-test')
+    item = next(i for i in template.source_execution['content_requirements'] if i['description'] == advice)
+    project.requirement_snapshot = {'resolved_items': [item], 'format_item_ids': [item['id']]}
+    monkeypatch.setattr('app.services.template_source.resolve_template_source', lambda _: source)
+    report = check_project(project, template)
+    assert not report['not_checked'] and not report['applied']
+    assert [(entry['id'], entry['description'], entry['reason']) for entry in report['source_guidance']] == [
+        (item['id'], advice, 'template_content_advisory')]
+    assert report['source_guidance'][0]['provenance']['source_path'] in template.source_execution['removals']
+    output = rendered((source, template, project, confirmation), tmp_path)
+    with zipfile.ZipFile(io.BytesIO(output)) as archive:
+        assert advice not in archive.read('word/document.xml').decode()
+    assert inspect((source, template, project, confirmation), output)['status'] == 'pass'
+
+    altered = copy.deepcopy(item)
+    altered['description'] += '，正文必须使用黑体'
+    assert check_requirements(project, {'resolved_items': [altered]}, template)[1]
+    altered = copy.deepcopy(item)
+    altered['enforce'] = 'hard'
+    assert check_requirements(project, {'resolved_items': [altered]}, template)[1]
+    assert len(check_requirements(project, {'resolved_items': [item, item]}, template)[1]) == 2
+    invalid = template.model_copy(deep=True)
+    invalid.source_execution['signature'] = 'invalid'
+    assert check_requirements(project, {'resolved_items': [item]}, invalid)[1]
+    source.write_bytes(source.read_bytes() + b'tampered')
+    assert check_requirements(project, {'resolved_items': [item]}, template)[1]
+
+
+def test_imported_explicit_body_font_applies_to_signed_master_and_output(master, tmp_path, monkeypatch):
+    from app.services.policy_import import normalize_ai_policy
+    from app.services.policy_resolver import apply_requirement_format_overrides, hydrate_snapshot_format_overrides
+    from app.services.project_check import check_project
+
+    source, template, project, confirmation = master
+    monkeypatch.setattr('app.services.template_source.resolve_template_source', lambda _: source)
+    policy, _ = normalize_ai_policy('{"items":[]}', 'guide.txt', '正文中文字体必须使用黑体。')
+    snapshot = hydrate_snapshot_format_overrides({'policy_sets': [{'id': 'guide', **policy}],
+        'resolved_items': policy['items'], 'format_overrides': policy['format_overrides'],
+        'rule_pack_selection_version': 1})
+    project.requirement_snapshot = snapshot
+    effective = apply_requirement_format_overrides(template, snapshot)
+    report = check_project(project, effective)
+    assert not any(item.get('enforce') == 'hard' for item in report['not_checked'])
+
+    data = rendered((source, effective, project, confirmation), tmp_path)
+    output_report = inspect((source, effective, project, confirmation), data)
+    assert output_report['status'] == 'pass'
+    body = next(section for section in project.sections if section.type == 'heading1')
+    block_id = body.paragraphs[0].id
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        root = load_part(archive, 'word/document.xml')
+        runs = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val=$tag]//w:r[w:t]',
+                          namespaces=NS, tag='pg-block:' + block_id)
+        assert runs and all(run.find(qn('w:rPr')).find(qn('w:rFonts')).get(qn('w:eastAsia')) == '黑体'
+                            for run in runs)
+
+
+def test_hard_body_font_rule_binds_every_master_body_region(master, tmp_path, monkeypatch):
+    from app.services.policy_resolver import apply_requirement_format_overrides, hydrate_snapshot_format_overrides
+    from app.services.project_check import check_project
+
+    source, template, project, confirmation = master
+    monkeypatch.setattr("app.services.template_source.resolve_template_source", lambda _: source)
+    rule = {"id": "body-font", "type": "manual", "target": "body", "checker": "", "params": {},
+            "severity": "error", "enforce": "hard", "description": "正文中文字体为黑体"}
+    snapshot = hydrate_snapshot_format_overrides({
+        "policy_sets": [{"items": [rule]}], "resolved_items": [rule],
+        "format_overrides": {"body": {"font_zh": "黑体"}}, "rule_pack_selection_version": 1,
+    })
+    project.requirement_snapshot = snapshot
+    effective = apply_requirement_format_overrides(template, snapshot)
+    report = check_project(project, effective)
+    assert not report["not_checked"]
+    assert [item["id"] for item in report["applied"]] == ["body-font"]
+
+    data = rendered((source, effective, project, confirmation), tmp_path)
+    output_report = inspect((source, effective, project, confirmation), data)
+    assert output_report["status"] == "pass"
+    body = next(section for section in project.sections if section.type == "heading1")
+    block_id = body.paragraphs[0].id
+
+    def alter(root):
+        runs = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val=$tag]//w:r[w:t]',
+                          namespaces=NS, tag="pg-block:" + block_id)
+        assert runs
+        rpr = runs[0].find(qn("w:rPr"))
+        rpr.find(qn("w:rFonts")).set(qn("w:eastAsia"), "宋体")
+
+    changed = inspect((source, effective, project, confirmation), rewrite(data, "word/document.xml", alter))
+    assert changed["status"] == "fail"
+    assert any(item["rule"] == "master.effective_format" and item["status"] == "fail"
+               and item["object"] == block_id for item in changed["checks"])
+
+    altered_profile = effective.model_copy(deep=True)
+    body_heading = next(h for h in altered_profile.source_execution["headings"] if h["kind"] == "heading1")
+    body_heading["properties"]["font.eastAsia"] = "宋体"
+    assert check_project(project, altered_profile)["not_checked"][0]["reason"] == "format_rule_unverified"
+    from app.services.source_template_profile import sign_profile
+    altered_profile.source_execution = sign_profile(altered_profile.source_execution)
+    assert check_project(project, altered_profile)["not_checked"][0]["reason"] == "format_rule_unverified"
+
+    changed_snapshot = copy.deepcopy(snapshot)
+    changed_snapshot["policy_sets"][0]["name"] = "另一规范版本"
+    project.requirement_snapshot = changed_snapshot
+    assert check_project(project, effective)["not_checked"][0]["reason"] == "format_rule_unverified"
+    project.requirement_snapshot = snapshot
+    source.write_bytes(source.read_bytes() + b"tampered")
+    assert check_project(project, effective)["not_checked"][0]["reason"] == "format_rule_unverified"
+
+
+def test_cover_field_paragraph_format_is_checked_against_frozen_profile(master, tmp_path):
+    data = rendered(master, tmp_path)
+    report = inspect(master, data)
+    checks = [item for item in report['checks']
+              if item['rule'] == 'master.effective_format' and item['object'] == 'title'
+              and item.get('unit', '').endswith('#paragraph.spacing.line')]
+    assert len(checks) == 1 and checks[0]['status'] == 'pass'
+
+    def change_spacing(root):
+        paragraph = root.xpath(
+            './/w:sdt[w:sdtPr/w:tag/@w:val="pg-field:title"]/ancestor::w:p[1]',
+            namespaces=NS,
+        )[0]
+        ppr = paragraph.find(qn('w:pPr'))
+        if ppr is None:
+            ppr = etree.Element(qn('w:pPr'))
+            paragraph.insert(0, ppr)
+        spacing = ppr.find(qn('w:spacing'))
+        if spacing is None:
+            spacing = etree.SubElement(ppr, qn('w:spacing'))
+        spacing.set(qn('w:line'), '240')
+        spacing.set(qn('w:lineRule'), 'auto')
+
+    changed = inspect(master, rewrite(data, 'word/document.xml', change_spacing))
+    checks = [item for item in changed['checks']
+              if item['rule'] == 'master.effective_format' and item['object'] == 'title'
+              and item.get('unit', '').endswith('#paragraph.spacing.line')]
+    assert len(checks) == 1 and checks[0]['status'] == 'fail'
+    assert changed['acceptance_status'] == 'fail'
+
+
 @pytest.fixture
 def keyword_master(tmp_path):
     doc = Document()
@@ -118,9 +401,9 @@ def test_confirmed_keyword_labels_are_rendered_and_decoration_deviations_are_rej
     data = rendered((source, template, project, None), tmp_path)
     report = inspect((source, template, project, None), data)
     assert report['status'] == 'pass', [(c['rule'], c['object'], c['actual']) for c in report['checks'] if c['status'] != 'pass']
-    assert report['inspector_version'] == 'docx-output-check/10-master'
+    assert report['inspector_version'] == 'docx-output-check/16-master'
     assert verify_report_binding(report, data)
-    for old_version in ('docx-output-check/2', 'docx-output-check/4', 'docx-output-check/5-master', 'docx-output-check/6-master', 'docx-output-check/7-master', 'docx-output-check/8-master', 'docx-output-check/9-master'):
+    for old_version in ('docx-output-check/2', 'docx-output-check/4', 'docx-output-check/5-master', 'docx-output-check/6-master', 'docx-output-check/7-master', 'docx-output-check/8-master', 'docx-output-check/9-master', 'docx-output-check/10-master', 'docx-output-check/11-master'):
         old_report = {**report, 'inspector_version': old_version}
         assert not verify_report_binding(old_report, data)
     no_profile = dict(report)
@@ -331,6 +614,54 @@ def rewrite(data,part,mutate):
                 root=etree.fromstring(payload);mutate(root);payload=etree.tostring(root)
             output.writestr(name,payload)
     return buffer.getvalue()
+
+
+@pytest.mark.parametrize('kind', ['vml_picture', 'vml_direct', 'alternate_content'])
+def test_master_text_block_rejects_unexpected_vml_object(master, tmp_path, kind):
+    source, template, project, _ = master
+    block_id = project.sections[0].paragraphs[0].id
+    data = rendered(master, tmp_path)
+    baseline = inspect(master, data)
+    assert baseline["status"] == "pass"
+
+    def inject(root):
+        content = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val=$tag]/w:sdtContent',
+                             namespaces=NS, tag='pg-block:' + block_id)[0]
+        run = etree.SubElement(content.find(qn('w:p')), qn('w:r'))
+        if kind == 'vml_picture':
+            pict = etree.SubElement(run, qn('w:pict'))
+            etree.SubElement(pict, '{urn:schemas-microsoft-com:vml}shape', id='unexpected-shape')
+        elif kind == 'vml_direct':
+            etree.SubElement(run, '{urn:schemas-microsoft-com:vml}shape', id='unexpected-shape')
+        else:
+            etree.SubElement(run, '{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent')
+
+    report = inspect(master, rewrite(data, 'word/document.xml', inject))
+    assert report['status'] == 'fail'
+    assert report['check_count'] == baseline['check_count'] + 1
+    assert any(item['rule'] == 'master.text_only' and item['object'] == block_id
+               and item['status'] == 'fail' for item in report['checks'])
+
+
+def test_inline_keyword_block_rejects_unexpected_vml_object(keyword_master, tmp_path):
+    source, template, project, *_ = keyword_master
+    block_id = next(section.paragraphs[0].id for section in project.sections if section.type == 'keywords')
+    case = (source, template, project, None)
+    data = rendered(case, tmp_path)
+    baseline = inspect(case, data)
+    assert baseline['status'] == 'pass'
+
+    def inject(root):
+        content = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val=$tag]/w:sdtContent',
+                             namespaces=NS, tag='pg-block:' + block_id)[0]
+        run = etree.SubElement(content, qn('w:r'))
+        etree.SubElement(run, qn('w:pict'))
+
+    report = inspect(case, rewrite(data, 'word/document.xml', inject))
+    assert report['status'] == 'fail'
+    assert report['check_count'] == baseline['check_count'] + 1
+    assert any(item['rule'] == 'master.inline_slot' and item['object'] == block_id
+               and item['status'] == 'fail' for item in report['checks'])
 
 
 @pytest.mark.parametrize(
@@ -2562,7 +2893,7 @@ def test_manual_review_api_binds_candidate_snapshot_source_and_permissions(maste
     report_kind = 'document_artifact' if artifact else record_kind
     report_id = artifact.id if artifact else record['id']
     stored_report = store.get_workflow_record(report_kind, report_id)
-    assert stored_report['output_check']['inspector_version'] == 'docx-output-check/10-master'
+    assert stored_report['output_check']['inspector_version'] == 'docx-output-check/16-master'
     stored_report['output_check']['inspector_version'] = 'docx-output-check/7-master'
     stored_report = store.save_workflow_record(report_kind, stored_report, expected_revision=stored_report['revision'])
     report = stored_report['output_check']

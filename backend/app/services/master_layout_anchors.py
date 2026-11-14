@@ -4,6 +4,22 @@ from __future__ import annotations
 import hashlib
 
 from app.models.project import BlockType
+from app.services.references import reference_block_text
+
+
+def leading_blank_heading_blocks(heading, section, next_heading):
+    """Empty paragraphs between a heading and its content must stay with both."""
+    levels = {"heading1": 1, "heading2": 2, "heading3": 3}
+    level = levels.get(heading.get("kind"))
+    if level is None or heading.get("inline"):
+        return set()
+    blanks = []
+    for block in section.paragraphs:
+        if block.type != BlockType.PARAGRAPH or reference_block_text(block).strip():
+            return set(blanks)
+        blanks.append(block.id)
+    next_level = levels.get((next_heading or {}).get("kind"))
+    return set(blanks) if next_level is not None and next_level > level else set()
 
 
 def block_bookmark_name(block_id: str, role: str) -> str:

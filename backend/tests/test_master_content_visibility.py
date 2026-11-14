@@ -44,6 +44,29 @@ def _target(root, master, target):
     return runs[0], tag.removeprefix('pg-block:').removeprefix('pg-field:')
 
 
+@pytest.mark.parametrize('target', ['field', 'image', 'figure_caption', 'table_cell', 'table_caption'])
+@pytest.mark.parametrize('kind', ['vml', 'drawing', 'alternate_content'])
+def test_generated_object_blocks_reject_unmodeled_vml(master, tmp_path, target, kind):
+    _add_objects(master)
+    data = rendered(master, tmp_path)
+    assert inspect(master, data)['status'] == 'pass'
+
+    def corrupt(root):
+        run, _ = _target(root, master, target)
+        if kind == 'vml':
+            pict = etree.SubElement(run, qn('w:pict'))
+            etree.SubElement(pict, '{urn:schemas-microsoft-com:vml}shape', id='unexpected-shape')
+        elif kind == 'drawing':
+            etree.SubElement(run, qn('w:drawing'))
+        else:
+            etree.SubElement(run, '{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent')
+
+    report = inspect(master, rewrite(data, 'word/document.xml', corrupt))
+    assert report['status'] == 'fail'
+    assert any(item['rule'] in {'master.unmodeled_field_object', 'master.unmodeled_block_object'}
+               and item['status'] == 'fail' for item in report['checks'])
+
+
 @pytest.mark.parametrize('target', ['body', 'field', 'image', 'figure_caption', 'table_cell', 'table_caption'])
 @pytest.mark.parametrize('property_name', ['vanish', 'webHidden'])
 def test_generated_content_hidden_by_direct_format_is_detected(master, tmp_path, target, property_name):

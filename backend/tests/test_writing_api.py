@@ -308,6 +308,414 @@ def test_export_preview_blocks_unverified_hard_rules_even_with_force(monkeypatch
         assert export.json()["detail"]["code"] == "OUTPUT_CHECK_AUTOMATION_REQUIRED"
 
 
+def test_compound_format_requirement_blocks_delivery_but_matched_body_font_exports():
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    rule = {"id": "body-font", "type": "manual", "target": "body", "checker": "",
+            "params": {}, "severity": "error", "enforce": "hard", "description": "正文中文字体为黑体"}
+    project.requirement_snapshot = {
+        "policy_sets": [{"items": [rule]}], "resolved_items": [rule],
+        "format_overrides": {"body": {"font_zh": "黑体"}}, "rule_pack_selection_version": 1,
+    }
+    store.save_project(project)
+    good = client.post(f"/api/projects/{project_id}/export")
+    assert good.status_code == 200, good.text
+    assert good.headers["x-paperguard-output-check"] == "pass"
+    doc = Document(BytesIO(good.content))
+    paragraph = next(p for p in doc.paragraphs if p.text == "本章介绍研究背景和目标。")
+    assert all(run._r.rPr.rFonts.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}eastAsia") == "黑体"
+               for run in paragraph.runs if run.text)
+
+    project = store.get_project(project_id)
+    compound = {**rule, "id": "table-border", "target": "document",
+                "description": "表格边框必须为黑色，字号遵守规范"}
+    project.requirement_snapshot = {
+        "policy_sets": [{"items": [compound]}], "resolved_items": [compound],
+        "format_overrides": {"body": {"size_pt": 12}}, "rule_pack_selection_version": 1,
+    }
+    store.save_project(project)
+    for force in ("false", "true"):
+        preview = client.post(f"/api/projects/{project_id}/export-preview?force={force}")
+        assert preview.status_code == 200 and not preview.json()["can_export"], preview.text
+        assert any("表格边框" in item for item in preview.json()["missing"])
+        export = client.post(f"/api/projects/{project_id}/export?force={force}")
+        assert export.status_code == 409
+        assert export.json()["detail"]["code"] == "OUTPUT_CHECK_AUTOMATION_REQUIRED"
+
+
+@pytest.mark.parametrize("checker,target,description", [
+    ("abstract.word_count", "abstract", "摘要不少于1字，正文使用黑体"),
+    ("keywords.count", "keywords", "关键词不少于1个，正文使用黑体"),
+])
+def test_count_with_unverified_format_blocks_export_even_with_force(checker, target, description):
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    rule = {"id": "mixed-count-font", "type": "auto", "target": target,
+            "checker": checker, "params": {"min": 1},
+            "severity": "error", "enforce": "hard", "description": description}
+    project.requirement_snapshot = {"resolved_items": [rule], "rule_pack_selection_version": 1}
+    store.save_project(project)
+    for force in ("false", "true"):
+        preview = client.post(f"/api/projects/{project_id}/export-preview?force={force}")
+        assert preview.status_code == 200 and not preview.json()["can_export"], preview.text
+        assert any("正文使用黑体" in item for item in preview.json()["missing"])
+        export = client.post(f"/api/projects/{project_id}/export?force={force}")
+        assert export.status_code == 409, export.text
+        assert export.json()["detail"]["code"] == "OUTPUT_CHECK_AUTOMATION_REQUIRED"
+
+
+def test_new_imported_chinese_body_font_is_applied_and_conflicts_block():
+    from docx.oxml.ns import qn
+    from app.services.policy_import import normalize_ai_policy
+
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+
+    def set_imported_policy(source):
+        policy, _ = normalize_ai_policy('{"items":[]}', 'guide.txt', source)
+        project = store.get_project(project_id)
+        project.requirement_snapshot = {'policy_sets': [{'id': 'imported-guide', **policy}],
+            'resolved_items': policy['items'], 'format_overrides': policy['format_overrides'],
+            'rule_pack_selection_version': 1}
+        store.save_project(project)
+
+    set_imported_policy('正文中文字体必须使用黑体。')
+    response = client.post(f'/api/projects/{project_id}/export')
+    assert response.status_code == 200, response.text
+    assert response.headers['x-paperguard-output-check'] == 'pass'
+    paragraph = next(p for p in Document(BytesIO(response.content)).paragraphs if '本章介绍研究背景和目标' in p.text)
+    assert all(run._element.rPr.rFonts.get(qn('w:eastAsia')) == '黑体' for run in paragraph.runs if run.text)
+
+    set_imported_policy('正文中文字体必须使用黑体。正文中文字体必须使用宋体。')
+    for force in ('false', 'true'):
+        preview = client.post(f'/api/projects/{project_id}/export-preview?force={force}')
+        assert preview.status_code == 200 and not preview.json()['can_export'], preview.text
+        response = client.post(f'/api/projects/{project_id}/export?force={force}')
+        assert response.status_code == 409, response.text
+
+
+def test_unmapped_attachment_font_rule_blocks_export_but_unrelated_attachment_does_not(monkeypatch, tmp_path):
+    from app.api import policies
+
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', tmp_path)
+    policy_dir = tmp_path / 'legacy'
+    policy_dir.mkdir()
+    guide = policy_dir / 'guide.txt'
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+
+    def set_attachment(text):
+        data = text.encode()
+        guide.write_bytes(data)
+        project = store.get_project(project_id)
+        project.requirement_snapshot = {'policy_sets': [{'id': 'legacy', 'name': '学校规范', 'version': '1',
+            'documents': [{'id': 'guide', 'storage_key': 'guide.txt', 'filename': 'guide.txt',
+                           'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}]}],
+            'resolved_items': [], 'rule_pack_selection_version': 1}
+        store.save_project(project)
+
+    set_attachment('这是研究方法的补充说明。')
+    ok = client.post(f'/api/projects/{project_id}/export')
+    assert ok.status_code == 200, ok.text
+    assert ok.headers['x-paperguard-output-check'] == 'pass'
+
+    set_attachment('正文中文字体必须使用黑体。')
+    project = store.get_project(project_id)
+    project.requirement_snapshot['format_overrides'] = {'body': {'font_zh': '黑体'}}
+    store.save_project(project)
+    ok = client.post(f'/api/projects/{project_id}/export')
+    assert ok.status_code == 200, ok.text
+    assert ok.headers['x-paperguard-output-check'] == 'pass'
+    from docx.oxml.ns import qn
+    paragraph = next(p for p in Document(BytesIO(ok.content)).paragraphs if '本章介绍研究背景和目标' in p.text)
+    assert all(run._element.rPr.rFonts.get(qn('w:eastAsia')) == '黑体' for run in paragraph.runs if run.text)
+
+    set_attachment('正文必须使用黑体。')
+    for force in ('false', 'true'):
+        preview = client.post(f'/api/projects/{project_id}/export-preview?force={force}')
+        assert preview.status_code == 200 and not preview.json()['can_export'], preview.text
+        assert any('正文必须使用黑体' in item for item in preview.json()['missing'])
+        exported = client.post(f'/api/projects/{project_id}/export?force={force}')
+        assert exported.status_code == 409
+        assert exported.json()['detail']['code'] == 'OUTPUT_CHECK_AUTOMATION_REQUIRED'
+
+
+def test_unmapped_body_font_rechecks_old_async_export(monkeypatch, tmp_path):
+    from app.api import policies
+    from app.services import export_jobs, requirement_check
+    from app.worker import run_once
+
+    monkeypatch.setattr(export_jobs, 'EXPORT_DIR', tmp_path / 'exports')
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', tmp_path / 'documents')
+    data = '正文必须使用黑体。'.encode()
+    directory = policies._DOCUMENT_DIR / 'legacy'
+    directory.mkdir(parents=True)
+    (directory / 'guide.txt').write_bytes(data)
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    project.requirement_snapshot = {'rule_pack_selection_version': 1, 'policy_sets': [{
+        'id': 'legacy', 'documents': [{'id': 'guide', 'storage_key': 'guide.txt',
+        'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}]}], 'resolved_items': []}
+    store.save_project(project)
+    with monkeypatch.context() as old_checker:
+        old_checker.setattr(requirement_check, '_frozen_attachment_text', lambda *_args: '')
+        queued = client.post(f'/api/projects/{project_id}/export-jobs?force=true')
+        assert queued.status_code == 202, queued.text
+        task = queued.json()
+        assert task['job_id'] in run_once()['exports']['succeeded']
+        assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 200
+
+    view = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+    assert view.status_code == 200 and view.json()['output_check_status'] == 'unverifiable'
+    assert 'download_url' not in view.json()
+    assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+    queued = client.post(f'/api/projects/{project_id}/export-jobs?force=true')
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+    assert task['job_id'] in run_once()['exports']['succeeded']
+    view = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+    assert view.json()['output_check_status'] == 'unverifiable'
+    assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+
+
+def test_imported_image_limit_allows_plain_paper_but_blocks_unverified_figure(monkeypatch, tmp_path):
+    from app.services import export_jobs
+    from app.services.policy_import import normalize_ai_policy
+    from app.worker import run_once
+
+    monkeypatch.setattr(export_jobs, 'EXPORT_DIR', tmp_path)
+
+    policy, _ = normalize_ai_policy(
+        '{"items":[]}', 'guide.pdf', '图中标注符号文字字号不大于图题的字号，建议五号字体。',
+    )
+    rule = next(item for item in policy['items']
+                if item['params'].get('image_typography_constraint') == 'caption_font_size_upper_bound')
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    project.requirement_snapshot = {'resolved_items': [rule], 'rule_pack_selection_version': 1}
+    store.save_project(project)
+    preview = client.post(f'/api/projects/{project_id}/export-preview')
+    assert preview.status_code == 200 and preview.json()['can_export'], preview.text
+    exported = client.post(f'/api/projects/{project_id}/export')
+    assert exported.status_code == 200, exported.text
+    assert exported.headers['x-paperguard-output-check'] == 'pass'
+    assert Document(BytesIO(exported.content)).paragraphs
+
+    upload = client.post(f'/api/projects/{project_id}/images',
+                         files={'file': ('figure.png', _make_image_png(), 'image/png')})
+    assert upload.status_code == 201, upload.text
+    current = client.get(f'/api/projects/{project_id}').json()
+    section = next(section for section in current['sections'] if section['key'] == 'ch1')
+    updated = client.put(f'/api/projects/{project_id}/section/ch1', json={
+        'base_revision': current['revision'], 'title': section['title'],
+        'paragraphs': [*section['paragraphs'], {'id': 'figure', 'type': 'image',
+                      'image': {'url': upload.json()['url'], 'caption': '系统结构'}}],
+    })
+    assert updated.status_code == 200, updated.text
+    for force in ('false', 'true'):
+        preview = client.post(f'/api/projects/{project_id}/export-preview?force={force}')
+        assert preview.status_code == 200 and not preview.json()['can_export'], preview.text
+        assert any('图中标注' in entry for entry in preview.json()['missing'])
+        exported = client.post(f'/api/projects/{project_id}/export?force={force}')
+        assert exported.status_code == 409
+        assert exported.json()['detail']['code'] == 'OUTPUT_CHECK_AUTOMATION_REQUIRED'
+    queued = client.post(f'/api/projects/{project_id}/export-jobs?force=true')
+    assert queued.status_code == 202, queued.text
+    task = queued.json()
+    assert task['job_id'] in run_once()['exports']['succeeded']
+    view = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+    assert view.json()['output_check_status'] == 'unverifiable'
+    assert 'download_url' not in view.json()
+    download = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+    assert download.status_code == 409
+
+
+@pytest.mark.parametrize("complete_before_checker_update", [True, False])
+@pytest.mark.parametrize("rule_source", ["image", "compound_format", "legacy_auto_compound", "legacy_manual_duplicate"])
+def test_old_export_rechecks_hard_requirement_after_checker_update(monkeypatch, tmp_path, complete_before_checker_update, rule_source):
+    """An export frozen under an old checker must not outlive a newly detected hard rule."""
+    from app.services import export_jobs, project_check, requirement_check
+    from app.worker import run_once
+
+    monkeypatch.setattr(export_jobs, "EXPORT_DIR", tmp_path)
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    rule = {
+        "id": "image-font", "type": "manual", "target": "document", "checker": "",
+        "params": {"format_override": True}, "severity": "error", "enforce": "hard",
+        "description": "图中标注符号和文字的字号不大于图题字号，建议五号",
+    }
+    if rule_source == "compound_format":
+        rule = {**rule, "id": "table-border", "params": {},
+                "description": "表格边框必须为黑色，字号遵守规范"}
+    if rule_source == "legacy_auto_compound":
+        plain = {"id": "plain", "type": "auto", "target": "abstract", "checker": "abstract.word_count",
+                 "params": {"min": 1}, "severity": "error", "enforce": "hard", "description": "摘要不少于1字"}
+        hidden = {**plain, "id": "hidden", "description": "摘要不少于1字，正文使用黑体"}
+        rule = hidden
+        project.requirement_snapshot = {
+            "policy_sets": [{"items": [plain, hidden]}], "resolved_items": [plain],
+            "format_item_ids": ["hidden"], "rule_pack_selection_version": 1,
+        }
+    elif rule_source == "legacy_manual_duplicate":
+        font = {"id": "format", "type": "manual", "target": "body", "checker": "",
+                "params": {"format_override": True}, "severity": "error", "enforce": "hard",
+                "description": "正文中文字体为黑体"}
+        rule = {**font, "target": "table", "description": "表格边框必须为黑色"}
+        project.requirement_snapshot = {
+            "policy_sets": [{"name": "学校", "items": [font]}, {"name": "专业", "items": [rule]}],
+            "resolved_items": [font], "format_item_ids": ["format"], "rule_pack_selection_version": 1,
+        }
+    else:
+        project.requirement_snapshot = {
+            "policy_sets": [{"items": [rule]}], "resolved_items": [rule],
+            "format_item_ids": [rule["id"]], "rule_pack_selection_version": 1,
+        }
+    store.save_project(project)
+    current_requirements = project_check.check_requirements
+    with monkeypatch.context() as old_checker:
+        old_checker.setattr(project_check, "is_image_internal_typography", lambda _item: False)
+        old_checker.setattr(requirement_check, "is_image_internal_typography", lambda _item: False)
+        old_checker.setattr(requirement_check, "_verified_simple_body_font", lambda *_args: True)
+        if rule_source == "legacy_auto_compound":
+            old_checker.setattr(requirement_check, "is_format_requirement", lambda _text: False)
+        if rule_source == "legacy_manual_duplicate":
+            def old_requirements(*args, **kwargs):
+                findings, unchecked = current_requirements(*args, **kwargs)
+                return findings, [item for item in unchecked if not item["id"].startswith("merged-format-")]
+            old_checker.setattr(project_check, "check_requirements", old_requirements)
+        queued = client.post(f"/api/projects/{project_id}/export-jobs?force=true")
+        assert queued.status_code == 202, queued.text
+        task = queued.json()
+        assert store.get_workflow_record("project_export", task["id"])["requirement_manual_checks"] == []
+        if complete_before_checker_update:
+            assert task["job_id"] in run_once()["exports"]["succeeded"]
+            old_download = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+            assert old_download.status_code == 200, old_download.text
+
+    if not complete_before_checker_update:
+        assert task["job_id"] in run_once()["exports"]["succeeded"]
+    view = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+    assert view.status_code == 200, view.text
+    download = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download")
+    assert download.status_code == 409, f"previously accepted artifact was downloadable: {download.status_code}"
+    assert view.json()["output_check_status"] == "unverifiable"
+    assert "download_url" not in view.json()
+    listed = client.get(f"/api/projects/{project_id}/export-jobs").json()
+    current = next(item for item in listed if item["id"] == task["id"])
+    assert current["output_check_status"] == "unverifiable"
+    assert "download_url" not in current
+    job = client.get(f"/api/jobs/{task['job_id']}")
+    assert job.status_code == 200, job.text
+    assert job.json()["export"]["output_check_status"] == "unverifiable"
+    assert "download_url" not in job.json()["export"]
+    for force in ("false", "true"):
+        preview = client.post(f"/api/projects/{project_id}/export-preview?force={force}")
+        assert preview.status_code == 200 and preview.json()["can_export"] is False
+        assert any(rule["description"] in item for item in preview.json()["missing"])
+        exported = client.post(f"/api/projects/{project_id}/export?force={force}")
+        assert exported.status_code == 409
+        assert exported.json()["detail"]["code"] == "OUTPUT_CHECK_AUTOMATION_REQUIRED"
+
+
+def test_legacy_policy_text_rechecked_for_existing_export_after_checker_update(monkeypatch, tmp_path):
+    from app.models.project import ImageBlock, ParagraphBlock
+    from app.services import export_jobs, requirement_check
+    from app.worker import run_once
+
+    monkeypatch.setattr(export_jobs, 'EXPORT_DIR', tmp_path)
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    upload = client.post(f'/api/projects/{project_id}/images',
+                         files={'file': ('figure.png', _make_image_png(), 'image/png')})
+    assert upload.status_code == 201, upload.text
+    project = store.get_project(project_id)
+    project.requirement_snapshot = {
+        'rule_pack_selection_version': 1, 'content_hash': 'legacy-frozen',
+        'policy_sets': [{'id': 'legacy-school-policy', 'version': '1', 'name': '学校规范',
+                         'markdown_content': '图中标注符号文字字号不大于图题的字号，建议五号字体。',
+                         'items': []}], 'resolved_items': [],
+    }
+    section = next(section for section in project.sections if section.key == 'ch1')
+    section.paragraphs.append(ParagraphBlock(id='legacy-figure', type='image',
+        image=ImageBlock(url=upload.json()['url'], caption='系统结构')))
+    store.save_project(project)
+
+    with monkeypatch.context() as old_checker:
+        old_checker.setattr(requirement_check, 'extract_image_font_size_limit', lambda _text: '')
+        queued = client.post(f'/api/projects/{project_id}/export-jobs?force=true')
+        assert queued.status_code == 202, queued.text
+        task = queued.json()
+        assert task['job_id'] in run_once()['exports']['succeeded']
+        assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 200
+
+    for force in ('false', 'true'):
+        preview = client.post(f'/api/projects/{project_id}/export-preview?force={force}')
+        assert preview.status_code == 200 and not preview.json()['can_export'], preview.text
+        assert any('图中标注' in item for item in preview.json()['missing'])
+        exported = client.post(f'/api/projects/{project_id}/export?force={force}')
+        assert exported.status_code == 409
+    view = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+    assert view.status_code == 200 and view.json()['output_check_status'] == 'unverifiable'
+    assert 'download_url' not in view.json()
+    assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+
+
+def test_legacy_attachment_rechecked_for_existing_export(monkeypatch, tmp_path):
+    import hashlib
+    from app.api import policies
+    from app.models.project import ImageBlock, ParagraphBlock
+    from app.services import export_jobs, requirement_check
+    from app.worker import run_once
+
+    monkeypatch.setattr(export_jobs, 'EXPORT_DIR', tmp_path / 'exports')
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', tmp_path / 'documents')
+    data = '图中标注符号文字字号不大于图题的字号，建议五号字体。'.encode()
+    directory = policies._DOCUMENT_DIR / 'legacy-school-policy'
+    directory.mkdir(parents=True)
+    (directory / 'guide.txt').write_bytes(data)
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    upload = client.post(f'/api/projects/{project_id}/images',
+                         files={'file': ('figure.png', _make_image_png(), 'image/png')})
+    assert upload.status_code == 201, upload.text
+    project = store.get_project(project_id)
+    project.requirement_snapshot = {
+        'rule_pack_selection_version': 1, 'content_hash': 'legacy-frozen',
+        'policy_sets': [{'id': 'legacy-school-policy', 'version': '1', 'name': '学校规范',
+            'items': [], 'documents': [{'id': 'guide', 'filename': 'guide.txt', 'storage_key': 'guide.txt',
+            'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}]}], 'resolved_items': [],
+    }
+    section = next(section for section in project.sections if section.key == 'ch1')
+    section.paragraphs.append(ParagraphBlock(id='legacy-figure', type='image',
+        image=ImageBlock(url=upload.json()['url'], caption='系统结构')))
+    store.save_project(project)
+    with monkeypatch.context() as old_checker:
+        old_checker.setattr(requirement_check, '_frozen_attachment_text', lambda *_args: '')
+        queued = client.post(f'/api/projects/{project_id}/export-jobs?force=true')
+        assert queued.status_code == 202, queued.text
+        task = queued.json()
+        assert task['job_id'] in run_once()['exports']['succeeded']
+        assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 200
+
+    for force in ('false', 'true'):
+        preview = client.post(f'/api/projects/{project_id}/export-preview?force={force}')
+        assert preview.status_code == 200 and not preview.json()['can_export'], preview.text
+        assert any('图中标注' in item for item in preview.json()['missing'])
+        assert client.post(f'/api/projects/{project_id}/export?force={force}').status_code == 409
+    view = client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}")
+    assert view.status_code == 200 and view.json()['output_check_status'] == 'unverifiable'
+    assert 'download_url' not in view.json()
+    assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+    (directory / 'guide.txt').write_bytes(b'changed')
+    assert client.get(f"/api/projects/{project_id}/export-jobs/{task['id']}/download").status_code == 409
+
+
 def test_update_section_content():
     proj_id = _create_project_instantiates_sections()
     # 给摘要节写内容
@@ -346,6 +754,16 @@ def test_section_revision_conflict_does_not_overwrite():
         "paragraphs": [{"id": "p1", "text": "不应覆盖"}],
     })
     assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "project_revision_conflict"
+    assert stale.json()["detail"]["revision"] == 1
+    stale_meta = client.put(f"/api/projects/{proj_id}/meta", json={"base_revision": 0, "meta": {"title": "旧封面"}})
+    assert stale_meta.status_code == 409
+    assert stale_meta.json()["detail"]["code"] == "project_revision_conflict"
+    stale_restore = client.post(f"/api/projects/{proj_id}/restore-local", json={
+        "base_revision": 0, "snapshot": {"title": initial["title"], "meta": initial["meta"], "sections": initial["sections"]},
+    })
+    assert stale_restore.status_code == 409
+    assert stale_restore.json()["detail"]["code"] == "project_revision_conflict"
     current = client.get(f"/api/projects/{proj_id}").json()
     abstract = next(s for s in current["sections"] if s["key"] == "abstract")
     assert abstract["title"] == "第一版摘要"

@@ -428,7 +428,8 @@ def test_requirement_upgrade_maps_policies_once_before_merging_template_rules(tm
         assert preview.status_code == 200, preview.text
         assert_targets(preview.json()['snapshot'])
         upgraded = client.post(f'/api/projects/{project.id}/requirements/upgrade', json={
-            'expected_snapshot_hash': snapshot['content_hash'], 'confirm': True,
+            'expected_snapshot_hash': snapshot['content_hash'],
+            'expected_resolution_hash': preview.json()['to_resolution_hash'], 'confirm': True,
         })
         assert upgraded.status_code == 200, upgraded.text
         assert_targets(upgraded.json()['project']['requirement_snapshot'])

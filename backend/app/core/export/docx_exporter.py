@@ -28,7 +28,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 from lxml import etree
 
-from app.models.project import ParagraphBlock, ProjectSection, WritingProject
+from app.models.project import InlineTextRun, ParagraphBlock, ProjectSection, WritingProject
 from app.models.template import Align, PaperTemplate, SectionType, TextStyle
 from app.services.document_assets import document_upload_dir
 from app.services.references import reference_block_text, reference_inline_runs, reference_number_for, validate_reference_numbers
@@ -1152,11 +1152,18 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
     p = doc.add_paragraph()
     _apply_paragraph_format(p, style)
     inline_runs = reference_inline_runs(par, reference_number) if reference_number is not None and par.inline_runs else par.inline_runs
+    if (getattr(style, "number_title_gap", None) == "one_character"
+            and (_is_caption_paragraph(par, "图") or _is_caption_paragraph(par, "表"))):
+        from app.core.export.caption_format import caption_with_one_character_gap
+        text, inline_runs = caption_with_one_character_gap(text, inline_runs or [InlineTextRun(text=text)])
     if not inline_runs or "".join(run.text for run in inline_runs) != text:
         inline_runs = [None]
     for inline in inline_runs:
         run = p.add_run(inline.text if inline is not None else text)
         _apply_run_font(run, style)
+        if getattr(style, "number_title_gap", None) == "one_character" and inline is not None and inline.text == "\u3000":
+            from app.core.export.caption_format import set_one_character_gap_width
+            set_one_character_gap_width(run._r)
         # 行内格式只"加"不"减": 模板样式里的加粗/斜体/下划线要保留
         if par.bold or (inline is not None and inline.bold):
             run.font.bold = True
@@ -1170,6 +1177,19 @@ def _export_paragraph(doc: Document, par: ParagraphBlock, style: TextStyle,
             _apply_run_highlight(run, highlight)
         if vert_align is not None:
             _apply_run_vertical_alignment(run, vert_align)
+
+
+def _export_caption_runs(paragraph, prefix, caption, style):
+    if caption and getattr(style, "number_title_gap", None) == "one_character":
+        from app.core.export.caption_format import set_one_character_gap_width
+        for value in (prefix, "\u3000", caption):
+            run = paragraph.add_run(value)
+            _apply_run_font(run, style)
+            if value == "\u3000":
+                set_one_character_gap_width(run._r)
+    else:
+        run = paragraph.add_run(f"{prefix} {caption}".rstrip())
+        _apply_run_font(run, style)
 
 
 def _export_image(doc: Document, img, template: PaperTemplate | None,
@@ -1215,8 +1235,7 @@ def _export_image(doc: Document, img, template: PaperTemplate | None,
     caption = _strip_caption_number(img.caption or "")
     cap = doc.add_paragraph()
     _apply_paragraph_format(cap, cap_style)
-    run = cap.add_run(f"图 {num} {caption}".rstrip())
-    _apply_run_font(run, cap_style)
+    _export_caption_runs(cap, f"图 {num}", caption, cap_style)
 
 
 def _export_table(doc: Document, tbl, template: PaperTemplate | None,
@@ -1234,8 +1253,7 @@ def _export_table(doc: Document, tbl, template: PaperTemplate | None,
     if include_caption:
         cap = doc.add_paragraph()
         _apply_paragraph_format(cap, cap_style)
-        run = cap.add_run(f"表 {num} {caption}".rstrip())
-        _apply_run_font(run, cap_style)
+        _export_caption_runs(cap, f"表 {num}", caption, cap_style)
 
     if tbl.source_xml:
         try:

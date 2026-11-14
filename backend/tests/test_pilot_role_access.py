@@ -15,7 +15,7 @@ from app.services.projects import default_template
 
 
 client = TestClient(app)
-PASSWORD = "PilotFixturePassword123"
+PASSWORD = f"Pilot-{uuid.uuid4().hex}-A1"
 
 
 def account(role="student", **fields):

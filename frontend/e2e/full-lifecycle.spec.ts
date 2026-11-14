@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { LoginPage, PaperGuardPage } from './pages/paperguard.page'
 import { WorkflowUsagePage } from './pages/workflow-usage.page'
 import { UsageAuditPage } from './pages/usage-audit.page'
+import { WriterPastePage } from './pages/writer-paste.page'
 import { API_BASE_URL } from './document-platform.api'
 
 const DATA_ROOT = process.env.E2E_DATA_ROOT ?? '/Users/a1234/Documents/perpetual/22016022205-王俞尹'
@@ -216,6 +217,15 @@ async function completeRequiredWriterGates(page: Page, thesisTitle: string) {
   await page.locator('.table-block .caption-input').fill('系统设计测试表')
   await expect(page.locator('.writer-save-status')).not.toHaveClass(/pending/)
 
+  // Exercise the browser's ClipboardEvent integration with synthetic files and HTML.
+  // This does not claim coverage of the operating system or Word clipboard.
+  const paste = new WriterPastePage(page)
+  await paste.exerciseMixedPaste()
+  await page.reload()
+  await page.getByRole('button', { name: '章节大纲', exact: true }).click()
+  await page.locator('.nav-row').filter({ hasText: /系统设计/ }).first().click()
+  await paste.assertPersisted()
+
   await page.getByRole('button', { name: '章节大纲', exact: true }).click()
   const coverRow = page.locator('.nav-row').filter({ hasText: /封面/ }).first()
   await expect(coverRow).toHaveCount(1)
@@ -373,6 +383,26 @@ test.describe('PaperGuard browser lifecycle', () => {
         expect(response.ok(), await response.text()).toBeTruthy()
         await expect(profile.locator('[data-test="writing-profile-plan"]')).toBeVisible()
       }
+      // Freeze the pilot's explicitly confirmed keyword labels in the profile.
+      await profile.locator('summary').filter({ hasText: '章节与正文格式' }).first().click()
+      const chineseLabel = profile.locator('[data-test="inline-label-keywords"]')
+      const englishLabel = profile.locator('[data-test="inline-label-english_keywords"]')
+      await chineseLabel.locator('xpath=..').locator('summary').first().click()
+      await chineseLabel.getByLabel('成品中的关键词标签').fill('关键词')
+      await chineseLabel.getByLabel('标签后的分隔符').selectOption('：')
+      await chineseLabel.getByLabel('标签及冒号加粗').check()
+      await englishLabel.locator('xpath=..').locator('summary').first().click()
+      await englishLabel.getByLabel('成品中的关键词标签').fill('Key words')
+      await englishLabel.getByLabel('标签后的分隔符').selectOption(': ')
+      const labelPreviewResponse = teacher.waitForResponse((response) => {
+        const url = new URL(response.url())
+        return url.pathname === '/api/templates/parse/writing-profile'
+          && response.request().method() === 'POST'
+      }, { timeout: 600_000 })
+      await profile.getByRole('button', { name: '预览执行配置', exact: true }).click()
+      const labelPreview = await labelPreviewResponse
+      expect(labelPreview.ok(), await labelPreview.text()).toBeTruthy()
+      await expect(profile.locator('[data-test="writing-profile-plan"]')).toBeVisible()
       for (const [labelText, expected] of [
         ['已核对原文要求、差异项和上述执行格式；采用此配置并冻结章节结构。', true],
         ['从学生成品移除已识别的模板填写说明和示例正文。', true],
@@ -396,6 +426,8 @@ test.describe('PaperGuard browser lifecycle', () => {
       })
       expect(importedTemplate.ok()).toBeTruthy()
       const importedDefinition = await importedTemplate.json()
+      expect(importedDefinition.source_execution.inline_label_overrides.keywords).toMatchObject({ text: '关键词', separator: '：', bold: true })
+      expect(importedDefinition.source_execution.inline_label_overrides.english_keywords).toMatchObject({ text: 'Key words', separator: ': ' })
       expect(importedDefinition.meta_fields.map((field: { key: string }) => field.key)).toEqual(
         expect.arrayContaining(['title', 'college', 'department', 'major', 'class_name', 'author', 'student_id', 'advisor', 'date']),
       )
@@ -592,6 +624,25 @@ test.describe('PaperGuard browser lifecycle', () => {
       const downloadedPath = await download!.path()
       expect(downloadedPath).toBeTruthy()
       expect(fs.statSync(downloadedPath!).size).toBeGreaterThan(10_000)
+      const pasteOutput = JSON.parse(execFileSync(e2ePython(), ['-c', `
+import json, sys, zipfile
+from lxml import etree
+ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+with zipfile.ZipFile(sys.argv[1]) as package:
+    root = etree.fromstring(package.read('word/document.xml'))
+paragraphs = [''.join(p.xpath('.//w:t/text()', namespaces=ns)) for p in root.xpath('//w:p', namespaces=ns)]
+captions = [p for p in paragraphs if any(s in p for s in ('粘贴图甲', '粘贴图乙', '粘贴图丙', '系统结构示意图'))]
+tables = [[[''.join(cell.xpath('.//w:t/text()', namespaces=ns)) for cell in row.xpath('./w:tc', namespaces=ns)] for row in table.xpath('./w:tr', namespaces=ns)] for table in root.xpath('//w:tbl', namespaces=ns)]
+print(json.dumps({'captions': captions, 'tables': tables, 'images': len(root.xpath('//w:drawing', namespaces=ns))}, ensure_ascii=False))
+`, downloadedPath!], { encoding: 'utf8' }))
+      expect(pasteOutput.captions).toEqual(expect.arrayContaining([
+        expect.stringContaining('粘贴图丙'), expect.stringContaining('粘贴图乙'), expect.stringContaining('系统结构示意图'),
+      ]))
+      expect(pasteOutput.captions.some((caption: string) => caption.includes('粘贴图甲'))).toBe(false)
+      expect(pasteOutput.captions.findIndex((caption: string) => caption.includes('粘贴图丙')))
+        .toBeLessThan(pasteOutput.captions.findIndex((caption: string) => caption.includes('粘贴图乙')))
+      expect(pasteOutput.tables).toContainEqual([['参数甲', '值甲'], ['参数乙', '值乙']])
+      expect(pasteOutput.images).toBeGreaterThanOrEqual(3)
       await checkpoint('student-exported-docx')
 
       await student.goto('/workflow')
@@ -850,6 +901,15 @@ test.describe('PaperGuard browser lifecycle', () => {
       expect(archiveCheck.content_hash).toBe(secondCandidate.content_hash)
       expect(archiveCheck.final_sha256).toBe(archiveCheck.manifest_final_sha256)
       expect(archiveCheck.final_sha256).toBe(secondCandidate.artifact.docx_sha256)
+      const keywordChecks = JSON.parse(execFileSync(e2ePython(), ['-c',
+        'import zipfile,json,sys; z=zipfile.ZipFile(sys.argv[1]); m=json.loads(z.read("manifest.json")); print(json.dumps([{k:c.get(k) for k in ("rule","object","status")} for c in m["output_check"]["checks"] if c.get("rule") in ("master.inline_label","master.inline_label_bold")]))',
+        archivePath!,
+      ], { encoding: 'utf8' }))
+      expect(keywordChecks).toEqual(expect.arrayContaining([
+        { rule: 'master.inline_label', object: 'keywords', status: 'pass' },
+        { rule: 'master.inline_label_bold', object: 'keywords', status: 'pass' },
+        { rule: 'master.inline_label', object: 'english_keywords', status: 'pass' },
+      ]))
       await checkpoint('administrator-archive-downloaded-and-verified', admin)
       await admin.goto('/workspace')
       await expect(admin.locator('.workspace-stats')).toBeVisible()

@@ -25,6 +25,7 @@ STYLE_FIELDS = {
     "highlight",
     "vert_align",
     "page_break_before",
+    "number_title_gap",
 }
 
 LAYOUT_FIELDS = {
@@ -96,7 +97,7 @@ _FONT_NAMES = ("Times New Roman", "宋体", "黑体", "仿宋", "楷体", "隶�
 _FORMAT_TERM_RE = re.compile(
     r"字体|字号|行距|首行缩进|缩进|对齐|分页|另起一页|章前|换页|页边距|页眉|页脚|页码|段前|段后|"
     r"宋体|黑体|仿宋|楷体|隶书|Times\s*New\s*Roman|小二|小三|小四|小五|四号|五号|六号|"
-    r"单倍|两端对齐|居中|居右|左对齐|右对齐|左顶格|顶格|加粗|斜体|下划线|磅|pt|cm|倍行距",
+    r"单倍|两端对齐|居中|居右|左对齐|右对齐|左顶格|顶格|加粗|斜体|下划线|磅|(?<![A-Za-z])(?:pt|cm)(?![A-Za-z])|倍行距",
     re.IGNORECASE,
 )
 
@@ -122,6 +123,9 @@ def normalize_format_overrides(value: Any) -> dict[str, dict[str, Any]]:
         if not key or key in {"page", "page_layout", "document"} or not isinstance(raw_fields, dict):
             continue
         fields = {field: deepcopy(field_value) for field, field_value in raw_fields.items() if field in STYLE_FIELDS}
+        if (key not in {"figure_caption", "table_caption"}
+                or fields.get("number_title_gap") not in (None, "one_character")):
+            fields.pop("number_title_gap", None)
         if not fields:
             continue
         if "align" in fields:
@@ -280,6 +284,26 @@ def _add(overrides: dict[str, dict[str, Any]], key: str, clause: str) -> None:
         overrides.setdefault(key, {}).update(values)
 
 
+def extract_image_font_size_limit(text: str) -> str:
+    """Recognize the confirmed mandatory figure-text limit in source prose."""
+    compact = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", text or "")
+    match = re.search(
+        r"(?:^|[。！？；;])\s*(图中标注符号(?:和|与)?文字(?:的)?字号不大于图题(?:的)?字号)",
+        compact,
+    )
+    return match.group(1) if match else ""
+
+
+def extract_explicit_body_chinese_font(text: str) -> str:
+    """Extract a single unambiguous, standalone body Chinese-font sentence."""
+    fonts = set()
+    for clause in re.split(r"[。！？；;\n]", str(text or "")):
+        match = re.fullmatch(r"正文中文字体必须(?:使用|采用)(宋体|黑体|仿宋|楷体)", clause.strip())
+        if match:
+            fonts.add(match.group(1))
+    return next(iter(fonts)) if len(fonts) == 1 else ""
+
+
 def extract_format_overrides(text: str) -> dict[str, dict[str, Any]]:
     """Extract explicit style clauses from common Chinese thesis guidelines.
 
@@ -338,9 +362,16 @@ def extract_format_overrides(text: str) -> dict[str, dict[str, Any]]:
         overrides.setdefault("appendix", {})["page_break_before"] = True
 
     figures = _window(normalized, r"3\.图表及公式格式要求", r"（四）毕业设计|\(四\)毕业设计")
-    _add(overrides, "figure_caption", _window(figures, r"图题用", r"须全文统一"))
-    _add(overrides, "table_caption", _window(figures, r"表题用", r"须全文统一"))
-    _add(overrides, "table_cell", _window(figures, r"表中文字用", r"表中") )
+    _add(overrides, "figure_caption", _window(figures, r"图题用", r"须全文统一|[。；;]"))
+    _add(overrides, "table_caption", _window(figures, r"表题(?:用|[，,]\s*用)", r"须全文统一|[。；;]"))
+    _add(overrides, "table_cell", _window(figures, r"表中文字用", r"表中|[。；;]"))
+    sentences = re.split(r"[。；;]", figures)
+    if any("图号与图题文字间置一字空格" in sentence and not re.search(r"建议|推荐", sentence)
+           for sentence in sentences):
+        overrides.setdefault("figure_caption", {})["number_title_gap"] = "one_character"
+    if any(re.search(r"表应有表题.{0,80}与表号之间置一字空格", sentence)
+           and not re.search(r"建议|推荐", sentence) for sentence in sentences):
+        overrides.setdefault("table_caption", {})["number_title_gap"] = "one_character"
 
     code = re.search(r"代码：(.{0,300})", normalized)
     if code:
@@ -381,6 +412,7 @@ def extract_layout_overrides(text: str) -> dict[str, float]:
 __all__ = [
     "STYLE_FIELDS",
     "extract_format_overrides",
+    "extract_image_font_size_limit",
     "extract_layout_overrides",
     "format_override_count",
     "is_format_requirement",

@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 import re
+import stat
+import unicodedata
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
 from app.models.template import PaperTemplate
 from app.models.project import ProjectSection, WritingProject
+from app.services.policy_format import extract_image_font_size_limit, is_format_requirement
 from app.services.references import reference_block_text, reference_number_for, validate_reference_facts
 
 
@@ -22,6 +29,229 @@ _LEGACY_1101_COVER_DESCRIPTION = (
 _LEGACY_1101_REFERENCE_DESCRIPTION = (
     "参考文献按引用或参考先后顺序编号，中文文献在前英文文献在后，序号用[1][2]...格式"
 )
+# Exact pilot-template writing advice: no professional-content judgment or
+# page-count measurement is implied. Modified or additional wording is not
+# covered by this classification.
+_TEMPLATE_CONTENT_ADVICE = frozenset(
+    re.sub(r"\s+", "", unicodedata.normalize("NFKC", text)) for text in (
+        "说明：在绪论中简要说明设计工作的目的、意义、范围、研究设想、方法、选题依据等。应当言简意赅，不要与摘要雷同。一般教科书中有的知识，在绪论中不必出现。有关历史回顾和前人工作的，可以适当综合评述。",
+        "（列出项目中用到的主要关键技术，并进行描述，篇幅不能过长，2页左右即可）",
+        "（以下略）按照实际设计的模块进行分节书写。例如下面4.2.1",
+        "（以下略）这里要包括硬件选型和电路设计",
+        "以下略）按照实际设计的模块程序进行分节书写。例如下面4.3.2",
+        "按照功能分节进行书写，比如5.2.1 环境数据显示功能。",
+        "说明：在致谢中，主要表达对导师和其他相关人员的感谢之意以及结合整体的大学学习，对整个毕业设计进行总体性、概括性总结，表达出设计的思路、学习收获、对未来进一步学习的设想。对此，仍要实事求是，过分的颂扬反而会带来消极影响。",
+    )
+)
+
+
+def is_image_internal_typography(item: dict[str, Any]) -> bool:
+    """Identify known image-content font rules that paragraph styles cannot satisfy."""
+    if (item.get("params") or {}).get("image_typography_constraint") == "caption_font_size_upper_bound":
+        return True
+    description = str(item.get("description") or "")
+    return bool(
+        re.search(r"(?:插图|图片|图像|图形|图)(?:中|内|里)", description)
+        and re.search(r"字号|字体大小", description)
+    )
+
+
+def _verified_simple_body_font(item: dict[str, Any], snapshot: dict, template: PaperTemplate | None) -> bool:
+    """Bind this exact single-field rule to the effective body style.
+
+    A format keyword or an override elsewhere cannot prove a compound rule.
+    Source templates also need signed, source-bound properties for every body region.
+    """
+    if template is None:
+        return False
+    if item.get("type") != "manual" or item.get("checker") or item.get("target") not in {"body", "document"}:
+        return False
+    if item.get("params") not in ({}, {"format_override": True}, None):
+        return False
+    match = re.fullmatch(r"正文中文字体(?:为|使用|采用|必须使用|必须采用)(宋体|黑体|仿宋|楷体)[。.]?", str(item.get("description") or "").strip())
+    if not match:
+        return False
+    font = match.group(1)
+    body = template.styles.get("body")
+    overrides = snapshot.get("format_overrides") or {}
+    if not (body and body.font_zh == font and isinstance(overrides, dict)
+            and isinstance(overrides.get("body"), dict) and overrides["body"].get("font_zh") == font):
+        return False
+    nodes = list(template.sections)
+    while nodes:
+        node = nodes.pop()
+        nodes.extend(node.children)
+        if node.type.value == "body" and node.style and node.style.font_zh != font:
+            return False
+    if not template.source_docx and not template.source_execution:
+        return True
+    if not template.source_docx or not template.source_execution:
+        return False
+
+    from zipfile import BadZipFile
+    from lxml import etree
+    from app.services.digit_font_rules import BODY_KINDS
+    from app.services.docx_output_check import source_template_bytes
+    from app.services.source_template_profile import digest, verify_profile
+    from app.services.template_source import resolve_template_source
+
+    try:
+        profile = verify_profile(template, source_template_bytes(resolve_template_source(template.source_docx)))
+    except (OSError, ValueError, BadZipFile, etree.XMLSyntaxError):
+        return False
+    headings = [h for h in profile.get("headings", []) if h.get("kind") in BODY_KINDS]
+    return bool(profile.get("policy_snapshot_sha256") == digest(snapshot)
+                and profile.get("body_properties", {}).get("font.eastAsia") == font
+                and headings and all(h.get("properties", {}).get("font.eastAsia") == font for h in headings))
+
+
+def _frozen_attachment_text(policy_id: str, document: dict[str, Any]) -> str | None:
+    """Read only the exact policy attachment frozen in the project snapshot."""
+    # Resolve the same attachment root as the API, including its test override.
+    from app.api import policies
+    from app.services.policy_import import extract_policy_text
+
+    key = str(document.get("storage_key") or "")
+    checksum = str(document.get("checksum") or "")
+    for part in (policy_id, key):
+        if not part or part in {".", ".."} or "/" in part or "\\" in part or "\x00" in part:
+            return None
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", checksum):
+        return None
+    suffix = Path(key).suffix.lower()
+    if suffix not in {".md", ".markdown", ".txt", ".pdf", ".docx"}:
+        return None
+    try:
+        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        root_fd = os.open(policies._DOCUMENT_DIR.resolve(), directory_flags)
+        try:
+            policy_fd = os.open(policy_id, directory_flags, dir_fd=root_fd)
+            try:
+                fd = os.open(key, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=policy_fd)
+            finally:
+                os.close(policy_fd)
+        finally:
+            os.close(root_fd)
+        with os.fdopen(fd, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                return None
+            data = stream.read(policies._MAX_DOCUMENT_BYTES + 1)
+        if len(data) > policies._MAX_DOCUMENT_BYTES or "sha256:" + hashlib.sha256(data).hexdigest() != checksum:
+            return None
+        text, _ = extract_policy_text(data, key, full_text=True)
+        return text
+    except (OSError, ValueError, HTTPException):
+        return None
+
+
+def _may_contain_images(project: WritingProject, template: PaperTemplate | None) -> bool:
+    if template is None:
+        return True
+    if any(
+        block.type.value == "image"
+        or (block.table is not None and block.table.source_xml)
+        or (block.equation is not None and block.equation.omml)
+        for section in project.sections for block in section.paragraphs
+    ):
+        return True
+    if not template.source_docx and not template.source_execution:
+        return False
+    if not template.source_docx or not template.source_execution:
+        return True
+
+    # Use the same signed source and editable-boundary transformation as the
+    # renderer. Sample pictures removed from manuscript regions do not become
+    # student figures; a retained body object still needs typography evidence.
+    # Headers and footers are fixed master decorations, not manuscript figures.
+    from io import BytesIO
+    from zipfile import BadZipFile, ZipFile
+    from lxml import etree
+    from app.core.extract.xml_utils import load_part
+    from app.services.docx_output_check import source_template_bytes
+    from app.services.master_docx_renderer import prepare_source
+    from app.services.source_template_profile import commentless_source, digest, package_manifest, verify_profile
+    from app.services.source_template_safety import audit_source_package
+    from app.services.template_source import resolve_template_source
+
+    try:
+        source = source_template_bytes(resolve_template_source(template.source_docx))
+        profile = verify_profile(template, source)
+        audit_source_package(source)
+        source = commentless_source(source)
+        if digest(package_manifest(source)) != profile.get("prepared_source_manifest_sha256"):
+            return True
+        with ZipFile(BytesIO(source)) as archive:
+            root = load_part(archive, "word/document.xml")
+            if root is None:
+                return True
+            roots = [prepare_source(root, profile, project.meta)]
+            for name in ("word/footnotes.xml", "word/endnotes.xml"):
+                if name in archive.namelist():
+                    roots.append(load_part(archive, name))
+        potentially_visual = {
+            "drawing", "pict", "object", "imagedata", "blip", "altChunk", "subDoc",
+            "contentPart", "OLEObject", "control", "AlternateContent",
+        }
+        return any(etree.QName(node).localname in potentially_visual
+                   for root in roots if root is not None for node in root.iter()
+                   if isinstance(node.tag, str))
+    except (OSError, ValueError, TypeError, KeyError, IndexError, RuntimeError,
+            BadZipFile, etree.XMLSyntaxError, etree.XPathError):
+        return True
+
+
+def template_source_notes(snapshot: dict, template: PaperTemplate | None) -> list[dict]:
+    """Identify source-bound placeholder and known advisory text removed from output."""
+    if not template or not template.source_docx or not template.source_execution:
+        return []
+    items = snapshot.get("resolved_items", [])
+    candidates = [item for item in items if isinstance(item, dict)
+                  and item.get("type") == "manual" and item.get("enforce") == "soft"
+                  and item.get("severity") == "info" and not item.get("checker")
+                  and not item.get("params")
+                  and (re.fullmatch(r"(?:\(以下略\)|以下略\)|以下略)",
+                                    re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(item.get("description") or ""))))
+                       or re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(item.get("description") or ""))) in _TEMPLATE_CONTENT_ADVICE)]
+    if not candidates:
+        return []
+    from io import BytesIO
+    from zipfile import BadZipFile, ZipFile
+    from lxml import etree
+    from app.core.extract.specification import _text
+    from app.core.extract.xml_utils import load_part
+    from app.services.docx_output_check import source_template_bytes
+    from app.services.source_template_profile import verify_profile
+    from app.services.template_source import resolve_template_source
+
+    try:
+        source = source_template_bytes(resolve_template_source(template.source_docx))
+        profile = verify_profile(template, source)
+        with ZipFile(BytesIO(source)) as archive:
+            root = load_part(archive, "word/document.xml")
+        namespaces = {key: value for element in root.iter() for key, value in element.nsmap.items() if key}
+        signed = profile.get("content_requirements") or []
+        notes = []
+        for item in candidates:
+            provenance = item.get("provenance") or {}
+            path = provenance.get("source_path")
+            if (not isinstance(path, str) or path not in profile.get("removals", [])
+                    or provenance.get("kind") != "explicit_instruction"
+                    or provenance.get("source_text") != item.get("description")
+                    or sum(entry == item for entry in signed) != 1
+                    or sum(entry.get("id") == item.get("id") for entry in items if isinstance(entry, dict)) != 1):
+                continue
+            nodes = root.xpath(path, namespaces=namespaces)
+            if len(nodes) != 1 or _text(nodes[0]).strip() != item["description"].strip():
+                continue
+            normalized = re.sub(r"\s+", "", unicodedata.normalize("NFKC", item["description"]))
+            reason = "template_content_advisory" if normalized in _TEMPLATE_CONTENT_ADVICE else "template_example_placeholder_removed"
+            notes.append({"id": item["id"], "description": item["description"],
+                          "source": template.name, "original_source": item.get("source", ""),
+                          "source_version": item.get("source_version", ""),
+                          "provenance": provenance, "reason": reason})
+        return notes
+    except (OSError, ValueError, TypeError, RuntimeError, BadZipFile, etree.XMLSyntaxError, etree.XPathError):
+        return []
 
 
 def _normalize_legacy_1101_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -222,7 +452,7 @@ def _template_page_break(template: PaperTemplate, key: str) -> bool | None:
     return bool(style.get("page_break_before"))
 
 
-def _reference_format_issues(text: str, params: dict[str, Any]) -> list[str]:
+def _reference_format_issues(text: str) -> list[str]:
     """Return malformed reference lines using a conservative GB/T-shaped check.
 
     This is intentionally a syntax sanity check. Detailed font/spacing rules remain
@@ -231,8 +461,7 @@ def _reference_format_issues(text: str, params: dict[str, Any]) -> list[str]:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines:
         return []
-    prefix = str(params.get("prefix_pattern") or r"(?:\[\d+\]|\d+[.)、])")
-    pattern = re.compile(rf"^\s*{prefix}")
+    pattern = re.compile(r"^\s*(?:\[\d+\]|\d+[.)、])")
     return [
         line for line in lines
         if not pattern.search(line) or not _YEAR_RE.search(line)
@@ -240,7 +469,8 @@ def _reference_format_issues(text: str, params: dict[str, Any]) -> list[str]:
 
 
 def check_requirements(project: WritingProject, snapshot: dict | None,
-                       template: PaperTemplate | None = None) -> tuple[list[dict], list[dict]]:
+                       template: PaperTemplate | None = None, *,
+                       source_notes: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
     """返回 (未通过 findings, 未自动检查项)。"""
     if not snapshot:
         return [], []
@@ -248,8 +478,117 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
     not_checked: list[dict] = []
     sections = {section.key: section for section in project.sections}
     format_item_ids = set(snapshot.get("format_item_ids") or [])
+    excluded_note_ids = {note["id"] for note in (source_notes if source_notes is not None
+                                                   else template_source_notes(snapshot, template))}
 
-    for raw_item in snapshot.get("resolved_items", []):
+    resolved_items = list(snapshot.get("resolved_items", []))
+    resolved_descriptions = {(item.get("id"), item.get("description")) for item in resolved_items if item.get("id")}
+    may_contain_images = _may_contain_images(project, template)
+    # Old snapshots could merge two rules and retain only one description.
+    # Restore visibility of a lost format requirement from the
+    # frozen sources; a checker for the other rule cannot establish it passed.
+    source_groups = [(str(policy.get("name") or "规范要求"), str(policy.get("version") or ""),
+                      policy.get("items", []), True) for policy in snapshot.get("policy_sets", [])]
+    source_groups.append(("模板规范", "", snapshot.get("template_instruction_items", []), False))
+    recovered_formats = set()
+    for source_name, source_version, items, policy_source in source_groups:
+        for original in items:
+            description = str(original.get("description") or "")
+            if original.get("type", "auto") == "auto" and not original.get("checker"):
+                continue
+            format_text = (re.sub(r"章前分页|分页|另起一页|换页", "", description)
+                           if original.get("checker") == "chapter.page_break" else description)
+            if (not ((original.get("params") or {}).get("format_override") or is_format_requirement(format_text))
+                    or (is_image_internal_typography(original) and not may_contain_images)):
+                continue
+            target = str(original.get("target") or "document")
+            mapping = snapshot.get("manuscript_target_mapping") or {}
+            if policy_source and target in (mapping.get("section_key_map") or {}):
+                target = str(mapping["section_key_map"][target])
+            elif policy_source and target in (mapping.get("source_section_keys") or []) and original.get("enforce") != "hard":
+                target = "document"
+            represented = original.get("id") and any(
+                item.get("id") == original.get("id") and item.get("description") == original.get("description")
+                and item.get("type", "auto") == original.get("type", "auto")
+                and (item.get("checker") or "") == (original.get("checker") or "")
+                and str(item.get("target") or "document") == target
+                and (original.get("enforce") != "hard" or item.get("enforce") == "hard")
+                and (not (original.get("params") or {}).get("format_override")
+                     or (item.get("params") or {}).get("format_override"))
+                for item in resolved_items
+            )
+            if represented:
+                continue
+            identity = f"{source_name}\0{source_version}\0{original.get('id', '')}\0{target}\0{description}\0{original.get('enforce', 'soft')}"
+            if identity in recovered_formats:
+                continue
+            recovered_formats.add(identity)
+            not_checked.append({
+                "id": "merged-format-" + hashlib.sha256(identity.encode()).hexdigest()[:16],
+                "description": description, "type": original.get("type", "auto"), "checker": original.get("checker"),
+                "severity": original.get("severity", "warning"), "enforce": original.get("enforce", "soft"),
+                "source": original.get("source") or source_name,
+                "source_version": original.get("source_version") or source_version,
+                "sources": original.get("sources", []), "reason": "format_rule_unverified", "fixable": False,
+            })
+    has_structured_limit = any(
+        (item.get("params") or {}).get("image_typography_constraint") == "caption_font_size_upper_bound"
+        and item.get("type") == "manual" and not item.get("checker") and item.get("enforce") == "hard"
+        for item in resolved_items
+    )
+    for policy in snapshot.get("policy_sets", []):
+        texts = [str(policy.get("markdown_content") or "")]
+        texts.extend(str(item.get("description") or "").removeprefix("原文格式要求：")
+                     for item in policy.get("items", [])
+                     if (str(item.get("description") or "").startswith("原文格式要求：")
+                         or not item.get("id")
+                         or (item["id"], item.get("description")) not in resolved_descriptions))
+        for document in policy.get("documents", []):
+            text = _frozen_attachment_text(str(policy.get("id") or ""), document)
+            if text is None:
+                identity = f"{policy.get('id', '')}\0{policy.get('version', '')}\0{document.get('id', '')}\0{document.get('checksum', '')}"
+                not_checked.append({
+                    "id": "unverified-policy-attachment-" + hashlib.sha256(identity.encode()).hexdigest()[:16],
+                    "description": "规范附件无法核验，请联系系统团队恢复并核对原附件",
+                    "type": "doc", "severity": "error", "enforce": "hard",
+                    "source": policy.get("name") or "冻结规范附件",
+                    "source_version": policy.get("version") or "", "sources": [],
+                    "reason": "policy_attachment_unverified", "fixable": False,
+                })
+            else:
+                texts.append(text)
+        for text in texts:
+            description = extract_image_font_size_limit(text)
+            if description and not has_structured_limit:
+                identity = f"{policy.get('id', '')}\0{policy.get('version', '')}\0{description}"
+                resolved_items.append({
+                    "id": "recovered-image-font-" + hashlib.sha256(identity.encode()).hexdigest()[:16],
+                    "type": "manual", "checker": "", "target": "document",
+                    "params": {"image_typography_constraint": "caption_font_size_upper_bound"},
+                    "severity": "error", "enforce": "hard", "description": description,
+                    "source": policy.get("name") or "冻结规范原文",
+                    "source_version": policy.get("version") or "",
+                })
+                has_structured_limit = True
+            # This narrow recovery identifies a known mandatory wording only;
+            # it does not claim that the rest of the attachment was parsed.
+            for clause in re.split(r"[。！？；;\n]", text):
+                clause = clause.strip()
+                if not re.match(r"^正文(?:中文字体)?必须(?:使用|采用)(?:宋体|黑体|仿宋|楷体)", clause):
+                    continue
+                identity = f"{policy.get('id', '')}\0{policy.get('version', '')}\0{clause}"
+                identifier = "recovered-body-font-" + hashlib.sha256(identity.encode()).hexdigest()[:16]
+                if not any(item.get("id") == identifier for item in resolved_items):
+                    resolved_items.append({
+                        "id": identifier, "type": "manual", "checker": "", "target": "body",
+                        "params": {}, "severity": "error", "enforce": "hard", "description": clause,
+                        "source": policy.get("name") or "冻结规范原文",
+                        "source_version": policy.get("version") or "",
+                    })
+                    format_item_ids.add(identifier)
+    for raw_item in resolved_items:
+        if raw_item.get("id") in excluded_note_ids:
+            continue
         item = _normalize_legacy_1101_item(raw_item)
         checker = item.get("checker", "")
         item_type = item.get("type", "auto")
@@ -265,12 +604,23 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
             "sources": item.get("sources", []),
             "fixable": False,
         }
-        if item.get("id") in format_item_ids:
+        image_typography = is_image_internal_typography(item)
+        if (item_type == "manual" and not checker
+                and (item.get("params") or {}).get("image_typography_constraint") == "caption_font_size_upper_bound"
+                and not may_contain_images):
+            # A generated template and structured text/tables contain no
+            # imported Word objects; there is no image for this rule to check.
+            # Source masters and preserved XML remain unknown until inspected.
+            continue
+        classified_format = item_type != "auto" and item.get("id") in format_item_ids and not image_typography
+        if classified_format and _verified_simple_body_font(item, snapshot, template):
             continue
         if item_type != "auto":
             not_checked.append({
                 **{key: descriptor[key] for key in ("id", "description", "type", "severity", "enforce", "source", "source_version", "sources")},
-                "reason": "manual" if item_type == "manual" else "reference_document",
+                "reason": ("image_typography_unverified" if image_typography else
+                           "format_rule_unverified" if classified_format else
+                           "manual" if item_type == "manual" else "reference_document"),
                 "fixable": False,
             })
             continue
@@ -278,6 +628,59 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
         params = item.get("params") or {}
         section = _section_for(project, str(item.get("target") or "document"), params)
         target = str(item.get("target") or "document")
+        # These checkers verify facts or counts, not any formatting that may
+        # have been bundled into the same natural-language requirement.
+        non_format_checkers = {
+            "section.exists", "section.table_required", "section.word_count", "abstract.word_count",
+            "keywords.count", "cover.field_present", "meta.field_present", "cover.fields_present",
+            "references.list_facts", "references.count", "references.recent_language_summary",
+            "references.recent_count", "references.recent_ratio", "references.format", "ai.usage_declared",
+        }
+        if checker == "chapter.page_break":
+            # Pagination itself is the checker's subject; only other detected
+            # format requirements should be treated as unverified here.
+            description = re.sub(r"章前分页|分页|另起一页|换页", "", str(item.get("description") or ""))
+            additional_format = is_format_requirement(description)
+        else:
+            format_classified = item.get("id") in format_item_ids
+            description = str(item.get("description") or "")
+            if format_classified and not params.get("format_override") and not is_format_requirement(description):
+                sources = [source for policy in snapshot.get("policy_sets", []) for source in policy.get("items", [])]
+                sources.extend(snapshot.get("template_instruction_items", []))
+                same_id = [source for source in sources if source.get("id") == item.get("id")]
+                matching = [source for source in same_id
+                            if source.get("description") == item.get("description")
+                            and source.get("type", "auto") == item_type
+                            and (source.get("checker") or "") == checker]
+                other_format = any(
+                    source not in matching and ((source.get("params") or {}).get("format_override")
+                                                or is_format_requirement(source.get("description") or ""))
+                    for source in same_id
+                )
+                if (matching and other_format and all(not (source.get("params") or {}).get("format_override")
+                                                     and not is_format_requirement(source.get("description") or "")
+                                                     for source in matching)):
+                    format_classified = False
+            # Older classification matched pt/cm inside English words. Only
+            # disregard that classification when the frozen source confirms
+            # the same text and has no explicit format marker.
+            if (format_classified and not is_format_requirement(description)
+                    and re.search(r"[a-z](?:pt|cm)|(?:pt|cm)[a-z]", description, re.IGNORECASE)):
+                originals = [source for policy in snapshot.get("policy_sets", [])
+                             for source in policy.get("items", []) if source.get("id") == item.get("id")]
+                if (originals and not params.get("format_override")
+                        and all(source.get("description") == item.get("description")
+                                and not (source.get("params") or {}).get("format_override")
+                                for source in originals)):
+                    format_classified = False
+            additional_format = checker in non_format_checkers and (
+                format_classified or is_format_requirement(description)
+            )
+        if additional_format:
+            not_checked.append({
+                **{key: descriptor[key] for key in ("id", "description", "type", "severity", "enforce", "source", "source_version", "sources")},
+                "reason": "format_rule_unverified", "checker": checker, "fixable": False,
+            })
         if checker == "section.exists":
             keys = params.get("section_keys") or params.get("section_key") or target
             keys = keys if isinstance(keys, list) else [keys]
@@ -460,8 +863,27 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
                 findings.append(_finding(descriptor, descriptor["description"] or f"近 {years} 年参考文献不足", actual, expected, section.key if section else None))
             continue
         if checker == "references.format":
+            # Empty parameters are the legacy numbering/year check. New
+            # imports allow only the explicit equivalent. A frozen snapshot
+            # must not silently turn other standards or extra requirements
+            # into that much narrower check.
+            if params not in ({}, {"format_check": "number_and_year"}):
+                not_checked.append({
+                    **{key: descriptor[key] for key in ("id", "description", "type", "severity", "enforce", "source", "source_version", "sources")},
+                    "reason": "unsupported_checker_parameters", "checker": checker, "fixable": False,
+                })
+                continue
+            # Number/year checks do not establish full standard conformance.
+            # Preserve explicit broad claims as unverified while still
+            # reporting the independently checkable number/year failures.
+            description = str(item.get("description") or "")
+            if re.search(r"\b(?:APA|IEEE)\b|GB\s*/\s*T|著录(?:格式|规则|标准)", description, re.I):
+                not_checked.append({
+                    **{key: descriptor[key] for key in ("id", "description", "type", "severity", "enforce", "source", "source_version", "sources")},
+                    "reason": "reference_standard_unverified", "checker": checker, "fixable": False,
+                })
             section = section or _section_for(project, "references", params)
-            issues = _reference_format_issues(_section_text(section), params)
+            issues = _reference_format_issues(_section_text(section))
             if issues:
                 findings.append(_finding(
                     descriptor,

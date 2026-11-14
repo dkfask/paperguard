@@ -205,6 +205,7 @@ describe('workflow usage regressions', () => {
       { id: 'archive-ready', submission_id: 'new-submission', status: 'succeeded', download_url: '/api/archives/archive-ready/download', manual_review: { status: 'not_required' } },
       { id: 'archive-pending', submission_id: 'new-submission', status: 'queued' },
       { id: 'archive-review', submission_id: 'new-submission', status: 'succeeded', download_url: '/api/archives/archive-review/download', manual_review: { status: 'required' } },
+      { id: 'archive-unverifiable', submission_id: 'new-submission', status: 'succeeded', requirement_recheck: 'unverifiable', manual_review: { status: 'required' } },
     ])
     api.downloadArchive.mockResolvedValue()
     await open()
@@ -212,6 +213,7 @@ describe('workflow usage regressions', () => {
     expect(archives.text()).toContain('论文归档')
     expect(archives.text()).toContain('排队中')
     expect(archives.text()).toContain('Word/WPS 核查待办，归档已可下载')
+    expect(archives.text()).toContain('当前规范尚无法自动核验，请联系系统团队处理。')
     expect(archives.findAll('button')).toHaveLength(2)
     await archives.findAll('button')[0].trigger('click')
     await flushPromises()
@@ -225,11 +227,13 @@ describe('workflow usage regressions', () => {
     api.fetchArchives.mockResolvedValue([
       { id: 'archive-ready', status: 'succeeded', download_url: '/api/archives/archive-ready/download', manual_review: { status: 'not_required' } },
       { id: 'archive-unchecked', status: 'succeeded', download_url: '/api/archives/archive-unchecked/download', manual_review: { status: 'required' } },
+      { id: 'archive-unverifiable', status: 'succeeded', requirement_recheck: 'unverifiable', manual_review: { status: 'required' } },
     ])
     api.downloadArchive.mockResolvedValue()
     await open()
     const archives = wrapper.get('[data-test="teacher-archives"]')
     expect(archives.text()).toContain('Word/WPS 核查待办，归档已可下载')
+    expect(archives.text()).toContain('当前规范尚无法自动核验，请联系系统团队处理。')
     expect(archives.findAll('button')).toHaveLength(2)
     await archives.findAll('button')[0].trigger('click')
     await flushPromises()

@@ -325,9 +325,15 @@ function setTab(tab) {
 }
 
 async function logout() {
+  // 先让当前页面完成保存并允许离开，再使会话失效。
+  let failure
+  try {
+    failure = await router.replace({ path: '/login', query: { logout: '1' } })
+  } catch {
+    return
+  }
+  if (failure) return
   try { await authApi.logout() } catch { /* 本地会话仍需清理 */ }
-  // 先切走当前受保护页面，避免清除 token 触发 AppShell 重挂载当前路由。
-  await router.replace({ path: '/login', query: { logout: '1' } })
   clearAuth()
   await router.replace('/login')
 }

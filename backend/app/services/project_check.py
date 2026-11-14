@@ -17,7 +17,7 @@ from app.models.policy import CheckRun
 from app.models.project import WritingProject
 from app.models.template import PaperTemplate, SectionType, TextStyle
 from app.services.policy_format import normalize_format_overrides
-from app.services.requirement_check import check_requirements
+from app.services.requirement_check import check_requirements, is_image_internal_typography, template_source_notes
 from app.services.project_versions import project_content_hash
 from app.services.references import reference_block_text, reference_number_for
 
@@ -38,6 +38,21 @@ _STYLE_ID = {
 
 
 _HEADING_TYPES = {"heading1", "heading2", "heading3"}
+
+
+def hard_requirement_checks(report: dict) -> tuple[list[str], list[str]]:
+    """Return failed and unverified hard requirements from a project report."""
+    failed = [
+        f"{finding.get('source', '规范要求')}: {finding['message']}"
+        for finding in report.get("findings", [])
+        if finding.get("source_type") == "requirement"
+        and finding.get("enforce") == "hard" and finding.get("severity") == "error"
+    ]
+    unchecked = [
+        f"{item.get('source', '规范要求')}: {item.get('description') or '必需规范无法自动核验'}"
+        for item in report.get("not_checked", []) if item.get("enforce") == "hard"
+    ]
+    return failed, unchecked
 
 
 def _style_key_for(stype: str, template: PaperTemplate) -> str:
@@ -252,15 +267,22 @@ def check_project(project: WritingProject, template: PaperTemplate,
         "level": item.get("level"),
         "version": item.get("version"),
     } for item in policy_sources)
-    requirement_findings, not_checked = check_requirements(project, snapshot, template)
+    source_context = template_source_notes(snapshot, template)
+    source_notes = [item for item in source_context if item["reason"] == "template_example_placeholder_removed"]
+    source_guidance = [item for item in source_context if item["reason"] == "template_content_advisory"]
+    source_note_ids = {item["id"] for item in source_context}
+    requirement_findings, not_checked = check_requirements(project, snapshot, template, source_notes=source_context)
     quality_advisories = [item for item in requirement_findings
                           if item.get("checker") == "references.recent_language_summary"]
     requirement_findings = [item for item in requirement_findings
                             if item.get("checker") != "references.recent_language_summary"]
     applied = []
     format_item_ids = set(snapshot.get("format_item_ids") or [])
+    unchecked_item_ids = {item.get("id") for item in not_checked}
     for item in snapshot.get("resolved_items", []):
-        if item.get("id") in format_item_ids:
+        if (item.get("type", "auto") != "auto" and item.get("id") in format_item_ids
+                and item.get("id") not in unchecked_item_ids and item.get("id") not in source_note_ids
+                and not is_image_internal_typography(item)):
             applied.append({
                 "id": item.get("id", ""),
                 "description": item.get("description") or "规范排版约束",
@@ -332,6 +354,8 @@ def check_project(project: WritingProject, template: PaperTemplate,
         },
         "findings": result,
         "quality_advisories": quality_advisories,
+        "source_notes": source_notes,
+        "source_guidance": source_guidance,
         "not_checked": not_checked,
         "applied": applied,
         "waived": waived,

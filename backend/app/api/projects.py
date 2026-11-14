@@ -45,6 +45,7 @@ from app.services.projects import create_project_from_template
 from app.services.policy_resolver import (
     apply_requirement_format_overrides,
     build_requirement_snapshot,
+    content_hash as requirement_content_hash,
     hydrate_snapshot_format_overrides,
 )
 from app.services.template_source import resolve_template_source, template_source_dir, delete_template_source
@@ -410,7 +411,7 @@ def update_section(proj_id: str, section_key: str, req: UpdateSectionRequest,
     if req.base_revision is not None and req.base_revision != proj.revision:
         raise HTTPException(
             status_code=409,
-            detail={"message": "项目内容已被更新, 请刷新后重试", "revision": proj.revision},
+            detail={"code": "project_revision_conflict", "message": "项目内容已被更新, 请刷新后重试", "revision": proj.revision},
         )
     for sec in proj.sections:
         if sec.key == section_key:
@@ -437,7 +438,7 @@ def update_section(proj_id: str, section_key: str, req: UpdateSectionRequest,
             if saved is None:
                 raise HTTPException(
                     status_code=409,
-                    detail={"message": "项目内容已被更新, 请刷新后重试"},
+                    detail={"code": "project_revision_conflict", "message": "项目内容已被更新, 请刷新后重试"},
                 )
             return saved
     raise HTTPException(status_code=404, detail="章节不存在")
@@ -1248,14 +1249,14 @@ def update_meta(proj_id: str, req: UpdateMetaRequest,
     if req.base_revision is not None and req.base_revision != proj.revision:
         raise HTTPException(
             status_code=409,
-            detail={"message": "项目内容已被更新, 请刷新后重试", "revision": proj.revision},
+            detail={"code": "project_revision_conflict", "message": "项目内容已被更新, 请刷新后重试", "revision": proj.revision},
         )
     proj.meta.update(req.meta)
     saved = store.update_project_if_revision(proj, expected_revision)
     if saved is None:
         raise HTTPException(
             status_code=409,
-            detail={"message": "项目内容已被更新, 请刷新后重试"},
+            detail={"code": "project_revision_conflict", "message": "项目内容已被更新, 请刷新后重试"},
         )
     return saved
 
@@ -1305,7 +1306,7 @@ def restore_local_snapshot(proj_id: str, req: RestoreLocalSnapshotRequest,
     if req.base_revision != current.revision:
         raise HTTPException(
             status_code=409,
-            detail={"message": "服务器版本已变化，请先读取最新版本后合并本地草稿", "revision": current.revision},
+            detail={"code": "project_revision_conflict", "message": "服务器版本已变化，请先读取最新版本后合并本地草稿", "revision": current.revision},
         )
     raw_sections = req.snapshot.get("sections")
     raw_meta = req.snapshot.get("meta", {})
@@ -1365,7 +1366,7 @@ def restore_local_snapshot(proj_id: str, req: RestoreLocalSnapshotRequest,
     current.sections = sections
     saved = store.update_project_if_revision(current, current.revision)
     if saved is None:
-        raise HTTPException(status_code=409, detail={"message": "服务器版本已变化，请刷新后重试"})
+        raise HTTPException(status_code=409, detail={"code": "project_revision_conflict", "message": "服务器版本已变化，请刷新后重试"})
     return saved
 
 
@@ -1701,6 +1702,7 @@ class DisputeDecisionRequest(BaseModel):
 class RequirementUpgradeRequest(BaseModel):
     reason: str = ""
     expected_snapshot_hash: str = ""
+    expected_resolution_hash: str = ""
     confirm: bool = False
 
 
@@ -1725,6 +1727,13 @@ def _current_requirement_snapshot(proj: WritingProject, tpl: PaperTemplate, stor
     )
 
 
+def _requirement_resolution_hash(snapshot: dict) -> str:
+    return requirement_content_hash({
+        key: value for key, value in snapshot.items()
+        if key not in ("content_hash", "snapshot_created_at")
+    })
+
+
 def _snapshot_diff(old: dict, new: dict) -> dict:
     old_sets = {item.get("id"): item for item in old.get("policy_sets", [])}
     new_sets = {item.get("id"): item for item in new.get("policy_sets", [])}
@@ -1737,13 +1746,22 @@ def _snapshot_diff(old: dict, new: dict) -> dict:
     ]
     old_items = {item.get("id"): item for item in old.get("resolved_items", [])}
     new_items = {item.get("id"): item for item in new.get("resolved_items", [])}
+    # The snapshot's timestamp is part of its immutable hash, but rebuilding
+    # an otherwise identical snapshot must not prompt for an upgrade.
+    old_content = {key: value for key, value in old.items() if key not in ("content_hash", "snapshot_created_at")}
+    new_content = {key: value for key, value in new.items() if key not in ("content_hash", "snapshot_created_at")}
     return {
-        "changed": bool(added or removed or changed or old.get("content_hash") != new.get("content_hash")),
+        "changed": old_content != new_content,
         "added_sets": added,
         "removed_sets": removed,
         "changed_sets": changed,
         "added_items": [new_items[key] for key in new_items.keys() - old_items.keys()],
         "removed_items": [old_items[key] for key in old_items.keys() - new_items.keys()],
+        "changed_items": [
+            {"before": old_items[key], "after": new_items[key]}
+            for key in old_items.keys() & new_items.keys()
+            if old_items[key] != new_items[key]
+        ],
     }
 
 
@@ -2084,6 +2102,7 @@ def preview_requirement_upgrade(proj_id: str, store: Store = Depends(get_store),
     return {
         "from_snapshot_hash": proj.requirement_snapshot.get("content_hash", ""),
         "to_snapshot_hash": new_snapshot.get("content_hash", ""),
+        "to_resolution_hash": _requirement_resolution_hash(new_snapshot),
         "diff": _snapshot_diff(proj.requirement_snapshot, new_snapshot),
         "snapshot": new_snapshot,
     }
@@ -2108,26 +2127,42 @@ def upgrade_requirements(proj_id: str, req: RequirementUpgradeRequest,
     diff = _snapshot_diff(proj.requirement_snapshot, new_snapshot)
     if not req.confirm:
         raise HTTPException(status_code=428, detail={"message": "请确认应用规范升级", "diff": diff})
+    if diff["changed"] and (not req.expected_snapshot_hash or not req.expected_resolution_hash):
+        raise HTTPException(status_code=428, detail={"code": "REQUIREMENT_UPGRADE_PREVIEW_REQUIRED", "message": "请先预览规范差异，再确认升级"})
+    if diff["changed"] and req.expected_resolution_hash != _requirement_resolution_hash(new_snapshot):
+        raise HTTPException(status_code=409, detail={"code": "REQUIREMENT_UPGRADE_TARGET_CHANGED", "message": "目标规范已发生变化，请重新预览"})
     old_hash = proj.requirement_snapshot.get("content_hash", "")
     if diff["changed"]:
-        upgrade = RequirementUpgrade(
-            id=new_id("upgrade"),
-            from_snapshot_hash=old_hash,
-            to_snapshot_hash=new_snapshot.get("content_hash", ""),
-            changed_policy_ids=[item.get("id", "") for item in diff["added_sets"]]
-            + [item.get("id", "") for item in diff["removed_sets"]]
-            + [item["after"].get("id", "") for item in diff["changed_sets"]],
-            reason=req.reason,
-            operated_by=user["id"],
-            operated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        )
-        proj.requirement_upgrades.append(upgrade.model_dump(mode="json"))
-        proj.requirement_snapshot = new_snapshot
-        base_template = PaperTemplate.model_validate(
-            proj.template_source_snapshot or tpl.model_dump(mode="json")
-        )
-        proj.template_snapshot = apply_requirement_format_overrides(base_template, new_snapshot).model_dump(mode="json")
-        store.save_project(proj)
+        with store.workflow_transaction() as conn:
+            row = conn.execute("SELECT data FROM projects WHERE id = ?", (proj.id,)).fetchone()
+            current = WritingProject.model_validate_json(row["data"]) if row else None
+            if (current is None or current.revision != proj.revision
+                    or project_content_hash(current) != project_content_hash(proj)):
+                raise HTTPException(status_code=409, detail={"code": "PROJECT_VERSION_CONFLICT", "message": "项目内容已更新，请刷新后重新预览"})
+            # Hold the write lock while re-resolving so a new policy cannot be
+            # published between the approval check and the project update.
+            locked_snapshot = _current_requirement_snapshot(current, tpl, store)
+            if req.expected_resolution_hash != _requirement_resolution_hash(locked_snapshot):
+                raise HTTPException(status_code=409, detail={"code": "REQUIREMENT_UPGRADE_TARGET_CHANGED", "message": "目标规范已发生变化，请重新预览"})
+            upgrade = RequirementUpgrade(
+                id=new_id("upgrade"), from_snapshot_hash=old_hash,
+                to_snapshot_hash=locked_snapshot.get("content_hash", ""),
+                changed_policy_ids=[item.get("id", "") for item in diff["added_sets"]]
+                + [item.get("id", "") for item in diff["removed_sets"]]
+                + [item["after"].get("id", "") for item in diff["changed_sets"]],
+                reason=req.reason, operated_by=user["id"],
+                operated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            )
+            current.requirement_upgrades.append(upgrade.model_dump(mode="json"))
+            current.requirement_snapshot = locked_snapshot
+            base_template = PaperTemplate.model_validate(
+                current.template_source_snapshot or tpl.model_dump(mode="json")
+            )
+            current.template_snapshot = apply_requirement_format_overrides(base_template, locked_snapshot).model_dump(mode="json")
+            saved = store.update_project_if_revision_conn(conn, current, current.revision)
+            if saved is None:
+                raise HTTPException(status_code=409, detail={"code": "PROJECT_VERSION_CONFLICT", "message": "项目内容已更新，请刷新后重新预览"})
+            proj = saved
     return {"project": proj, "diff": diff}
 
 
@@ -2183,19 +2218,19 @@ def _export_preflight(
     if report is None:
         from app.services.project_check import check_project as run_check
         report = run_check(proj, tpl, pack=None, store=store, performed_by=actor_id)
-    blocking.extend(
-        f"{finding.get('source', '规范要求')}: {finding['message']}"
-        for finding in report.get("findings", [])
-        if finding.get("source_type") == "requirement"
-        and finding.get("enforce") == "hard"
-        and finding.get("severity") == "error"
-    )
-    manual_checks = [
-        f"{item.get('source', '规范要求')}: {item.get('description') or '必需规范无法自动核验'}"
-        for item in report.get("not_checked", [])
-        if item.get("enforce") == "hard"
-    ]
+    from app.services.project_check import hard_requirement_checks
+    requirement_failures, manual_checks = hard_requirement_checks(report)
+    blocking.extend(requirement_failures)
     return blocking, manual_checks
+
+
+def _current_export_requirement_checks(proj: WritingProject, tpl: PaperTemplate) -> list[str]:
+    """Re-evaluate frozen policy rules when an older export is viewed or downloaded."""
+    from app.services.project_check import check_project, hard_requirement_checks
+
+    report = check_project(proj, tpl, pack=None, store=None)
+    failed, unchecked = hard_requirement_checks(report)
+    return failed + unchecked
 
 
 @router.post("/{proj_id}/export-jobs", status_code=202)
@@ -2236,12 +2271,18 @@ def list_project_export_jobs(proj_id: str, store: Store = Depends(get_store),
     if proj is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     assert_resource_read(store, user, "project", proj)
-    from app.services.export_jobs import export_identity, export_job_view
+    from app.services.export_jobs import export_identity, export_job_is_current, export_job_view
     current_identity = export_identity(proj)
+    records = [item for item in store.list_workflow_records("project_export")
+               if item.get("project_id") == proj_id]
+    current_checks = (_current_export_requirement_checks(proj, _project_template(proj, store))
+                      if any(item.get("status") == "succeeded" and export_job_is_current(item, current_identity)
+                             for item in records) else [])
     return [
-        export_job_view(item, current_identity=current_identity, check_current=True)
-        for item in store.list_workflow_records("project_export")
-        if item.get("project_id") == proj_id
+        export_job_view(item, current_identity=current_identity, check_current=True,
+                        current_requirement_checks=current_checks if item.get("status") == "succeeded"
+                        and export_job_is_current(item, current_identity) else None)
+        for item in records
     ]
 
 
@@ -2255,8 +2296,12 @@ def get_project_export_job(proj_id: str, export_id: str, store: Store = Depends(
     record = store.get_workflow_record("project_export", export_id)
     if not record or record.get("project_id") != proj_id:
         raise HTTPException(status_code=404, detail="导出任务不存在")
-    from app.services.export_jobs import export_identity, export_job_view
-    return export_job_view(record, current_identity=export_identity(proj), check_current=True)
+    from app.services.export_jobs import export_identity, export_job_is_current, export_job_view
+    identity = export_identity(proj)
+    current_checks = (_current_export_requirement_checks(proj, _project_template(proj, store))
+                      if record.get("status") == "succeeded" and export_job_is_current(record, identity) else [])
+    return export_job_view(record, current_identity=identity, check_current=True,
+                           current_requirement_checks=current_checks)
 
 
 @router.post("/{proj_id}/export-jobs/{export_id}/retry")
@@ -2364,6 +2409,11 @@ def _verified_project_export_output(record: dict, proj_id: str, project: Writing
             or record.get("project_revision") != snapshot_project.revision):
         raise HTTPException(status_code=409, detail="导出任务与冻结项目身份不匹配，请重新导出")
     _assert_current_export_project(record, project)
+    if _current_export_requirement_checks(snapshot_project, snapshot_template):
+        raise HTTPException(status_code=409, detail={
+            "code": "OUTPUT_CHECK_AUTOMATION_REQUIRED",
+            "message": "当前规则检查尚未通过，请联系系统团队后重新导出。",
+        })
     heading_issues = validate_heading_hierarchy(snapshot_project.sections)
     if heading_issues:
         raise HTTPException(status_code=409, detail={"message": "标题层级有误，请修复后重新导出", "missing": heading_issues})

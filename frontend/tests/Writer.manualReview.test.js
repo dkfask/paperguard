@@ -14,7 +14,7 @@ vi.mock('../src/auth', () => ({ auth: { user: { id: 'teacher', role: 'teacher', 
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'p1' }, query: {} }), useRouter: () => ({ push: vi.fn() }), onBeforeRouteLeave: vi.fn() }))
 vi.mock('../src/i18n', () => ({ useI18n: () => ({ lang: { value: 'zh' }, t: (key, params) => params?.status ? `${key} ${params.status}` : key }) }))
 import Writer from '../src/views/Writer.vue'
-const review = { status: 'required', output_sha256: 'sha-current', checklist: [{ id: 'page', description: '核对最终分页' }] }
+const review = { status: 'required', output_sha256: 'sha-current', checklist: [{ id: 'image-font', description: '图中标注符号文字字号不大于图题的字号' }] }
 function open() { return mount(Writer, { global: { stubs: { BaseModal: true, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } }) }
 beforeEach(() => {
   vi.clearAllMocks()
@@ -56,6 +56,8 @@ describe('Writer pending automatic output checks', () => {
     expect(wrapper.text()).toContain('writer.exportCheckUnverifiable')
     expect(wrapper.text()).not.toContain('writer.exportGenerated')
     expect(panel.text()).toContain('writer.automaticCheckPendingDetail')
+    expect(panel.text()).toContain('writer.automaticCheckPendingRules')
+    expect(panel.text()).toContain('图中标注符号文字字号不大于图题的字号')
     expect(panel.text()).not.toContain('旧文件')
     expect(panel.findAll('input, button')).toHaveLength(0)
     expect(api.downloadProjectExportReviewCandidate).not.toHaveBeenCalled()

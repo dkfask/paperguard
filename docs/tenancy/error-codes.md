@@ -191,6 +191,19 @@ SaaS 局部路由工厂还输出 `API_INPUT_INVALID`（422）、`API_INTERNAL_ER
 | `TENANT_OWNER_SETUP_FORBIDDEN` | 409 | `backend/app/services/saas_identity.py:121` | 非已批准draft、已设owner或已有成员要求隐式提升，拒绝设置 |
 | `TENANT_VERSION_CONFLICT` | 409 | `backend/app/services/saas_identity.py:129` | 首位owner/启用命令的租户期望版本不匹配，拒绝陈旧写入 |
 
+### 2.10 单学校试点及自动成品检查新增码（2026-11-12 核对）
+
+| Code | HTTP | 位置 | 触发与处理 |
+|---|---|---|---|
+| `OUTPUT_CHECK_AUTOMATION_REQUIRED` | 409 | `backend/app/api/projects.py`、`backend/app/api/workflow.py` | 自动成品检查尚未覆盖，或尝试以人工确认替代自动检查；系统团队适配后重新检查。 |
+| `PASSWORD_RECOVERY_NOT_CONFIGURED` | 503 | `backend/app/auth.py` | 密码恢复所需主密钥不可用；由管理员处理服务配置或通过授权流程重置。 |
+| `REQUIREMENT_UPGRADE_PREVIEW_REQUIRED` | 428 | `backend/app/api/projects.py` | 规范升级缺少预览所绑定的源或目标摘要；先预览差异再确认。 |
+| `REQUIREMENT_UPGRADE_TARGET_CHANGED` | 409 | `backend/app/api/projects.py` | 预览后的目标规范已变化；重新预览后再确认。 |
+| `ROLE_CERTIFICATION_REQUIRED` | 403 | `backend/app/services/role_access.py` | 当前身份尚未完成教师或学生认证；进入身份申请流程。 |
+| `ROLE_NOT_OPEN` | 403 | `backend/app/services/role_access.py` | 当前角色未在单学校试点开放；联系管理员确认身份。 |
+
+本节仅登记新增出口；上文标注的历史数量仍是各自日期的快照，不能当作当前全量统计。
+
 ## 3. 体系 B：异步任务码（9 个，已实现）
 
 这些码**不在错误响应里**，而是任务/导出/渲染记录上的 `error_code` 字段，

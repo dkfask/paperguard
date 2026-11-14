@@ -31,6 +31,7 @@ from app.services.policy_import import (
     build_policy_import_messages,
     build_policy_import_retry_messages,
     extract_policy_text,
+    limit_policy_text_for_model,
     normalize_ai_policy,
 )
 from app.services.resource_access import assert_resource_read
@@ -222,7 +223,8 @@ async def import_policy_with_ai(
     content = await file.read(_MAX_DOCUMENT_BYTES + 1)
     if len(content) > _MAX_DOCUMENT_BYTES:
         raise HTTPException(status_code=413, detail="规范文档不能超过 20 MB")
-    extracted_text, truncated = extract_policy_text(content, filename)
+    source_text, _ = extract_policy_text(content, filename, full_text=True)
+    extracted_text, truncated = limit_policy_text_for_model(source_text)
     cfg, _source = resolved
     import_retried = False
     try:
@@ -234,7 +236,7 @@ async def import_policy_with_ai(
             action="policy_import", source=_source,
             max_tokens=_IMPORT_MAX_TOKENS,
         )
-        normalized, analysis = normalize_ai_policy(raw_result, filename, extracted_text)
+        normalized, analysis = normalize_ai_policy(raw_result, filename, source_text)
     except ValueError:
         import_retried = True
         try:
@@ -245,7 +247,7 @@ async def import_policy_with_ai(
                 action="policy_import", source=_source,
                 max_tokens=_IMPORT_MAX_TOKENS,
             )
-            normalized, analysis = normalize_ai_policy(raw_result, filename, extracted_text)
+            normalized, analysis = normalize_ai_policy(raw_result, filename, source_text)
         except ValueError as exc:
             raise HTTPException(status_code=502, detail=f"AI 返回的规范结果无法转换: {exc}") from exc
     analysis["ai_retried"] = import_retried
@@ -294,7 +296,7 @@ async def import_policy_with_ai(
     _audit(store, saved.id, "ai_imported", user, {
         "document_id": document_id,
         "filename": filename,
-        "source_characters": len(extracted_text),
+        "source_characters": len(source_text),
         "source_truncated": truncated,
         "detected_rule_count": analysis["detected_rule_count"],
         "auto_rule_count": analysis["auto_rule_count"],
@@ -304,7 +306,7 @@ async def import_policy_with_ai(
         "policy": saved,
         "analysis": {
             **analysis,
-            "source_characters": len(extracted_text),
+            "source_characters": len(source_text),
             "source_truncated": truncated,
             "status": saved.status.value,
         },

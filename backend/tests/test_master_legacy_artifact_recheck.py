@@ -26,7 +26,7 @@ from tests.test_master_cover_label_visibility import _recompile
 from tests.test_source_template_profile import inspect, master, rendered, rewrite
 
 
-@pytest.fixture(params=["visible", "hidden", "hidden-cover-label", "shaded", "black-highlight"])
+@pytest.fixture(params=["visible", "hidden", "hidden-cover-label", "shaded", "black-highlight", "unexpected-vml"])
 def historical_artifact(request, master, tmp_path, monkeypatch):
     source, template, project, _ = master
     if request.param in {"hidden-cover-label", "shaded", "black-highlight"}:
@@ -60,6 +60,19 @@ def historical_artifact(request, master, tmp_path, monkeypatch):
             visibility.set(qn("w:val"), "1")
 
         data = rewrite(data, "word/document.xml", hide_body)
+    elif request.param == "unexpected-vml":
+        block_id = project.sections[-1].paragraphs[0].id
+
+        def add_vml(root):
+            content = root.xpath(
+                ".//w:sdt[w:sdtPr/w:tag/@w:val=$tag]/w:sdtContent/w:p",
+                namespaces=NS, tag="pg-block:" + block_id,
+            )[0]
+            run = etree.SubElement(content, qn("w:r"))
+            pict = etree.SubElement(run, qn("w:pict"))
+            etree.SubElement(pict, "{urn:schemas-microsoft-com:vml}shape", id="unexpected-shape")
+
+        data = rewrite(data, "word/document.xml", add_vml)
     elif request.param == "shaded":
         block_id = project.sections[-1].paragraphs[0].id
 
@@ -78,14 +91,15 @@ def historical_artifact(request, master, tmp_path, monkeypatch):
 
     current_report = inspect(master, data)
     expected_report_status = "fail" if request.param in {
-        "hidden", "hidden-cover-label", "shaded", "black-highlight",
+        "hidden", "hidden-cover-label", "shaded", "black-highlight", "unexpected-vml",
     } else "pass"
     assert current_report["status"] == expected_report_status
     if request.param != "visible":
         expected_rule = {"hidden": "master.content_visibility",
                          "hidden-cover-label": "master.field_label_visibility",
                          "shaded": "master.content_direct_shading",
-                         "black-highlight": "master.highlight_color_distinct"}[request.param]
+                         "black-highlight": "master.highlight_color_distinct",
+                         "unexpected-vml": "master.text_only"}[request.param]
         assert any(item["rule"] == expected_rule and item["status"] == "fail"
                    for item in current_report["checks"])
 
@@ -99,7 +113,13 @@ def historical_artifact(request, master, tmp_path, monkeypatch):
     old_report["checks"] = [item for item in old_report["checks"] if item["rule"] not in {
         "master.content_visibility", "master.heading_visibility", "master.field_label_visibility",
         "master.content_direct_shading", "master.highlight_color_distinct",
+        "master.unmodeled_block_object", "master.unmodeled_field_object",
     }]
+    if request.param == "unexpected-vml":
+        # The previous checker emitted text_only, but missed VML objects.
+        for item in old_report["checks"]:
+            if item["rule"] == "master.text_only" and item["status"] == "fail":
+                item["status"] = "pass"
     assert all(item["status"] == "pass" for item in old_report["checks"])
     old_report["status"] = "pass"
     old_report["check_count"] = old_report["passed_count"] = len(old_report["checks"])
@@ -135,11 +155,11 @@ def historical_artifact(request, master, tmp_path, monkeypatch):
     return request.param, source, data, old_report, candidate, version
 
 
-@pytest.mark.parametrize("inspector_version", ["docx-output-check/6-master", "docx-output-check/9-master"])
+@pytest.mark.parametrize("inspector_version", ["docx-output-check/6-master", "docx-output-check/9-master", "docx-output-check/11-master", "docx-output-check/15-master"])
 def test_historical_candidate_is_rechecked_with_current_visibility_rules(historical_artifact, inspector_version):
     case, _source, data, _old_report, candidate, version = historical_artifact
     _old_report["inspector_version"] = inspector_version
-    if case in {"hidden", "hidden-cover-label", "shaded", "black-highlight"}:
+    if case in {"hidden", "hidden-cover-label", "shaded", "black-highlight", "unexpected-vml"}:
         with pytest.raises(DocxOutputCheckError):
             workflow._verified_candidate_artifact(None, candidate, version)
     else:
@@ -148,7 +168,7 @@ def test_historical_candidate_is_rechecked_with_current_visibility_rules(histori
         assert report["visibility_check_version"] == "word-run-visibility/1"
 
 
-@pytest.mark.parametrize("inspector_version", ["docx-output-check/6-master", "docx-output-check/9-master"])
+@pytest.mark.parametrize("inspector_version", ["docx-output-check/6-master", "docx-output-check/9-master", "docx-output-check/11-master", "docx-output-check/15-master"])
 def test_historical_archive_is_rechecked_with_current_visibility_rules(historical_artifact, tmp_path, monkeypatch, inspector_version):
     case, source, data, old_report, candidate, version = historical_artifact
     old_report["inspector_version"] = inspector_version
@@ -174,7 +194,7 @@ def test_historical_archive_is_rechecked_with_current_visibility_rules(historica
     }
     monkeypatch.setattr(workflow, "_archive_dir", lambda: tmp_path)
 
-    if case in {"hidden", "hidden-cover-label", "shaded", "black-highlight"}:
+    if case in {"hidden", "hidden-cover-label", "shaded", "black-highlight", "unexpected-vml"}:
         with pytest.raises(DocxOutputCheckError):
             workflow._verified_archive_output(store, archive["id"], archive)
     else:
@@ -189,7 +209,7 @@ def test_previous_master_report_rejects_unknown_version_and_changed_files(histor
     artifact_path = tmp_path / "historical.docx"
     checked, fresh = workflow._verified_candidate_artifact(None, candidate, version)
     assert checked == data
-    assert fresh["inspector_version"] == "docx-output-check/10-master"
+    assert fresh["inspector_version"] == "docx-output-check/16-master"
     assert old_report["inspector_version"] == "docx-output-check/9-master"
 
     original_profile = old_report["source_profile_sha256"]
