@@ -1,0 +1,137 @@
+{
+  "purpose": "界面西文与图标字体，随前端构建产物离线发布。中文不打包，继续使用 style.css 的系统字体回退。",
+  "weights": {
+    "Geist": "400 500 600 700。品牌、导航和说明文字实际用到这些字重，没有斜体。",
+    "JetBrains Mono": "400 600 700。等宽标签、代码片段和 strong 实际用到这些字重，没有斜体，也没有 500。",
+    "Source Serif 4": "仅 700。标题实际只用到这一档，没有斜体，也没有 600 或 800。",
+    "Material Symbols Outlined": "仅常规 400，对应 .material-symbols-outlined 的 font-weight: normal。"
+  },
+  "total_bytes": 526852,
+  "files": [
+    {
+      "file": "geist-latin-400-normal.woff2",
+      "family": "Geist",
+      "style": "normal",
+      "weight": 400,
+      "bytes": 12956,
+      "sha256": "ead637fd0b6b887d829b3ce3f25fdc242b1de0cfb69c0d97987933675d1315ba",
+      "source": {
+        "package": "@fontsource/geist",
+        "version": "5.3.0",
+        "path": "files/geist-latin-400-normal.woff2"
+      }
+    },
+    {
+      "file": "geist-latin-500-normal.woff2",
+      "family": "Geist",
+      "style": "normal",
+      "weight": 500,
+      "bytes": 13296,
+      "sha256": "6145bf6706dbc1b6686f04f871489cf724951f00b752745896ccdcac07639a53",
+      "source": {
+        "package": "@fontsource/geist",
+        "version": "5.3.0",
+        "path": "files/geist-latin-500-normal.woff2"
+      }
+    },
+    {
+      "file": "geist-latin-600-normal.woff2",
+      "family": "Geist",
+      "style": "normal",
+      "weight": 600,
+      "bytes": 13372,
+      "sha256": "edde7cc4e2719898f981a6d970a756030fff75a8ed36dd6a457a60181b889ebf",
+      "source": {
+        "package": "@fontsource/geist",
+        "version": "5.3.0",
+        "path": "files/geist-latin-600-normal.woff2"
+      }
+    },
+    {
+      "file": "geist-latin-700-normal.woff2",
+      "family": "Geist",
+      "style": "normal",
+      "weight": 700,
+      "bytes": 13364,
+      "sha256": "728e76ff0b76212419e83011f5202c2fd1144da9d7915a4fa787561f5a3f334d",
+      "source": {
+        "package": "@fontsource/geist",
+        "version": "5.3.0",
+        "path": "files/geist-latin-700-normal.woff2"
+      }
+    },
+    {
+      "file": "jetbrains-mono-latin-400-normal.woff2",
+      "family": "JetBrains Mono",
+      "style": "normal",
+      "weight": 400,
+      "bytes": 21168,
+      "sha256": "14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb",
+      "source": {
+        "package": "@fontsource/jetbrains-mono",
+        "version": "5.3.0",
+        "path": "files/jetbrains-mono-latin-400-normal.woff2"
+      }
+    },
+    {
+      "file": "jetbrains-mono-latin-600-normal.woff2",
+      "family": "JetBrains Mono",
+      "style": "normal",
+      "weight": 600,
+      "bytes": 21860,
+      "sha256": "400c6bfda18d5d14acad1c15d6dcb9f8e13c015e7286317e0b9a482539bef147",
+      "source": {
+        "package": "@fontsource/jetbrains-mono",
+        "version": "5.3.0",
+        "path": "files/jetbrains-mono-latin-600-normal.woff2"
+      }
+    },
+    {
+      "file": "jetbrains-mono-latin-700-normal.woff2",
+      "family": "JetBrains Mono",
+      "style": "normal",
+      "weight": 700,
+      "bytes": 21908,
+      "sha256": "d0d4e818808f2a0ba39b2b09d1989366f63494e295f003c7ef436697378507e8",
+      "source": {
+        "package": "@fontsource/jetbrains-mono",
+        "version": "5.3.0",
+        "path": "files/jetbrains-mono-latin-700-normal.woff2"
+      }
+    },
+    {
+      "file": "source-serif-4-latin-700-normal.woff2",
+      "family": "Source Serif 4",
+      "style": "normal",
+      "weight": 700,
+      "bytes": 21716,
+      "sha256": "7691c51bc286a9014db0048277d2c3f2ad0a90b533dc8adfb16cb22a95390d39",
+      "source": {
+        "package": "@fontsource/source-serif-4",
+        "version": "5.3.1",
+        "path": "files/source-serif-4-latin-700-normal.woff2"
+      }
+    },
+    {
+      "file": "material-symbols-outlined-400-normal.woff2",
+      "family": "Material Symbols Outlined",
+      "style": "normal",
+      "weight": 400,
+      "axes": {
+        "FILL": 0,
+        "GRAD": 0,
+        "opsz": 24,
+        "wght": 400
+      },
+      "bytes": 387212,
+      "sha256": "301783efbdd510c3328cbd2dfed4666212ae319f869d696d47df2df28a0c645f",
+      "note": "由上游完整可变字体用 fontTools 4.68.0 实例化到界面实际使用的 Outlined 样式：字重 400、FILL 0、GRAD 0、opsz 24。保留全部图标连字，不附带其他 FILL、GRAD、opsz 或字重档。同一发布包里的静态小文件会丢掉大部分连字，所以没有采用。",
+      "source": {
+        "package": "@fontsource-variable/material-symbols-outlined",
+        "version": "5.3.9",
+        "path": "files/material-symbols-outlined-latin-full-normal.woff2",
+        "sha256": "66187cd42fe1d24d3ea6be77da7466c4fc6c1cd1d0870b685e041d8402680063"
+      }
+    }
+  ]
+}

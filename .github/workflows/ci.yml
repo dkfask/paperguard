@@ -54,6 +54,8 @@ jobs:
           npm run typecheck
           npm run test:paragraphs
           npm run build
+      - name: College admin checks
+        run: npm run check:college-admin
 
   online-verifier:
     name: Online verifier contract (loopback)

@@ -1,7 +1,7 @@
 /**
  * Material Symbols 图标字体可用性兜底。
  *
- * 字体来自 CDN，一旦取不到，ligature 名（school / refresh / fact_check…）会被浏览器
+ * 字体随构建产物发布。一旦取不到，ligature 名（school / refresh / fact_check…）会被浏览器
  * 当普通文本直接渲染出来，整页变成英文单词。
  *
  * 纯 CSS 无法检测字体是否加载成功（早期那段 @supports (font-display: swap) 和

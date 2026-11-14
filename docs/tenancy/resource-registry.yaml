@@ -910,9 +910,10 @@ authorization_matrix:
       # ↓ 口径：签名带 `require_manager` **且不带** feature flag 依赖的路由。
       #   **本值原为 25，且原分类只数了「路由级」flag，漏掉 3 个 router 级挂载的 5 条**
       #   （document_packages / document_projects / specs 的 `APIRouter(dependencies=[...])`），
-      #   于是那 5 条被错标成「纯 manager」。2026-11-13 静态口径为 20 + 12 = 32。
-      require_manager: 20
-      require_admin: 7
+      #   于是那 5 条被错标成「纯 manager」。合并组织创建权限收紧后，静态口径为 19 + 12 = 31。
+      #   POST /api/organizations 现为 require_admin，纯 manager 与 require_admin 各挪 1。
+      require_manager: 19
+      require_admin: 8
       trusted_context: 19
       require_template_manager: 9
       # ★ 这个名字**不是代码里的标识符**（全仓 grep 0 命中），而是一个**派生分类**。
