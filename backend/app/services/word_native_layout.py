@@ -35,14 +35,15 @@ _WORD_SCRIPT = r'''
 on run argv
     set inputPath to item 1 of argv
     set documentName to item 2 of argv
-    set bookmarkNames to items 3 thru -1 of argv
+    set bookmarkNames to {}
+    if (count of argv) > 2 then set bookmarkNames to items 3 thru (count of argv) of argv
     set outputRows to {}
     with timeout of 80 seconds
         tell application "Microsoft Word"
             if (count documents) is not 0 then error "PAPERGUARD_WORD_BUSY"
+            set docRef to missing value
             try
-                open (POSIX file inputPath) read only true add to recent files false
-                set docRef to document documentName
+                set docRef to open file name inputPath read only true add to recent files false
                 if (posix full name of docRef) is not inputPath then error "PAPERGUARD_WORD_PATH"
                 set end of outputRows to "V|" & (version as text)
                 repeat with passNumber from 1 to 2
@@ -60,8 +61,7 @@ on run argv
                 close docRef saving no
             on error errorText number errorNumber
                 try
-                    set closeRef to document documentName
-                    if (posix full name of closeRef) is inputPath then close closeRef saving no
+                    if docRef is not missing value then close docRef saving no
                 end try
                 error errorText number errorNumber
             end try
@@ -83,9 +83,9 @@ on run argv
     with timeout of 80 seconds
         tell application "Microsoft Word"
             if (count documents) is not 0 then error "PAPERGUARD_WORD_BUSY"
+            set docRef to missing value
             try
-                open (POSIX file inputPath) read only true add to recent files false
-                set docRef to document documentName
+                set docRef to open file name inputPath read only true add to recent files false
                 if (posix full name of docRef) is not inputPath then error "PAPERGUARD_WORD_PATH"
                 set end of outputRows to "V|" & (version as text)
                 repeat with passNumber from 1 to 2
@@ -115,8 +115,7 @@ on run argv
                 close docRef saving no
             on error errorText number errorNumber
                 try
-                    set closeRef to document documentName
-                    if (posix full name of closeRef) is inputPath then close closeRef saving no
+                    if docRef is not missing value then close docRef saving no
                 end try
                 error errorText number errorNumber
             end try
@@ -203,9 +202,9 @@ on run argv
     with timeout of 140 seconds
         tell application "Microsoft Word"
             if (count documents) is not 0 then error "PAPERGUARD_WORD_BUSY"
+            set docRef to missing value
             try
-                open (POSIX file inputPath) read only true add to recent files false
-                set docRef to document documentName
+                set docRef to open file name inputPath read only true add to recent files false
                 if (posix full name of docRef) is not inputPath then error "PAPERGUARD_WORD_PATH"
                 set end of outputRows to "V|" & (version as text)
                 repeat with passNumber from 1 to 2
@@ -254,8 +253,7 @@ on run argv
                 close docRef saving no
             on error errorText number errorNumber
                 try
-                    set closeRef to document documentName
-                    if (posix full name of closeRef) is inputPath then close closeRef saving no
+                    if docRef is not missing value then close docRef saving no
                 end try
                 error errorText number errorNumber
             end try
@@ -276,9 +274,9 @@ on run argv
     with timeout of 80 seconds
         tell application "Microsoft Word"
             if (count documents) is not 0 then error "PAPERGUARD_WORD_BUSY"
+            set docRef to missing value
             try
-                open (POSIX file inputPath) read only false add to recent files false
-                set docRef to document documentName
+                set docRef to open file name inputPath read only false add to recent files false
                 if (posix full name of docRef) is not inputPath then error "PAPERGUARD_WORD_PATH"
                 if (count tables of contents of docRef) is not 1 then error "PAPERGUARD_TOC_COUNT"
                 update table of contents 1 of docRef
@@ -288,8 +286,7 @@ on run argv
                 return "OK"
             on error errorText number errorNumber
                 try
-                    set closeRef to document documentName
-                    if (posix full name of closeRef) is inputPath then close closeRef saving no
+                    if docRef is not missing value then close docRef saving no
                 end try
                 error errorText number errorNumber
             end try
