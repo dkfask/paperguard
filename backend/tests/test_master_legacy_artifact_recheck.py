@@ -169,7 +169,7 @@ def test_historical_candidate_is_rechecked_with_current_visibility_rules(histori
 
 
 @pytest.mark.parametrize("inspector_version", ["docx-output-check/6-master", "docx-output-check/9-master", "docx-output-check/11-master", "docx-output-check/15-master"])
-def test_historical_archive_is_rechecked_with_current_visibility_rules(historical_artifact, tmp_path, monkeypatch, inspector_version):
+def test_historical_archive_uses_frozen_report_after_integrity_checks(historical_artifact, tmp_path, monkeypatch, inspector_version):
     case, source, data, old_report, candidate, version = historical_artifact
     old_report["inspector_version"] = inspector_version
     store = Store(tmp_path / "historical.db")
@@ -200,7 +200,92 @@ def test_historical_archive_is_rechecked_with_current_visibility_rules(historica
     else:
         _archive_bytes, checked, report = workflow._verified_archive_output(store, archive["id"], archive)
         assert checked == data
-        assert report["visibility_check_version"] == "word-run-visibility/1"
+        assert report["inspector_version"] == "docx-output-check/16-master"
+
+
+@pytest.mark.parametrize("mutation", ["status", "inspector", "profile"])
+def test_historical_archive_compatibility_still_rejects_untrusted_report(
+    historical_artifact, tmp_path, monkeypatch, mutation,
+):
+    _case, source, data, old_report, candidate, version = historical_artifact
+    store = Store(tmp_path / "historical-invalid.db")
+    submission = {"id": "historical-invalid-submission", "project_version_id": version["id"],
+                  "candidate_id": candidate["id"]}
+    for kind, record in (("project_version", version), ("candidate", candidate), ("submission", submission)):
+        assert store.save_workflow_record(kind, record)
+    report = copy.deepcopy(old_report)
+    if mutation == "status":
+        report["status"] = "fail"
+    elif mutation == "inspector":
+        report["inspector_version"] = "docx-output-check/7-master"
+    else:
+        report["source_profile_sha256"] = "f" * 64
+    manifest = {
+        "archive_id": "historical-invalid-archive", "submission_id": submission["id"],
+        "output_check": report, "output_check_identity": output_check_identity(report),
+        "files": [{"name": "final.docx", "sha256": hashlib.sha256(data).hexdigest(),
+                   "size_bytes": len(data)}],
+    }
+    archive_path = tmp_path / "historical-invalid-archive.zip"
+    with zipfile.ZipFile(archive_path, "w") as bundle:
+        bundle.writestr("final.docx", data)
+        bundle.writestr("manifest.json", json.dumps(manifest))
+    archive = {
+        "id": manifest["archive_id"], "status": "succeeded", "submission_id": submission["id"],
+        "file_path": str(archive_path), "manifest_hash": workflow._hash(manifest),
+        "source_template_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+    }
+    monkeypatch.setattr(workflow, "_archive_dir", lambda: tmp_path)
+    with pytest.raises(ValueError):
+        workflow._verified_archive_output(store, archive["id"], archive)
+
+
+@pytest.mark.parametrize("mutation", ["same_key_fail", "unsupported", "layout", "hard_blocker"])
+def test_historical_archive_cannot_hide_current_report_blockers(
+    historical_artifact, tmp_path, monkeypatch, mutation,
+):
+    _case, source, data, old_report, candidate, version = historical_artifact
+    store = Store(tmp_path / f"historical-current-{mutation}.db")
+    submission = {"id": f"historical-current-{mutation}-submission", "project_version_id": version["id"],
+                  "candidate_id": candidate["id"]}
+    for kind, record in (("project_version", version), ("candidate", candidate), ("submission", submission)):
+        assert store.save_workflow_record(kind, record)
+
+    manifest = {
+        "archive_id": f"historical-current-{mutation}-archive", "submission_id": submission["id"],
+        "output_check": old_report, "output_check_identity": output_check_identity(old_report),
+        "files": [{"name": "final.docx", "sha256": hashlib.sha256(data).hexdigest(),
+                   "size_bytes": len(data)}],
+    }
+    archive_path = tmp_path / f"{manifest['archive_id']}.zip"
+    with zipfile.ZipFile(archive_path, "w") as bundle:
+        bundle.writestr("final.docx", data)
+        bundle.writestr("manifest.json", json.dumps(manifest))
+    archive = {
+        "id": manifest["archive_id"], "status": "succeeded", "submission_id": submission["id"],
+        "file_path": str(archive_path), "manifest_hash": workflow._hash(manifest),
+        "source_template_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+    }
+    current_report = copy.deepcopy(old_report)
+    current_report["inspector_version"] = "docx-output-check/16-master"
+    current_report["status"] = "pass"
+    current_report["check_count"] = current_report["passed_count"] = len(current_report["checks"])
+    for check in current_report["checks"]:
+        check["status"] = "pass"
+    if mutation == "same_key_fail":
+        current_report["checks"][0]["status"] = "fail"
+        current_report["status"] = "fail"
+    elif mutation == "unsupported":
+        current_report["unsupported"] = ["new unsupported structure"]
+    elif mutation == "layout":
+        current_report["layout_evidence_limitations"] = ["layout receipt is stale"]
+    else:
+        current_report["hard_blockers"] = ["master.layout_receipt:document:unverifiable"]
+    monkeypatch.setattr(workflow, "inspect_docx_output", lambda *args, **kwargs: current_report)
+    monkeypatch.setattr(workflow, "_archive_dir", lambda: tmp_path)
+
+    with pytest.raises(DocxOutputCheckError):
+        workflow._verified_archive_output(store, archive["id"], archive)
 
 
 @pytest.mark.parametrize("historical_artifact", ["visible"], indirect=True)

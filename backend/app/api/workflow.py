@@ -72,6 +72,7 @@ from app.services.upload_security import IMAGE_MAX_BYTES
 from app.services.docx_output_check import (
     DocxOutputCheckError,
     expected_output_check_identity,
+    inspect_docx_output,
     output_check_identity,
     require_docx_output_pass,
     safe_output_check_diagnostics,
@@ -80,6 +81,7 @@ from app.services.docx_output_check import (
     verify_report_identity,
 )
 from app.services.manual_output_review import review_required, review_view
+from app.services.source_template_profile import verify_profile
 from app.services.wechat_content_security import assert_ugc_safe
 
 router = APIRouter(prefix="/api", tags=["workflow"])
@@ -3059,7 +3061,14 @@ def retry_archive(archive_id: str, req: RetryRequest, store: Store = Depends(get
 
 
 def _verified_archive_output(store: Store, archive_id: str, archive: dict) -> tuple[bytes, bytes, dict]:
-    """Rebind an archive's final DOCX to its manifest and frozen source snapshot."""
+    """Rebind an archive's final DOCX to its manifest and frozen source snapshot.
+
+    A historical archive is a frozen delivery artifact.  Its signed output
+    report remains authoritative when it was produced by a supported older
+    master inspector, while the archive, project, template, source profile,
+    and current hard requirements are still checked at download time.  New
+    output continues through the current inspector below.
+    """
     if archive.get("status") != "succeeded" or not archive.get("file_path"):
         raise ValueError("archive is not ready")
     path = Path(archive["file_path"]).resolve()
@@ -3090,7 +3099,9 @@ def _verified_archive_output(store: Store, archive_id: str, archive: dict) -> tu
         raise ValueError("archive manifest digest mismatch")
     output_check = manifest.get("output_check")
     if (
-        not verify_report_binding(output_check, final_docx, allow_previous_inspector=True)
+        not isinstance(output_check, dict)
+        or output_check.get("status") != "pass"
+        or not verify_report_binding(output_check, final_docx, allow_previous_inspector=True)
         or not verify_report_identity(output_check, manifest.get("output_check_identity") or {})
         or str(output_check.get("source_template_sha256") or "") != str(archive.get("source_template_sha256") or "")
     ):
@@ -3103,6 +3114,7 @@ def _verified_archive_output(store: Store, archive_id: str, archive: dict) -> tu
     if (candidate.get("project_version_id") != version.get("id")
             or candidate.get("content_hash") != version.get("content_hash")
             or candidate_artifact.get("docx_sha256") != hashlib.sha256(final_docx).hexdigest()
+            or candidate_report.get("status") != "pass"
             or not verify_report_binding(candidate_report, final_docx, allow_previous_inspector=True)
             or not verify_report_identity(candidate_report, output_check,
                                           allow_previous_inspector=True)):
@@ -3118,6 +3130,46 @@ def _verified_archive_output(store: Store, archive_id: str, archive: dict) -> tu
     source_hash = hashlib.sha256(source).hexdigest() if source is not None else ""
     if source_hash != str(archive.get("source_template_sha256") or "") or (template.source_docx and not source_hash):
         raise ValueError("source template differs from the frozen archive")
+    expected_identity = expected_output_check_identity(project, template, source)
+    if not verify_report_identity(output_check, expected_identity, allow_previous_inspector=True):
+        raise ValueError("archive report identity differs from the frozen project and template")
+    if template.source_execution:
+        profile = verify_profile(template, source)
+        if profile.get("profile_sha256") != output_check.get("source_profile_sha256"):
+            raise ValueError("archive report is not bound to the current source profile")
+    if output_check.get("inspector_version") != expected_identity.get("inspector_version"):
+        # Re-run the current inspector before exposing a historical artifact.
+        # The frozen report proves what was delivered at the time, but it must
+        # not hide a current failure by matching a rule/object/unit key from
+        # the old report.  Compatibility is therefore limited to a current
+        # report that is itself complete and acceptable; changed expectations,
+        # same-key failures, and report-level limitations all remain blocking.
+        current_report = inspect_docx_output(
+            final_docx, project, template, source_template_bytes=source,
+            context_kind="workflow-archive-download",
+        )
+        current_checks = current_report.get("checks")
+        current_statuses = {
+            item.get("status") for item in current_checks
+            if isinstance(item, dict)
+        } if isinstance(current_checks, list) else set()
+        if (
+            not isinstance(current_checks, list)
+            or not current_checks
+            or current_report.get("check_count") != len(current_checks)
+            or current_report.get("passed_count") != len(current_checks)
+            or current_report.get("status") != "pass"
+            or current_report.get("acceptance_status") not in {None, "pass"}
+            or current_statuses != {"pass"}
+            or current_report.get("unsupported")
+            or current_report.get("layout_evidence_limitations")
+            or current_report.get("hard_blockers")
+            or current_report.get("failed_checks")
+            or current_report.get("unverifiable_checks")
+            or current_report.get("excluded_checks") not in (None, [])
+        ):
+            raise DocxOutputCheckError(current_report)
+        return archive_bytes, final_docx, current_report
     fresh_report = require_docx_output_pass(
         final_docx, project, template, source_template_bytes=source, context_kind="workflow-archive-download",
     )
