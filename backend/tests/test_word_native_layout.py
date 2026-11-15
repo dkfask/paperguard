@@ -361,6 +361,36 @@ def test_native_busy_does_not_try_to_close_an_existing_document(tmp_path, monkey
     assert calls == [word_native_layout._WORD_SCRIPT]
 
 
+def test_native_measurement_allows_documents_without_directory_bookmarks(tmp_path, monkeypatch):
+    monkeypatch.setattr(word_native_layout.sys, "platform", "darwin")
+    source = tmp_path / "paperguard-word-test" / "paperguard-input.docx"
+    source.parent.mkdir()
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(kwargs["input"])
+        return SimpleNamespace(returncode=0, stderr="", stdout="V|16.113.3\nT|1|1\nT|2|1")
+
+    monkeypatch.setattr(word_native_layout.subprocess, "run", run)
+    assert word_native_layout._run_word(source, [], 1) == "V|16.113.3\nT|1|1\nT|2|1"
+    assert len(calls) == 1
+    assert "set bookmarkNames to {}" in calls[0]
+    assert "if (count of argv) > 2" in calls[0]
+
+
+def test_native_word_probes_keep_the_opened_document_reference_for_cleanup():
+    for script in (
+        word_native_layout._WORD_SCRIPT,
+        word_native_layout._WORD_TABLE_ROWS_SCRIPT,
+        word_native_layout._WORD_COVER_SCRIPT,
+        word_native_layout._WORD_TOC_SCRIPT,
+    ):
+        assert "set docRef to open file name inputPath" in script
+        assert "set docRef to active document" not in script
+        assert "if docRef is not missing value then close docRef saving no" in script
+        assert "set closeRef to document documentName" not in script
+
+
 @pytest.mark.parametrize(("text", "expected"), [("IV", 4), ("iv", 4), ("5", 5), ("IIII", None), ("0", None)])
 def test_page_values_accept_canonical_numbers_only(text, expected):
     assert word_native_layout._page_value(text) == expected
