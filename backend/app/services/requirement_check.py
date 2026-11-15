@@ -123,23 +123,28 @@ def _frozen_attachment_text(policy_id: str, document: dict[str, Any]) -> str | N
         return None
     try:
         directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-        root_fd = os.open(policies._document_dir().resolve(), directory_flags)
-        try:
-            policy_fd = os.open(policy_id, directory_flags, dir_fd=root_fd)
+        for root in policies._document_dirs():
             try:
-                fd = os.open(key, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=policy_fd)
-            finally:
-                os.close(policy_fd)
-        finally:
-            os.close(root_fd)
-        with os.fdopen(fd, "rb") as stream:
-            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                return None
-            data = stream.read(policies._MAX_DOCUMENT_BYTES + 1)
-        if len(data) > policies._MAX_DOCUMENT_BYTES or "sha256:" + hashlib.sha256(data).hexdigest() != checksum:
-            return None
-        text, _ = extract_policy_text(data, key, full_text=True)
-        return text
+                root_fd = os.open(root.resolve(), directory_flags)
+                try:
+                    policy_fd = os.open(policy_id, directory_flags, dir_fd=root_fd)
+                    try:
+                        fd = os.open(key, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=policy_fd)
+                    finally:
+                        os.close(policy_fd)
+                finally:
+                    os.close(root_fd)
+                with os.fdopen(fd, "rb") as stream:
+                    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                        continue
+                    data = stream.read(policies._MAX_DOCUMENT_BYTES + 1)
+                if len(data) > policies._MAX_DOCUMENT_BYTES or "sha256:" + hashlib.sha256(data).hexdigest() != checksum:
+                    continue
+                text, _ = extract_policy_text(data, key, full_text=True)
+                return text
+            except (OSError, ValueError, HTTPException):
+                continue
+        return None
     except (OSError, ValueError, HTTPException):
         return None
 

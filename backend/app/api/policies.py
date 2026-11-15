@@ -59,6 +59,16 @@ def _document_dir() -> Path:
     return data_dir() / "policy-documents"
 
 
+def _document_dirs() -> tuple[Path, ...]:
+    """Return the active root and the pre-data-root location during upgrades."""
+    active = _document_dir()
+    if _DOCUMENT_DIR != _DEFAULT_DOCUMENT_DIR:
+        return (active,)
+    legacy = _DEFAULT_DOCUMENT_DIR.resolve()
+    active = active.resolve()
+    return (active,) if active == legacy else (active, legacy)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -418,11 +428,11 @@ def create_policy_version(policy_id: str, req: NewVersionRequest,
     for document in clone.documents:
         if not document.storage_key:
             continue
-        source = _policy_document_path(policy_id, document.storage_key)
+        source = _find_policy_document_path(policy_id, document.storage_key, document.checksum)
         suffix = Path(document.filename).suffix.lower()
         copied_key = f"{document.id}{suffix}"
         target = _policy_document_path(new_id_value, copied_key)
-        if source.is_file():
+        if source is not None:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
             document.storage_key = copied_key
@@ -556,6 +566,25 @@ def _policy_document_path(policy_id: str, storage_key: str) -> Path:
     return path
 
 
+def _find_policy_document_path(policy_id: str, storage_key: str, checksum: str = "") -> Path | None:
+    for root in _document_dirs():
+        raw_path = root / policy_id / storage_key
+        if raw_path.is_symlink():
+            continue
+        path = raw_path.resolve()
+        policy_root = (root / policy_id).resolve()
+        if policy_root not in path.parents or not path.is_file() or path.is_symlink():
+            continue
+        if checksum:
+            try:
+                if "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != checksum:
+                    continue
+            except OSError:
+                continue
+        return path
+    return None
+
+
 @router.post("/{policy_id}/documents", status_code=201)
 async def upload_policy_document(policy_id: str, file: UploadFile = File(...),
                                  store: Store = Depends(get_store), user: dict = Depends(require_manager)) -> RequirementSet:
@@ -603,8 +632,8 @@ def download_policy_document(policy_id: str, document_id: str,
     document = next((item for item in requirement_set.documents if item.id == document_id), None)
     if document is None:
         raise HTTPException(status_code=404, detail="规范文档不存在")
-    path = _policy_document_path(policy_id, document.storage_key)
-    if not path.is_file():
+    path = _find_policy_document_path(policy_id, document.storage_key, document.checksum)
+    if path is None:
         raise HTTPException(status_code=410, detail="规范文档文件已丢失")
     return FileResponse(path, media_type=document.content_type, filename=document.filename)
 
@@ -622,8 +651,9 @@ def delete_policy_document(policy_id: str, document_id: str,
     document = next((item for item in requirement_set.documents if item.id == document_id), None)
     if document is None:
         raise HTTPException(status_code=404, detail="规范文档不存在")
-    path = _policy_document_path(policy_id, document.storage_key)
-    path.unlink(missing_ok=True)
+    path = _find_policy_document_path(policy_id, document.storage_key, document.checksum)
+    if path is not None:
+        path.unlink(missing_ok=True)
     requirement_set.documents = [item for item in requirement_set.documents if item.id != document_id]
     saved = store.save_requirement_set(requirement_set)
     _audit(store, saved.id, "document_removed", user, {"document_id": document_id})
