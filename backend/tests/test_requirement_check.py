@@ -620,6 +620,46 @@ def test_legacy_attachment_recovers_frozen_rule_without_mutating_snapshot(tmp_pa
     assert snapshot == original
 
 
+def test_policy_attachment_uses_configured_data_dir_when_default_path_is_active(tmp_path, monkeypatch):
+    import hashlib
+    from app.api import policies
+    from app.services.requirement_check import _frozen_attachment_text
+
+    monkeypatch.delenv('PAPERGUARD_DB_PATH', raising=False)
+    monkeypatch.setenv('PAPERGUARD_DATA_DIR', str(tmp_path / 'persistent-data'))
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', policies._DEFAULT_DOCUMENT_DIR)
+    data = '图题用五号宋体。'.encode()
+    attachment_dir = tmp_path / 'persistent-data' / 'policy-documents' / 'legacy'
+    attachment_dir.mkdir(parents=True)
+    (attachment_dir / 'guide.txt').write_bytes(data)
+    document = {'storage_key': 'guide.txt',
+                'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}
+
+    assert _frozen_attachment_text('legacy', document) == '图题用五号宋体。'
+
+
+def test_policy_attachment_falls_back_to_legacy_root_only_when_checksum_matches(tmp_path, monkeypatch):
+    import hashlib
+    from app.api import policies
+    from app.services.requirement_check import _frozen_attachment_text
+
+    legacy_root = tmp_path / 'legacy-policy-documents'
+    data_root = tmp_path / 'persistent-data'
+    monkeypatch.setenv('PAPERGUARD_DATA_DIR', str(data_root))
+    monkeypatch.setattr(policies, '_DEFAULT_DOCUMENT_DIR', legacy_root)
+    monkeypatch.setattr(policies, '_DOCUMENT_DIR', legacy_root)
+    data = '旧版本规范附件仍可恢复读取。'.encode()
+    attachment_dir = legacy_root / 'legacy'
+    attachment_dir.mkdir(parents=True)
+    (attachment_dir / 'guide.txt').write_bytes(data)
+    document = {'storage_key': 'guide.txt',
+                'checksum': 'sha256:' + hashlib.sha256(data).hexdigest()}
+
+    assert _frozen_attachment_text('legacy', document) == '旧版本规范附件仍可恢复读取。'
+    document['checksum'] = 'sha256:' + ('0' * 64)
+    assert _frozen_attachment_text('legacy', document) is None
+
+
 @pytest.mark.parametrize('failure', ['missing', 'mismatch', 'bad_key', 'bad_policy', 'symlink',
                                    'policy_symlink', 'checksum_missing', 'oversized', 'malformed'])
 def test_legacy_attachment_unavailable_never_silently_passes_with_images(tmp_path, monkeypatch, failure):

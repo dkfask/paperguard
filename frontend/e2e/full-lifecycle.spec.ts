@@ -147,7 +147,6 @@ async function completeRequiredWriterGates(page: Page, thesisTitle: string) {
     { pattern: /系统实现/, text: '本章介绍系统主要功能的实现。' },
     { pattern: /系统测试/, text: '本章补充系统测试内容，用于验证完整论文导出前的必填门禁。' },
     { pattern: /结论/, text: '本文总结系统设计、实现及测试结果。' },
-    { pattern: /原创承诺书/, text: '本人承诺本论文为独立完成，引用他人成果均已按规范标注来源。' },
   ]
 
   for (const section of requiredSections) {
@@ -165,6 +164,27 @@ async function completeRequiredWriterGates(page: Page, thesisTitle: string) {
       // 旧定位器按「新增段落」查找，但该文案在产品中从不存在（WriterEditor 的按钮是
       // t('writer.addParagraph')＝「添加段落」，且本页面不渲染 WriterEditor 的章节工具条），
       // 属于被 BUG-20261001-01 长期掩盖的 TEST-DEFECT，故按真实结构定位。
+      await page.locator('.insert-row button.primary').first().click()
+      paragraph = page.locator('textarea.para-text').first()
+    }
+    await expect(paragraph).toBeVisible()
+    await paragraph.fill(section.text)
+    await expect(page.locator('.writer-save-status')).not.toHaveClass(/pending/)
+  }
+
+  // The 1101 source template does not include an originality declaration as a
+  // writing section. If a future admitted template declares one, fill it; its
+  // absence is a template choice rather than a lifecycle failure.
+  const optionalDeclarations = [
+    { pattern: /原创承诺书|原创性声明|诚信承诺/, text: '本人承诺本论文为独立完成，引用他人成果均已按规范标注来源。' },
+  ]
+  for (const section of optionalDeclarations) {
+    await page.getByRole('button', { name: '章节大纲', exact: true }).click()
+    const row = page.locator('.nav-row').filter({ hasText: section.pattern }).first()
+    if (await row.count() === 0) continue
+    await row.click()
+    let paragraph = page.locator('textarea.para-text').first()
+    if (!await paragraph.count()) {
       await page.locator('.insert-row button.primary').first().click()
       paragraph = page.locator('textarea.para-text').first()
     }
