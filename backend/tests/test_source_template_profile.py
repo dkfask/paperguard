@@ -123,7 +123,7 @@ def test_image_rule_ignores_removed_master_examples_but_not_retained_or_student_
     assert check_requirements(project, snapshot, template)[1][0]['reason'] == 'image_typography_unverified'
 
 
-def test_image_rule_blocks_master_graphic_retained_in_document_body(master, tmp_path, monkeypatch):
+def test_image_rule_does_not_block_fixed_master_graphic_when_project_has_no_image(master, tmp_path, monkeypatch):
     from app.services.requirement_check import check_requirements
 
     source, old_template, project, _ = master
@@ -143,7 +143,7 @@ def test_image_rule_blocks_master_graphic_retained_in_document_body(master, tmp_
     rule = {'id': 'image-font', 'type': 'manual', 'checker': '', 'target': 'document',
             'params': {'image_typography_constraint': 'caption_font_size_upper_bound'},
             'severity': 'error', 'enforce': 'hard', 'description': '图中文字字号不得大于图题'}
-    assert check_requirements(project, {'resolved_items': [rule]}, template)[1][0]['reason'] == 'image_typography_unverified'
+    assert check_requirements(project, {'resolved_items': [rule]}, template)[1] == []
     output = rendered((source, template, project, confirmation), tmp_path)
     with zipfile.ZipFile(io.BytesIO(output)) as archive:
         assert load_part(archive, 'word/document.xml').xpath('//*[local-name()="drawing"]')

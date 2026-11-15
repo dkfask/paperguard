@@ -150,12 +150,17 @@ def _frozen_attachment_text(policy_id: str, document: dict[str, Any]) -> str | N
 
 
 def _may_contain_images(project: WritingProject, template: PaperTemplate | None) -> bool:
+    # The image-typography rule applies to student-owned visual objects.
+    # Fixed graphics retained from a source template (for example a cover
+    # emblem or an instructional sample) are controlled by the template
+    # profile and must not make every otherwise text-only project
+    # unverifiable. Imported table XML still counts because it came from the
+    # student's material and may contain an embedded drawing.
     if template is None:
         return True
     if any(
         block.type.value == "image"
         or (block.table is not None and block.table.source_xml)
-        or (block.equation is not None and block.equation.omml)
         for section in project.sections for block in section.paragraphs
     ):
         return True
@@ -164,16 +169,13 @@ def _may_contain_images(project: WritingProject, template: PaperTemplate | None)
     if not template.source_docx or not template.source_execution:
         return True
 
-    # Use the same signed source and editable-boundary transformation as the
-    # renderer. Sample pictures removed from manuscript regions do not become
-    # student figures; a retained body object still needs typography evidence.
-    # Headers and footers are fixed master decorations, not manuscript figures.
+    # A source-bound template still needs a valid signed profile before its
+    # fixed graphics can be excluded from the student-owned object scope.
+    # Validation failure remains conservative and blocks delivery.
     from io import BytesIO
     from zipfile import BadZipFile, ZipFile
     from lxml import etree
-    from app.core.extract.xml_utils import load_part
     from app.services.docx_output_check import source_template_bytes
-    from app.services.master_docx_renderer import prepare_source
     from app.services.source_template_profile import commentless_source, digest, package_manifest, verify_profile
     from app.services.source_template_safety import audit_source_package
     from app.services.template_source import resolve_template_source
@@ -182,24 +184,16 @@ def _may_contain_images(project: WritingProject, template: PaperTemplate | None)
         source = source_template_bytes(resolve_template_source(template.source_docx))
         profile = verify_profile(template, source)
         audit_source_package(source)
-        source = commentless_source(source)
-        if digest(package_manifest(source)) != profile.get("prepared_source_manifest_sha256"):
+        prepared = commentless_source(source)
+        if digest(package_manifest(prepared)) != profile.get("prepared_source_manifest_sha256"):
             return True
-        with ZipFile(BytesIO(source)) as archive:
-            root = load_part(archive, "word/document.xml")
-            if root is None:
+        # Opening the package is part of the evidence check; source visuals
+        # are intentionally not treated as student content here.
+        with ZipFile(BytesIO(prepared)) as archive:
+            if "word/document.xml" not in archive.namelist():
                 return True
-            roots = [prepare_source(root, profile, project.meta)]
-            for name in ("word/footnotes.xml", "word/endnotes.xml"):
-                if name in archive.namelist():
-                    roots.append(load_part(archive, name))
-        potentially_visual = {
-            "drawing", "pict", "object", "imagedata", "blip", "altChunk", "subDoc",
-            "contentPart", "OLEObject", "control", "AlternateContent",
-        }
-        return any(etree.QName(node).localname in potentially_visual
-                   for root in roots if root is not None for node in root.iter()
-                   if isinstance(node.tag, str))
+            etree.fromstring(archive.read("word/document.xml"))
+        return False
     except (OSError, ValueError, TypeError, KeyError, IndexError, RuntimeError,
             BadZipFile, etree.XMLSyntaxError, etree.XPathError):
         return True

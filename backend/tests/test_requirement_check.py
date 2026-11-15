@@ -518,8 +518,9 @@ def test_imported_image_limit_does_not_block_plain_document_without_images():
     assert not report['not_checked']
     assert not any(entry['key'] == 'automatic_unverified' for entry in _gate({'check_report': report}))
 
-    # A source master or imported table XML may retain drawings that are not
-    # represented as image blocks; absence of an image block alone is no proof.
+    # Fixed source-master graphics are not student-owned figures and therefore
+    # do not make a text-only project unverifiable. Imported table XML remains
+    # conservative because it can carry a student drawing.
     template.source_docx = 'master.docx'
     assert check_requirements(project, project.requirement_snapshot, template)[1][0]['reason'] == 'image_typography_unverified'
     template.source_docx = ''
