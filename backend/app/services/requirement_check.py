@@ -123,7 +123,7 @@ def _frozen_attachment_text(policy_id: str, document: dict[str, Any]) -> str | N
         return None
     try:
         directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-        root_fd = os.open(policies._DOCUMENT_DIR.resolve(), directory_flags)
+        root_fd = os.open(policies._document_dir().resolve(), directory_flags)
         try:
             policy_fd = os.open(policy_id, directory_flags, dir_fd=root_fd)
             try:

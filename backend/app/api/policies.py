@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from app.auth import can_manage, current_user, require_manager
 from app.core.context import get_request_context
-from app.db import Store, new_id
+from app.db import Store, data_dir, new_id
 from app.models.policy import (
     PolicyAuditEvent,
     RequirementBinding,
@@ -39,7 +39,8 @@ from app.core.engine.loader import load_pack
 from app.api import ai as ai_api
 
 router = APIRouter(prefix="/api/policies", tags=["policies"])
-_DOCUMENT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "policy-documents"
+_DEFAULT_DOCUMENT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "policy-documents"
+_DOCUMENT_DIR = _DEFAULT_DOCUMENT_DIR
 _MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 _IMPORT_MAX_TOKENS = 8000
 _ALLOWED_DOCUMENT_EXTENSIONS = {".md", ".markdown", ".txt", ".pdf", ".doc", ".docx"}
@@ -48,6 +49,14 @@ _VALID_BINDING_TYPES = {"global", "school", "college", "major", "course", "batch
 
 def get_store() -> Store:
     return Store()
+
+
+def _document_dir() -> Path:
+    # Preserve the test/runtime override while keeping persisted attachments
+    # alongside the configured database when release code directories change.
+    if _DOCUMENT_DIR != _DEFAULT_DOCUMENT_DIR:
+        return _DOCUMENT_DIR
+    return data_dir() / "policy-documents"
 
 
 def _now() -> str:
@@ -540,7 +549,7 @@ def delete_policy_binding(policy_id: str, binding_id: str,
 
 
 def _policy_document_path(policy_id: str, storage_key: str) -> Path:
-    root = (_DOCUMENT_DIR / policy_id).resolve()
+    root = (_document_dir() / policy_id).resolve()
     path = (root / storage_key).resolve()
     if root not in path.parents:
         raise HTTPException(status_code=400, detail="文档路径无效")
