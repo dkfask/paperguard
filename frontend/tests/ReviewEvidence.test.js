@@ -262,6 +262,20 @@ describe('review check summary', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:second')
   })
 
+  it('identifies submitted SmartArt without requesting a raster image', async () => {
+    api.getSubmissionImageUrl.mockClear()
+    const wrapper = mount(ReviewEvidence, { props: {
+      submission: { submission: { id: 'first' }, version: { content_snapshot: { sections: [
+        { key: 'chapter', paragraphs: [{ id: 'diagram', type: 'image', image: { caption: '结构图', smartart: { dm: 'data' } } }] },
+      ] } } },
+      formatDate: () => '', recordState: () => '',
+    } })
+    await flushPromises()
+    expect(wrapper.get('.snapshot-image').text()).toContain('Word SmartArt')
+    expect(api.getSubmissionImageUrl).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('shows a recovery message when the submitted image cannot be verified', async () => {
     api.getSubmissionImageUrl.mockRejectedValueOnce(new Error('图片已变化'))
     const wrapper = mount(ReviewEvidence, { props: {

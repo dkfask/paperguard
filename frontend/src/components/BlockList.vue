@@ -36,7 +36,8 @@
 
       <!-- 图片块 -->
       <div v-else-if="par.type === 'image'" class="image-block" tabindex="0" @paste="onImagePaste($event, par)">
-        <div v-if="par.image && par.image.url" class="image-preview">
+        <p v-if="par.image?.smartart">{{ t('blockList.importedSmartArt') }}</p>
+        <div v-else-if="par.image && par.image.url" class="image-preview">
           <img :src="imageSrc(par.image.url)" :alt="t('blockList.image')" />
           <button class="tiny" :disabled="uploading" @click="replaceImage(par)">🔄 {{ uploading ? t('blockList.uploading') : t('blockList.replaceImage') }}</button>
           <span class="hint-sm">{{ t('blockList.pasteToReplaceImage') }}</span>
@@ -410,6 +411,7 @@ function writeTableMatrix(table, matrix, startRow = 0, startColumn = 0) {
 }
 
 async function onImagePaste(e, target) {
+  if (target?.image?.smartart) return
   let content
   try {
     content = parseClipboardContent(e.clipboardData)

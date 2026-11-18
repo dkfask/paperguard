@@ -16,6 +16,33 @@ from app.services.import_template import extract_section_tree, import_template_s
 from app.services.source_template_profile import ConfirmWritingProfile, compile_profile
 from tests.test_source_template_profile import master, rendered, inspect, rewrite
 from tests.test_master_content_visibility import _add_objects
+from tests.test_docx_import_inventory import _smartart_source
+
+
+@pytest.mark.parametrize(("size", "result"), [(900, "pass"), (2200, "fail")])
+def test_frozen_master_preserves_smartart_and_checks_its_actual_label_size(master, tmp_path, size, result):
+    from app.api.projects import _apply_imported_docx, _parse_par
+    from app.services.docx_import_inventory import reconcile_applied_docx_import
+
+    _, template, project, _ = master
+    project.template_snapshot = template.model_dump(mode="json")
+    imported = import_docx_project(_smartart_source(size))
+    merge = _apply_imported_docx(project, imported)
+    applied = reconcile_applied_docx_import(imported, project, merge["source_section_mapping"])
+    assert applied["status"] == "complete", applied["unresolved"]
+    section = next(section for section in project.sections if any(block.type == "image" for block in section.paragraphs))
+    index = next(i for i, block in enumerate(section.paragraphs) if block.type == "image")
+    block = section.paragraphs[index]
+    posted = block.model_dump(mode="json")
+    posted["image"]["caption"] = "调整后的图题"
+    section.paragraphs[index] = _parse_par(posted, project.id, block)
+    assert section.paragraphs[index].image.smartart == block.image.smartart
+    data = rendered(master, tmp_path)
+    report = inspect(master, data)
+    assert report["status"] == result, [c for c in report["checks"] if c["status"] == "fail"]
+    evidence = next(c for c in report["checks"] if c["rule"] == "master.smartart_label_size")
+    assert evidence["actual"] == size / 100
+    assert evidence["status"] == result
 
 
 def test_explanatory_heading_color_and_list_examples_do_not_override_body_format(tmp_path):

@@ -16,6 +16,7 @@ from app.core.extract.effective_format import EffectiveFormatResolver
 from app.core.extract.xml_utils import NS, load_part, qn
 from app.models.project import BlockType
 from app.services.document_assets import resolve_document_image_path
+from app.services.docx_smartart import PARTS as SMARTART_PARTS, diagram_token, label_size, read_inline_smartart, read_package_part
 from app.services.digit_font_rules import BODY_KINDS, HEADING_KINDS, numbering_font_error
 from app.services.master_layout_anchors import block_bookmark_name, leading_blank_heading_blocks
 from app.services.references import (ReferenceInlineMappingError, reference_block_text, reference_inline_runs,
@@ -1294,6 +1295,12 @@ def inspect_master_output(data, project, template, source, report):
             check("protected_parts", protected_good, "source package")
             toc_entries = profile.get("toc_entries", [])
             added_parts = output_names-source_names
+            diagram_parts = {
+                f"word/diagrams/pg-{diagram_token(block.id)}-{key}.xml": relation
+                for section in project.sections for block in section.paragraphs
+                if block.type == BlockType.IMAGE and getattr(block.image, "smartart", None)
+                for key, (_, relation, _) in SMARTART_PARTS.items()
+            }
             def empty_note(name):
                 if name not in output_names:
                     return False
@@ -1304,7 +1311,7 @@ def inspect_master_output(data, project, template, source, report):
                 return name.startswith("word/media/") and (stem.startswith("pg-") or stem.startswith("image"))
             added_media_ok = all(word_media_name(n) for n in added_parts if n.startswith("word/media/"))
             added_parts_ok = all(
-                (word_media_name(n))
+                (word_media_name(n) or n in diagram_parts)
                 or (roundtrip_authorized and n in {"word/footnotes.xml", "word/endnotes.xml"} and empty_note(n))
                 or n==RECEIPT_PART or (page_policy and n==PART)
                 for n in added_parts
@@ -1402,6 +1409,9 @@ def inspect_master_output(data, project, template, source, report):
                 if relation.get("Type") in allowed_new_relation_types and empty_note(posixpath.normpath(posixpath.join("word", relation.get("Target", "")))):
                     continue
                 if relation.get("Type", "").endswith("/image") and posixpath.normpath(posixpath.join("word", relation.get("Target", ""))).startswith("word/media/"):
+                    continue
+                target = posixpath.normpath(posixpath.join("word", relation.get("Target", "")))
+                if target in diagram_parts and relation.get("Type") == diagram_parts[target] and relation.get("TargetMode") != "External":
                     continue
                 new_relationships_good = False
             check("new_relationships",new_relationships_good,"new relationships")
@@ -1925,34 +1935,76 @@ def inspect_master_output(data, project, template, source, report):
                             content_style(nodes[0],props,block,text,inline_runs)
                             check("text_only",text_only,block.id)
                     elif block.type==BlockType.IMAGE and block.image:
-                        path=resolve_document_image_path(project.id,block.image.url)
-                        embeds=content.findall(".//{"+A+"}blip")
-                        actual=[]
-                        for embed in embeds:
-                            rel=relations.get(embed.get(qn("r:embed")))
-                            if rel is not None:
-                                target=posixpath.normpath(posixpath.join("word",rel.get("Target", "")))
-                                actual.append(hashlib.sha256(output.read(target)).hexdigest() if target in output_names else "")
-                        check("image_asset",path is not None and actual==[hashlib.sha256(path.read_bytes()).hexdigest()],block.id)
-                        check("image_source_crop", _picture_source_is_uncropped(content), block.id,
-                              expected="generated picture has no source crop")
-                        check("image_fill_geometry", _picture_fill_is_unmodified(content), block.id,
-                              expected="generated picture uses an unmodified stretch fill")
-                        check("image_shape_geometry", _picture_shape_matches_inline_extent(content), block.id,
-                              expected="generated inline picture has an identity transform and matching rectangular geometry")
-                        check("image_effects", _picture_has_no_unverified_effects(content), block.id,
-                              expected="generated picture has no unverified drawing effects or external image link")
-                        extents=content.findall(".//{"+WP+"}extent")
-                        if path is not None and len(extents)==1:
-                            from docx.image.image import Image
-                            image=Image.from_file(str(path)); ratio=image.width/image.height
-                            w,h=[int(extents[0].get(k,"0"))/360000 for k in ("cx","cy")]
-                            wanted_w=block.image.width_cm or (block.image.height_cm*ratio if block.image.height_cm else min(maximum_width,image.width/360000))
-                            wanted_h=block.image.height_cm or wanted_w/ratio
-                            scale=min(1,maximum_width/wanted_w,maximum_height/wanted_h)
-                            check("image_geometry",w>0 and h>0 and abs(w-wanted_w*scale)<.01 and abs(h-wanted_h*scale)<.01,block.id)
+                        smartart = getattr(block.image, "smartart", None)
+                        if smartart:
+                            token = diagram_token(block.id)
+
+                            def resolve_diagram(identifier, relation_type, content_type):
+                                relation = relations.get(identifier)
+                                if (relation is None or relation.get("Type") != relation_type
+                                        or relation.get("TargetMode") == "External"):
+                                    raise ValueError("成品 SmartArt 关系无法核验")
+                                target = posixpath.normpath(posixpath.join("word", relation.get("Target", "")))
+                                key = next(key for key, (_, kind, _) in SMARTART_PARTS.items()
+                                           if kind == relation_type)
+                                if (target != f"word/diagrams/pg-{token}-{key}.xml"
+                                        or identifier != f"rIdPGDiagram{token}{key}"):
+                                    raise ValueError("成品 SmartArt 部件与内容块不匹配")
+                                return read_package_part(output, target, content_type)
+
+                            try:
+                                if len(drawings) != 1 or len(nodes) != 2:
+                                    raise ValueError("成品缺少 SmartArt 或图题")
+                                actual, _ = read_inline_smartart(drawings[0], resolve_diagram)
+                                actual_size = label_size(actual)
+                                _, _, caption_runs, _ = resolver.paragraph(nodes[-1])
+                                caption_sizes = [run["properties"].get("font.size", {}) for run in caption_runs
+                                                 if (run.get("text") or "").strip()]
+                                caption_limit = min(
+                                    size["value"] for size in caption_sizes if size.get("unit") == "pt"
+                                ) if caption_sizes and all(size.get("unit") == "pt" for size in caption_sizes) else 0
+                                check("smartart_content", actual == smartart, block.id)
+                                check("smartart_label_size", bool(caption_limit) and actual_size <= caption_limit * 100,
+                                      block.id, expected=caption_limit or None, actual=actual_size / 100, unit="pt")
+                                extent = drawings[0].find(f"{{{WP}}}inline/{{{WP}}}extent")
+                                wanted_w, wanted_h = block.image.width_cm, block.image.height_cm
+                                if extent is None or wanted_w is None or wanted_h is None:
+                                    raise ValueError("成品 SmartArt 尺寸无法核验")
+                                scale = min(1, maximum_width / wanted_w, maximum_height / wanted_h)
+                                w, h = [int(extent.get(axis, "0")) / 360000 for axis in ("cx", "cy")]
+                                check("smartart_geometry", abs(w - wanted_w * scale) < .01
+                                      and abs(h - wanted_h * scale) < .01, block.id)
+                            except (KeyError, ValueError, TypeError, etree.XMLSyntaxError) as exc:
+                                check("smartart_content", False, block.id, actual=str(exc))
                         else:
-                            check("image_geometry",False,block.id)
+                            path=resolve_document_image_path(project.id,block.image.url)
+                            embeds=content.findall(".//{"+A+"}blip")
+                            actual=[]
+                            for embed in embeds:
+                                rel=relations.get(embed.get(qn("r:embed")))
+                                if rel is not None:
+                                    target=posixpath.normpath(posixpath.join("word",rel.get("Target", "")))
+                                    actual.append(hashlib.sha256(output.read(target)).hexdigest() if target in output_names else "")
+                            check("image_asset",path is not None and actual==[hashlib.sha256(path.read_bytes()).hexdigest()],block.id)
+                            check("image_source_crop", _picture_source_is_uncropped(content), block.id,
+                                  expected="generated picture has no source crop")
+                            check("image_fill_geometry", _picture_fill_is_unmodified(content), block.id,
+                                  expected="generated picture uses an unmodified stretch fill")
+                            check("image_shape_geometry", _picture_shape_matches_inline_extent(content), block.id,
+                                  expected="generated inline picture has an identity transform and matching rectangular geometry")
+                            check("image_effects", _picture_has_no_unverified_effects(content), block.id,
+                                  expected="generated picture has no unverified drawing effects or external image link")
+                            extents=content.findall(".//{"+WP+"}extent")
+                            if path is not None and len(extents)==1:
+                                from docx.image.image import Image
+                                image=Image.from_file(str(path)); ratio=image.width/image.height
+                                w,h=[int(extents[0].get(k,"0"))/360000 for k in ("cx","cy")]
+                                wanted_w=block.image.width_cm or (block.image.height_cm*ratio if block.image.height_cm else min(maximum_width,image.width/360000))
+                                wanted_h=block.image.height_cm or wanted_w/ratio
+                                scale=min(1,maximum_width/wanted_w,maximum_height/wanted_h)
+                                check("image_geometry",w>0 and h>0 and abs(w-wanted_w*scale)<.01 and abs(h-wanted_h*scale)<.01,block.id)
+                            else:
+                                check("image_geometry",False,block.id)
                         check("image_line_spacing", len(nodes) == 2
                               and _picture_line_allows_growth(nodes[0], styles_root), block.id,
                               expected="image paragraph line can expand to its natural height")

@@ -7,6 +7,9 @@ import pytest
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.oxml import parse_xml
+from docx.opc.packuri import PackURI
+from docx.opc.part import Part
 from PIL import Image
 
 from app.services.docx_import_inventory import inventory_docx_source, reconcile_docx_import
@@ -104,6 +107,53 @@ def test_import_preserves_text_with_explicit_no_highlight():
     assert paragraph_block["text"] == "无高亮有高亮"
     assert [run["highlight"] for run in paragraph_block["inline_runs"]] == [None, "yellow"]
     assert reconcile_docx_import(inventory_docx_source(data), imported)["status"] == "complete"
+
+
+def _smartart_source(size=1050):
+    dgm = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
+    dsp = "http://schemas.microsoft.com/office/drawing/2008/diagram"
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    document = Document()
+    document.add_heading("第一章 研究", level=1)
+    label = f'<a:r xmlns:a="{a}"><a:rPr sz="{size}"/><a:t>图形文字</a:t></a:r>'
+    refs = {}
+    for key, name, root, relation, ctype, children in (
+        ("dr", "drawing", "drawing", "diagramDrawing", "ms-office.drawingml.diagramDrawing", label),
+        ("dm", "data", "dataModel", "diagramData", "openxmlformats-officedocument.drawingml.diagramData", label),
+        ("lo", "layout", "layoutDef", "diagramLayout", "openxmlformats-officedocument.drawingml.diagramLayout", ""),
+        ("qs", "style", "styleDef", "diagramQuickStyle", "openxmlformats-officedocument.drawingml.diagramStyle", ""),
+        ("cs", "colors", "colorsDef", "diagramColors", "openxmlformats-officedocument.drawingml.diagramColors", ""),
+    ):
+        ns = dsp if key == "dr" else dgm
+        if key == "dm":
+            children += f'<dsp:dataModelExt xmlns:dsp="{dsp}" relId="{refs["dr"]}"/>'
+        part = Part(PackURI(f"/word/diagrams/{name}1.xml"), f"application/vnd.{ctype}+xml",
+                    f'<d:{root} xmlns:d="{ns}">{children}</d:{root}>'.encode(), document.part.package)
+        prefix = "http://schemas.microsoft.com/office/2007/relationships" if key == "dr" else r
+        refs[key] = document.part.relate_to(part, f"{prefix}/{relation}")
+    document.add_paragraph().add_run()._r.append(parse_xml(f'''
+        <w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+            xmlns:a="{a}" xmlns:r="{r}" xmlns:dgm="{dgm}">
+          <wp:inline><wp:extent cx="3600000" cy="1800000"/><wp:docPr id="1" name="Diagram 1"/>
+            <a:graphic><a:graphicData uri="{dgm}">
+              <dgm:relIds r:dm="{refs['dm']}" r:lo="{refs['lo']}" r:qs="{refs['qs']}" r:cs="{refs['cs']}"/>
+            </a:graphicData></a:graphic>
+          </wp:inline>
+        </w:drawing>'''))
+    document.add_paragraph("图1.1 系统结构")
+    output = BytesIO()
+    document.save(output)
+    return output.getvalue()
+
+
+def test_import_accounts_for_inline_smartart_and_its_caption():
+    data = _smartart_source()
+    imported = import_docx_project(data)
+    assert _find(imported, "image")["image"]["caption"] == "图1.1 系统结构"
+    report = reconcile_docx_import(inventory_docx_source(data), imported)
+    assert report["status"] == "complete", report["unresolved"]
 
 
 @pytest.mark.parametrize("missing_kind", ["paragraph", "table_cell", "image"])

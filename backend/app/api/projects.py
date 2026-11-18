@@ -100,7 +100,7 @@ def _project_writing_metrics(project: WritingProject) -> dict[str, object]:
     def block_has_content(block) -> bool:
         block_type = getattr(block.type, "value", block.type)
         if block_type == "image":
-            return bool(block.image and block.image.url)
+            return bool(block.image and (block.image.url or getattr(block.image, "smartart", None)))
         if block_type == "table":
             return bool(block.table and any(str(cell).strip() for row in block.table.cells for cell in row))
         return bool(reference_block_text(block).strip())
@@ -502,6 +502,16 @@ def _parse_par(data: dict, project_id: str = "", existing: ParagraphBlock | None
     if block_type == "image":
         image = data.get("image", {})
         url = str(image.get("url", ""))
+        smartart = getattr(existing.image, "smartart", None) if existing is not None else None
+        if smartart:
+            if url:
+                raise HTTPException(status_code=422, detail="请删除 SmartArt 后再插入其他图片")
+            return ParagraphBlock(
+                id=existing.id, type="image",
+                image=existing.image.model_copy(update={"caption": str(image.get("caption", ""))}),
+            )
+        if image.get("smartart"):
+            raise HTTPException(status_code=422, detail="请通过 Word 导入添加 SmartArt")
         filename = Path(url).name
         if url and (not url.startswith("/media/uploads/") or not filename.startswith(project_id + "-")):
             raise HTTPException(status_code=400, detail="图片不属于当前项目")
@@ -673,7 +683,7 @@ def _apply_imported_docx(proj: WritingProject, imported: dict, created_paths: li
     def section_has_content(section: ProjectSection) -> bool:
         for block in section.paragraphs:
             block_type = getattr(block.type, "value", block.type)
-            if block_type == "image" and block.image and block.image.url:
+            if block_type == "image" and block.image and (block.image.url or getattr(block.image, "smartart", None)):
                 return True
             if block_type == "table" and block.table and any(
                 str(cell).strip() for row in block.table.cells for cell in row
@@ -806,6 +816,8 @@ def _apply_imported_docx(proj: WritingProject, imported: dict, created_paths: li
             if block.get("type") == "image":
                 image_data = block.pop("_image_data", None)
                 extension = block.pop("_image_extension", ".png")
+                if (block.get("image") or {}).get("smartart") and not master_bound:
+                    raise ValueError("SmartArt 需要使用经确认的 Word 源模板")
                 if image_data:
                     kind = validate_image(image_data)
                     extension = {"jpeg": ".jpg", "png": ".png", "gif": ".gif", "webp": ".webp"}[kind]

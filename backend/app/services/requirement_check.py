@@ -159,7 +159,8 @@ def _may_contain_images(project: WritingProject, template: PaperTemplate | None)
     if template is None:
         return True
     if any(
-        block.type.value == "image"
+        (block.type.value == "image"
+         and (not getattr(block.image, "smartart", None) or not template.source_execution))
         or (block.table is not None and block.table.source_xml)
         for section in project.sections for block in section.paragraphs
     ):
@@ -607,9 +608,9 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
         if (item_type == "manual" and not checker
                 and (item.get("params") or {}).get("image_typography_constraint") == "caption_font_size_upper_bound"
                 and not may_contain_images):
-            # A generated template and structured text/tables contain no
-            # imported Word objects; there is no image for this rule to check.
-            # Source masters and preserved XML remain unknown until inspected.
+            # A supported SmartArt in a signed master is checked against its
+            # emitted caption by the DOCX inspector. Raster evidence and opaque
+            # imported tables must continue through the pending-check branch.
             continue
         classified_format = item_type != "auto" and item.get("id") in format_item_ids and not image_typography
         if classified_format and _verified_simple_body_font(item, snapshot, template):
