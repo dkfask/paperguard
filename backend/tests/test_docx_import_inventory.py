@@ -83,6 +83,29 @@ def test_independent_inventory_counts_distinct_image_occurrences_and_cells():
     assert report["status"] == "complete", report["unresolved"]
 
 
+def test_import_preserves_text_with_explicit_no_highlight():
+    document = Document()
+    document.add_heading("第一章 研究", level=1)
+    paragraph = document.add_paragraph()
+    no_highlight = paragraph.add_run("无高亮")
+    highlight = OxmlElement("w:highlight")
+    highlight.set(qn("w:val"), "none")
+    no_highlight._r.get_or_add_rPr().append(highlight)
+    yellow = paragraph.add_run("有高亮")
+    highlight = OxmlElement("w:highlight")
+    highlight.set(qn("w:val"), "yellow")
+    yellow._r.get_or_add_rPr().append(highlight)
+    output = BytesIO()
+    document.save(output)
+
+    data = output.getvalue()
+    imported = import_docx_project(data)
+    paragraph_block = _find(imported, "paragraph")
+    assert paragraph_block["text"] == "无高亮有高亮"
+    assert [run["highlight"] for run in paragraph_block["inline_runs"]] == [None, "yellow"]
+    assert reconcile_docx_import(inventory_docx_source(data), imported)["status"] == "complete"
+
+
 @pytest.mark.parametrize("missing_kind", ["paragraph", "table_cell", "image"])
 def test_reconciliation_finds_source_content_removed_from_candidate(missing_kind):
     data = _source()

@@ -295,7 +295,13 @@ def _inline_style(run: Run) -> dict[str, Any]:
         vert_align = "superscript"
     elif run.font.subscript:
         vert_align = "subscript"
-    highlight_value = run.font.highlight_color
+    # Word writes an explicit clear value that python-docx's color enum omits.
+    highlight = run._element.find(f"{qn('w:rPr')}/{qn('w:highlight')}")
+    highlight_value = (
+        run.font.highlight_color
+        if highlight is not None and highlight.get(qn("w:val")) != "none"
+        else None
+    )
     return {
         "bold": bool(run.bold),
         "italic": bool(run.italic),
