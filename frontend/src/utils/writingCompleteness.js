@@ -2,7 +2,9 @@ import { formatReference } from './references.js'
 
 function hasContent(section) {
   return (section.paragraphs || []).some(block => {
-    if (block.type === 'image') return Boolean(block.image?.url)
+    if (block.type === 'image') {
+      return Boolean(block.image?.url || (block.image?.smartart && Object.keys(block.image.smartart).length))
+    }
     if (block.type === 'table') return (block.table?.cells || []).flat().some(cell => String(cell ?? '').trim())
     return Boolean((block.reference ? formatReference(block.reference) : block.text || '').trim())
   })

@@ -11,6 +11,18 @@ from app.models.template import PaperTemplate, SectionType
 from app.services.references import reference_block_text, validate_reference_facts
 
 
+def block_has_content(block) -> bool:
+    """判断内容块是否带有可交付内容（文本、图片、SmartArt 或非空表格）。"""
+    block_type = getattr(block.type, "value", block.type)
+    if block_type == "image":
+        return bool(block.image and (block.image.url or getattr(block.image, "smartart", None)))
+    if block_type == "table":
+        return bool(block.table and any(
+            str(c).strip() for row in block.table.cells for c in row
+        ))
+    return bool(reference_block_text(block).strip())
+
+
 def _section_complete(proj_sec) -> bool:
     """一节是否算完成: 有标题, 且有任一有内容的内容块。"""
     if not proj_sec:
@@ -19,19 +31,7 @@ def _section_complete(proj_sec) -> bool:
         return False
     if not proj_sec.paragraphs:
         return False
-    for par in proj_sec.paragraphs:
-        if par.type.value == "image":
-            if par.image and par.image.url:
-                return True
-        elif par.type.value == "table":
-            if par.table and any(
-                str(c).strip() for row in par.table.cells for c in row
-            ):
-                return True
-        else:
-            if reference_block_text(par).strip():
-                return True
-    return False
+    return any(block_has_content(par) for par in proj_sec.paragraphs)
 
 
 def section_complete_with_children(index: int, sections: list) -> bool:

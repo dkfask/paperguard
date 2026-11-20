@@ -35,7 +35,11 @@ from app.models.policy import (
 )
 from app.models.template import PaperTemplate, SectionType
 from app.services.image_cleanup import remove_project_images
-from app.services.project_validation import validate_heading_hierarchy, validate_project_completeness
+from app.services.project_validation import (
+    block_has_content,
+    validate_heading_hierarchy,
+    validate_project_completeness,
+)
 from app.services.project_versions import project_attachment_refs, project_content_hash, project_snapshot
 from app.services.access_service import visible_organization_ids
 from app.services.document_access import can_access_template
@@ -96,14 +100,6 @@ class ManualOutputReviewRequest(BaseModel):
 def _project_writing_metrics(project: WritingProject) -> dict[str, object]:
     """Return lightweight writing progress for the manuscript list view."""
     sections = [section for section in project.sections if section.type not in ("cover", "toc")]
-
-    def block_has_content(block) -> bool:
-        block_type = getattr(block.type, "value", block.type)
-        if block_type == "image":
-            return bool(block.image and (block.image.url or getattr(block.image, "smartart", None)))
-        if block_type == "table":
-            return bool(block.table and any(str(cell).strip() for row in block.table.cells for cell in row))
-        return bool(reference_block_text(block).strip())
 
     completed = [section for section in sections if any(block_has_content(block) for block in section.paragraphs)]
     total_words = sum(
