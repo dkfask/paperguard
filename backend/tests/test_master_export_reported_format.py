@@ -16,6 +16,87 @@ from app.services.import_template import extract_section_tree, import_template_s
 from app.services.source_template_profile import ConfirmWritingProfile, compile_profile
 from tests.test_source_template_profile import master, rendered, inspect, rewrite
 from tests.test_master_content_visibility import _add_objects
+from tests.test_docx_import_inventory import _smartart_source
+
+
+@pytest.mark.parametrize(("size", "result"), [(900, "pass"), (2200, "fail")])
+def test_frozen_master_preserves_smartart_and_checks_its_actual_label_size(master, tmp_path, size, result):
+    from app.api.projects import _apply_imported_docx, _parse_par
+    from app.services.docx_import_inventory import reconcile_applied_docx_import
+
+    _, template, project, _ = master
+    project.template_snapshot = template.model_dump(mode="json")
+    imported = import_docx_project(_smartart_source(size))
+    merge = _apply_imported_docx(project, imported)
+    applied = reconcile_applied_docx_import(imported, project, merge["source_section_mapping"])
+    assert applied["status"] == "complete", applied["unresolved"]
+    section = next(section for section in project.sections if any(block.type == "image" for block in section.paragraphs))
+    index = next(i for i, block in enumerate(section.paragraphs) if block.type == "image")
+    block = section.paragraphs[index]
+    posted = block.model_dump(mode="json")
+    posted["image"]["caption"] = "调整后的图题"
+    section.paragraphs[index] = _parse_par(posted, project.id, block)
+    assert section.paragraphs[index].image.smartart == block.image.smartart
+    data = rendered(master, tmp_path)
+    report = inspect(master, data)
+    assert report["status"] == result, [c for c in report["checks"] if c["status"] == "fail"]
+    evidence = next(c for c in report["checks"] if c["rule"] == "master.smartart_label_size")
+    assert evidence["actual"] == size / 100
+    assert evidence["status"] == result
+
+
+def test_smartart_preserves_resolved_source_theme_colors_and_fonts_across_different_master_theme(master, tmp_path):
+    from app.api.projects import _apply_imported_docx
+    from app.services.docx_smartart import append_inline_smartart
+
+    _, template, project, _ = master
+    project.template_snapshot = template.model_dump(mode="json")
+    imported = import_docx_project(_smartart_source(
+        900, accent="E06666", scheme_ref="accent1", minor_latin="Georgia",
+        major_ea="黑体", east_asia_lang="zh-CN", theme_font_ref="minor", style_matrix_line_w=50800,
+    ))
+    _apply_imported_docx(project, imported)
+
+    data = rendered(master, tmp_path)
+    report = inspect(master, data)
+    assert report["status"] == "pass", [c for c in report["checks"] if c["status"] == "fail"]
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        diagram_colors = [archive.read(name).decode() for name in archive.namelist()
+                          if name.startswith("word/diagrams/pg-") and name.endswith("-cs.xml")]
+        diagram_data = [archive.read(name).decode() for name in archive.namelist()
+                        if name.startswith("word/diagrams/pg-") and name.endswith("-dm.xml")]
+        diagram_drawing = [archive.read(name).decode() for name in archive.namelist()
+                           if name.startswith("word/diagrams/pg-") and name.endswith("-dr.xml")]
+    assert len(diagram_colors) == 1
+    a_ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    cs_root = etree.fromstring(diagram_colors[0].encode())
+    assert [el.get("val") for el in cs_root.iter(f"{{{a_ns}}}srgbClr")] == ["E06666"]
+    assert "schemeClr" not in diagram_colors[0]
+    dm_root = etree.fromstring(diagram_data[0].encode())
+    assert [el.get("typeface") for el in dm_root.iter(f"{{{a_ns}}}latin")] == ["Georgia"]
+    dr_root = etree.fromstring(diagram_drawing[0].encode())
+    assert dr_root.find(f".//{{{a_ns}}}ln").get("w") == "50800"
+    assert all(el.get("idx") == "0" for el in dr_root.iter(f"{{{a_ns}}}lnRef"))
+
+    block = next(b for s in project.sections for b in s.paragraphs if b.type == "image")
+    unresolved_color = dict(block.image.smartart)
+    unresolved_color["cs"] = unresolved_color["cs"].replace("srgbClr", "schemeClr").replace('val="E06666"', 'val="accent1"')
+    with pytest.raises(ValueError, match="主题色"):
+        append_inline_smartart(
+            unresolved_color, {}, etree.Element("Relationships"), etree.Element("Types"), "tok", 5.0, 2.5,
+        )
+    unresolved_font = dict(block.image.smartart)
+    unresolved_font["dm"] = unresolved_font["dm"].replace('typeface="Georgia"', 'typeface="+mn-lt"')
+    with pytest.raises(ValueError, match="主题字体"):
+        append_inline_smartart(
+            unresolved_font, {}, etree.Element("Relationships"), etree.Element("Types"), "tok", 5.0, 2.5,
+        )
+    unresolved_style = dict(block.image.smartart)
+    unresolved_style["dr"] = unresolved_style["dr"].replace('lnRef idx="0"', 'lnRef idx="2"')
+    with pytest.raises(ValueError, match="主题样式"):
+        append_inline_smartart(
+            unresolved_style, {}, etree.Element("Relationships"), etree.Element("Types"), "tok", 5.0, 2.5,
+        )
 
 
 def test_explanatory_heading_color_and_list_examples_do_not_override_body_format(tmp_path):

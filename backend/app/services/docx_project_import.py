@@ -26,7 +26,7 @@ from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
 from lxml import etree
 
-IMPORT_CONFIGURATION_VERSION = "docx-project-import/4"
+IMPORT_CONFIGURATION_VERSION = "docx-project-import/5"
 _MANUAL_HEADING_PATTERN = re.compile(
     r"^(?P<number>\d{1,3}(?:[.．]\d{1,3}){1,2})[\s\u3000]+(?P<title>\S.*)$"
 )
@@ -295,7 +295,13 @@ def _inline_style(run: Run) -> dict[str, Any]:
         vert_align = "superscript"
     elif run.font.subscript:
         vert_align = "subscript"
-    highlight_value = run.font.highlight_color
+    # Word writes an explicit clear value that python-docx's color enum omits.
+    highlight = run._element.find(f"{qn('w:rPr')}/{qn('w:highlight')}")
+    highlight_value = (
+        run.font.highlight_color
+        if highlight is not None and highlight.get(qn("w:val")) != "none"
+        else None
+    )
     return {
         "bold": bool(run.bold),
         "italic": bool(run.italic),
@@ -316,7 +322,12 @@ def _append_inline_text(runs: list[dict[str, Any]], text: str,
 
 
 def _paragraph_blocks(paragraph: Paragraph, block_prefix: str, unsupported: list[str],
-                      source_location: str) -> list[dict[str, Any]]:
+                      source_location: str,
+                      get_theme=None) -> list[dict[str, Any]]:
+    from app.services.docx_smartart import (
+        DGM, GRAPHIC_DATA, WP, read_inline_smartart, read_part_theme,
+    )
+
     blocks: list[dict[str, Any]] = []
     inline_runs: list[dict[str, Any]] = []
     image_index = 0
@@ -359,6 +370,41 @@ def _paragraph_blocks(paragraph: Paragraph, block_prefix: str, unsupported: list
             elif child.tag in {qn("w:br"), qn("w:cr")}:
                 _append_inline_text(inline_runs, "\n", style)
             elif child.tag == qn("w:drawing"):
+                diagram = next((node for node in child.iter(GRAPHIC_DATA) if node.get("uri") == DGM), None)
+                if diagram is not None:
+                    def resolve(identifier, relation_type, content_type):
+                        relation = paragraph.part.rels.get(identifier)
+                        if relation is None or relation.is_external or relation.reltype != relation_type:
+                            raise ValueError("SmartArt 存在不可核验的关系")
+                        part = relation.target_part
+                        if part.content_type != content_type or not str(part.partname).startswith("/word/diagrams/"):
+                            raise ValueError("SmartArt 部件类型错误")
+                        if part.rels:
+                            raise ValueError("SmartArt 部件包含额外关系")
+                        return part.blob
+
+                    try:
+                        resolved_theme = (
+                            get_theme() if get_theme is not None else read_part_theme(paragraph.part)
+                        )
+                        smartart, _ = read_inline_smartart(child, resolve, theme=resolved_theme)
+                        extent = child.find(f"{{{WP}}}inline/{{{WP}}}extent")
+                        width, height = [int(extent.get(axis, "0")) / 360000 for axis in ("cx", "cy")]
+                        if not (0 < width <= 100 and 0 < height <= 100):
+                            raise ValueError("SmartArt 尺寸无效")
+                    except (AttributeError, ValueError, etree.XMLSyntaxError):
+                        unsupported.append("含有无法完整导入的 SmartArt")
+                        continue
+                    image_index += 1
+                    flush_text()
+                    blocks.append({
+                        "id": f"{block_prefix}-image-{uuid4().hex[:8]}",
+                        "type": "image",
+                        "image": {"url": "", "caption": "", "width_cm": width, "height_cm": height,
+                                  "alignment": _paragraph_alignment_name(paragraph), "smartart": smartart},
+                        "_source_location": f"{source_location}/image[{image_index}]",
+                    })
+                    continue
                 for image in _images_from_drawing(paragraph, child):
                     image_index += 1
                     if image is None:
@@ -471,6 +517,15 @@ def import_docx_project(data: bytes, heading_decisions: dict[str, str] | None = 
         raise ValueError("手工标题确认内容无效，请重新预览")
     document = Document(BytesIO(data))
     numbering = _HeadingNumbering(document)
+    theme: tuple[dict[str, str], dict[str, str], dict[str, list]] | None = None
+
+    def get_theme() -> tuple[dict[str, str], dict[str, str], dict[str, list]]:
+        nonlocal theme
+        if theme is None:
+            from app.services.docx_smartart import read_part_theme
+            theme = read_part_theme(document.part)
+        return theme
+
     sections: list[dict[str, Any]] = []
     unsupported: list[str] = []
     heading_candidates: list[dict[str, Any]] = []
@@ -555,7 +610,13 @@ def import_docx_project(data: bytes, heading_decisions: dict[str, str] | None = 
                 }
                 sections.append(current)
                 continue
-            blocks = _paragraph_blocks(item, f"import-p-{paragraph_count + 1}", unsupported, source_location)
+            blocks = _paragraph_blocks(
+                item,
+                f"import-p-{paragraph_count + 1}",
+                unsupported,
+                source_location,
+                get_theme=get_theme,
+            )
             image_count += sum(1 for block in blocks if block.get("type") == "image")
             equation_count += sum(1 for block in blocks if block.get("type") == "equation")
             if blocks:
@@ -636,6 +697,9 @@ def public_import_sections(sections: list[dict[str, Any]]) -> list[dict[str, Any
                     key: value for key, value in public_block["table"].items() if key != "source_xml"
                 }
                 public_block["table"]["source_preserved"] = bool(block.get("table", {}).get("source_xml"))
+            if public_block.get("type") == "image" and (public_block.get("image") or {}).get("smartart"):
+                public_block["image"] = {key: value for key, value in public_block["image"].items() if key != "smartart"}
+                public_block["image"]["source_preserved"] = True
             paragraphs.append(public_block)
         copied["paragraphs"] = paragraphs
         result.append(copied)

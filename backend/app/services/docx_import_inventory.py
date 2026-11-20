@@ -18,10 +18,11 @@ from zipfile import BadZipFile, ZipFile
 from lxml import etree
 
 from app.core.extract.xml_utils import parse_xml
+from app.services.docx_smartart import DGM, GRAPHIC_DATA, read_inline_smartart, read_package_part, resolve_package_theme
 from app.services.upload_security import DOCX_MAX_BYTES, validate_docx_bytes
 
 
-INVENTORY_VERSION = "docx-import-inventory/2"
+INVENTORY_VERSION = "docx-import-inventory/3"
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -36,6 +37,10 @@ def _q(namespace: str, name: str) -> str:
 
 def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _smartart_digest(parts: dict) -> str:
+    return _digest(json.dumps(parts, ensure_ascii=False, sort_keys=True).encode())
 
 
 def inventory_sha256(inventory: dict) -> str:
@@ -91,6 +96,21 @@ def inventory_docx_source(data: bytes) -> dict:
                     entries.append({"kind": "relationship_definition", "location": f"word/_rels/document.xml.rels#{identifier}",
                                     "relationship_type": relationships[identifier]["type"]})
 
+            theme: tuple[dict[str, str], dict[str, str], dict[str, list]] | None = None
+
+            def get_theme() -> tuple[dict[str, str], dict[str, str], dict[str, list]]:
+                nonlocal theme
+                if theme is None:
+                    def read_rel_blob(target: str) -> bytes | None:
+                        path = _target_path(target)
+                        return archive.read(path) if path and path in names else None
+
+                    theme = resolve_package_theme(
+                        [(rel["type"], rel["external"], rel["target"]) for rel in relationships.values()],
+                        read_rel_blob,
+                    )
+                return theme
+
             def special_nodes(element, location: str) -> None:
                 for node in element.iter():
                     node_location = f"{location}:{node.getroottree().getpath(node)}"
@@ -99,14 +119,17 @@ def inventory_docx_source(data: bytes) -> dict:
                     if node.tag in {_q(W, "bookmarkStart"), _q(W, "bookmarkEnd")}:
                         entries.append({"kind": "bookmark", "location": node_location})
                     for name, identifier in node.attrib.items():
-                        if name not in {_q(R, "id"), _q(R, "embed"), _q(R, "link")}:
+                        diagram_reference = node.tag == _q(DGM, "relIds") and name in {
+                            _q(R, key) for key in ("dm", "lo", "qs", "cs")
+                        }
+                        if not diagram_reference and name not in {_q(R, "id"), _q(R, "embed"), _q(R, "link")}:
                             continue
                         relation = relationships.get(identifier)
                         is_image = (node.tag == _q(A, "blip") and name == _q(R, "embed")
                                     and relation is not None and not relation["external"]
                                     and relation["type"].endswith("/image"))
                         entries.append({"kind": "relationship", "location": node_location,
-                                        "relationship_id": identifier, "image_reference": is_image})
+                                        "relationship_id": identifier, "image_reference": is_image or diagram_reference})
 
             def paragraph(element, location: str) -> dict:
                 segments: list[dict] = []
@@ -136,6 +159,28 @@ def inventory_docx_source(data: bytes) -> dict:
                                             "reason": "源文档的手动分页或分栏需要规范化"})
                         return
                     if node.tag == _q(W, "drawing"):
+                        diagram = next((n for n in node.iter(GRAPHIC_DATA) if n.get("uri") == DGM), None)
+                        if diagram is not None:
+                            def resolve(identifier, relation_type, content_type):
+                                relation = relationships.get(identifier)
+                                if not relation or relation["external"] or relation["type"] != relation_type:
+                                    raise ValueError("SmartArt 关系无法核验")
+                                return read_package_part(archive, _target_path(relation["target"]) or "", content_type)
+
+                            try:
+                                smartart, _ = read_inline_smartart(node, resolve, theme=get_theme())
+                            except (KeyError, ValueError, etree.XMLSyntaxError):
+                                entries.append({"kind": "structure", "location": location,
+                                                "reason": "SmartArt 无法完整对账"})
+                            else:
+                                image_location = f"{location}/image[{len(images) + 1}]"
+                                images.append(image_location)
+                                rel_node = diagram.find(_q(DGM, "relIds"))
+                                entries.append({"kind": "image", "location": image_location,
+                                                "relationship_location": f"{location}:{rel_node.getroottree().getpath(rel_node)}",
+                                                "smartart_sha256": _smartart_digest(smartart)})
+                                segments.append({"kind": "image", "location": image_location})
+                            return
                         anchors = node.xpath(".//wp:inline | .//wp:anchor", namespaces={"wp": WP})
                         found = False
                         for anchor in anchors:
@@ -352,8 +397,13 @@ def reconcile_docx_import(inventory: dict, imported: dict) -> dict:
                 missing(kind, location, "源表格单元格未完整进入候选")
         elif kind == "image":
             candidates = images[location]
-            actual = candidates[0].get("_image_data") if len(candidates) == 1 else None
-            if not isinstance(actual, bytes) or not item.get("media_sha256") or _digest(actual) != item["media_sha256"]:
+            candidate = candidates[0] if len(candidates) == 1 else {}
+            data = candidate.get("_image_data")
+            diagram = (candidate.get("image") or {}).get("smartart")
+            matched = (_smartart_digest(diagram) == item["smartart_sha256"]
+                       if diagram and "smartart_sha256" in item else
+                       isinstance(data, bytes) and _digest(data) == item.get("media_sha256"))
+            if not matched:
                 missing(kind, location, "源图片出现位置或媒体内容未完整进入候选")
             else:
                 matched_images.add(location)
@@ -475,7 +525,7 @@ def reconcile_applied_docx_import(imported: dict, project, section_mapping: list
                 actual_parts = []
                 for section, index, block in candidates:
                     actual = block.model_dump(mode="json")
-                    if kind == "image":
+                    if kind == "image" and not (raw.get("image") or {}).get("smartart"):
                         image = actual.get("image") or {}
                         filename = Path(image.get("url", "")).name
                         path = document_upload_dir() / filename

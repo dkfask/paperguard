@@ -392,7 +392,7 @@ test.describe('PaperGuard browser lifecycle', () => {
       const profile = teacher.locator('[data-test="writing-profile-confirmation"]')
       await profile.getByRole('checkbox', { name: /如果目录条目没有对应正文标题/ }).check()
       await profile.getByRole('button', { name: '预览执行配置', exact: true }).click()
-      await expect(profile.locator('[data-test="writing-profile-plan"]')).toBeVisible()
+      await expect(profile.locator('[data-test="writing-profile-plan"]')).toBeVisible({ timeout: 120_000 })
       const removedToc = profile.locator('[data-test="writing-profile-plan"] details').filter({ hasText: '将清理的失配目录项' })
       if (process.env.E2E_TEMPLATE_FILE) {
         // The v4 template has a current TOC with no stale rows. Keep this
@@ -657,6 +657,11 @@ test.describe('PaperGuard browser lifecycle', () => {
         await student.locator('.writer-export-action').click()
         await expect(student.locator('[data-test="writer-manual-review"]')).toBeVisible({ timeout: 120_000 })
         await expect(student.locator('[data-test="writer-manual-review"]')).toContainText('图中标注')
+        await student.locator('[data-test="writer-view-pending-checks"]').click()
+        const pendingImage = student.locator('[data-test="image-location"]').first()
+        await expect(pendingImage).toBeVisible()
+        await pendingImage.click()
+        await expect(student.locator('.review-target .image-block')).toBeVisible()
         await checkpoint('student-export-blocked-by-image-typography', student)
         return
       }

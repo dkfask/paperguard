@@ -36,7 +36,7 @@
           <span class="material-symbols-outlined" aria-hidden="true">swap_horiz</span>
           <span>{{ t('writer.switchTemplate') }}</span>
         </button>
-        <button class="writer-review-action" :disabled="checking || fixing" :title="t('writer.check')" :aria-label="t('writer.check')" @click="contextOpen = true; checkOpen = true; runCheckNow()">
+        <button class="writer-review-action" :disabled="checking || fixing" :title="t('writer.check')" :aria-label="t('writer.check')" @click="openFormattingCheck">
           <span class="material-symbols-outlined" aria-hidden="true">rule</span>
           <span>{{ t('writer.check') }}</span>
         </button>
@@ -146,6 +146,9 @@
         <template v-if="manualReview.checklist?.length">
           <strong>{{ t('writer.automaticCheckPendingRules') }}</strong>
           <ul><li v-for="(item, index) in manualReview.checklist" :key="`${item.id}-${index}`">{{ item.description }}</li></ul>
+          <button type="button" class="small" data-test="writer-view-pending-checks" :disabled="checking || fixing" @click="openFormattingCheck">
+            {{ t('writer.viewPendingChecks') }}
+          </button>
         </template>
       </section>
       <div v-if="templateNotice" class="notice-banner">✅ {{ templateNotice }}</div>
@@ -2208,6 +2211,12 @@ async function retryFailedSaves() {
 }
 
 // ---------- 实时检查 ----------
+function openFormattingCheck() {
+  contextOpen.value = true
+  checkOpen.value = true
+  return runCheckNow()
+}
+
 async function runCheckNow() {
   if (!project.value || loading.value || checking.value || fixing.value) return
   const generation = ++checkGeneration

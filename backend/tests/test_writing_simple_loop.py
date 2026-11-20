@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from tests._helpers import register_fixture
-from app.models.project import ParagraphBlock, ProjectSection, WritingProject
-from app.models.template import MetaField, PaperTemplate, SectionType, TemplateSection
+from app.models.project import ImageBlock, ParagraphBlock, ProjectSection, SmartArtImageBlock, WritingProject
+from app.models.template import MetaField, PaperTemplate, SectionType, TemplateSection, TextStyle
 from app.services.project_validation import validate_project_completeness
 from app.services.template_compare import compare_project_to_template
 
@@ -145,3 +145,65 @@ def test_heading_hierarchy_handles_special_sections_and_blank_parents():
     assert len(issues) == 2
     assert any('orphan-after-abstract' in issue for issue in issues)
     assert any('orphan-after-empty' in issue for issue in issues)
+
+
+def test_required_section_and_chapter_child_with_only_smartart_pass_completeness_and_preflight(tmp_path):
+    from app.api.projects import _export_preflight
+    from app.db import Store
+
+    smartart = SmartArtImageBlock(
+        caption="图 1.1 系统结构",
+        smartart={"dm": "<d/>", "lo": "<l/>", "qs": "<q/>", "cs": "<c/>", "dr": "<r/>"},
+    )
+    smartart_block = ParagraphBlock(id="smartart-1", type="image", image=smartart)
+    template = PaperTemplate(
+        id="smartart-completeness",
+        name="SmartArt 完整性模板",
+        styles={"body": TextStyle()},
+        sections=[
+            TemplateSection(key="body", type=SectionType.BODY, title="正文", required=True),
+            TemplateSection(
+                key="ch1",
+                type=SectionType.HEADING1,
+                title="第一章",
+                required=True,
+                children=[TemplateSection(key="ch1_1", type=SectionType.HEADING2, title="1.1 架构", required=False)],
+            ),
+        ],
+    )
+    empty_image_project = WritingProject(
+        id="empty-image-proj",
+        template_id=template.id,
+        sections=[
+            ProjectSection(
+                key="body",
+                type="body",
+                title="正文",
+                paragraphs=[ParagraphBlock(id="empty-img", type="image", image=ImageBlock(url="", caption="只有图题"))],
+            ),
+            ProjectSection(key="ch1", type="heading1", title="第一章"),
+            ProjectSection(key="ch1_1", type="heading2", title="1.1 架构", required=False),
+        ],
+    )
+    assert validate_project_completeness(empty_image_project, template)
+    assert any(f.rule_id.endswith(".empty") for f in compare_project_to_template(empty_image_project, template)[0])
+
+    smartart_project = WritingProject(
+        id="smartart-proj",
+        template_id=template.id,
+        sections=[
+            ProjectSection(key="body", type="body", title="正文", paragraphs=[smartart_block]),
+            ProjectSection(key="ch1", type="heading1", title="第一章"),
+            ProjectSection(
+                key="ch1_1",
+                type="heading2",
+                title="1.1 架构",
+                required=False,
+                paragraphs=[smartart_block.model_copy(update={"id": "smartart-2"})],
+            ),
+        ],
+    )
+    assert validate_project_completeness(smartart_project, template) == []
+    assert compare_project_to_template(smartart_project, template)[0] == []
+    blocking, _ = _export_preflight(smartart_project, template, Store(tmp_path / "smartart.db"), "student-1")
+    assert blocking == []

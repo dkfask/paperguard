@@ -18,6 +18,7 @@ from lxml import etree
 from app.core.extract.xml_utils import NS, load_part, qn
 from app.models.project import BlockType
 from app.services.document_assets import resolve_document_image_path
+from app.services.docx_smartart import append_inline_smartart, diagram_token
 from app.services.digit_font_rules import BODY_KINDS, HEADING_KINDS, apply_digit_font
 from app.services.master_layout_anchors import block_bookmark_name, leading_blank_heading_blocks
 from app.services.references import ReferenceInlineMappingError, reference_block_text, reference_inline_runs, reference_number_for
@@ -627,6 +628,8 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
     if baseline_styles:
         parts["word/styles.xml"] = xml_bytes(styles)
     scratch = Document()
+    rels = etree.fromstring(parts["word/_rels/document.xml.rels"])
+    content_types = etree.fromstring(parts["[Content_Types].xml"])
     blocks = []
     chapter = figure = table_number = 0
     measured_headings = [h for h in profile["headings"] if h["kind"] != "toc"]
@@ -678,21 +681,27 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                 nodes = [p]
             elif block.type == BlockType.IMAGE and block.image:
                 figure += 1
-                path = resolve_document_image_path(project.id, block.image.url)
-                if path is None:
-                    raise ProfileError("图片不属于当前项目或文件不存在")
                 paragraph = scratch.add_paragraph()
-                shape = paragraph.add_run().add_picture(str(path))
-                ratio = float(shape.width) / float(shape.height)
                 requested_w, requested_h = block.image.width_cm, block.image.height_cm
-                # Imported Word images may intentionally have different display
-                # extents from the embedded bitmap ratio. Preserve that source
-                # display geometry, then scale the pair together to fit the
-                # frozen template region.
-                image_w = requested_w or (requested_h * ratio if requested_h else min(width, float(shape.width)/360000))
-                image_h = requested_h or image_w/ratio
-                scale = min(1, width/image_w, height/image_h)
-                shape.width, shape.height = Cm(image_w*scale), Cm(image_h*scale)
+                smartart = getattr(block.image, "smartart", None)
+                if smartart:
+                    if block.image.url or requested_w is None or requested_h is None:
+                        raise ProfileError("SmartArt 缺少原始尺寸或与图片冲突")
+                    scale = min(1, width/requested_w, height/requested_h)
+                    drawing = append_inline_smartart(smartart, parts, rels, content_types, diagram_token(block.id),
+                                                     requested_w * scale, requested_h * scale)
+                    paragraph.add_run()._r.append(drawing)
+                else:
+                    path = resolve_document_image_path(project.id, block.image.url)
+                    if path is None:
+                        raise ProfileError("图片不属于当前项目或文件不存在")
+                    shape = paragraph.add_run().add_picture(str(path))
+                    ratio = float(shape.width) / float(shape.height)
+                    # Imported pictures retain their display proportions within the frozen page.
+                    image_w = requested_w or (requested_h * ratio if requested_h else min(width, float(shape.width)/360000))
+                    image_h = requested_h or image_w/ratio
+                    scale = min(1, width/image_w, height/image_h)
+                    shape.width, shape.height = Cm(image_w*scale), Cm(image_h*scale)
                 p = paragraph._p
                 image_props = {k: v for k, v in props.items() if k != "paragraph.indent.hanging"}
                 apply_properties(p, {**image_props, "paragraph.spacing.line": image_line_spacing(props),
@@ -764,7 +773,6 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
     make_generated_content_visible(root)
     # The scratch document only supplies new images; existing source relationships remain untouched.
     buffer = io.BytesIO(); scratch.save(buffer)
-    rels = etree.fromstring(parts["word/_rels/document.xml.rels"])
     existing_ids = {n.get("Id") for n in rels}
     image_index = 0
     with zipfile.ZipFile(buffer) as extra:
@@ -787,7 +795,6 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                 for blip in node.iter("{"+A+"}blip"):
                     if blip.get(qn("r:embed")) == old_id:
                         blip.set(qn("r:embed"),new_id)
-        content_types = etree.fromstring(parts["[Content_Types].xml"])
         for ext in etree.fromstring(extra.read("[Content_Types].xml")):
             if ext.tag == "{"+CT+"}Default" and ext.get("ContentType", "").startswith("image/") and not any(e.get("Extension")==ext.get("Extension") for e in content_types):
                 content_types.append(copy.deepcopy(ext))

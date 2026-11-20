@@ -1466,6 +1466,81 @@ def test_ambiguous_legacy_references_block_saving_and_both_export_endpoints():
     assert store.get_project(project_id).revision == project.revision
 
 
+def test_restore_local_snapshot_preserves_server_smartart_and_rejects_client_diagrams():
+    from app.models.project import ParagraphBlock, SmartArtImageBlock
+
+    project_id = _create_full_default_gb7713_project()
+    store = Store()
+    project = store.get_project(project_id)
+    server_parts = {"dm": "<d/>", "lo": "<l/>", "qs": "<q/>", "cs": "<c/>", "dr": "<r/>"}
+    target_section = next(sec for sec in project.sections if sec.type == "body" or sec.type.startswith("heading"))
+    target_section.paragraphs.append(ParagraphBlock(
+        id="smartart-1",
+        type="image",
+        image=SmartArtImageBlock(caption="图 1.1 原图", width_cm=8.0, height_cm=4.0, smartart=server_parts),
+    ))
+    store.save_project(project)
+
+    loaded = client.get(f"/api/projects/{project_id}").json()
+    base_snapshot = {key: deepcopy(loaded[key]) for key in ("title", "meta", "sections")}
+
+    # 1) Client cannot inject a new SmartArt via restore-local (even with partial or full parts, or wrong block type).
+    for extra in (
+        {"id": "forged-full", "type": "image", "image": {"url": "", "caption": "伪造", "smartart": server_parts}},
+        {"id": "forged-partial", "type": "image", "image": {"url": "", "caption": "伪造", "smartart": {"dm": "<x/>"}}},
+        {"id": "forged-on-text", "type": "paragraph", "text": "x", "image": {"url": "", "smartart": server_parts}},
+    ):
+        snap = deepcopy(base_snapshot)
+        sec = next(s for s in snap["sections"] if s["key"] == target_section.key)
+        sec["paragraphs"].append(extra)
+        resp = client.post(f"/api/projects/{project_id}/restore-local", json={
+            "base_revision": loaded["revision"], "snapshot": snap,
+        })
+        assert resp.status_code == 422, resp.text
+        assert client.get(f"/api/projects/{project_id}").json()["revision"] == loaded["revision"]
+
+    # 2) Existing SmartArt cannot receive a raster upload URL, switch block type, or be duplicated.
+    for mutate in (
+        lambda blk: blk["image"].update({"url": f"/media/uploads/{project_id}-x.png"}),
+        lambda blk: blk.update({"type": "paragraph", "text": "改为文字", "image": None}),
+    ):
+        snap = deepcopy(base_snapshot)
+        sec = next(s for s in snap["sections"] if s["key"] == target_section.key)
+        blk = next(p for p in sec["paragraphs"] if p["id"] == "smartart-1")
+        mutate(blk)
+        resp = client.post(f"/api/projects/{project_id}/restore-local", json={
+            "base_revision": loaded["revision"], "snapshot": snap,
+        })
+        assert resp.status_code == 422, resp.text
+
+    dup_snap = deepcopy(base_snapshot)
+    dup_sec = next(s for s in dup_snap["sections"] if s["key"] == target_section.key)
+    dup_sec["paragraphs"].append(deepcopy(next(p for p in dup_sec["paragraphs"] if p["id"] == "smartart-1")))
+    assert client.post(f"/api/projects/{project_id}/restore-local", json={
+        "base_revision": loaded["revision"], "snapshot": dup_snap,
+    }).status_code == 422
+
+    # 3) Normal recovery allows caption edit while keeping server-owned SmartArt parts and geometry immutable.
+    valid_snap = deepcopy(base_snapshot)
+    valid_sec = next(s for s in valid_snap["sections"] if s["key"] == target_section.key)
+    valid_blk = next(p for p in valid_sec["paragraphs"] if p["id"] == "smartart-1")
+    valid_blk["image"].update({
+        "caption": "图 1.1 更新后图题",
+        "width_cm": 1.0,
+        "smartart": {k: "<tampered/>" for k in server_parts},
+    })
+    ok = client.post(f"/api/projects/{project_id}/restore-local", json={
+        "base_revision": loaded["revision"], "snapshot": valid_snap,
+    })
+    assert ok.status_code == 200, ok.text
+    restored_blk = next(
+        p for s in ok.json()["sections"] if s["key"] == target_section.key for p in s["paragraphs"] if p["id"] == "smartart-1"
+    )
+    assert restored_blk["image"]["caption"] == "图 1.1 更新后图题"
+    assert restored_blk["image"]["width_cm"] == 8.0
+    assert restored_blk["image"]["smartart"] == server_parts
+
+
 def test_durable_project_export_unknown_capability_fails_without_publishing():
     from app.services.export_jobs import EXPORT_DIR
     from app.services.export_jobs import run_project_export

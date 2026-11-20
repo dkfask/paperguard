@@ -29,6 +29,12 @@ class ImageBlock(BaseModel):
     alignment: Literal["left", "center", "right", "justify", "distribute"] | None = None
 
 
+class SmartArtImageBlock(ImageBlock):
+    """A supported imported diagram, with its self-contained OOXML parts."""
+
+    smartart: dict[str, Annotated[str, Field(max_length=65536)]] = Field(min_length=5, max_length=5)
+
+
 class TableBorderEdge(BaseModel):
     style: Literal["nil", "none", "single", "double", "dotted", "dashed", "dashSmallGap",
                    "dotDash", "dotDotDash", "triple", "thick", "thinThickSmallGap",
@@ -138,7 +144,7 @@ class ParagraphBlock(BaseModel):
     reference_number: int | None = Field(default=None, ge=1)
     # Server-owned: a pasted numeric prefix is source text, not the current display number.
     reference_number_managed: bool = Field(default=False, json_schema_extra={"readOnly": True})
-    image: ImageBlock | None = None
+    image: SmartArtImageBlock | ImageBlock | None = None
     table: TableBlock | None = None
     equation: EquationBlock | None = None
 

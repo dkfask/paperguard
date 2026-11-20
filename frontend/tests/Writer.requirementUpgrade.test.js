@@ -41,7 +41,7 @@ import Writer from '../src/views/Writer.vue'
 let wrapper
 afterEach(() => { wrapper?.unmount(); wrapper = null; vi.clearAllMocks() })
 
-it('locates a manuscript image when its image typography cannot be verified', async () => {
+it('opens the blocked export checks and locates the manuscript image', async () => {
   api.fetchProject.mockResolvedValue({ id: 'p1', title: '论文', revision: 1, meta: {},
     sections: [
       { key: 'intro', type: 'body', title: '绪论', paragraphs: [] },
@@ -54,14 +54,17 @@ it('locates a manuscript image when its image typography cannot be verified', as
       { key: 'intro', type: 'body', title: '绪论' }, { key: 'design', type: 'body', title: '系统设计' },
     ] } })
   api.fetchProjectCapabilities.mockResolvedValue({ formal_delivery_enabled: true })
-  api.fetchProjectExportJobs.mockResolvedValue([])
+  api.fetchProjectExportJobs.mockResolvedValue([{
+    id: 'export', project_revision: 1, status: 'succeeded', output_check_status: 'pass',
+    manual_review: { status: 'required', checklist: [{ id: 'image-font', description: '图中文字字号' }] },
+  }])
   api.checkProject.mockResolvedValue({ summary: { total: 0, not_checked: 1 }, findings: [], waived: [],
     not_checked: [{ id: 'image-font', type: 'manual', description: '图中文字字号', source: '学校规范',
       reason: 'image_typography_unverified', enforce: 'hard' }] })
   api.checkProjectTemplate.mockResolvedValue({ summary: {}, findings: [], context: { template_name: '模板' } })
   wrapper = mount(Writer, { global: { stubs: { BaseModal: { template: '<div><slot /></div>' }, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } })
   await flushPromises()
-  await wrapper.find('.writer-review-action').trigger('click'); await flushPromises()
+  await wrapper.get('[data-test="writer-view-pending-checks"]').trigger('click'); await flushPromises()
   const location = wrapper.get('[data-test="image-location"]')
   expect(location.text()).toContain('系统设计')
   expect(location.text()).toContain('系统结构图')

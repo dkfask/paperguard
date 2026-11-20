@@ -863,6 +863,9 @@ def export_project_to_docx(project: WritingProject, template: PaperTemplate, out
         from app.services.master_docx_renderer import render_master_docx
         render_master_docx(project, template, out_path, source_path=template_path)
         return
+    if any(block.type.value == "image" and getattr(block.image, "smartart", None)
+           for section in project.sections for block in section.paragraphs):
+        raise ValueError("SmartArt 需要使用经确认的 Word 源模板导出")
     if _copy_unchanged_source(project, template, out_path, template_path):
         return
 

@@ -59,7 +59,8 @@ describe('Writer pending automatic output checks', () => {
     expect(panel.text()).toContain('writer.automaticCheckPendingRules')
     expect(panel.text()).toContain('图中标注符号文字字号不大于图题的字号')
     expect(panel.text()).not.toContain('旧文件')
-    expect(panel.findAll('input, button')).toHaveLength(0)
+    expect(panel.findAll('input')).toHaveLength(0)
+    expect(panel.findAll('button').map(button => button.text())).toEqual(['writer.viewPendingChecks'])
     expect(api.downloadProjectExportReviewCandidate).not.toHaveBeenCalled()
     expect(api.confirmProjectExportManualReview).not.toHaveBeenCalled()
     expect(api.downloadProjectExportJob).not.toHaveBeenCalled()
@@ -122,7 +123,7 @@ describe('Writer pending automatic output checks', () => {
   it('does not offer student confirmation or restore stale files', async () => {
     role.manager = false
     const wrapper = open(); await flushPromises()
-    expect(wrapper.get('[data-test="writer-manual-review"]').findAll('button')).toHaveLength(0)
+    expect(wrapper.get('[data-test="writer-manual-review"]').findAll('button').map(button => button.text())).toEqual(['writer.viewPendingChecks'])
     expect(wrapper.find('[data-test="writer-download-ready"]').exists()).toBe(false)
     wrapper.unmount()
     api.fetchProjectExportJobs.mockResolvedValue([{ id: 'old', project_revision: 2, status: 'succeeded', manual_review: { status: 'confirmed' } }])

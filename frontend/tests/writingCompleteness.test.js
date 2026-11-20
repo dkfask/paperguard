@@ -42,6 +42,29 @@ describe('template writing completion', () => {
     section.paragraphs[0].table.cells[0][0] = 0
     expect(isWritingSectionComplete(section, [section])).toBe(true)
   })
+
+  it('counts preserved SmartArt as media content in sections and chapter children', () => {
+    const emptySection = {
+      key: 'body', type: 'body', title: '正文',
+      paragraphs: [{ type: 'image', image: { url: '', caption: '只有图题', smartart: {} } }],
+    }
+    expect(isWritingSectionComplete(emptySection, [emptySection])).toBe(false)
+
+    const smartartSection = {
+      key: 'body', type: 'body', title: '正文',
+      paragraphs: [{ type: 'image', image: { url: '', caption: '图 1.1', smartart: { dm: '<d/>' } } }],
+    }
+    expect(isWritingSectionComplete(smartartSection, [smartartSection])).toBe(true)
+
+    const chapterSections = [
+      { key: 'ch1', type: 'heading1', title: '第一章', paragraphs: [] },
+      {
+        key: 'ch1_1', type: 'heading2', title: '1.1 架构',
+        paragraphs: [{ type: 'image', image: { url: '', caption: '图 1.2', smartart: { dm: '<d/>' } } }],
+      },
+    ]
+    expect(isWritingSectionComplete(chapterSections[0], chapterSections)).toBe(true)
+  })
 })
 
 describe('heading hierarchy', () => {

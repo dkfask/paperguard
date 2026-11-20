@@ -67,8 +67,11 @@
           </tr></tbody></table>
         </div>
         <div v-else-if="block.type === 'image'" class="snapshot-image">
-          <img v-if="imageSrc(block)" :src="imageSrc(block)" :alt="block.image?.caption || t('reviewEvidence.bodyImage')" />
-          <span v-if="imageUnavailable(block)" role="status">{{ t('reviewEvidence.imageUnavailable') }}</span>
+          <span v-if="block.image?.smartart">{{ t('blockList.importedSmartArt') }}</span>
+          <template v-else>
+            <img v-if="imageSrc(block)" :src="imageSrc(block)" :alt="block.image?.caption || t('reviewEvidence.bodyImage')" />
+            <span v-if="imageUnavailable(block)" role="status">{{ t('reviewEvidence.imageUnavailable') }}</span>
+          </template>
           <span>{{ block.image?.caption || t('reviewEvidence.image') }}</span>
         </div>
       </div>
