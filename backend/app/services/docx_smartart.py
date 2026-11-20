@@ -1,5 +1,6 @@
 """Read and write the inline, self-contained SmartArt used in 1101 samples."""
 
+import copy
 import hashlib
 import posixpath
 import re
@@ -82,6 +83,17 @@ _RPR_AFTER_EA = {
     f"{{{A}}}cs", f"{{{A}}}sym",
     f"{{{A}}}hlinkClick", f"{{{A}}}hlinkMouseOver", f"{{{A}}}rtl", f"{{{A}}}extLst",
 }
+_STYLE_REF_TAGS = {f"{{{A}}}fillRef": "fill", f"{{{A}}}lnRef": "ln", f"{{{A}}}effectRef": "effect"}
+_FILL_TAGS = {
+    f"{{{A}}}noFill", f"{{{A}}}solidFill", f"{{{A}}}gradFill",
+    f"{{{A}}}blipFill", f"{{{A}}}pattFill", f"{{{A}}}grpFill",
+}
+_EFFECT_TAGS = {f"{{{A}}}effectLst", f"{{{A}}}effectDag"}
+_SPPR_AFTER_FILL = {f"{{{A}}}ln", *_EFFECT_TAGS, f"{{{A}}}scene3d", f"{{{A}}}sp3d", f"{{{A}}}extLst"}
+_SPPR_AFTER_LN = {*_EFFECT_TAGS, f"{{{A}}}scene3d", f"{{{A}}}sp3d", f"{{{A}}}extLst"}
+_SPPR_AFTER_EFFECT = {f"{{{A}}}scene3d", f"{{{A}}}sp3d", f"{{{A}}}extLst"}
+_SPPR_AFTER_SCENE3D = {f"{{{A}}}sp3d", f"{{{A}}}extLst"}
+_SPPR_AFTER_SP3D = {f"{{{A}}}extLst"}
 
 
 def _script_for_lang(lang: str, mapping: dict[str, str], *, allow_prefix: bool) -> str | None:
@@ -97,21 +109,83 @@ def _script_for_lang(lang: str, mapping: dict[str, str], *, allow_prefix: bool) 
     return mapping.get(tag.split("-", 1)[0]) if allow_prefix else None
 
 
+def _validate_and_resolve_node_colors(node, *, allow_ph_clr: bool, theme_colors: dict[str, str] | None,
+                                      theme_fonts: dict[str, str] | None, allow_rel_id: bool = False) -> tuple[bool, bool]:
+    has_font_ref = False
+    has_style_ref = False
+    for item in node.iter():
+        if not isinstance(item.tag, str):
+            raise ValueError("SmartArt 包含无法核验的节点")
+        name = etree.QName(item)
+        if name.namespace not in {A, DGM, DSP} or name.localname in {"hlinkClick", "hlinkMouseOver", "blip"}:
+            raise ValueError("SmartArt 含不支持的图形内容")
+        if any(etree.QName(attribute).namespace == R and value for attribute, value in item.attrib.items()):
+            raise ValueError("SmartArt 部件包含额外资源引用")
+        if "relId" in item.attrib and (not allow_rel_id or item.tag != f"{{{DSP}}}dataModelExt"):
+            raise ValueError("SmartArt 部件包含额外关系")
+        if item.tag == f"{{{A}}}schemeClr":
+            scheme_name = item.get("val", "")
+            if scheme_name == "phClr" and allow_ph_clr:
+                continue
+            if set(item.attrib) != {"val"} or not theme_colors or scheme_name not in theme_colors:
+                raise ValueError("SmartArt 主题色无法独立保留")
+            item.tag = f"{{{A}}}srgbClr"
+            item.attrib.clear()
+            item.set("val", theme_colors[scheme_name])
+        if "typeface" in item.attrib:
+            typeface = item.get("typeface", "")
+            if typeface.startswith("+"):
+                if not theme_fonts or typeface not in theme_fonts:
+                    raise ValueError("SmartArt 主题字体无法独立保留")
+                item.set("typeface", theme_fonts[typeface])
+        if item.tag == f"{{{A}}}fontRef" and item.get("idx") != "none":
+            has_font_ref = True
+        if item.tag in _STYLE_REF_TAGS and item.get("idx", "0") != "0":
+            has_style_ref = True
+    return has_font_ref, has_style_ref
+
+
+def _read_fmt_scheme(theme_elements, colors: dict[str, str], fonts: dict[str, str]) -> dict[str, list]:
+    fmt_scheme = theme_elements.find(f"{{{A}}}fmtScheme")
+    if fmt_scheme is None:
+        return {}
+    result: dict[str, list] = {}
+    for key, list_tag in (
+        ("fill", "fillStyleLst"), ("bgFill", "bgFillStyleLst"),
+        ("ln", "lnStyleLst"), ("effect", "effectStyleLst"),
+    ):
+        lst = fmt_scheme.find(f"{{{A}}}{list_tag}")
+        entries = []
+        if lst is not None:
+            for child in lst:
+                entry = copy.deepcopy(child)
+                try:
+                    has_font, has_style = _validate_and_resolve_node_colors(
+                        entry, allow_ph_clr=True, theme_colors=colors, theme_fonts=fonts,
+                    )
+                except ValueError:
+                    entries.append(None)
+                else:
+                    entries.append(None if (has_font or has_style) else entry)
+        result[key] = entries
+    return result
+
+
 def read_theme_resources(
     theme_blob: bytes | None, settings_blob: bytes | None = None,
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Resolve theme colors and font-scheme names using the source package's theme and settings."""
+) -> tuple[dict[str, str], dict[str, str], dict[str, list]]:
+    """Resolve theme colors, font-scheme names, and format-scheme styles from the source package."""
     if not theme_blob:
-        return {}, {}
+        return {}, {}, {}
     try:
         theme_root = etree.fromstring(theme_blob, safe_xml_parser())
     except etree.XMLSyntaxError:
-        return {}, {}
+        return {}, {}, {}
     if theme_root.getroottree().docinfo.doctype or theme_root.tag != f"{{{A}}}theme":
-        return {}, {}
+        return {}, {}, {}
     theme_elements = theme_root.find(f"{{{A}}}themeElements")
     if theme_elements is None:
-        return {}, {}
+        return {}, {}, {}
 
     slots: dict[str, str] = {}
     color_scheme = theme_elements.find(f"{{{A}}}clrScheme")
@@ -141,9 +215,9 @@ def read_theme_resources(
         try:
             settings_root = etree.fromstring(settings_blob, safe_xml_parser())
         except etree.XMLSyntaxError:
-            return {}, {}
+            return {}, {}, {}
         if settings_root.getroottree().docinfo.doctype or settings_root.tag != f"{{{W}}}settings":
-            return {}, {}
+            return {}, {}, {}
         map_nodes = settings_root.findall(f"{{{W}}}clrSchemeMapping")
         if len(map_nodes) > 1:
             settings_valid = False
@@ -164,7 +238,7 @@ def read_theme_resources(
             ea_script = _script_for_lang(lang_nodes[0].get(f"{{{W}}}eastAsia", ""), _EA_SCRIPTS, allow_prefix=False)
             cs_script = _script_for_lang(lang_nodes[0].get(f"{{{W}}}bidi", ""), _CS_SCRIPTS, allow_prefix=True)
     if not settings_valid:
-        return {}, {}
+        return {}, {}, {}
 
     colors = {key: slots[target] for key, target in color_map.items() if target in slots}
 
@@ -188,10 +262,11 @@ def read_theme_resources(
                 if face and not face.startswith("+"):
                     suffix = "lt" if kind == "latin" else kind
                     fonts[f"+{prefix}-{suffix}"] = face
-    return colors, fonts
+    fmt_scheme = _read_fmt_scheme(theme_elements, colors, fonts)
+    return colors, fonts, fmt_scheme
 
 
-def resolve_package_theme(relations, read_blob) -> tuple[dict[str, str], dict[str, str]]:
+def resolve_package_theme(relations, read_blob) -> tuple[dict[str, str], dict[str, str], dict[str, list]]:
     """Read theme and settings parts once when a package declares unique internal targets."""
     def unique_blob(relation_type: str) -> tuple[bool, bytes | None]:
         matched = [item for item in relations if item[0] == relation_type]
@@ -205,12 +280,12 @@ def resolve_package_theme(relations, read_blob) -> tuple[dict[str, str], dict[st
     ok_theme, theme_blob = unique_blob(THEME_REL)
     ok_settings, settings_blob = unique_blob(SETTINGS_REL)
     if not ok_theme or not ok_settings:
-        return {}, {}
+        return {}, {}, {}
     return read_theme_resources(theme_blob, settings_blob)
 
 
-def read_part_theme(part) -> tuple[dict[str, str], dict[str, str]]:
-    """Read theme colors and fonts once from an open python-docx document part."""
+def read_part_theme(part) -> tuple[dict[str, str], dict[str, str], dict[str, list]]:
+    """Read theme colors, fonts, and styles once from an open python-docx document part."""
     return resolve_package_theme(
         [(rel.reltype, rel.is_external, rel) for rel in part.rels.values()],
         lambda rel: rel.target_part.blob,
@@ -237,13 +312,118 @@ def read_package_part(archive, target, content_type):
     return archive.read(name)
 
 
-def _insert_rpr_font(rpr, tag: str, typeface: str, after_tags: set[str]) -> None:
-    node = etree.Element(tag, typeface=typeface)
-    for index, child in enumerate(rpr):
+def _insert_ordered_child(parent, node, after_tags: set[str]) -> None:
+    for index, child in enumerate(parent):
         if child.tag in after_tags:
-            rpr.insert(index, node)
+            parent.insert(index, node)
             return
-    rpr.append(node)
+    parent.append(node)
+
+
+def _lookup_style_entry(kind: str, idx_text: str, fmt_scheme: dict[str, list]):
+    if not idx_text.isascii() or not idx_text.isdecimal():
+        raise ValueError("SmartArt 主题样式无法独立保留")
+    idx = int(idx_text)
+    if idx == 0:
+        return None
+    if not fmt_scheme:
+        raise ValueError("SmartArt 主题样式无法独立保留")
+    if kind == "fill":
+        if 1 <= idx <= len(fmt_scheme.get("fill", [])):
+            entry = fmt_scheme["fill"][idx - 1]
+        elif 1001 <= idx <= 1000 + len(fmt_scheme.get("bgFill", [])):
+            entry = fmt_scheme["bgFill"][idx - 1001]
+        else:
+            raise ValueError("SmartArt 主题样式无法独立保留")
+    else:
+        entries = fmt_scheme.get(kind, [])
+        if not 1 <= idx <= len(entries):
+            raise ValueError("SmartArt 主题样式无法独立保留")
+        entry = entries[idx - 1]
+    if entry is None:
+        raise ValueError("SmartArt 主题样式无法独立保留")
+    return copy.deepcopy(entry)
+
+
+def _substitute_ph_clr(entry, ref_node) -> None:
+    ph_nodes = [node for node in entry.iter(f"{{{A}}}schemeClr") if node.get("val") == "phClr"]
+    if not ph_nodes:
+        return
+    ref_colors = [child for child in ref_node if isinstance(child.tag, str)]
+    if len(ref_colors) != 1:
+        raise ValueError("SmartArt 主题样式无法独立保留")
+    base = ref_colors[0]
+    for ph in ph_nodes:
+        style_transforms = [copy.deepcopy(child) for child in ph]
+        ph.tag = base.tag
+        ph.attrib.clear()
+        for key, value in base.attrib.items():
+            ph.set(key, value)
+        for child in list(ph):
+            ph.remove(child)
+        for child in base:
+            ph.append(copy.deepcopy(child))
+        for child in style_transforms:
+            ph.append(child)
+
+
+def _resolve_shape_style_refs(root, fmt_scheme: dict[str, list]) -> None:
+    resolved_nodes: set = set()
+    for shape in root.iter(f"{{{DSP}}}sp"):
+        style = shape.find(f"{{{DSP}}}style")
+        if style is None:
+            continue
+        sp_pr = shape.find(f"{{{DSP}}}spPr")
+        fill_ref = style.find(f"{{{A}}}fillRef")
+        if fill_ref is not None:
+            resolved_nodes.add(fill_ref)
+            entry = _lookup_style_entry("fill", fill_ref.get("idx", "0"), fmt_scheme)
+            if entry is not None:
+                if sp_pr is None:
+                    raise ValueError("SmartArt 主题样式无法独立保留")
+                if not any(child.tag in _FILL_TAGS for child in sp_pr):
+                    _substitute_ph_clr(entry, fill_ref)
+                    _insert_ordered_child(sp_pr, entry, _SPPR_AFTER_FILL)
+                fill_ref.set("idx", "0")
+        ln_ref = style.find(f"{{{A}}}lnRef")
+        if ln_ref is not None:
+            resolved_nodes.add(ln_ref)
+            entry = _lookup_style_entry("ln", ln_ref.get("idx", "0"), fmt_scheme)
+            if entry is not None:
+                if sp_pr is None:
+                    raise ValueError("SmartArt 主题样式无法独立保留")
+                existing_ln = sp_pr.find(f"{{{A}}}ln")
+                if existing_ln is None:
+                    _substitute_ph_clr(entry, ln_ref)
+                    _insert_ordered_child(sp_pr, entry, _SPPR_AFTER_LN)
+                elif not existing_ln.get("w") or not any(child.tag in _FILL_TAGS for child in existing_ln):
+                    raise ValueError("SmartArt 主题样式无法独立保留")
+                ln_ref.set("idx", "0")
+        effect_ref = style.find(f"{{{A}}}effectRef")
+        if effect_ref is not None:
+            resolved_nodes.add(effect_ref)
+            entry = _lookup_style_entry("effect", effect_ref.get("idx", "0"), fmt_scheme)
+            if entry is not None:
+                if sp_pr is None:
+                    raise ValueError("SmartArt 主题样式无法独立保留")
+                _substitute_ph_clr(entry, effect_ref)
+                for child in entry:
+                    if child.tag in _EFFECT_TAGS and not any(c.tag in _EFFECT_TAGS for c in sp_pr):
+                        _insert_ordered_child(sp_pr, child, _SPPR_AFTER_EFFECT)
+                    elif child.tag == f"{{{A}}}scene3d" and sp_pr.find(f"{{{A}}}scene3d") is None:
+                        _insert_ordered_child(sp_pr, child, _SPPR_AFTER_SCENE3D)
+                    elif child.tag == f"{{{A}}}sp3d" and sp_pr.find(f"{{{A}}}sp3d") is None:
+                        _insert_ordered_child(sp_pr, child, _SPPR_AFTER_SP3D)
+                effect_ref.set("idx", "0")
+
+    for tag, kind in _STYLE_REF_TAGS.items():
+        for ref_node in root.iter(tag):
+            if ref_node in resolved_nodes or ref_node.get("idx", "0") == "0":
+                continue
+            if root.tag == PARTS["dr"][0]:
+                raise ValueError("SmartArt 主题样式无法独立保留")
+            _lookup_style_entry(kind, ref_node.get("idx", "0"), fmt_scheme)
+            ref_node.set("idx", "0")
 
 
 def _resolve_shape_font_refs(root, theme_fonts: dict[str, str]) -> None:
@@ -265,60 +445,45 @@ def _resolve_shape_font_refs(root, theme_fonts: dict[str, str]) -> None:
                 latin_face = theme_fonts.get(f"{prefix}-lt", "")
                 if not latin_face:
                     raise ValueError("SmartArt 主题字体无法独立保留")
-                _insert_rpr_font(rpr, f"{{{A}}}latin", latin_face, _RPR_AFTER_LATIN)
+                _insert_ordered_child(rpr, etree.Element(f"{{{A}}}latin", typeface=latin_face), _RPR_AFTER_LATIN)
             if any(ord(ch) > 127 for ch in text_val) and rpr.find(f"{{{A}}}ea") is None:
                 ea_face = theme_fonts.get(f"{prefix}-ea", "")
                 if not ea_face:
                     raise ValueError("SmartArt 主题字体无法独立保留")
-                _insert_rpr_font(rpr, f"{{{A}}}ea", ea_face, _RPR_AFTER_EA)
+                _insert_ordered_child(rpr, etree.Element(f"{{{A}}}ea", typeface=ea_face), _RPR_AFTER_EA)
     for font_ref in root.iter(f"{{{A}}}fontRef"):
         if font_ref.get("idx") in {"major", "minor"}:
             font_ref.set("idx", "none")
 
 
-def _part(key, data, *, theme: tuple[dict[str, str], dict[str, str]] | None = None):
+def _part(key, data, *, theme: tuple[dict[str, str], dict[str, str], dict[str, list]] | None = None):
     if not data or len(data) > MAX_PART_BYTES:
         raise ValueError("SmartArt 部件为空或过大")
     root = etree.fromstring(data, safe_xml_parser())
     if root.tag != PARTS[key][0] or root.getroottree().docinfo.doctype:
         raise ValueError("SmartArt 部件结构无法核验")
-    theme_colors, theme_fonts = theme if theme is not None else (None, None)
-    has_font_ref = False
-    for item in root.iter():
-        if not isinstance(item.tag, str):
-            raise ValueError("SmartArt 包含无法核验的节点")
-        name = etree.QName(item)
-        if name.namespace not in {A, DGM, DSP} or name.localname in {"hlinkClick", "hlinkMouseOver", "blip"}:
-            raise ValueError("SmartArt 含不支持的图形内容")
-        if any(etree.QName(attribute).namespace == R and value for attribute, value in item.attrib.items()):
-            raise ValueError("SmartArt 部件包含额外资源引用")
-        if "relId" in item.attrib and (key != "dm" or item.tag != f"{{{DSP}}}dataModelExt"):
-            raise ValueError("SmartArt 部件包含额外关系")
-        if item.tag == f"{{{A}}}schemeClr":
-            scheme_name = item.get("val", "")
-            if scheme_name == "phClr" and key == "qs":
-                continue
-            if set(item.attrib) != {"val"} or not theme_colors or scheme_name not in theme_colors:
-                raise ValueError("SmartArt 主题色无法独立保留")
-            item.tag = f"{{{A}}}srgbClr"
-            item.attrib.clear()
-            item.set("val", theme_colors[scheme_name])
-        if "typeface" in item.attrib:
-            typeface = item.get("typeface", "")
-            if typeface.startswith("+"):
-                if not theme_fonts or typeface not in theme_fonts:
-                    raise ValueError("SmartArt 主题字体无法独立保留")
-                item.set("typeface", theme_fonts[typeface])
-        if item.tag == f"{{{A}}}fontRef" and item.get("idx") != "none":
-            if theme is None or item.get("idx") not in {"major", "minor"}:
-                raise ValueError("SmartArt 主题字体无法独立保留")
-            has_font_ref = True
+    theme_colors, theme_fonts, fmt_scheme = theme if theme is not None else (None, None, None)
+    has_font_ref, has_style_ref = _validate_and_resolve_node_colors(
+        root,
+        allow_ph_clr=(key == "qs"),
+        theme_colors=theme_colors,
+        theme_fonts=theme_fonts,
+        allow_rel_id=(key == "dm"),
+    )
+    if has_style_ref:
+        if theme is None:
+            raise ValueError("SmartArt 主题样式无法独立保留")
+        _resolve_shape_style_refs(root, fmt_scheme or {})
     if has_font_ref:
+        if theme is None or any(
+            node.get("idx") not in {"major", "minor", "none"} for node in root.iter(f"{{{A}}}fontRef")
+        ):
+            raise ValueError("SmartArt 主题字体无法独立保留")
         _resolve_shape_font_refs(root, theme_fonts or {})
     return root
 
 
-def read_inline_smartart(drawing, resolve, *, theme: tuple[dict[str, str], dict[str, str]] | None = None):
+def read_inline_smartart(drawing, resolve, *, theme: tuple[dict[str, str], dict[str, str], dict[str, list]] | None = None):
     """Read a diagram and normalize the document-local drawing relationship."""
     inline = drawing.find(f"{{{WP}}}inline")
     if inline is None or len(drawing) != 1:

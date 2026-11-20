@@ -96,9 +96,9 @@ def inventory_docx_source(data: bytes) -> dict:
                     entries.append({"kind": "relationship_definition", "location": f"word/_rels/document.xml.rels#{identifier}",
                                     "relationship_type": relationships[identifier]["type"]})
 
-            theme: tuple[dict[str, str], dict[str, str]] | None = None
+            theme: tuple[dict[str, str], dict[str, str], dict[str, list]] | None = None
 
-            def get_theme() -> tuple[dict[str, str], dict[str, str]]:
+            def get_theme() -> tuple[dict[str, str], dict[str, str], dict[str, list]]:
                 nonlocal theme
                 if theme is None:
                     def read_rel_blob(target: str) -> bytes | None:

@@ -517,9 +517,9 @@ def import_docx_project(data: bytes, heading_decisions: dict[str, str] | None = 
         raise ValueError("手工标题确认内容无效，请重新预览")
     document = Document(BytesIO(data))
     numbering = _HeadingNumbering(document)
-    theme: tuple[dict[str, str], dict[str, str]] | None = None
+    theme: tuple[dict[str, str], dict[str, str], dict[str, list]] | None = None
 
-    def get_theme() -> tuple[dict[str, str], dict[str, str]]:
+    def get_theme() -> tuple[dict[str, str], dict[str, str], dict[str, list]]:
         nonlocal theme
         if theme is None:
             from app.services.docx_smartart import read_part_theme

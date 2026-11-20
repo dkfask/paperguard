@@ -121,6 +121,8 @@ def _smartart_source(
     major_ea=None,
     east_asia_lang=None,
     theme_font_ref=None,
+    style_matrix_line_w=None,
+    style_matrix_ref=False,
     drop_theme=False,
 ):
     dgm = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
@@ -135,18 +137,31 @@ def _smartart_source(
         f'<a:latin typeface="+mn-lt"/><a:ea typeface="+mj-ea"/></a:rPr><a:t>图形文字</a:t></a:r>'
         if theme_font_ref else label
     )
-    drawing_children = (
-        f'<dsp:sp xmlns:dsp="{dsp}" xmlns:a="{a}">'
-        f'<dsp:style><a:fontRef idx="{theme_font_ref}"/></dsp:style>'
-        f'<dsp:txBody><a:bodyPr/><a:lstStyle/><a:p>{label}</a:p></dsp:txBody></dsp:sp>'
-        if theme_font_ref else label
-    )
+    use_shape = bool(theme_font_ref or style_matrix_ref or style_matrix_line_w)
+    if use_shape:
+        font_ref_attr = theme_font_ref or "none"
+        style_tags = (
+            f'<a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef>'
+            f'<a:fillRef idx="1"><a:srgbClr val="112233"/></a:fillRef>'
+            f'<a:effectRef idx="1"><a:srgbClr val="000000"/></a:effectRef>'
+            if (style_matrix_ref or style_matrix_line_w) else ""
+        )
+        drawing_children = (
+            f'<dsp:sp xmlns:dsp="{dsp}" xmlns:a="{a}">'
+            f'<dsp:spPr/>'
+            f'<dsp:style>{style_tags}<a:fontRef idx="{font_ref_attr}"/></dsp:style>'
+            f'<dsp:txBody><a:bodyPr/><a:lstStyle/><a:p>{label}</a:p></dsp:txBody></dsp:sp>'
+        )
+    else:
+        drawing_children = label
     style_children = ""
     colors_children = ""
     if scheme_ref:
         drawing_children += f'<a:solidFill xmlns:a="{a}"><a:schemeClr val="{scheme_ref}"/></a:solidFill>'
         colors_children = f'<d:fillClrLst><a:schemeClr xmlns:a="{a}" val="accent1"><a:tint val="50000"/></a:schemeClr></d:fillClrLst>'
         style_children = f'<a:fontRef xmlns:a="{a}" idx="minor"><a:schemeClr val="phClr"/></a:fontRef>'
+    if style_matrix_ref or style_matrix_line_w:
+        style_children += f'<a:fillRef xmlns:a="{a}" idx="1"><a:schemeClr val="phClr"/></a:fillRef>'
     refs = {}
     for key, name, root, relation, ctype, children in (
         ("dr", "drawing", "drawing", "diagramDrawing", "ms-office.drawingml.diagramDrawing", drawing_children),
@@ -175,7 +190,7 @@ def _smartart_source(
     document.add_paragraph("图1.1 系统结构")
     output = BytesIO()
     document.save(output)
-    if not any((accent, dk2, clr_map_tx1, minor_latin, major_ea, east_asia_lang, drop_theme)):
+    if not any((accent, dk2, clr_map_tx1, minor_latin, major_ea, east_asia_lang, style_matrix_line_w, drop_theme)):
         return output.getvalue()
     from lxml import etree
 
@@ -203,6 +218,10 @@ def _smartart_source(
                     node = theme_root.find(f".//{{{a}}}fontScheme/{{{a}}}majorFont/{{{a}}}ea")
                     assert node is not None
                     node.set("typeface", major_ea)
+                if style_matrix_line_w:
+                    ln_list = theme_root.find(f".//{{{a}}}fmtScheme/{{{a}}}lnStyleLst")
+                    assert ln_list is not None and len(ln_list) >= 2
+                    ln_list[1].set("w", str(style_matrix_line_w))
                 blob = etree.tostring(theme_root)
             elif info.filename == "word/settings.xml" and (clr_map_tx1 or east_asia_lang):
                 settings_root = etree.fromstring(blob)
@@ -276,9 +295,34 @@ def test_import_resolves_smartart_theme_fonts_against_source_theme():
     assert report["status"] == "complete", report["unresolved"]
 
 
+def test_import_resolves_smartart_style_matrix_against_source_theme():
+    from lxml import etree
+
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    dsp = "http://schemas.microsoft.com/office/drawing/2008/diagram"
+    data = _smartart_source(accent="E06666", style_matrix_line_w=50800, style_matrix_ref=True)
+    imported = import_docx_project(data)
+    smartart = _find(imported, "image")["image"]["smartart"]
+    dr_root = etree.fromstring(smartart["dr"].encode())
+    sp_pr = dr_root.find(f".//{{{dsp}}}spPr")
+    assert sp_pr is not None
+    assert sp_pr.find(f"{{{a}}}solidFill/{{{a}}}srgbClr").get("val") == "112233"
+    ln = sp_pr.find(f"{{{a}}}ln")
+    assert ln is not None and ln.get("w") == "50800"
+    assert ln.find(f"{{{a}}}solidFill/{{{a}}}srgbClr").get("val") == "E06666"
+    assert sp_pr.find(f"{{{a}}}effectLst") is not None
+    for part_name in ("dr", "qs"):
+        part_root = etree.fromstring(smartart[part_name].encode())
+        for tag in ("fillRef", "lnRef", "effectRef"):
+            assert all(el.get("idx") == "0" for el in part_root.iter(f"{{{a}}}{tag}"))
+    report = reconcile_docx_import(inventory_docx_source(data), imported)
+    assert report["status"] == "complete", report["unresolved"]
+
+
 @pytest.mark.parametrize("params", [
     {"scheme_ref": "accent1", "drop_theme": True},
     {"theme_font_ref": "minor", "drop_theme": True},
+    {"style_matrix_ref": True, "drop_theme": True},
 ])
 def test_smartart_with_unresolvable_theme_dependency_is_rejected(params):
     data = _smartart_source(**params)
