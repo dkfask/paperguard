@@ -322,8 +322,11 @@ def _append_inline_text(runs: list[dict[str, Any]], text: str,
 
 
 def _paragraph_blocks(paragraph: Paragraph, block_prefix: str, unsupported: list[str],
-                      source_location: str) -> list[dict[str, Any]]:
-    from app.services.docx_smartart import DGM, GRAPHIC_DATA, WP, read_inline_smartart
+                      source_location: str,
+                      get_theme_colors=None) -> list[dict[str, Any]]:
+    from app.services.docx_smartart import (
+        DGM, GRAPHIC_DATA, WP, read_inline_smartart, read_part_theme_colors,
+    )
 
     blocks: list[dict[str, Any]] = []
     inline_runs: list[dict[str, Any]] = []
@@ -381,7 +384,10 @@ def _paragraph_blocks(paragraph: Paragraph, block_prefix: str, unsupported: list
                         return part.blob
 
                     try:
-                        smartart, _ = read_inline_smartart(child, resolve)
+                        resolved_theme = (
+                            get_theme_colors() if get_theme_colors is not None else read_part_theme_colors(paragraph.part)
+                        )
+                        smartart, _ = read_inline_smartart(child, resolve, theme_colors=resolved_theme)
                         extent = child.find(f"{{{WP}}}inline/{{{WP}}}extent")
                         width, height = [int(extent.get(axis, "0")) / 360000 for axis in ("cx", "cy")]
                         if not (0 < width <= 100 and 0 < height <= 100):
@@ -511,6 +517,15 @@ def import_docx_project(data: bytes, heading_decisions: dict[str, str] | None = 
         raise ValueError("手工标题确认内容无效，请重新预览")
     document = Document(BytesIO(data))
     numbering = _HeadingNumbering(document)
+    theme_colors: dict[str, str] | None = None
+
+    def get_theme_colors() -> dict[str, str]:
+        nonlocal theme_colors
+        if theme_colors is None:
+            from app.services.docx_smartart import read_part_theme_colors
+            theme_colors = read_part_theme_colors(document.part)
+        return theme_colors
+
     sections: list[dict[str, Any]] = []
     unsupported: list[str] = []
     heading_candidates: list[dict[str, Any]] = []
@@ -595,7 +610,13 @@ def import_docx_project(data: bytes, heading_decisions: dict[str, str] | None = 
                 }
                 sections.append(current)
                 continue
-            blocks = _paragraph_blocks(item, f"import-p-{paragraph_count + 1}", unsupported, source_location)
+            blocks = _paragraph_blocks(
+                item,
+                f"import-p-{paragraph_count + 1}",
+                unsupported,
+                source_location,
+                get_theme_colors=get_theme_colors,
+            )
             image_count += sum(1 for block in blocks if block.get("type") == "image")
             equation_count += sum(1 for block in blocks if block.get("type") == "equation")
             if blocks:

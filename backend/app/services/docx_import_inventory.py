@@ -18,7 +18,7 @@ from zipfile import BadZipFile, ZipFile
 from lxml import etree
 
 from app.core.extract.xml_utils import parse_xml
-from app.services.docx_smartart import DGM, GRAPHIC_DATA, read_inline_smartart, read_package_part
+from app.services.docx_smartart import DGM, GRAPHIC_DATA, read_inline_smartart, read_package_part, resolve_package_theme_colors
 from app.services.upload_security import DOCX_MAX_BYTES, validate_docx_bytes
 
 
@@ -96,6 +96,21 @@ def inventory_docx_source(data: bytes) -> dict:
                     entries.append({"kind": "relationship_definition", "location": f"word/_rels/document.xml.rels#{identifier}",
                                     "relationship_type": relationships[identifier]["type"]})
 
+            theme_colors: dict[str, str] | None = None
+
+            def get_theme_colors() -> dict[str, str]:
+                nonlocal theme_colors
+                if theme_colors is None:
+                    def read_rel_blob(target: str) -> bytes | None:
+                        path = _target_path(target)
+                        return archive.read(path) if path and path in names else None
+
+                    theme_colors = resolve_package_theme_colors(
+                        [(rel["type"], rel["external"], rel["target"]) for rel in relationships.values()],
+                        read_rel_blob,
+                    )
+                return theme_colors
+
             def special_nodes(element, location: str) -> None:
                 for node in element.iter():
                     node_location = f"{location}:{node.getroottree().getpath(node)}"
@@ -153,7 +168,7 @@ def inventory_docx_source(data: bytes) -> dict:
                                 return read_package_part(archive, _target_path(relation["target"]) or "", content_type)
 
                             try:
-                                smartart, _ = read_inline_smartart(node, resolve)
+                                smartart, _ = read_inline_smartart(node, resolve, theme_colors=get_theme_colors())
                             except (KeyError, ValueError, etree.XMLSyntaxError):
                                 entries.append({"kind": "structure", "location": location,
                                                 "reason": "SmartArt 无法完整对账"})

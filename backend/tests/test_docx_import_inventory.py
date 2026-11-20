@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from docx import Document
@@ -109,7 +110,7 @@ def test_import_preserves_text_with_explicit_no_highlight():
     assert reconcile_docx_import(inventory_docx_source(data), imported)["status"] == "complete"
 
 
-def _smartart_source(size=1050):
+def _smartart_source(size=1050, *, accent=None, dk2=None, clr_map_tx1=None, scheme_ref=None, drop_theme=False):
     dgm = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
     dsp = "http://schemas.microsoft.com/office/drawing/2008/diagram"
     a = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -117,13 +118,20 @@ def _smartart_source(size=1050):
     document = Document()
     document.add_heading("第一章 研究", level=1)
     label = f'<a:r xmlns:a="{a}"><a:rPr sz="{size}"/><a:t>图形文字</a:t></a:r>'
+    drawing_children = label
+    style_children = ""
+    colors_children = ""
+    if scheme_ref:
+        drawing_children += f'<a:solidFill xmlns:a="{a}"><a:schemeClr val="{scheme_ref}"/></a:solidFill>'
+        colors_children = f'<d:fillClrLst><a:schemeClr xmlns:a="{a}" val="accent1"><a:tint val="50000"/></a:schemeClr></d:fillClrLst>'
+        style_children = f'<a:fontRef xmlns:a="{a}" idx="minor"><a:schemeClr val="phClr"/></a:fontRef>'
     refs = {}
     for key, name, root, relation, ctype, children in (
-        ("dr", "drawing", "drawing", "diagramDrawing", "ms-office.drawingml.diagramDrawing", label),
+        ("dr", "drawing", "drawing", "diagramDrawing", "ms-office.drawingml.diagramDrawing", drawing_children),
         ("dm", "data", "dataModel", "diagramData", "openxmlformats-officedocument.drawingml.diagramData", label),
         ("lo", "layout", "layoutDef", "diagramLayout", "openxmlformats-officedocument.drawingml.diagramLayout", ""),
-        ("qs", "style", "styleDef", "diagramQuickStyle", "openxmlformats-officedocument.drawingml.diagramStyle", ""),
-        ("cs", "colors", "colorsDef", "diagramColors", "openxmlformats-officedocument.drawingml.diagramColors", ""),
+        ("qs", "style", "styleDef", "diagramQuickStyle", "openxmlformats-officedocument.drawingml.diagramStyle", style_children),
+        ("cs", "colors", "colorsDef", "diagramColors", "openxmlformats-officedocument.drawingml.diagramColors", colors_children),
     ):
         ns = dsp if key == "dr" else dgm
         if key == "dm":
@@ -145,7 +153,40 @@ def _smartart_source(size=1050):
     document.add_paragraph("图1.1 系统结构")
     output = BytesIO()
     document.save(output)
-    return output.getvalue()
+    if not any((accent, dk2, clr_map_tx1, drop_theme)):
+        return output.getvalue()
+    from lxml import etree
+
+    patched = BytesIO()
+    with ZipFile(output) as source_zip, ZipFile(patched, "w", ZIP_DEFLATED) as target_zip:
+        for info in source_zip.infolist():
+            blob = source_zip.read(info.filename)
+            if info.filename == "word/theme/theme1.xml":
+                if drop_theme:
+                    continue
+                theme_root = etree.fromstring(blob)
+                if accent:
+                    slot = theme_root.find(f".//{{{a}}}clrScheme/{{{a}}}accent1/{{{a}}}srgbClr")
+                    assert slot is not None
+                    slot.set("val", accent)
+                if dk2:
+                    slot = theme_root.find(f".//{{{a}}}clrScheme/{{{a}}}dk2/{{{a}}}srgbClr")
+                    assert slot is not None
+                    slot.set("val", dk2)
+                blob = etree.tostring(theme_root)
+            elif info.filename == "word/settings.xml" and clr_map_tx1:
+                settings_root = etree.fromstring(blob)
+                clr_map = etree.SubElement(settings_root, "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}clrMap")
+                clr_map.set("tx1", clr_map_tx1)
+                blob = etree.tostring(settings_root)
+            elif info.filename == "word/_rels/document.xml.rels" and drop_theme:
+                rel_root = etree.fromstring(blob)
+                for rel in list(rel_root):
+                    if rel.get("Type", "").endswith("/theme"):
+                        rel_root.remove(rel)
+                blob = etree.tostring(rel_root)
+            target_zip.writestr(info, blob)
+    return patched.getvalue()
 
 
 def test_import_accounts_for_inline_smartart_and_its_caption():
@@ -154,6 +195,35 @@ def test_import_accounts_for_inline_smartart_and_its_caption():
     assert _find(imported, "image")["image"]["caption"] == "图1.1 系统结构"
     report = reconcile_docx_import(inventory_docx_source(data), imported)
     assert report["status"] == "complete", report["unresolved"]
+
+
+def test_import_resolves_smartart_theme_colors_against_source_theme():
+    from lxml import etree
+
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    data = _smartart_source(accent="E06666", dk2="123456", clr_map_tx1="dk2", scheme_ref="tx1")
+    imported = import_docx_project(data)
+    smartart = _find(imported, "image")["image"]["smartart"]
+    dr_colors = [el.get("val") for el in etree.fromstring(smartart["dr"].encode()).iter(f"{{{a}}}srgbClr")]
+    cs_srgb = list(etree.fromstring(smartart["cs"].encode()).iter(f"{{{a}}}srgbClr"))
+    assert dr_colors == ["123456"]
+    assert len(cs_srgb) == 1 and cs_srgb[0].get("val") == "E06666"
+    assert cs_srgb[0][0].tag == f"{{{a}}}tint" and cs_srgb[0][0].get("val") == "50000"
+    assert [el.get("val") for el in etree.fromstring(smartart["qs"].encode()).iter(f"{{{a}}}schemeClr")] == ["phClr"]
+    assert "schemeClr" not in smartart["dr"]
+    assert "schemeClr" not in smartart["cs"]
+    report = reconcile_docx_import(inventory_docx_source(data), imported)
+    assert report["status"] == "complete", report["unresolved"]
+
+
+def test_smartart_with_unresolvable_theme_color_is_rejected():
+    data = _smartart_source(scheme_ref="accent1", drop_theme=True)
+    imported = import_docx_project(data)
+    assert "含有无法完整导入的 SmartArt" in imported["warnings"]
+    assert not any(b.get("type") == "image" for s in imported["sections"] for b in s["paragraphs"])
+    report = reconcile_docx_import(inventory_docx_source(data), imported)
+    assert report["status"] == "incomplete"
+    assert any("SmartArt" in item.get("reason", "") for item in report["unresolved"])
 
 
 @pytest.mark.parametrize("missing_kind", ["paragraph", "table_cell", "image"])

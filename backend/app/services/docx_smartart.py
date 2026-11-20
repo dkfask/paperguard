@@ -16,6 +16,8 @@ WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+THEME_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
+SETTINGS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings"
 GRAPHIC_DATA = f"{{{A}}}graphicData"
 PARTS = {
     "dm": (f"{{{DGM}}}dataModel", f"{R}/diagramData", "openxmlformats-officedocument.drawingml.diagramData"),
@@ -26,6 +28,96 @@ PARTS = {
            "ms-office.drawingml.diagramDrawing"),
 }
 MAX_PART_BYTES = 64 * 1024
+_HEX_COLOR = re.compile(r"^[0-9A-Fa-f]{6}$")
+_SCHEME_SLOTS = {
+    "dk1", "lt1", "dk2", "lt2",
+    "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
+    "hlink", "folHlink",
+}
+_COLOR_MAP_KEYS = {"bg1", "tx1", "bg2", "tx2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"}
+_DEFAULT_COLOR_MAP = {
+    "bg1": "lt1", "tx1": "dk1", "bg2": "lt2", "tx2": "dk2",
+    **{slot: slot for slot in _SCHEME_SLOTS},
+}
+
+
+def read_theme_colors(theme_blob: bytes | None, settings_blob: bytes | None = None) -> dict[str, str]:
+    """Resolve theme color names to RGB hex using the source package's theme and color map."""
+    if not theme_blob:
+        return {}
+    try:
+        theme_root = etree.fromstring(theme_blob, safe_xml_parser())
+    except etree.XMLSyntaxError:
+        return {}
+    if theme_root.getroottree().docinfo.doctype or theme_root.tag != f"{{{A}}}theme":
+        return {}
+    theme_elements = theme_root.find(f"{{{A}}}themeElements")
+    color_scheme = theme_elements.find(f"{{{A}}}clrScheme") if theme_elements is not None else None
+    if color_scheme is None:
+        return {}
+    slots: dict[str, str] = {}
+    for slot_node in color_scheme:
+        if not isinstance(slot_node.tag, str):
+            continue
+        qname = etree.QName(slot_node)
+        if qname.namespace != A or qname.localname not in _SCHEME_SLOTS or len(slot_node) != 1:
+            continue
+        color_node = slot_node[0]
+        if len(color_node):
+            continue
+        rgb = ""
+        if color_node.tag == f"{{{A}}}srgbClr":
+            rgb = color_node.get("val", "")
+        elif color_node.tag == f"{{{A}}}sysClr":
+            rgb = color_node.get("lastClr", "")
+        if _HEX_COLOR.fullmatch(rgb):
+            slots[qname.localname] = rgb.upper()
+
+    color_map = dict(_DEFAULT_COLOR_MAP)
+    if settings_blob is not None:
+        try:
+            settings_root = etree.fromstring(settings_blob, safe_xml_parser())
+        except etree.XMLSyntaxError:
+            return {}
+        if settings_root.getroottree().docinfo.doctype or settings_root.tag != f"{{{W}}}settings":
+            return {}
+        map_node = settings_root.find(f"{{{W}}}clrMap")
+        if map_node is not None:
+            for attr_name, target in map_node.attrib.items():
+                key = etree.QName(attr_name).localname
+                if key in _COLOR_MAP_KEYS:
+                    if target in slots:
+                        color_map[key] = target
+                    else:
+                        color_map.pop(key, None)
+
+    return {key: slots[target] for key, target in color_map.items() if target in slots}
+
+
+def resolve_package_theme_colors(relations, read_blob) -> dict[str, str]:
+    """Read theme and settings parts once when a package declares unique internal targets."""
+    def unique_blob(relation_type: str) -> tuple[bool, bytes | None]:
+        matched = [item for item in relations if item[0] == relation_type]
+        if not matched:
+            return True, None
+        if len(matched) != 1 or matched[0][1]:
+            return False, None
+        blob = read_blob(matched[0][2])
+        return (blob is not None), blob
+
+    ok_theme, theme_blob = unique_blob(THEME_REL)
+    ok_settings, settings_blob = unique_blob(SETTINGS_REL)
+    if not ok_theme or not ok_settings:
+        return {}
+    return read_theme_colors(theme_blob, settings_blob)
+
+
+def read_part_theme_colors(part) -> dict[str, str]:
+    """Read theme colors once from an open python-docx document part."""
+    return resolve_package_theme_colors(
+        [(rel.reltype, rel.is_external, rel) for rel in part.rels.values()],
+        lambda rel: rel.target_part.blob,
+    )
 
 
 def diagram_token(block_id):
@@ -48,7 +140,7 @@ def read_package_part(archive, target, content_type):
     return archive.read(name)
 
 
-def _part(key, data):
+def _part(key, data, *, theme_colors: dict[str, str] | None = None):
     if not data or len(data) > MAX_PART_BYTES:
         raise ValueError("SmartArt 部件为空或过大")
     root = etree.fromstring(data, safe_xml_parser())
@@ -64,10 +156,19 @@ def _part(key, data):
             raise ValueError("SmartArt 部件包含额外资源引用")
         if "relId" in item.attrib and (key != "dm" or item.tag != f"{{{DSP}}}dataModelExt"):
             raise ValueError("SmartArt 部件包含额外关系")
+        if item.tag == f"{{{A}}}schemeClr":
+            scheme_name = item.get("val", "")
+            if scheme_name == "phClr" and key == "qs":
+                continue
+            if set(item.attrib) != {"val"} or not theme_colors or scheme_name not in theme_colors:
+                raise ValueError("SmartArt 主题色无法独立保留")
+            item.tag = f"{{{A}}}srgbClr"
+            item.attrib.clear()
+            item.set("val", theme_colors[scheme_name])
     return root
 
 
-def read_inline_smartart(drawing, resolve):
+def read_inline_smartart(drawing, resolve, *, theme_colors: dict[str, str] | None = None):
     """Read a diagram and normalize the document-local drawing relationship."""
     inline = drawing.find(f"{{{WP}}}inline")
     if inline is None or len(drawing) != 1:
@@ -96,9 +197,19 @@ def read_inline_smartart(drawing, resolve):
         if not identifier or identifier in ids.values():
             raise ValueError("SmartArt 关系缺失或重复")
         ids[key] = identifier
-        parts[key] = _part(key, resolve(identifier, relation, f"application/vnd.{content_type}+xml"))
+        parts[key] = _part(
+            key,
+            resolve(identifier, relation, f"application/vnd.{content_type}+xml"),
+            theme_colors=theme_colors,
+        )
     extensions[0].set("relId", "drawing")
-    return {key: etree.tostring(root, encoding="unicode") for key, root in parts.items()}, ids
+    serialized = {}
+    for key, root in parts.items():
+        text = etree.tostring(root, encoding="unicode")
+        if len(text.encode("utf-8")) > MAX_PART_BYTES:
+            raise ValueError("SmartArt 部件过大")
+        serialized[key] = text
+    return serialized, ids
 
 
 def label_size(parts):
