@@ -45,13 +45,16 @@ def test_frozen_master_preserves_smartart_and_checks_its_actual_label_size(maste
     assert evidence["status"] == result
 
 
-def test_smartart_preserves_resolved_source_theme_colors_across_different_master_theme(master, tmp_path):
+def test_smartart_preserves_resolved_source_theme_colors_and_fonts_across_different_master_theme(master, tmp_path):
     from app.api.projects import _apply_imported_docx
     from app.services.docx_smartart import append_inline_smartart
 
     _, template, project, _ = master
     project.template_snapshot = template.model_dump(mode="json")
-    imported = import_docx_project(_smartart_source(900, accent="E06666", scheme_ref="accent1"))
+    imported = import_docx_project(_smartart_source(
+        900, accent="E06666", scheme_ref="accent1", minor_latin="Georgia",
+        major_ea="黑体", east_asia_lang="zh-CN", theme_font_ref="minor",
+    ))
     _apply_imported_docx(project, imported)
 
     data = rendered(master, tmp_path)
@@ -60,18 +63,28 @@ def test_smartart_preserves_resolved_source_theme_colors_across_different_master
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         diagram_colors = [archive.read(name).decode() for name in archive.namelist()
                           if name.startswith("word/diagrams/pg-") and name.endswith("-cs.xml")]
+        diagram_data = [archive.read(name).decode() for name in archive.namelist()
+                        if name.startswith("word/diagrams/pg-") and name.endswith("-dm.xml")]
     assert len(diagram_colors) == 1
     a_ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
     cs_root = etree.fromstring(diagram_colors[0].encode())
     assert [el.get("val") for el in cs_root.iter(f"{{{a_ns}}}srgbClr")] == ["E06666"]
     assert "schemeClr" not in diagram_colors[0]
+    dm_root = etree.fromstring(diagram_data[0].encode())
+    assert [el.get("typeface") for el in dm_root.iter(f"{{{a_ns}}}latin")] == ["Georgia"]
 
     block = next(b for s in project.sections for b in s.paragraphs if b.type == "image")
-    unresolved = dict(block.image.smartart)
-    unresolved["cs"] = unresolved["cs"].replace("srgbClr", "schemeClr").replace('val="E06666"', 'val="accent1"')
+    unresolved_color = dict(block.image.smartart)
+    unresolved_color["cs"] = unresolved_color["cs"].replace("srgbClr", "schemeClr").replace('val="E06666"', 'val="accent1"')
     with pytest.raises(ValueError, match="主题色"):
         append_inline_smartart(
-            unresolved, {}, etree.Element("Relationships"), etree.Element("Types"), "tok", 5.0, 2.5,
+            unresolved_color, {}, etree.Element("Relationships"), etree.Element("Types"), "tok", 5.0, 2.5,
+        )
+    unresolved_font = dict(block.image.smartart)
+    unresolved_font["dm"] = unresolved_font["dm"].replace('typeface="Georgia"', 'typeface="+mn-lt"')
+    with pytest.raises(ValueError, match="主题字体"):
+        append_inline_smartart(
+            unresolved_font, {}, etree.Element("Relationships"), etree.Element("Types"), "tok", 5.0, 2.5,
         )
 
 

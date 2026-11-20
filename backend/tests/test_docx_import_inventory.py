@@ -110,7 +110,19 @@ def test_import_preserves_text_with_explicit_no_highlight():
     assert reconcile_docx_import(inventory_docx_source(data), imported)["status"] == "complete"
 
 
-def _smartart_source(size=1050, *, accent=None, dk2=None, clr_map_tx1=None, scheme_ref=None, drop_theme=False):
+def _smartart_source(
+    size=1050,
+    *,
+    accent=None,
+    dk2=None,
+    clr_map_tx1=None,
+    scheme_ref=None,
+    minor_latin=None,
+    major_ea=None,
+    east_asia_lang=None,
+    theme_font_ref=None,
+    drop_theme=False,
+):
     dgm = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
     dsp = "http://schemas.microsoft.com/office/drawing/2008/diagram"
     a = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -118,7 +130,17 @@ def _smartart_source(size=1050, *, accent=None, dk2=None, clr_map_tx1=None, sche
     document = Document()
     document.add_heading("第一章 研究", level=1)
     label = f'<a:r xmlns:a="{a}"><a:rPr sz="{size}"/><a:t>图形文字</a:t></a:r>'
-    drawing_children = label
+    data_label = (
+        f'<a:r xmlns:a="{a}"><a:rPr sz="{size}">'
+        f'<a:latin typeface="+mn-lt"/><a:ea typeface="+mj-ea"/></a:rPr><a:t>图形文字</a:t></a:r>'
+        if theme_font_ref else label
+    )
+    drawing_children = (
+        f'<dsp:sp xmlns:dsp="{dsp}" xmlns:a="{a}">'
+        f'<dsp:style><a:fontRef idx="{theme_font_ref}"/></dsp:style>'
+        f'<dsp:txBody><a:bodyPr/><a:lstStyle/><a:p>{label}</a:p></dsp:txBody></dsp:sp>'
+        if theme_font_ref else label
+    )
     style_children = ""
     colors_children = ""
     if scheme_ref:
@@ -128,7 +150,7 @@ def _smartart_source(size=1050, *, accent=None, dk2=None, clr_map_tx1=None, sche
     refs = {}
     for key, name, root, relation, ctype, children in (
         ("dr", "drawing", "drawing", "diagramDrawing", "ms-office.drawingml.diagramDrawing", drawing_children),
-        ("dm", "data", "dataModel", "diagramData", "openxmlformats-officedocument.drawingml.diagramData", label),
+        ("dm", "data", "dataModel", "diagramData", "openxmlformats-officedocument.drawingml.diagramData", data_label),
         ("lo", "layout", "layoutDef", "diagramLayout", "openxmlformats-officedocument.drawingml.diagramLayout", ""),
         ("qs", "style", "styleDef", "diagramQuickStyle", "openxmlformats-officedocument.drawingml.diagramStyle", style_children),
         ("cs", "colors", "colorsDef", "diagramColors", "openxmlformats-officedocument.drawingml.diagramColors", colors_children),
@@ -153,7 +175,7 @@ def _smartart_source(size=1050, *, accent=None, dk2=None, clr_map_tx1=None, sche
     document.add_paragraph("图1.1 系统结构")
     output = BytesIO()
     document.save(output)
-    if not any((accent, dk2, clr_map_tx1, drop_theme)):
+    if not any((accent, dk2, clr_map_tx1, minor_latin, major_ea, east_asia_lang, drop_theme)):
         return output.getvalue()
     from lxml import etree
 
@@ -173,14 +195,28 @@ def _smartart_source(size=1050, *, accent=None, dk2=None, clr_map_tx1=None, sche
                     slot = theme_root.find(f".//{{{a}}}clrScheme/{{{a}}}dk2/{{{a}}}srgbClr")
                     assert slot is not None
                     slot.set("val", dk2)
+                if minor_latin:
+                    node = theme_root.find(f".//{{{a}}}fontScheme/{{{a}}}minorFont/{{{a}}}latin")
+                    assert node is not None
+                    node.set("typeface", minor_latin)
+                if major_ea:
+                    node = theme_root.find(f".//{{{a}}}fontScheme/{{{a}}}majorFont/{{{a}}}ea")
+                    assert node is not None
+                    node.set("typeface", major_ea)
                 blob = etree.tostring(theme_root)
-            elif info.filename == "word/settings.xml" and clr_map_tx1:
+            elif info.filename == "word/settings.xml" and (clr_map_tx1 or east_asia_lang):
                 settings_root = etree.fromstring(blob)
                 w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-                clr_map = settings_root.find(f"{{{w_ns}}}clrSchemeMapping")
-                if clr_map is None:
-                    clr_map = etree.SubElement(settings_root, f"{{{w_ns}}}clrSchemeMapping")
-                clr_map.set(f"{{{w_ns}}}t1", clr_map_tx1)
+                if clr_map_tx1:
+                    clr_map = settings_root.find(f"{{{w_ns}}}clrSchemeMapping")
+                    if clr_map is None:
+                        clr_map = etree.SubElement(settings_root, f"{{{w_ns}}}clrSchemeMapping")
+                    clr_map.set(f"{{{w_ns}}}t1", clr_map_tx1)
+                if east_asia_lang:
+                    lang_node = settings_root.find(f"{{{w_ns}}}themeFontLang")
+                    if lang_node is None:
+                        lang_node = etree.SubElement(settings_root, f"{{{w_ns}}}themeFontLang")
+                    lang_node.set(f"{{{w_ns}}}eastAsia", east_asia_lang)
                 blob = etree.tostring(settings_root)
             elif info.filename == "word/_rels/document.xml.rels" and drop_theme:
                 rel_root = etree.fromstring(blob)
@@ -213,14 +249,39 @@ def test_import_resolves_smartart_theme_colors_against_source_theme():
     assert len(cs_srgb) == 1 and cs_srgb[0].get("val") == "E06666"
     assert cs_srgb[0][0].tag == f"{{{a}}}tint" and cs_srgb[0][0].get("val") == "50000"
     assert [el.get("val") for el in etree.fromstring(smartart["qs"].encode()).iter(f"{{{a}}}schemeClr")] == ["phClr"]
+    assert [el.get("idx") for el in etree.fromstring(smartart["qs"].encode()).iter(f"{{{a}}}fontRef")] == ["none"]
     assert "schemeClr" not in smartart["dr"]
     assert "schemeClr" not in smartart["cs"]
     report = reconcile_docx_import(inventory_docx_source(data), imported)
     assert report["status"] == "complete", report["unresolved"]
 
 
-def test_smartart_with_unresolvable_theme_color_is_rejected():
-    data = _smartart_source(scheme_ref="accent1", drop_theme=True)
+def test_import_resolves_smartart_theme_fonts_against_source_theme():
+    from lxml import etree
+
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    data = _smartart_source(
+        minor_latin="Georgia", major_ea="黑体", east_asia_lang="zh-CN", theme_font_ref="minor",
+    )
+    imported = import_docx_project(data)
+    smartart = _find(imported, "image")["image"]["smartart"]
+    dm_root = etree.fromstring(smartart["dm"].encode())
+    dr_root = etree.fromstring(smartart["dr"].encode())
+    assert [el.get("typeface") for el in dm_root.iter(f"{{{a}}}latin")] == ["Georgia"]
+    assert [el.get("typeface") for el in dm_root.iter(f"{{{a}}}ea")] == ["黑体"]
+    assert [el.get("typeface") for el in dr_root.iter(f"{{{a}}}latin")] == ["Georgia"]
+    assert [el.get("typeface") for el in dr_root.iter(f"{{{a}}}ea")] == ["宋体"]
+    assert [el.get("idx") for el in dr_root.iter(f"{{{a}}}fontRef")] == ["none"]
+    report = reconcile_docx_import(inventory_docx_source(data), imported)
+    assert report["status"] == "complete", report["unresolved"]
+
+
+@pytest.mark.parametrize("params", [
+    {"scheme_ref": "accent1", "drop_theme": True},
+    {"theme_font_ref": "minor", "drop_theme": True},
+])
+def test_smartart_with_unresolvable_theme_dependency_is_rejected(params):
+    data = _smartart_source(**params)
     imported = import_docx_project(data)
     assert "含有无法完整导入的 SmartArt" in imported["warnings"]
     assert not any(b.get("type") == "image" for s in imported["sections"] for b in s["paragraphs"])

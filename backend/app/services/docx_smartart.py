@@ -66,52 +66,88 @@ _DEFAULT_COLOR_MAP = {
     "bg1": "lt1", "tx1": "dk1", "bg2": "lt2", "tx2": "dk2",
     **{slot: slot for slot in _SCHEME_SLOTS},
 }
+_EA_SCRIPTS = {
+    "zh-cn": "Hans", "zh-sg": "Hans", "zh-hans": "Hans",
+    "zh-tw": "Hant", "zh-hk": "Hant", "zh-mo": "Hant", "zh-hant": "Hant",
+    "ja": "Jpan", "ja-jp": "Jpan",
+    "ko": "Hang", "ko-kr": "Hang",
+}
+_CS_SCRIPTS = {"ar": "Arab", "he": "Hebr", "iw": "Hebr", "th": "Thai"}
+_FONT_COLLECTION_TAGS = (("mj", "majorFont"), ("mn", "minorFont"))
+_RPR_AFTER_LATIN = {
+    f"{{{A}}}ea", f"{{{A}}}cs", f"{{{A}}}sym",
+    f"{{{A}}}hlinkClick", f"{{{A}}}hlinkMouseOver", f"{{{A}}}rtl", f"{{{A}}}extLst",
+}
+_RPR_AFTER_EA = {
+    f"{{{A}}}cs", f"{{{A}}}sym",
+    f"{{{A}}}hlinkClick", f"{{{A}}}hlinkMouseOver", f"{{{A}}}rtl", f"{{{A}}}extLst",
+}
 
 
-def read_theme_colors(theme_blob: bytes | None, settings_blob: bytes | None = None) -> dict[str, str]:
-    """Resolve theme color names to RGB hex using the source package's theme and color map."""
+def _script_for_lang(lang: str, mapping: dict[str, str], *, allow_prefix: bool) -> str | None:
+    tag = lang.strip().lower().replace("_", "-")
+    if not tag:
+        return None
+    if tag in mapping:
+        return mapping[tag]
+    if tag.startswith("zh-hans"):
+        return "Hans"
+    if tag.startswith("zh-hant"):
+        return "Hant"
+    return mapping.get(tag.split("-", 1)[0]) if allow_prefix else None
+
+
+def read_theme_resources(
+    theme_blob: bytes | None, settings_blob: bytes | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Resolve theme colors and font-scheme names using the source package's theme and settings."""
     if not theme_blob:
-        return {}
+        return {}, {}
     try:
         theme_root = etree.fromstring(theme_blob, safe_xml_parser())
     except etree.XMLSyntaxError:
-        return {}
+        return {}, {}
     if theme_root.getroottree().docinfo.doctype or theme_root.tag != f"{{{A}}}theme":
-        return {}
+        return {}, {}
     theme_elements = theme_root.find(f"{{{A}}}themeElements")
-    color_scheme = theme_elements.find(f"{{{A}}}clrScheme") if theme_elements is not None else None
-    if color_scheme is None:
-        return {}
+    if theme_elements is None:
+        return {}, {}
+
     slots: dict[str, str] = {}
-    for slot_node in color_scheme:
-        if not isinstance(slot_node.tag, str):
-            continue
-        qname = etree.QName(slot_node)
-        if qname.namespace != A or qname.localname not in _SCHEME_SLOTS or len(slot_node) != 1:
-            continue
-        color_node = slot_node[0]
-        if len(color_node):
-            continue
-        rgb = ""
-        if color_node.tag == f"{{{A}}}srgbClr":
-            rgb = color_node.get("val", "")
-        elif color_node.tag == f"{{{A}}}sysClr":
-            rgb = color_node.get("lastClr", "")
-        if _HEX_COLOR.fullmatch(rgb):
-            slots[qname.localname] = rgb.upper()
+    color_scheme = theme_elements.find(f"{{{A}}}clrScheme")
+    if color_scheme is not None:
+        for slot_node in color_scheme:
+            if not isinstance(slot_node.tag, str):
+                continue
+            qname = etree.QName(slot_node)
+            if qname.namespace != A or qname.localname not in _SCHEME_SLOTS or len(slot_node) != 1:
+                continue
+            color_node = slot_node[0]
+            if len(color_node):
+                continue
+            rgb = ""
+            if color_node.tag == f"{{{A}}}srgbClr":
+                rgb = color_node.get("val", "")
+            elif color_node.tag == f"{{{A}}}sysClr":
+                rgb = color_node.get("lastClr", "")
+            if _HEX_COLOR.fullmatch(rgb):
+                slots[qname.localname] = rgb.upper()
 
     color_map = dict(_DEFAULT_COLOR_MAP)
+    ea_script: str | None = None
+    cs_script: str | None = None
+    settings_valid = True
     if settings_blob is not None:
         try:
             settings_root = etree.fromstring(settings_blob, safe_xml_parser())
         except etree.XMLSyntaxError:
-            return {}
+            return {}, {}
         if settings_root.getroottree().docinfo.doctype or settings_root.tag != f"{{{W}}}settings":
-            return {}
+            return {}, {}
         map_nodes = settings_root.findall(f"{{{W}}}clrSchemeMapping")
         if len(map_nodes) > 1:
-            return {}
-        if len(map_nodes) == 1:
+            settings_valid = False
+        elif len(map_nodes) == 1:
             for attr_name, target in map_nodes[0].attrib.items():
                 key = _COLOR_MAP_KEYS.get(etree.QName(attr_name).localname)
                 if not key:
@@ -121,11 +157,41 @@ def read_theme_colors(theme_blob: bytes | None, settings_blob: bytes | None = No
                     color_map[key] = slot
                 else:
                     color_map.pop(key, None)
+        lang_nodes = settings_root.findall(f"{{{W}}}themeFontLang")
+        if len(lang_nodes) > 1:
+            settings_valid = False
+        elif len(lang_nodes) == 1:
+            ea_script = _script_for_lang(lang_nodes[0].get(f"{{{W}}}eastAsia", ""), _EA_SCRIPTS, allow_prefix=False)
+            cs_script = _script_for_lang(lang_nodes[0].get(f"{{{W}}}bidi", ""), _CS_SCRIPTS, allow_prefix=True)
+    if not settings_valid:
+        return {}, {}
 
-    return {key: slots[target] for key, target in color_map.items() if target in slots}
+    colors = {key: slots[target] for key, target in color_map.items() if target in slots}
+
+    fonts: dict[str, str] = {}
+    font_scheme = theme_elements.find(f"{{{A}}}fontScheme")
+    if font_scheme is not None:
+        for prefix, tag_name in _FONT_COLLECTION_TAGS:
+            collection = font_scheme.find(f"{{{A}}}{tag_name}")
+            if collection is None:
+                continue
+            scripts = {
+                node.get("script", ""): (node.get("typeface") or "").strip()
+                for node in collection.findall(f"{{{A}}}font")
+                if node.get("script")
+            }
+            for kind, fallback_script in (("latin", None), ("ea", ea_script), ("cs", cs_script)):
+                node = collection.find(f"{{{A}}}{kind}")
+                face = (node.get("typeface") or "").strip() if node is not None else ""
+                if not face and fallback_script:
+                    face = scripts.get(fallback_script, "")
+                if face and not face.startswith("+"):
+                    suffix = "lt" if kind == "latin" else kind
+                    fonts[f"+{prefix}-{suffix}"] = face
+    return colors, fonts
 
 
-def resolve_package_theme_colors(relations, read_blob) -> dict[str, str]:
+def resolve_package_theme(relations, read_blob) -> tuple[dict[str, str], dict[str, str]]:
     """Read theme and settings parts once when a package declares unique internal targets."""
     def unique_blob(relation_type: str) -> tuple[bool, bytes | None]:
         matched = [item for item in relations if item[0] == relation_type]
@@ -139,13 +205,13 @@ def resolve_package_theme_colors(relations, read_blob) -> dict[str, str]:
     ok_theme, theme_blob = unique_blob(THEME_REL)
     ok_settings, settings_blob = unique_blob(SETTINGS_REL)
     if not ok_theme or not ok_settings:
-        return {}
-    return read_theme_colors(theme_blob, settings_blob)
+        return {}, {}
+    return read_theme_resources(theme_blob, settings_blob)
 
 
-def read_part_theme_colors(part) -> dict[str, str]:
-    """Read theme colors once from an open python-docx document part."""
-    return resolve_package_theme_colors(
+def read_part_theme(part) -> tuple[dict[str, str], dict[str, str]]:
+    """Read theme colors and fonts once from an open python-docx document part."""
+    return resolve_package_theme(
         [(rel.reltype, rel.is_external, rel) for rel in part.rels.values()],
         lambda rel: rel.target_part.blob,
     )
@@ -171,12 +237,53 @@ def read_package_part(archive, target, content_type):
     return archive.read(name)
 
 
-def _part(key, data, *, theme_colors: dict[str, str] | None = None):
+def _insert_rpr_font(rpr, tag: str, typeface: str, after_tags: set[str]) -> None:
+    node = etree.Element(tag, typeface=typeface)
+    for index, child in enumerate(rpr):
+        if child.tag in after_tags:
+            rpr.insert(index, node)
+            return
+    rpr.append(node)
+
+
+def _resolve_shape_font_refs(root, theme_fonts: dict[str, str]) -> None:
+    if not theme_fonts:
+        raise ValueError("SmartArt 主题字体无法独立保留")
+    for shape in root.iter(f"{{{DSP}}}sp"):
+        font_ref = shape.find(f"{{{DSP}}}style/{{{A}}}fontRef")
+        if font_ref is None or font_ref.get("idx") not in {"major", "minor"}:
+            continue
+        prefix = "+mj" if font_ref.get("idx") == "major" else "+mn"
+        for text_node in shape.iter(f"{{{A}}}t"):
+            text_val = text_node.text or ""
+            if not text_val.strip():
+                continue
+            rpr = text_node.getparent().find(f"{{{A}}}rPr")
+            if rpr is None:
+                continue
+            if rpr.find(f"{{{A}}}latin") is None:
+                latin_face = theme_fonts.get(f"{prefix}-lt", "")
+                if not latin_face:
+                    raise ValueError("SmartArt 主题字体无法独立保留")
+                _insert_rpr_font(rpr, f"{{{A}}}latin", latin_face, _RPR_AFTER_LATIN)
+            if any(ord(ch) > 127 for ch in text_val) and rpr.find(f"{{{A}}}ea") is None:
+                ea_face = theme_fonts.get(f"{prefix}-ea", "")
+                if not ea_face:
+                    raise ValueError("SmartArt 主题字体无法独立保留")
+                _insert_rpr_font(rpr, f"{{{A}}}ea", ea_face, _RPR_AFTER_EA)
+    for font_ref in root.iter(f"{{{A}}}fontRef"):
+        if font_ref.get("idx") in {"major", "minor"}:
+            font_ref.set("idx", "none")
+
+
+def _part(key, data, *, theme: tuple[dict[str, str], dict[str, str]] | None = None):
     if not data or len(data) > MAX_PART_BYTES:
         raise ValueError("SmartArt 部件为空或过大")
     root = etree.fromstring(data, safe_xml_parser())
     if root.tag != PARTS[key][0] or root.getroottree().docinfo.doctype:
         raise ValueError("SmartArt 部件结构无法核验")
+    theme_colors, theme_fonts = theme if theme is not None else (None, None)
+    has_font_ref = False
     for item in root.iter():
         if not isinstance(item.tag, str):
             raise ValueError("SmartArt 包含无法核验的节点")
@@ -196,10 +303,22 @@ def _part(key, data, *, theme_colors: dict[str, str] | None = None):
             item.tag = f"{{{A}}}srgbClr"
             item.attrib.clear()
             item.set("val", theme_colors[scheme_name])
+        if "typeface" in item.attrib:
+            typeface = item.get("typeface", "")
+            if typeface.startswith("+"):
+                if not theme_fonts or typeface not in theme_fonts:
+                    raise ValueError("SmartArt 主题字体无法独立保留")
+                item.set("typeface", theme_fonts[typeface])
+        if item.tag == f"{{{A}}}fontRef" and item.get("idx") != "none":
+            if theme is None or item.get("idx") not in {"major", "minor"}:
+                raise ValueError("SmartArt 主题字体无法独立保留")
+            has_font_ref = True
+    if has_font_ref:
+        _resolve_shape_font_refs(root, theme_fonts or {})
     return root
 
 
-def read_inline_smartart(drawing, resolve, *, theme_colors: dict[str, str] | None = None):
+def read_inline_smartart(drawing, resolve, *, theme: tuple[dict[str, str], dict[str, str]] | None = None):
     """Read a diagram and normalize the document-local drawing relationship."""
     inline = drawing.find(f"{{{WP}}}inline")
     if inline is None or len(drawing) != 1:
@@ -231,7 +350,7 @@ def read_inline_smartart(drawing, resolve, *, theme_colors: dict[str, str] | Non
         parts[key] = _part(
             key,
             resolve(identifier, relation, f"application/vnd.{content_type}+xml"),
-            theme_colors=theme_colors,
+            theme=theme,
         )
     extensions[0].set("relId", "drawing")
     serialized = {}

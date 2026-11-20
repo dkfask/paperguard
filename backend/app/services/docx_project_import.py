@@ -323,9 +323,9 @@ def _append_inline_text(runs: list[dict[str, Any]], text: str,
 
 def _paragraph_blocks(paragraph: Paragraph, block_prefix: str, unsupported: list[str],
                       source_location: str,
-                      get_theme_colors=None) -> list[dict[str, Any]]:
+                      get_theme=None) -> list[dict[str, Any]]:
     from app.services.docx_smartart import (
-        DGM, GRAPHIC_DATA, WP, read_inline_smartart, read_part_theme_colors,
+        DGM, GRAPHIC_DATA, WP, read_inline_smartart, read_part_theme,
     )
 
     blocks: list[dict[str, Any]] = []
@@ -385,9 +385,9 @@ def _paragraph_blocks(paragraph: Paragraph, block_prefix: str, unsupported: list
 
                     try:
                         resolved_theme = (
-                            get_theme_colors() if get_theme_colors is not None else read_part_theme_colors(paragraph.part)
+                            get_theme() if get_theme is not None else read_part_theme(paragraph.part)
                         )
-                        smartart, _ = read_inline_smartart(child, resolve, theme_colors=resolved_theme)
+                        smartart, _ = read_inline_smartart(child, resolve, theme=resolved_theme)
                         extent = child.find(f"{{{WP}}}inline/{{{WP}}}extent")
                         width, height = [int(extent.get(axis, "0")) / 360000 for axis in ("cx", "cy")]
                         if not (0 < width <= 100 and 0 < height <= 100):
@@ -517,14 +517,14 @@ def import_docx_project(data: bytes, heading_decisions: dict[str, str] | None = 
         raise ValueError("手工标题确认内容无效，请重新预览")
     document = Document(BytesIO(data))
     numbering = _HeadingNumbering(document)
-    theme_colors: dict[str, str] | None = None
+    theme: tuple[dict[str, str], dict[str, str]] | None = None
 
-    def get_theme_colors() -> dict[str, str]:
-        nonlocal theme_colors
-        if theme_colors is None:
-            from app.services.docx_smartart import read_part_theme_colors
-            theme_colors = read_part_theme_colors(document.part)
-        return theme_colors
+    def get_theme() -> tuple[dict[str, str], dict[str, str]]:
+        nonlocal theme
+        if theme is None:
+            from app.services.docx_smartart import read_part_theme
+            theme = read_part_theme(document.part)
+        return theme
 
     sections: list[dict[str, Any]] = []
     unsupported: list[str] = []
@@ -615,7 +615,7 @@ def import_docx_project(data: bytes, heading_decisions: dict[str, str] | None = 
                 f"import-p-{paragraph_count + 1}",
                 unsupported,
                 source_location,
-                get_theme_colors=get_theme_colors,
+                get_theme=get_theme,
             )
             image_count += sum(1 for block in blocks if block.get("type") == "image")
             equation_count += sum(1 for block in blocks if block.get("type") == "equation")
