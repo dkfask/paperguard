@@ -42,16 +42,25 @@ from __future__ import annotations
 import json
 import socket
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api import ai as ai_module
+from app.auth import seed_admin
 from app.db import Store
 from app.main import app
+from app.services import ai_governance
 from tests._helpers import register_fixture
 
 client = TestClient(app)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _bootstrap_admin():
+    """Allow this module to run independently against a fresh test database."""
+    seed_admin(Store())
 
 
 @pytest.fixture(autouse=True)
@@ -504,10 +513,7 @@ def _reset_quota(user_id: str) -> None:
     不清零的话第 1 次请求就会直接 429，测不到「第 1 次放行、第 2 次拦截」
     这个真正要验的行为。日配额不清——它限的是当天总量，与本用例无关。
     """
-    from app.services import ai_governance
-
-    minute_period = ai_governance._utc_periods(
-        ai_governance.datetime.now(ai_governance.timezone.utc))[1]
+    minute_period = ai_governance._utc_periods(ai_governance.datetime.now(timezone.utc))[1]
     with Store()._connect() as conn:
         conn.execute(
             "DELETE FROM ai_quota WHERE user_id = ? AND period = ?",
@@ -550,6 +556,16 @@ def test_every_dispatch_point_enforces_burst_quota(monkeypatch, stub_upstream, p
     payload = {k: v for k, v in call.items() if k != "url"}
     # 共享账号（admin）的分钟计数可能被本文件前面的用例用掉，先清零。
     actor_id = client.get("/api/auth/me", headers=headers).json()["id"]
+
+    # 清零与两次请求必须使用同一 UTC 分钟，避免墙钟跨分钟导致第二次合法放行。
+    frozen_time = datetime.now(timezone.utc)
+
+    class FrozenQuotaClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen_time.astimezone(tz) if tz is not None else frozen_time.astimezone().replace(tzinfo=None)
+
+    monkeypatch.setattr(ai_governance, "datetime", FrozenQuotaClock)
     _reset_quota(actor_id)
 
     first = client.post(url, headers=headers, **payload)
