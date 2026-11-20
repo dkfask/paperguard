@@ -176,8 +176,11 @@ def _smartart_source(size=1050, *, accent=None, dk2=None, clr_map_tx1=None, sche
                 blob = etree.tostring(theme_root)
             elif info.filename == "word/settings.xml" and clr_map_tx1:
                 settings_root = etree.fromstring(blob)
-                clr_map = etree.SubElement(settings_root, "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}clrMap")
-                clr_map.set("tx1", clr_map_tx1)
+                w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                clr_map = settings_root.find(f"{{{w_ns}}}clrSchemeMapping")
+                if clr_map is None:
+                    clr_map = etree.SubElement(settings_root, f"{{{w_ns}}}clrSchemeMapping")
+                clr_map.set(f"{{{w_ns}}}t1", clr_map_tx1)
                 blob = etree.tostring(settings_root)
             elif info.filename == "word/_rels/document.xml.rels" and drop_theme:
                 rel_root = etree.fromstring(blob)
@@ -201,7 +204,7 @@ def test_import_resolves_smartart_theme_colors_against_source_theme():
     from lxml import etree
 
     a = "http://schemas.openxmlformats.org/drawingml/2006/main"
-    data = _smartart_source(accent="E06666", dk2="123456", clr_map_tx1="dk2", scheme_ref="tx1")
+    data = _smartart_source(accent="E06666", dk2="123456", clr_map_tx1="dark2", scheme_ref="tx1")
     imported = import_docx_project(data)
     smartart = _find(imported, "image")["image"]["smartart"]
     dr_colors = [el.get("val") for el in etree.fromstring(smartart["dr"].encode()).iter(f"{{{a}}}srgbClr")]

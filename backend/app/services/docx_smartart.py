@@ -34,7 +34,34 @@ _SCHEME_SLOTS = {
     "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
     "hlink", "folHlink",
 }
-_COLOR_MAP_KEYS = {"bg1", "tx1", "bg2", "tx2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"}
+_COLOR_MAP_KEYS = {
+    "bg1": "bg1",
+    "t1": "tx1",
+    "bg2": "bg2",
+    "t2": "tx2",
+    "accent1": "accent1",
+    "accent2": "accent2",
+    "accent3": "accent3",
+    "accent4": "accent4",
+    "accent5": "accent5",
+    "accent6": "accent6",
+    "hyperlink": "hlink",
+    "followedHyperlink": "folHlink",
+}
+_COLOR_MAP_TARGETS = {
+    "dark1": "dk1",
+    "light1": "lt1",
+    "dark2": "dk2",
+    "light2": "lt2",
+    "accent1": "accent1",
+    "accent2": "accent2",
+    "accent3": "accent3",
+    "accent4": "accent4",
+    "accent5": "accent5",
+    "accent6": "accent6",
+    "hyperlink": "hlink",
+    "followedHyperlink": "folHlink",
+}
 _DEFAULT_COLOR_MAP = {
     "bg1": "lt1", "tx1": "dk1", "bg2": "lt2", "tx2": "dk2",
     **{slot: slot for slot in _SCHEME_SLOTS},
@@ -81,15 +108,19 @@ def read_theme_colors(theme_blob: bytes | None, settings_blob: bytes | None = No
             return {}
         if settings_root.getroottree().docinfo.doctype or settings_root.tag != f"{{{W}}}settings":
             return {}
-        map_node = settings_root.find(f"{{{W}}}clrMap")
-        if map_node is not None:
-            for attr_name, target in map_node.attrib.items():
-                key = etree.QName(attr_name).localname
-                if key in _COLOR_MAP_KEYS:
-                    if target in slots:
-                        color_map[key] = target
-                    else:
-                        color_map.pop(key, None)
+        map_nodes = settings_root.findall(f"{{{W}}}clrSchemeMapping")
+        if len(map_nodes) > 1:
+            return {}
+        if len(map_nodes) == 1:
+            for attr_name, target in map_nodes[0].attrib.items():
+                key = _COLOR_MAP_KEYS.get(etree.QName(attr_name).localname)
+                if not key:
+                    continue
+                slot = _COLOR_MAP_TARGETS.get(target)
+                if slot in slots:
+                    color_map[key] = slot
+                else:
+                    color_map.pop(key, None)
 
     return {key: slots[target] for key, target in color_map.items() if target in slots}
 

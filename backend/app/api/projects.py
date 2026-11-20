@@ -488,6 +488,19 @@ def _saved_reference_source(existing: ParagraphBlock | None, *, include_legacy: 
     return source if source.strip() else None
 
 
+def _preserve_or_reject_smartart(existing: ParagraphBlock | None, raw_image: dict,
+                                 url: str, caption: str):
+    """Keep server-imported SmartArt immutable across section saves and local recovery."""
+    smartart = getattr(existing.image, "smartart", None) if existing is not None else None
+    if smartart:
+        if url:
+            raise HTTPException(status_code=422, detail="请删除 SmartArt 后再插入其他图片")
+        return existing.image.model_copy(update={"caption": caption})
+    if raw_image.get("smartart"):
+        raise HTTPException(status_code=422, detail="请通过 Word 导入添加 SmartArt")
+    return None
+
+
 def _parse_par(data: dict, project_id: str = "", existing: ParagraphBlock | None = None, *,
                actor_id: str = "", reference_section: bool = False):
     """把前端传来的内容块解析为 ParagraphBlock, 并限制图片 URL 属于当前项目。"""
@@ -498,16 +511,9 @@ def _parse_par(data: dict, project_id: str = "", existing: ParagraphBlock | None
     if block_type == "image":
         image = data.get("image", {})
         url = str(image.get("url", ""))
-        smartart = getattr(existing.image, "smartart", None) if existing is not None else None
-        if smartart:
-            if url:
-                raise HTTPException(status_code=422, detail="请删除 SmartArt 后再插入其他图片")
-            return ParagraphBlock(
-                id=existing.id, type="image",
-                image=existing.image.model_copy(update={"caption": str(image.get("caption", ""))}),
-            )
-        if image.get("smartart"):
-            raise HTTPException(status_code=422, detail="请通过 Word 导入添加 SmartArt")
+        preserved = _preserve_or_reject_smartart(existing, image, url, str(image.get("caption", "")))
+        if preserved is not None:
+            return ParagraphBlock(id=existing.id, type="image", image=preserved)
         filename = Path(url).name
         if url and (not url.startswith("/media/uploads/") or not filename.startswith(project_id + "-")):
             raise HTTPException(status_code=400, detail="图片不属于当前项目")
@@ -1333,6 +1339,7 @@ def restore_local_snapshot(proj_id: str, req: RestoreLocalSnapshotRequest,
                     raise HTTPException(status_code=422, detail="现有文献内容块 ID 重复，无法安全恢复草稿")
                 originals[block.id] = block.reference.original_pasted_text
     restored_originals = set()
+    restored_smartarts: set[tuple[str, str]] = set()
     for section, raw_section in zip(sections, raw_sections):
         for block, raw_block in zip(section.paragraphs, raw_section.get("paragraphs", [])):
             prior = old_blocks.get((section.key, block.id))
@@ -1365,10 +1372,29 @@ def restore_local_snapshot(proj_id: str, req: RestoreLocalSnapshotRequest,
                     provided=isinstance(raw_reference, dict) and "year_fact" in raw_reference,
                 )
             block_type = getattr(block.type, "value", block.type)
-            if block_type == "image" and block.image and block.image.url:
-                filename = Path(block.image.url).name
-                if not block.image.url.startswith("/media/uploads/") or not filename.startswith(f"{proj_id}-"):
-                    raise HTTPException(status_code=422, detail="本地草稿包含无效图片引用")
+            raw_image = raw_block.get("image") if isinstance(raw_block, dict) and isinstance(raw_block.get("image"), dict) else {}
+            prior_smartart = getattr(prior.image, "smartart", None) if prior is not None else None
+            if prior_smartart is not None and (block_type != "image" or block.image is None):
+                raise HTTPException(status_code=422, detail="请删除 SmartArt 后再更换内容类型")
+            if block_type == "image":
+                url = block.image.url if block.image else ""
+                if prior_smartart is not None:
+                    if (section.key, block.id) in restored_smartarts:
+                        raise HTTPException(status_code=422, detail="本地草稿中的 SmartArt 内容块 ID 重复")
+                    restored_smartarts.add((section.key, block.id))
+                preserved = _preserve_or_reject_smartart(
+                    prior, raw_image, url, block.image.caption if block.image else str(raw_image.get("caption", "")),
+                )
+                if preserved is not None:
+                    block.image = preserved
+                elif getattr(block.image, "smartart", None):
+                    raise HTTPException(status_code=422, detail="请通过 Word 导入添加 SmartArt")
+                elif block.image and block.image.url:
+                    filename = Path(block.image.url).name
+                    if not block.image.url.startswith("/media/uploads/") or not filename.startswith(f"{proj_id}-"):
+                        raise HTTPException(status_code=422, detail="本地草稿包含无效图片引用")
+            elif getattr(block.image, "smartart", None) or raw_image.get("smartart"):
+                raise HTTPException(status_code=422, detail="请通过 Word 导入添加 SmartArt")
     current.title = str(req.snapshot.get("title", current.title))
     current.meta = {str(key): str(value or "") for key, value in raw_meta.items()}
     current.sections = sections
