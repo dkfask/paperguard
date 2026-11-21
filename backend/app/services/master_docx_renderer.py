@@ -360,6 +360,21 @@ def add_block_bookmarks(root, project, profile):
                 put(caption, "caption", block.id)
 
 
+def _clear_instructional_ppr_red(paragraph):
+    """Drop stale instructional red color on an emptied placeholder paragraph mark."""
+    properties = paragraph.find(qn("w:pPr"))
+    if properties is None:
+        return
+    run_properties = properties.find(qn("w:rPr"))
+    if run_properties is None:
+        return
+    for color in list(run_properties.findall(qn("w:color"))):
+        if (color.get(qn("w:val")) or "").strip().upper() in {"FF0000", "RED"}:
+            run_properties.remove(color)
+    if len(run_properties) == 0:
+        properties.remove(run_properties)
+
+
 def prepare_source(root, profile, meta=None):
     """Apply the approved editable boundaries; all other source nodes stay in order."""
     apply_page_layout(root, profile.get("policy_layout_overrides"))
@@ -436,6 +451,7 @@ def prepare_source(root, profile, meta=None):
             for item in list(node):
                 if item.tag != qn("w:pPr"):
                     node.remove(item)
+            _clear_instructional_ppr_red(node)
     for field, found in targets:
         if len(found) != 1:
             raise ProfileError("封面字段映射已失效")
@@ -526,6 +542,7 @@ def prepare_source(root, profile, meta=None):
                 for item in list(old):
                     if item.tag != qn("w:pPr"):
                         old.remove(item)
+                _clear_instructional_ppr_red(old)
                 if explicit_breaks:
                     run=etree.SubElement(old,qn("w:r"))
                     run.extend(copy.deepcopy(item) for item in explicit_breaks)
@@ -735,8 +752,10 @@ def render_master_docx(project, template, out_path: str, *, source_path: str):
                 for c, column in enumerate(table.columns):
                     column.width = Cm(width/data.cols)
                 for row_index, row in enumerate(table.rows):
+                    trpr = row._tr.get_or_add_trPr()
+                    child(trpr, "w:cantSplit")
                     if row_index == 0:
-                        child(row._tr.get_or_add_trPr(), "w:tblHeader", val=1)
+                        child(trpr, "w:tblHeader", val=1)
                     for col, cell in enumerate(row.cells):
                         cell.text = data.cells[row_index][col]
                         child(cell._tc.get_or_add_tcPr(), "w:tcW", w=round(total/data.cols), type="dxa")

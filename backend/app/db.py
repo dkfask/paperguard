@@ -2292,26 +2292,36 @@ class Store:
                 conn, kind, record, expected_revision=expected_revision
             )
 
+    def get_workflow_record_conn(
+        self, conn: sqlite3.Connection, kind: str, record_id: str,
+    ) -> dict | None:
+        row = conn.execute(
+            "SELECT data FROM workflow_records WHERE kind = ? AND id = ?",
+            (kind, record_id),
+        ).fetchone()
+        return json.loads(row["data"]) if row else None
+
     def get_workflow_record(self, kind: str, record_id: str) -> dict | None:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT data FROM workflow_records WHERE kind = ? AND id = ?",
-                (kind, record_id),
-            ).fetchone()
-        return json.loads(row["data"]) if row else None
+            return self.get_workflow_record_conn(conn, kind, record_id)
+
+    def list_workflow_records_conn(
+        self, conn: sqlite3.Connection, kind: str, limit: int | None = 500,
+    ) -> list[dict]:
+        if limit is None:
+            rows = conn.execute(
+                "SELECT data FROM workflow_records WHERE kind=? ORDER BY updated_at DESC, id", (kind,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT data FROM workflow_records WHERE kind = ? ORDER BY updated_at DESC LIMIT ?",
+                (kind, max(1, min(limit, 5000))),
+            ).fetchall()
+        return [json.loads(row["data"]) for row in rows]
 
     def list_workflow_records(self, kind: str, limit: int | None = 500) -> list[dict]:
         with self._connect() as conn:
-            if limit is None:
-                rows = conn.execute(
-                    "SELECT data FROM workflow_records WHERE kind=? ORDER BY updated_at DESC, id", (kind,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT data FROM workflow_records WHERE kind = ? ORDER BY updated_at DESC LIMIT ?",
-                    (kind, max(1, min(limit, 5000))),
-                ).fetchall()
-        return [json.loads(row["data"]) for row in rows]
+            return self.list_workflow_records_conn(conn, kind, limit=limit)
 
     def iter_upload_reference_payloads_conn(self, conn: sqlite3.Connection) -> Iterator[dict]:
         """Read every persisted project and workflow payload while the caller holds a transaction."""
@@ -2330,19 +2340,24 @@ class Store:
             )
             return cur.rowcount == 1
 
-    def get_workflow_idempotency(
-        self, user_id: str, action: str, idem_key: str
+    def get_workflow_idempotency_conn(
+        self, conn: sqlite3.Connection, user_id: str, action: str, idem_key: str,
     ) -> dict | None:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM workflow_idempotency WHERE user_id = ? AND action = ? AND idem_key = ?",
-                (user_id, action, idem_key),
-            ).fetchone()
+        row = conn.execute(
+            "SELECT * FROM workflow_idempotency WHERE user_id = ? AND action = ? AND idem_key = ?",
+            (user_id, action, idem_key),
+        ).fetchone()
         if not row:
             return None
         result = dict(row)
         result["response"] = json.loads(result["response"])
         return result
+
+    def get_workflow_idempotency(
+        self, user_id: str, action: str, idem_key: str
+    ) -> dict | None:
+        with self._connect() as conn:
+            return self.get_workflow_idempotency_conn(conn, user_id, action, idem_key)
 
     def save_workflow_idempotency_conn(
         self,
@@ -2869,12 +2884,15 @@ class Store:
             )
             return current
 
+    def get_project_conn(self, conn: sqlite3.Connection, proj_id: str) -> WritingProject | None:
+        row = conn.execute(
+            "SELECT data FROM projects WHERE id = ? AND coalesce(json_extract(data, '$.tenant_id'), '') = '' AND coalesce(json_extract(data, '$.membership_id'), '') = ''", (proj_id,)
+        ).fetchone()
+        return WritingProject.model_validate_json(row["data"]) if row else None
+
     def get_project(self, proj_id: str) -> WritingProject | None:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT data FROM projects WHERE id = ? AND coalesce(json_extract(data, '$.tenant_id'), '') = '' AND coalesce(json_extract(data, '$.membership_id'), '') = ''", (proj_id,)
-            ).fetchone()
-        return WritingProject.model_validate_json(row["data"]) if row else None
+            return self.get_project_conn(conn, proj_id)
 
     def list_projects(self) -> list[WritingProject]:
         with self._connect() as conn:

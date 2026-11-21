@@ -330,16 +330,59 @@ def norm(text: str) -> str:
     return re.sub(r"\s+", "", text).lower()
 
 
-def _majority(nodes) -> dict:
+def _majority(nodes, *, ignore_instructional_red: bool = False) -> dict:
+    """Aggregate dominant font/paragraph properties across specimen nodes.
+
+    Implicit Word defaults (non-bold, non-italic, automatic color, no
+    underline) vote alongside explicit properties so minority overrides (such as
+    bold table headers or red instructional examples) do not override the
+    baseline. Automatic color and ``none`` underline remain omitted from the
+    returned dict so uncolored outputs preserve implicit-color XML contracts.
+    """
+    defaults = {
+        "paragraph.spacing.before": {"value": 0.0, "unit": "pt"},
+        "paragraph.spacing.after": {"value": 0.0, "unit": "pt"},
+        "paragraph.indent.left": {"value": 0.0, "unit": "pt"},
+        "paragraph.indent.right": {"value": 0.0, "unit": "pt"},
+        "paragraph.indent.first_line": {"value": 0.0, "unit": "character"},
+        "font.bold": False,
+        "font.italic": False,
+        "font.underline": "none",
+        "font.color": "auto",
+    }
     values: dict[str, Counter] = {}
     for n in nodes:
-        defaults = {"paragraph.spacing.before":{"value":0.0,"unit":"pt"}, "paragraph.spacing.after":{"value":0.0,"unit":"pt"},
-                    "paragraph.indent.left":{"value":0.0,"unit":"pt"}, "paragraph.indent.right":{"value":0.0,"unit":"pt"},
-                    "paragraph.indent.first_line":{"value":0.0,"unit":"character"}}
-        for key, value in {**defaults,**n.properties}.items():
-            if key.startswith(("font.", "paragraph.")) and value is not None:
-                values.setdefault(key, Counter())[json.dumps(value,sort_keys=True)] += max(1,min(len(n.text.strip()),1000))
-    return {key: json.loads(counts.most_common(1)[0][0]) for key, counts in values.items()}
+        for key, value in {**defaults, **n.properties}.items():
+            if not key.startswith(("font.", "paragraph.")) or value is None:
+                continue
+            if (ignore_instructional_red and key == "font.color"
+                    and isinstance(value, str) and value.upper() == "FF0000"):
+                value = "auto"
+            values.setdefault(key, Counter())[json.dumps(value, sort_keys=True)] += max(1, min(len(n.text.strip()), 1000))
+    result = {key: json.loads(counts.most_common(1)[0][0]) for key, counts in values.items()}
+    if result.get("font.color") == "auto":
+        result.pop("font.color", None)
+    if result.get("font.underline") == "none":
+        result.pop("font.underline", None)
+    return result
+
+
+def _table_header_cell_prefixes(spec) -> tuple[str, ...]:
+    """Return cell XPath prefixes for header rows of multi-row sample tables."""
+    prefixes = []
+    for node in spec.nodes:
+        if node.role != "table" or node.part != "word/document.xml":
+            continue
+        rows = node.details.get("rows") or []
+        if len(rows) <= 1:
+            continue
+        for row_index, row in enumerate(rows):
+            if row_index == 0 or row.get("repeat_header"):
+                for cell in row.get("cells") or []:
+                    path = cell.get("path")
+                    if path:
+                        prefixes.append(path + "/")
+    return tuple(prefixes)
 
 
 def as_text_style(properties: dict, fallback: TextStyle | None = None) -> TextStyle:
@@ -533,10 +576,16 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
     # Structure edits require a fresh mapping and therefore a new published version.
     candidate.allow_structure_edit = False
     prose = [n for n in spec.nodes if n.role == "body" and len(n.text.strip()) >= 80]
-    body_properties = _majority(prose or [n for n in spec.nodes if n.role == "body" and n.text.strip()])
+    body_properties = _majority(
+        prose or [n for n in spec.nodes if n.role == "body" and n.text.strip()],
+        ignore_instructional_red=True,
+    )
     if not body_properties:
-        body_properties = _majority(n for n in spec.nodes if n.role in {"abstract", "table_text"}
-                                    and not n.details.get("in_cover") and n.text.strip())
+        body_properties = _majority(
+            (n for n in spec.nodes if n.role in {"abstract", "table_text"}
+             and not n.details.get("in_cover") and n.text.strip()),
+            ignore_instructional_red=True,
+        )
     if not body_properties:
         raise ProfileError("未找到可复用的正文格式，请先补充正文示例")
     automatic_headings, numbering_uses, numbered_heading_indexes = _automatic_heading_evidence(source, source_nodes)
@@ -642,7 +691,10 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
             prose = [n for n in region_nodes if len(n.text.strip()) >= 80
                      and not re.search(r"(?:list|列表)", n.details.get("style_name", ""), re.I)]
             region_nodes = prose if len(prose) >= 2 else []
-        properties = {**body_properties, **_majority(region_nodes)}
+        region_majority = _majority(region_nodes, ignore_instructional_red=True)
+        properties = {**body_properties, **region_majority}
+        if region_nodes and "font.color" not in region_majority:
+            properties.pop("font.color", None)
         if inline:
             values = [r["properties"] for r in evidence.details.get("runs",[]) if r.get("text","").strip()]
             # Paragraph observations may contain the bold label's run properties.
@@ -767,7 +819,7 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
             peers = [n for n in spec.nodes if n.role == "table_text" and n.text.strip() and not re.search(r"[：:]\s*$", n.text)]
             if evidence and evidence.details.get("in_cover"):
                 peers = [n for n in peers if n.details.get("in_cover")]
-            properties = {**properties, **_majority(peers)}
+            properties = {**properties, **_majority(peers, ignore_instructional_red=True)}
         if evidence and evidence.details.get("in_cover"):
             for rule_id, value in request.overrides.items():
                 rule = rules[rule_id]
@@ -975,12 +1027,19 @@ def compile_profile(template: PaperTemplate, source_path: Path, request: Confirm
         raise ProfileError(str(exc)) from exc
     object_style_keys = {"figure_caption": "figure_caption", "table_caption": "table_caption", "table_text": "table_cell"}
     profile["object_properties"] = {}
+    header_cell_prefixes = _table_header_cell_prefixes(spec)
     for role, style_key in object_style_keys.items():
         specimens = [n for n in spec.nodes if n.role == role and n.part == "word/document.xml"
                      and not n.details.get("in_cover") and n.text.strip()]
+        if role == "table_text" and header_cell_prefixes:
+            body_cells = [n for n in specimens if not n.path.startswith(header_cell_prefixes)]
+            if body_cells:
+                specimens = body_cells
         configured = candidate.styles.get(style_key) or DEFAULT_STYLES[style_key]
-        profile["object_properties"][role] = (_majority(specimens) if specimens
-                                                else _configured_object_properties(configured, body_properties))
+        profile["object_properties"][role] = (
+            _majority(specimens, ignore_instructional_red=True)
+            if specimens else _configured_object_properties(configured, body_properties)
+        )
     for rule_id, value in request.overrides.items():
         role = rules[rule_id].scope.get("role")
         if role in profile["object_properties"] and rules[rule_id].scope.get("region") not in cover_table_regions:
