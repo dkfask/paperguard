@@ -109,9 +109,13 @@ def _record_view(record: dict) -> dict:
     return result
 
 
-def _records_for_participant(store: Store, participant_id: str) -> list[dict]:
+def _records_for_participant(store: Store, participant_id: str, *, conn=None) -> list[dict]:
+    records = (
+        store.list_workflow_records_conn(conn, "process_record", limit=None)
+        if conn is not None else store.list_workflow_records("process_record", limit=None)
+    )
     return [
-        item for item in store.list_workflow_records("process_record", limit=None)
+        item for item in records
         if item.get("scope_type") == "participant" and item.get("scope_id") == participant_id
     ]
 
@@ -762,10 +766,10 @@ def download_record_attachment(file_id: str, store: Store = Depends(get_store), 
     raise HTTPException(status_code=404, detail="附件不存在")
 
 
-def material_requirement_state(store: Store, participant_id: str, requirement: str, supplied_refs: list[str] | None = None) -> dict[str, Any]:
+def material_requirement_state(store: Store, participant_id: str, requirement: str, supplied_refs: list[str] | None = None, *, conn=None) -> dict[str, Any]:
     """为提交门禁返回一个材料要求的可解释状态。"""
     artifact_type, item = _canonical_or_422(requirement)
-    records = [record for record in _records_for_participant(store, participant_id) if record.get("artifact_type") == artifact_type]
+    records = [record for record in _records_for_participant(store, participant_id, conn=conn) if record.get("artifact_type") == artifact_type]
     supplied = set(supplied_refs or [])
     records = [record for record in records if not supplied or record["id"] in supplied or record.get("state") in _READY_STATES]
     ready = [record for record in records if record.get("state") in _READY_STATES]

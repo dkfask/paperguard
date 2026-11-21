@@ -4025,3 +4025,54 @@ def test_submission_candidate_checks_stage_and_frozen_template_rule_packs(ready_
     report = response.json()['check_report']
     packs = {source['id'] for source in report['sources'] if source['source_type'] == 'rule_pack'}
     assert {'GB-T-7713-1-2006', 'SIM-UNIV-generic'} <= packs
+
+
+def test_run_archive_with_large_manifest_succeeds_in_default_rollback_journal_mode(
+    ready_submission_candidate, tmp_path, monkeypatch,
+):
+    from app.api import workflow as workflow_api
+    from app.services.docx_output_check import output_check_identity
+    from app.services.workflow_jobs import consume_archive_jobs
+
+    fixture = ready_submission_candidate
+    archive = _approved_archive_from_candidate(fixture)
+    store = Store()
+    with store._connect() as conn:
+        journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    assert str(journal_mode).lower() != "wal"
+
+    large_checks = [
+        {
+            "rule": "master.effective_format",
+            "status": "pass",
+            "object": f"block-{i}",
+            "unit": f"/w:document/w:body/w:p[{i}]#font.size",
+            "expected": {"value": 12.0, "unit": "pt"},
+            "actual": {"value": 12.0, "unit": "pt"},
+            "padding": "x" * 400,
+        }
+        for i in range(6000)
+    ]
+
+    real_require_docx_output_pass = workflow_api.require_docx_output_pass
+
+    def large_output_check(data, *args, **kwargs):
+        report = real_require_docx_output_pass(data, *args, **kwargs)
+        if kwargs.get("context_kind") == "workflow-archive":
+            report = dict(report)
+            report["checks"] = [*report.get("checks", []), *large_checks]
+            report["check_count"] = len(report["checks"])
+            report["passed_count"] = sum(item.get("status") == "pass" for item in report["checks"])
+        return report
+
+    monkeypatch.setattr(workflow_api, "require_docx_output_pass", large_output_check)
+    result = consume_archive_jobs(store, consumer_id="non-wal-large-manifest", limit=50)
+    assert archive["job_id"] in result["succeeded"], result
+    saved_archive = store.get_workflow_record("archive", archive["id"])
+    assert saved_archive["status"] == "succeeded"
+    assert saved_archive["manifest"]["output_check_identity"] == output_check_identity(
+        saved_archive["manifest"]["output_check"]
+    )
+    participant = store.get_workflow_record("participant", fixture["participant_id"])
+    assert participant["state"] == "archived"
+    assert participant["archive_id"] == archive["id"]

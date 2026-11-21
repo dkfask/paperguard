@@ -584,6 +584,21 @@ def _picture_line_allows_growth(paragraph, styles) -> bool:
     return inherited is None or grows(inherited)
 
 
+def _table_rows_cant_split(table) -> bool:
+    """Verify every generated table row sets w:cantSplit without disabling or duplicating it."""
+    rows = table.findall(qn("w:tr"))
+    if not rows:
+        return False
+    for row in rows:
+        properties = row.findall(qn("w:trPr"))
+        if len(properties) != 1:
+            return False
+        splits = properties[0].findall(qn("w:cantSplit"))
+        if len(splits) != 1 or splits[0].get(qn("w:val")) not in {None, "1", "true", "on"}:
+            return False
+    return True
+
+
 def _table_header_matches_policy(table) -> bool:
     """Verify the confirmed policy: exactly the first row repeats as header.
 
@@ -2077,6 +2092,8 @@ def inspect_master_output(data, project, template, source, report):
                                               "paragraph.indent.first_line":{"value":0,"unit":"character"}},
                                               block.id, unit=f"table-cell:{row_index}:{cell_index}:{paragraph_index}")
                             check("table_header",_table_header_matches_policy(table),block.id)
+                            check("table_row_cant_split", _table_rows_cant_split(table), block.id,
+                                  expected="every generated table row prevents cross-page row splitting")
                             check("table_row_height", _table_direct_row_heights_allow_growth(table), block.id,
                                   expected="no fixed or invalid direct row height")
                             check("table_style_row_height", _table_style_row_heights_allow_growth(table, styles_root), block.id,

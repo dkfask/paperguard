@@ -515,3 +515,149 @@ def test_mixed_smartart_and_raster_preserves_both_findings_and_pending_review(ma
     assert [(item['id'], item['reason'], item['enforce']) for item in not_checked] == [
         ('image-font', 'image_typography_unverified', 'hard'),
     ]
+
+
+def test_red_example_prose_and_abstract_do_not_export_red_text(tmp_path):
+    from app.core.export.docx_exporter import export_project_to_docx
+    from app.models.project import ParagraphBlock, ProjectSection, WritingProject
+    from app.models.template import MetaField
+    from app.services.docx_output_check import inspect_docx_output
+    from app.services.source_template_profile import flatten
+
+    doc = Document()
+    normal = doc.styles['Normal']
+    normal.font.size = Pt(12)
+    normal.font.name = 'Times New Roman'
+    normal.element.get_or_add_rPr().rFonts.set(qn('w:eastAsia'), '宋体')
+    normal.paragraph_format.line_spacing = 1.5
+    doc.add_paragraph('题目：示例题目')
+    doc.add_heading('摘要', 1)
+    red_abstract = doc.add_paragraph('（示例，请按实际课题改写）' + '中文摘要示例内容。' * 18)
+    red_abstract.runs[0].font.color.rgb = RGBColor(255, 0, 0)
+    doc.add_paragraph('（中文摘要应写明研究方法、研究内容和主要结果或结论。）')
+    doc.add_heading('Abstract', 1)
+    red_en_abstract = doc.add_paragraph('(Example only. Please rewrite it for your own project.) ' + 'Sample text. ' * 18)
+    red_en_abstract.runs[0].font.color.rgb = RGBColor(255, 0, 0)
+    doc.add_heading('第1章 绪论', 1)
+    for _ in range(2):
+        red_body = doc.add_paragraph('（示例，请按实际课题改写）' + '红字正文示例内容。' * 20)
+        red_body.runs[0].font.color.rgb = RGBColor(255, 0, 0)
+    doc.add_paragraph('正常默认颜色正文段落内容。' * 8)
+    red_sect_hint = doc.add_paragraph('（说明：分节符占位示例红字提示）')
+    red_sect_hint.runs[0].font.color.rgb = RGBColor(255, 0, 0)
+    from docx.oxml import OxmlElement
+    ppr = red_sect_hint._p.get_or_add_pPr()
+    ppr_rpr = OxmlElement('w:rPr')
+    ppr_color = OxmlElement('w:color')
+    ppr_color.set(qn('w:val'), 'FF0000')
+    ppr_rpr.append(ppr_color)
+    ppr.append(ppr_rpr)
+    doc.add_section()
+    doc.add_heading('第2章 结论', 1)
+    doc.add_paragraph('正常默认颜色结论正文段落内容。' * 8)
+
+    source = tmp_path / 'red-examples.docx'
+    doc.save(source)
+    spec = extract_writing_specification(source)
+    draft = PaperTemplate(
+        id='red-example-master', name='red-example', source_docx=source.name,
+        sections=extract_section_tree(source), styles=import_template_styles(source)['styles'],
+        meta_fields=[MetaField(key='title', label='题目')],
+    )
+    template = compile_profile(
+        draft, source,
+        ConfirmWritingProfile(
+            expected_specification_sha256=spec.specification_sha256,
+            accept_recommended=True, accept_new_object_defaults=True, remove_template_instructions=True,
+        ),
+        actor='teacher',
+    )
+    assert 'font.color' not in template.source_execution['body_properties']
+    for heading in template.source_execution['headings']:
+        assert 'font.color' not in heading['properties']
+
+    project = WritingProject(
+        id='red-example-proj', template_id=template.id, meta={'title': '正式论文题目'},
+        sections=[
+            ProjectSection(key=n.key, type=n.type, title=n.title,
+                           paragraphs=[ParagraphBlock(id=f'{n.key}-p', text='学生正式正文内容。')])
+            for n in flatten(template.sections) if n.type.value not in {'cover', 'toc'}
+        ],
+    )
+    output = tmp_path / 'exported.docx'
+    export_project_to_docx(project, template, str(output), template_path=str(source))
+    data = output.read_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        root = etree.fromstring(archive.read('word/document.xml'))
+    colors = [el.get(qn('w:val'), '').upper() for el in root.findall('.//' + qn('w:color'))]
+    assert 'FF0000' not in colors
+    report = inspect_docx_output(data, project, template, source_template_bytes=source.read_bytes())
+    assert report['status'] == 'pass', [c for c in report['checks'] if c['status'] != 'pass']
+
+
+def test_bold_table_header_row_does_not_make_table_body_cells_bold(master, tmp_path):
+    from app.core.extract.effective_format import EffectiveFormatResolver
+    from tests.test_master_cover_label_visibility import _recompile
+
+    doc = Document(master[0])
+    doc.add_paragraph('表1.1 系统功能与稳定性测试记录表')
+    sample = doc.add_table(rows=2, cols=2)
+    sample.style = 'Table Grid'
+    for col_idx, header_text in enumerate(('测试功能模块与名称（详细表头文字）', '预期设计目标与指标说明（详细表头文字）')):
+        run = sample.cell(0, col_idx).paragraphs[0].add_run(header_text)
+        run.font.bold = True
+    sample.cell(1, 0).text = '采集'
+    sample.cell(1, 1).text = '正常'
+    doc.save(master[0])
+
+    case = _recompile(master)
+    table_props = case[1].source_execution['object_properties']['table_text']
+    assert table_props['font.bold'] is False
+
+    _add_objects(case)
+    data = rendered(case, tmp_path)
+    report = inspect(case, data)
+    assert report['status'] == 'pass', [c for c in report['checks'] if c['status'] != 'pass']
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        root = etree.fromstring(archive.read('word/document.xml'))
+        styles = etree.fromstring(archive.read('word/styles.xml'))
+    resolver = EffectiveFormatResolver(styles)
+    tables = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-block:visibility-table"]//w:tbl', namespaces=NS)
+    assert len(tables) == 1
+    for p in tables[0].findall('.//' + qn('w:p')):
+        _, _, runs, _ = resolver.paragraph(p)
+        assert runs and all(run['properties'].get('font.bold') is False for run in runs)
+
+
+def test_generated_table_rows_set_cant_split_and_inspector_rejects_missing(master, tmp_path):
+    _add_objects(master)
+    data = rendered(master, tmp_path)
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        root = etree.fromstring(archive.read('word/document.xml'))
+    tables = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-block:visibility-table"]//w:tbl', namespaces=NS)
+    assert len(tables) == 1
+    rows = tables[0].findall(qn('w:tr'))
+    assert rows and all(row.find(f'{qn("w:trPr")}/{qn("w:cantSplit")}') is not None for row in rows)
+    assert inspect(master, data)['status'] == 'pass'
+
+    def remove_cant_split(root):
+        table = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-block:visibility-table"]//w:tbl', namespaces=NS)[0]
+        for node in table.findall(f'.//{qn("w:trPr")}/{qn("w:cantSplit")}'):
+            node.getparent().remove(node)
+
+    report = inspect(master, rewrite(data, 'word/document.xml', remove_cant_split))
+    split_check = next(item for item in report['checks']
+                       if item['rule'] == 'master.table_row_cant_split'
+                       and item['object'] == 'visibility-table')
+    assert split_check['status'] == 'fail'
+    assert split_check['classification'] == 'hard_block'
+    assert report['status'] == 'fail'
+
+    def disable_cant_split(root):
+        table = root.xpath('.//w:sdt[w:sdtPr/w:tag/@w:val="pg-block:visibility-table"]//w:tbl', namespaces=NS)[0]
+        node = table.find(f'.//{qn("w:trPr")}/{qn("w:cantSplit")}')
+        node.set(qn('w:val'), '0')
+
+    disabled = inspect(master, rewrite(data, 'word/document.xml', disable_cant_split))
+    assert any(item['rule'] == 'master.table_row_cant_split' and item['status'] == 'fail'
+               for item in disabled['checks'])
