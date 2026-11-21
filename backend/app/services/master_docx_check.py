@@ -1965,7 +1965,8 @@ def inspect_master_output(data, project, template, source, report):
                                 ) if caption_sizes and all(size.get("unit") == "pt" for size in caption_sizes) else 0
                                 check("smartart_content", actual == smartart, block.id)
                                 check("smartart_label_size", bool(caption_limit) and actual_size <= caption_limit * 100,
-                                      block.id, expected=caption_limit or None, actual=actual_size / 100, unit="pt")
+                                      f"section:{heading['key']}/figure:{chapter}.{figure}/block:{block.id}",
+                                      expected=caption_limit or None, actual=actual_size / 100, unit="pt")
                                 extent = drawings[0].find(f"{{{WP}}}inline/{{{WP}}}extent")
                                 wanted_w, wanted_h = block.image.width_cm, block.image.height_cm
                                 if extent is None or wanted_w is None or wanted_h is None:

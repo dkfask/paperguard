@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countChapterFiguresBefore, countChapterTablesBefore } from '../src/utils/figureNumbering.js'
+import { computeManuscriptImageLocations, countChapterFiguresBefore, countChapterTablesBefore } from '../src/utils/figureNumbering.js'
 
 describe('figure numbering offsets', () => {
   it('counts images from earlier sections in the same chapter only', () => {
@@ -34,5 +34,38 @@ describe('figure numbering offsets', () => {
     expect(countChapterTablesBefore(sections, chapters, 'c3b')).toBe(3)
     expect(countChapterTablesBefore(sections, chapters, 'c4')).toBe(0)
     expect(countChapterFiguresBefore(sections, chapters, 'c3b')).toBe(1)
+  })
+
+  it('numbers manuscript images across chapters and keeps unverified screenshots when mixed with SmartArt', () => {
+    const sections = [
+      {
+        key: 'chapter-3',
+        type: 'heading1',
+        title: '第 3 章 系统分析',
+        paragraphs: [
+          { id: 'img-sa', type: 'image', image: { caption: '架构图', smartart: { dm: '<d/>' } } },
+        ],
+      },
+      {
+        key: 'chapter-3-1',
+        type: 'heading2',
+        title: '3.1 架构实现',
+        paragraphs: [
+          { id: 'img-shot', type: 'image', image: { url: '/media/uploads/shot.png', caption: '运行截图' } },
+        ],
+      },
+    ]
+    const chapters = { 'chapter-3': 3, 'chapter-3-1': 3 }
+    expect(computeManuscriptImageLocations(sections, chapters)).toEqual([
+      {
+        sectionKey: 'chapter-3-1',
+        sectionTitle: '3.1 架构实现',
+        blockId: 'img-shot',
+        caption: '运行截图',
+        position: 1,
+        figureLabel: '图 3.2',
+        isSmartArt: false,
+      },
+    ])
   })
 })

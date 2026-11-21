@@ -67,8 +67,8 @@ export function useI18n() {
 export const translations = {
   zh: {
     'workflow.archiveRequirementUnavailable': '当前规范尚无法自动核验，请联系系统团队处理。',
-    'writer.imageTypographyUnavailable': '当前文件缺少可核验的图内字号。请在插图源文件中核对标注与图题的字号。确认标注超限时，可在源文件中调整后替换图片。',
-    'writer.imageLocationsScope': '论文中的图片如下；此列表不表示图片不合格，也不包含模板或表格中的对象。',
+    'writer.imageTypographyUnavailable': '下列图片为普通位图截图，系统无法可靠读取图内标注字号，导出交付已按“图中标注符号和文字的字号不大于图题的字号”硬性规则阻断。可行处理方式：请在插图源文件中确认图内标注字号不大于图题（如五号 10.5pt）后重新替换；仅在整篇 Word 导入开放且使用原生可解析 SmartArt 时可自动完成图内字号核验，普通截图暂无法自动通过交付门禁。',
+    'writer.imageLocationsScope': '需核对的图片位置如下（不含已自动核验的 Word SmartArt、模板固定图形或表格内对象）：',
     'writer.imageWithoutCaption': '未填写图题',
     'writer.imageBlockPosition': '第 {count} 块',
     'writer.imageLocationMissing': '图片位置已变化，请重新检查后定位。',
@@ -263,8 +263,8 @@ export const translations = {
   },
   en: {
     'workflow.archiveRequirementUnavailable': 'Current requirements cannot be verified automatically; contact the system team.',
-    'writer.imageTypographyUnavailable': 'The current file lacks verifiable image text sizes. Check the labels in the source figure against the caption size. If a label is too large, adjust it in the source before replacing the image.',
-    'writer.imageLocationsScope': 'Manuscript images are listed below. This does not mean they are noncompliant; objects in templates or tables are not included.',
+    'writer.imageTypographyUnavailable': 'These images are raster screenshots without machine-readable label font sizes, so delivery is blocked by the hard image typography rule. Verify in your source file that internal label sizes do not exceed the caption size (e.g., 10.5pt) before replacing the image. Automatic verification is only available for native Word SmartArt when whole-document import is enabled; plain screenshots remain blocked for delivery.',
+    'writer.imageLocationsScope': 'Images requiring verification are listed below (excluding verified Word SmartArt, template fixed graphics, and table objects):',
     'writer.imageWithoutCaption': 'Untitled image',
     'writer.imageBlockPosition': 'Block {count}',
     'writer.imageLocationMissing': 'The image location has changed. Check again before navigating.',
@@ -649,8 +649,8 @@ Object.assign(translations.en, {
 })
 
 Object.assign(translations.zh, {
-  'writer.automaticCheckPendingTitle': '模板自动检查尚未完成',
-  'writer.automaticCheckPendingDetail': '该模板需要系统团队完成适配后才能导出，你可以继续编辑并保存论文。',
+  'writer.automaticCheckPendingTitle': '导出交付尚有待自动核验项',
+  'writer.automaticCheckPendingDetail': '下列硬性要求暂无法自动核验，未开放成品下载；请点击下方“查看待核验详情”定位对应插图或规则，你可以继续编辑并保存论文。',
   'writer.automaticCheckPendingRules': '系统尚未完成自动检查的项目：',
   'writer.viewPendingChecks': '查看待核验详情',
   'writer.manualReviewTitle': '该导出文件还需要 Word/WPS 人工核查',
@@ -667,8 +667,8 @@ Object.assign(translations.zh, {
 })
 
 Object.assign(translations.en, {
-  'writer.automaticCheckPendingTitle': 'Automatic template checks are not ready',
-  'writer.automaticCheckPendingDetail': 'The system team must adapt this template before export. You can continue editing and saving your thesis.',
+  'writer.automaticCheckPendingTitle': 'Pending automatic checks before export',
+  'writer.automaticCheckPendingDetail': 'Required rules below await automatic verification so download remains blocked. Click "View pending checks" to locate affected figures or rules while continuing to edit.',
   'writer.automaticCheckPendingRules': 'Items awaiting automatic checks:',
   'writer.viewPendingChecks': 'View pending checks',
   'writer.manualReviewTitle': 'This export needs a Word/WPS review',

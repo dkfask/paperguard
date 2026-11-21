@@ -43,6 +43,15 @@ def test_frozen_master_preserves_smartart_and_checks_its_actual_label_size(maste
     evidence = next(c for c in report["checks"] if c["rule"] == "master.smartart_label_size")
     assert evidence["actual"] == size / 100
     assert evidence["status"] == result
+    assert f"/figure:1.1/block:{block.id}" in evidence["object"]
+    if result == "fail":
+        from app.services.docx_output_check import safe_output_check_diagnostics
+        diag = safe_output_check_diagnostics(report)
+        assert any(
+            item["rule"] == "master.smartart_label_size"
+            and "/figure:1.1/" in item["object"]
+            for item in diag["findings"]
+        )
 
 
 def test_smartart_preserves_resolved_source_theme_colors_and_fonts_across_different_master_theme(master, tmp_path):
@@ -442,3 +451,67 @@ def test_import_reports_logical_table_border_as_unsupported(tmp_path):
     imported = next(block for block in blocks if block.get('type') == 'table')
     assert '逻辑方向' in imported['_border_error']
     assert imported['table']['source_xml']
+
+
+@pytest.mark.parametrize(('size', 'expected_fail'), [(900, False), (2200, True)])
+def test_smartart_typography_is_evaluated_by_requirement_check(master, monkeypatch, size, expected_fail):
+    from app.api.projects import _apply_imported_docx
+    from app.services.requirement_check import check_requirements
+
+    source, template, project, _ = master
+    monkeypatch.setattr('app.services.template_source.resolve_template_source', lambda _: source)
+    project.template_snapshot = template.model_dump(mode='json')
+    imported = import_docx_project(_smartart_source(size))
+    _apply_imported_docx(project, imported)
+    block = next(b for s in project.sections for b in s.paragraphs if b.type == 'image')
+    block.image.caption = '图 1.1 系统架构图'
+    rule = {
+        'id': 'image-font', 'type': 'manual', 'checker': '', 'target': 'document',
+        'params': {'image_typography_constraint': 'caption_font_size_upper_bound'},
+        'severity': 'error', 'enforce': 'hard',
+        'description': '图中标注符号文字字号不大于图题的字号',
+        'source': '撰写规范',
+    }
+    findings, not_checked = check_requirements(project, {'resolved_items': [rule]}, template)
+    assert not_checked == []
+    if expected_fail:
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding['enforce'] == 'hard'
+        assert finding['severity'] == 'error'
+        assert '图 1.1' in finding['message']
+        assert '系统架构图' in finding['message']
+        assert '22pt' in finding['message']
+        assert finding['location']['block_id'] == block.id
+        assert finding['section_key']
+    else:
+        assert findings == []
+
+
+def test_mixed_smartart_and_raster_preserves_both_findings_and_pending_review(master, monkeypatch):
+    from app.api.projects import _apply_imported_docx
+    from app.models.project import ImageBlock, ParagraphBlock
+    from app.services.requirement_check import check_requirements
+
+    source, template, project, _ = master
+    monkeypatch.setattr('app.services.template_source.resolve_template_source', lambda _: source)
+    project.template_snapshot = template.model_dump(mode='json')
+    imported = import_docx_project(_smartart_source(2200))
+    _apply_imported_docx(project, imported)
+    target_section = next(s for s in project.sections if any(b.type == 'image' for b in s.paragraphs))
+    target_section.paragraphs.append(ParagraphBlock(
+        id='raster-2', type='image', image=ImageBlock(url='/media/uploads/shot.png', caption='实测截图'),
+    ))
+    rule = {
+        'id': 'image-font', 'type': 'manual', 'checker': '', 'target': 'document',
+        'params': {'image_typography_constraint': 'caption_font_size_upper_bound'},
+        'severity': 'error', 'enforce': 'hard',
+        'description': '图中标注符号文字字号不大于图题的字号',
+        'source': '撰写规范',
+    }
+    findings, not_checked = check_requirements(project, {'resolved_items': [rule]}, template)
+    assert len(findings) == 1
+    assert '图 1.1' in findings[0]['message']
+    assert [(item['id'], item['reason'], item['enforce']) for item in not_checked] == [
+        ('image-font', 'image_typography_unverified', 'hard'),
+    ]
