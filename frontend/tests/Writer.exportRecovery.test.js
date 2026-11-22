@@ -11,7 +11,7 @@ vi.mock('../src/api.js', async () => {
 })
 vi.mock('../src/auth', () => ({ auth: { user: { id: 'student', role: 'student', status: 'active' } }, isManager: () => false }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'p1' }, query: {} }), useRouter: () => ({ push: vi.fn() }), onBeforeRouteLeave: vi.fn() }))
-vi.mock('../src/i18n', () => ({ useI18n: () => ({ lang: { value: 'zh' }, t: key => key }) }))
+vi.mock('../src/i18n', () => ({ useI18n: () => ({ lang: { value: 'zh' }, t: (key, params) => (params?.size ? `${key} ${params.size}` : key) }) }))
 
 import Writer from '../src/views/Writer.vue'
 
@@ -69,7 +69,13 @@ describe('Writer export recovery', () => {
         }],
       },
       template_snapshot: {
-        id: 't1', name: '模板', styles: { figure_caption: { size_pt: 10.5 } }, meta_fields: [],
+        id: 't1', name: '模板', styles: { figure_caption: { size_pt: 12 } },
+        source_execution: {
+          object_properties: {
+            figure_caption: { 'font.size': { value: 9, unit: 'pt' } },
+          },
+        },
+        meta_fields: [],
         sections: [{ key: 'design', type: 'body', title: '系统设计' }],
       },
     })
@@ -87,6 +93,8 @@ describe('Writer export recovery', () => {
     const guide = modal.querySelector('[data-test="figure-typography-guide"]')
     expect(guide).not.toBeNull()
     expect(guide.getAttribute('data-guide-variant')).toBe('blocked')
+    expect(guide.textContent).toContain('9pt')
+    expect(guide.textContent).not.toContain('12pt')
   })
 
   it('saves an edited legacy reference with its inline runs through Writer', async () => {

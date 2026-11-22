@@ -2388,7 +2388,11 @@ async function confirmUpgrade() {
   upgradeBusy.value = true
   try {
     const result = await upgradeRequirements(projectId, { expected_snapshot_hash: upgradePreview.value.from_snapshot_hash, expected_resolution_hash: upgradePreview.value.to_resolution_hash, reason: t('writer.upgradeReasonDefault'), confirm: true })
-    project.value = result.project; upgradePreview.value = null; await runCheckNow()
+    project.value = result.project
+    if (Object.keys(result.project?.template_snapshot || {}).length) {
+      template.value = result.project.template_snapshot
+    }
+    upgradePreview.value = null; await runCheckNow()
   } catch (e) { error.value = e.message || t('writer.upgradeApplyFailed') }
   finally { upgradeBusy.value = false }
 }

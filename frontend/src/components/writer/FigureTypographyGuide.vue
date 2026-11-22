@@ -1,7 +1,7 @@
 <template>
   <details
     class="figure-guide"
-    :class="[`is-${variant}`, { 'is-strict': strictRuleActive }]"
+    :class="[`is-${variant}`, { 'is-strict': isStrictContext }]"
     :open="defaultOpen"
     data-test="figure-typography-guide"
     :data-guide-variant="variant"
@@ -14,7 +14,9 @@
 
     <div class="figure-guide-body">
       <p class="figure-guide-reason">
-        {{ t('figureGuide.reasonSummary', { size: captionSizeLabel }) }}
+        {{ isStrictContext
+          ? t('figureGuide.reasonSummary', { size: captionSizeLabel })
+          : t('figureGuide.reasonAdvisory', { size: captionSizeLabel }) }}
       </p>
 
       <div class="figure-guide-examples" data-test="figure-guide-examples">
@@ -26,7 +28,7 @@
           <p>{{ t('figureGuide.compliantExample', { size: captionSizeLabel, recommended: recommendedSizeLabel }) }}</p>
         </div>
 
-        <div class="figure-guide-card is-blocked">
+        <div v-if="isStrictContext" class="figure-guide-card is-blocked">
           <div class="figure-guide-card-head">
             <span class="material-symbols-outlined" aria-hidden="true">block</span>
             <strong>{{ t('figureGuide.blockedTitle') }}</strong>
@@ -34,6 +36,17 @@
           <ul>
             <li>{{ t('figureGuide.blockedRasterExample') }}</li>
             <li>{{ t('figureGuide.blockedOversizeExample', { size: captionSizeLabel }) }}</li>
+          </ul>
+        </div>
+
+        <div v-else class="figure-guide-card is-advisory">
+          <div class="figure-guide-card-head">
+            <span class="material-symbols-outlined" aria-hidden="true">info</span>
+            <strong>{{ t('figureGuide.advisoryTitle') }}</strong>
+          </div>
+          <ul>
+            <li>{{ t('figureGuide.advisoryRasterExample') }}</li>
+            <li>{{ t('figureGuide.advisoryOversizeExample', { size: captionSizeLabel }) }}</li>
           </ul>
         </div>
       </div>
@@ -47,7 +60,7 @@
         </ol>
       </div>
 
-      <div class="figure-guide-section figure-guide-actions" data-test="figure-guide-actions">
+      <div v-if="isStrictContext" class="figure-guide-section figure-guide-actions" data-test="figure-guide-actions">
         <strong>{{ t('figureGuide.actionsTitle') }}</strong>
         <p v-if="!manuscriptImportEnabled" class="figure-guide-pilot-note">
           {{ t('figureGuide.m1PilotBoundary') }}
@@ -82,18 +95,23 @@ const props = defineProps({
 const i18n = useI18n()
 const t = i18n.t
 const currentLocale = computed(() => i18n.lang?.value || 'zh')
+const isStrictContext = computed(() => (
+  props.strictRuleActive || props.variant === 'check' || props.variant === 'blocked'
+))
 
 const captionSizeLabel = computed(() => formatCaptionFontSize(props.captionSizePt, currentLocale.value))
 const recommendedSizeLabel = computed(() => {
   const effective = Number.isFinite(Number(props.captionSizePt)) && Number(props.captionSizePt) > 0
     ? Number(props.captionSizePt)
     : 10.5
-  const smaller = effective >= 10.5 ? 9 : Math.max(8, Number((effective - 1).toFixed(1)))
+  const smaller = effective >= 10.5
+    ? 9
+    : (effective > 8 ? Math.max(8, Number((effective - 1).toFixed(1))) : effective)
   return formatCaptionFontSize(smaller, currentLocale.value)
 })
 
 const summaryIcon = computed(() => {
-  if (props.variant === 'blocked' || props.variant === 'check' || props.strictRuleActive) {
+  if (isStrictContext.value) {
     return 'tips_and_updates'
   }
   return 'info'
@@ -106,7 +124,7 @@ const summaryText = computed(() => {
   if (props.variant === 'check') {
     return t('figureGuide.summaryCheck', { size: captionSizeLabel.value })
   }
-  if (props.strictRuleActive) {
+  if (isStrictContext.value) {
     return t('figureGuide.summaryInlineStrict', { size: captionSizeLabel.value })
   }
   return t('figureGuide.summaryInline', { size: captionSizeLabel.value })
@@ -209,6 +227,11 @@ const summaryText = computed(() => {
   background: #fff8f8;
 }
 
+.figure-guide-card.is-advisory {
+  border-color: var(--border, #dfe3ea);
+  background: var(--surface-container-low, #f7f8fa);
+}
+
 .figure-guide-card-head {
   display: flex;
   align-items: center;
@@ -223,6 +246,10 @@ const summaryText = computed(() => {
 
 .figure-guide-card.is-blocked .figure-guide-card-head {
   color: var(--error, #c63f3f);
+}
+
+.figure-guide-card.is-advisory .figure-guide-card-head {
+  color: var(--primary, #2757d7);
 }
 
 .figure-guide-card-head .material-symbols-outlined {

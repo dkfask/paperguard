@@ -12,7 +12,51 @@ import {
 } from '../src/utils/figureGuide'
 
 describe('figureGuide utilities', () => {
-  it('resolves and formats figure caption font sizes with sensible fallback', () => {
+  it('prefers frozen execution profile figure_caption font.size over styles and falls back cleanly', () => {
+    expect(resolveFigureCaptionSizePt({
+      styles: { figure_caption: { size_pt: 12 } },
+      source_execution: {
+        object_properties: {
+          figure_caption: {
+            'font.size': { value: 9, unit: 'pt' },
+          },
+        },
+      },
+    })).toBe(9)
+
+    expect(resolveFigureCaptionSizePt({
+      styles: { figure_caption: { size_pt: 10.5 } },
+      source_execution: {
+        object_properties: {
+          figure_caption: {
+            'font.size': { value: 21, unit: 'half-pt' },
+          },
+        },
+      },
+    })).toBe(10.5)
+
+    expect(resolveFigureCaptionSizePt({
+      styles: { figure_caption: { size_pt: 10.5 } },
+      source_execution: {
+        object_properties: {
+          figure_caption: {
+            'font.size': { value: 0, unit: 'pt' },
+          },
+        },
+      },
+    })).toBe(10.5)
+
+    expect(resolveFigureCaptionSizePt({
+      styles: { figure_caption: { size_pt: 10.5 } },
+      source_execution: {
+        object_properties: {
+          figure_caption: {
+            'font.size': { value: true, unit: 'pt' },
+          },
+        },
+      },
+    })).toBe(10.5)
+
     expect(resolveFigureCaptionSizePt({ styles: { figure_caption: { size_pt: 10.5 } } })).toBe(10.5)
     expect(resolveFigureCaptionSizePt({ styles: { figure_caption: { size_pt: 0 } } })).toBeNull()
     expect(resolveFigureCaptionSizePt(null)).toBeNull()
@@ -116,20 +160,52 @@ describe('FigureTypographyGuide component', () => {
     wrapper.unmount()
   })
 
-  it('renders strict vs gentle inline summary copy and supports English locale', () => {
-    const gentle = mount(FigureTypographyGuide, {
-      props: { variant: 'inline', captionSizePt: 10.5, strictRuleActive: false },
+  it('keeps non-strict inline guidance advisory without export-blocking or screenshot-removal claims', () => {
+    const gentleZh = mount(FigureTypographyGuide, {
+      props: { variant: 'inline', captionSizePt: 10.5, strictRuleActive: false, defaultOpen: true },
     })
-    expect(gentle.get('summary').text()).toContain('插图建议')
-    expect(gentle.classes()).not.toContain('is-strict')
-    gentle.unmount()
+    expect(gentleZh.get('summary').text()).toContain('插图建议')
+    expect(gentleZh.classes()).not.toContain('is-strict')
+    expect(gentleZh.find('.figure-guide-card.is-blocked').exists()).toBe(false)
+    expect(gentleZh.find('.figure-guide-card.is-advisory').exists()).toBe(true)
+    expect(gentleZh.find('[data-test="figure-guide-actions"]').exists()).toBe(false)
+    expect(gentleZh.text()).toContain('未启用图内字号硬性核验规则')
+    expect(gentleZh.text()).not.toContain('image_typography_unverified')
+    expect(gentleZh.text()).not.toContain('阻断')
+    expect(gentleZh.text()).not.toContain('移除')
+    gentleZh.unmount()
 
+    useI18n().setLang('en')
+    const gentleEn = mount(FigureTypographyGuide, {
+      props: { variant: 'inline', captionSizePt: 10.5, strictRuleActive: false, defaultOpen: true },
+    })
+    expect(gentleEn.get('summary').text()).toContain('Figure tip:')
+    expect(gentleEn.find('.figure-guide-card.is-blocked').exists()).toBe(false)
+    expect(gentleEn.find('[data-test="figure-guide-actions"]').exists()).toBe(false)
+    expect(gentleEn.text()).toContain('does not enforce an in-figure typography gate')
+    expect(gentleEn.text()).not.toContain('image_typography_unverified')
+    expect(gentleEn.text()).not.toMatch(/\bblock(?:ed|ing)?\b/i)
+    expect(gentleEn.text()).not.toMatch(/\bremove\b/i)
+    gentleEn.unmount()
+  })
+
+  it('renders strict inline summary copy, safe recommended sizes, and English blocked locale', () => {
     const strict = mount(FigureTypographyGuide, {
-      props: { variant: 'inline', captionSizePt: 10.5, strictRuleActive: true },
+      props: { variant: 'inline', captionSizePt: 10.5, strictRuleActive: true, defaultOpen: true },
     })
     expect(strict.get('summary').text()).toContain('将在导出交付时阻断下载')
     expect(strict.classes()).toContain('is-strict')
+    expect(strict.find('.figure-guide-card.is-blocked').exists()).toBe(true)
+    expect(strict.find('[data-test="figure-guide-actions"]').exists()).toBe(true)
+    expect(strict.text()).toContain('image_typography_unverified')
     strict.unmount()
+
+    const smallCaption = mount(FigureTypographyGuide, {
+      props: { variant: 'blocked', captionSizePt: 7.5, strictRuleActive: true, defaultOpen: true },
+    })
+    expect(smallCaption.text()).toContain('7.5pt')
+    expect(smallCaption.text()).not.toContain('8pt')
+    smallCaption.unmount()
 
     useI18n().setLang('en')
     const english = mount(FigureTypographyGuide, {

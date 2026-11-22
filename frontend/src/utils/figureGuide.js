@@ -24,10 +24,26 @@ const ZH_IMAGE_TYPOGRAPHY_SIZE_RE = /字号|字体大小/
 const EN_IMAGE_TYPOGRAPHY_SUBJECT_RE = /\b(?:figure|image|diagram|illustration)\b/i
 const EN_IMAGE_TYPOGRAPHY_SIZE_RE = /\b(?:font\s*size|typography|label\s*size)\b/i
 
-export function resolveFigureCaptionSizePt(template) {
-  const raw = template?.styles?.figure_caption?.size_pt
+function parsePositiveSizePt(raw) {
+  if (typeof raw !== 'number' && typeof raw !== 'string') return null
+  if (typeof raw === 'string' && !raw.trim()) return null
   const parsed = Number(raw)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+export function resolveFigureCaptionSizePt(template) {
+  const profileFontSize = template?.source_execution?.object_properties?.figure_caption?.['font.size']
+  if (
+    profileFontSize
+    && typeof profileFontSize === 'object'
+    && profileFontSize.unit === 'pt'
+    && typeof profileFontSize.value === 'number'
+    && Number.isFinite(profileFontSize.value)
+    && profileFontSize.value > 0
+  ) {
+    return profileFontSize.value
+  }
+  return parsePositiveSizePt(template?.styles?.figure_caption?.size_pt)
 }
 
 export function formatCaptionFontSize(sizePt, lang = 'zh') {

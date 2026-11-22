@@ -400,7 +400,7 @@ describe('BlockList image paste handling', () => {
       { id: 'img-raster', type: 'image', image: { url: '/media/shot.png', caption: '运行截图' } },
       { id: 'img-smartart', type: 'image', image: { caption: '架构图', smartart: { dm: '<d/>' } } },
     ]
-    const wrapper = mount(BlockList, {
+    const strictWrapper = mount(BlockList, {
       props: {
         paragraphs,
         projectId: 'p1',
@@ -410,13 +410,39 @@ describe('BlockList image paste handling', () => {
         imageTypographyRestricted: true,
       },
     })
-    const imageBlocks = wrapper.findAll('.image-block')
-    expect(imageBlocks).toHaveLength(2)
-    const rasterGuide = imageBlocks[0].find('[data-test="figure-typography-guide"]')
-    expect(rasterGuide.exists()).toBe(true)
-    expect(rasterGuide.attributes('data-guide-variant')).toBe('inline')
-    expect(rasterGuide.classes()).toContain('is-strict')
-    expect(imageBlocks[1].find('[data-test="figure-typography-guide"]').exists()).toBe(false)
-    wrapper.unmount()
+    const strictBlocks = strictWrapper.findAll('.image-block')
+    expect(strictBlocks).toHaveLength(2)
+    const strictGuide = strictBlocks[0].find('[data-test="figure-typography-guide"]')
+    expect(strictGuide.exists()).toBe(true)
+    expect(strictGuide.attributes('data-guide-variant')).toBe('inline')
+    expect(strictGuide.classes()).toContain('is-strict')
+    expect(strictGuide.text()).toContain('figureGuide.summaryInlineStrict')
+    expect(strictGuide.text()).toContain('figureGuide.reasonSummary')
+    expect(strictGuide.text()).toContain('figureGuide.blockedRasterExample')
+    expect(strictGuide.text()).toContain('figureGuide.actionsTitle')
+    expect(strictBlocks[1].find('[data-test="figure-typography-guide"]').exists()).toBe(false)
+    strictWrapper.unmount()
+
+    const gentleWrapper = mount(BlockList, {
+      props: {
+        paragraphs,
+        projectId: 'p1',
+        chapter: 4,
+        figureCaptionSizePt: 10.5,
+        manuscriptImportEnabled: false,
+        imageTypographyRestricted: false,
+      },
+    })
+    const gentleGuide = gentleWrapper.findAll('.image-block')[0].get('[data-test="figure-typography-guide"]')
+    expect(gentleGuide.classes()).not.toContain('is-strict')
+    expect(gentleGuide.find('.figure-guide-card.is-blocked').exists()).toBe(false)
+    expect(gentleGuide.find('.figure-guide-card.is-advisory').exists()).toBe(true)
+    expect(gentleGuide.find('[data-test="figure-guide-actions"]').exists()).toBe(false)
+    expect(gentleGuide.text()).toContain('figureGuide.summaryInline')
+    expect(gentleGuide.text()).toContain('figureGuide.reasonAdvisory')
+    expect(gentleGuide.text()).not.toContain('figureGuide.reasonSummary')
+    expect(gentleGuide.text()).not.toContain('figureGuide.blockedRasterExample')
+    expect(gentleGuide.text()).not.toContain('figureGuide.studentActionClosed')
+    gentleWrapper.unmount()
   })
 })
