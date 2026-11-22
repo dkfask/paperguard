@@ -146,6 +146,13 @@
         <template v-if="manualReview.checklist?.length">
           <strong>{{ t('writer.automaticCheckPendingRules') }}</strong>
           <ul><li v-for="(item, index) in manualReview.checklist" :key="`${item.id}-${index}`">{{ item.description }}</li></ul>
+          <FigureTypographyGuide
+            v-if="manualReviewHasImageTypography"
+            variant="blocked"
+            :caption-size-pt="figureCaptionSizePt"
+            :manuscript-import-enabled="manuscriptImportEnabled"
+            :strict-rule-active="true"
+          />
           <button type="button" class="small" data-test="writer-view-pending-checks" :disabled="checking || fixing" @click="openFormattingCheck">
             {{ t('writer.viewPendingChecks') }}
           </button>
@@ -312,6 +319,13 @@
             {{ t('writer.exportGate', { count: exportPreview.missing.length }) }}
             <ul><li v-for="(issue, index) in exportPreview.missing" :key="index">{{ issue }}</li></ul>
           </div>
+          <FigureTypographyGuide
+            v-if="hasImageTypographyRule && hasRasterImages && (exportPreview.counts?.images || 0) > 0"
+            variant="blocked"
+            :caption-size-pt="figureCaptionSizePt"
+            :manuscript-import-enabled="manuscriptImportEnabled"
+            :strict-rule-active="true"
+          />
           <div class="import-section-list"><div v-for="section in exportPreview.sections_preview" :key="section.key" class="import-section-item"><strong>{{ section.title }}</strong><span>{{ t('writer.blockStats', { blocks: section.blocks, characters: section.characters }) }}</span></div></div>
           <div class="form-row"><button class="primary" :disabled="!exportPreview.can_export" @click="exportDocx(false); exportPreview = null">{{ t('writer.downloadDocx') }}</button><button @click="exportPreview = null">{{ t('common.close') }}</button></div>
         </div>
@@ -370,6 +384,9 @@
                     :chapter="chapterOf(currentSection.key)"
                     :figure-offset="chapterFigureOffset(currentSection.key)"
                     :table-offset="chapterTableOffset(currentSection.key)"
+                    :figure-caption-size-pt="figureCaptionSizePt"
+                    :manuscript-import-enabled="manuscriptImportEnabled"
+                    :image-typography-restricted="hasImageTypographyRule"
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
       </div>
 
@@ -407,6 +424,9 @@
                     :chapter="chapterOf(currentSection.key)"
                     :figure-offset="chapterFigureOffset(currentSection.key)"
                     :table-offset="chapterTableOffset(currentSection.key)"
+                    :figure-caption-size-pt="figureCaptionSizePt"
+                    :manuscript-import-enabled="manuscriptImportEnabled"
+                    :image-typography-restricted="hasImageTypographyRule"
                     :ai-enabled="aiEnabled" :ai-busy="aiBusy" @ai="onBlockAi" @change="scheduleSave" />
       </div>
       </div>
@@ -552,7 +572,13 @@
               <span>{{ item.description }}<span class="not-checked-source"> · {{ item.source }}</span></span>
             </div>
             <template v-if="item.reason === 'image_typography_unverified'">
-              <span>{{ t('writer.imageTypographyUnavailable') }}</span>
+              <span>{{ item.enforce === 'hard' ? t('writer.imageTypographyUnavailable') : t('writer.imageTypographyAdvisory') }}</span>
+              <FigureTypographyGuide
+                variant="check"
+                :caption-size-pt="figureCaptionSizePt"
+                :manuscript-import-enabled="manuscriptImportEnabled"
+                :strict-rule-active="item.enforce === 'hard'"
+              />
               <div v-if="manuscriptImageLocations.length" class="image-location-list">
                 <span>{{ t('writer.imageLocationsScope') }}</span>
                 <button v-for="location in manuscriptImageLocations" :key="`${location.sectionKey}-${location.position}-${location.blockId}`"
@@ -802,11 +828,13 @@ import BlockList from '../components/BlockList.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ReasonDialog from '../components/ReasonDialog.vue'
 import SectionTextEditor from '../components/SectionTextEditor.vue'
+import FigureTypographyGuide from '../components/writer/FigureTypographyGuide.vue'
 import ReferencesEditor from '../components/writer/ReferencesEditor.vue'
 import { useI18n } from '../i18n'
 import { textBlocksToSectionText } from '../utils/paragraphSplitter.js'
 import { blocksToSectionDocument, legacyTextToSectionDocument, sectionDocumentText, sectionDocumentToBlocks } from '../utils/sectionDocument.js'
 import { countChapterFiguresBefore, countChapterTablesBefore, computeManuscriptImageLocations } from '../utils/figureNumbering.js'
+import { hasImageTypographyConstraint, hasUnverifiedRasterImages, isManualReviewImageBlocked, resolveFigureCaptionSizePt } from '../utils/figureGuide.js'
 import { clearConfirmedReferenceIntents, formatReference, mergeReferenceLanguageFacts, mergeReferenceNumbers, mergeReferenceYearFacts } from '../utils/references.js'
 import { affectedHeadingDescendants, findHeadingHierarchyIssues, isWritingSectionComplete, mergeWritingChecks } from '../utils/writingCompleteness.js'
 
@@ -911,6 +939,14 @@ const sectionDocument = ref({ type: 'doc', content: [{ type: 'paragraph' }] })
 const manuscriptImageLocations = computed(() =>
   computeManuscriptImageLocations(project.value?.sections, chapterMap.value),
 )
+const figureCaptionSizePt = computed(() => resolveFigureCaptionSizePt(template.value))
+const hasImageTypographyRule = computed(() =>
+  hasImageTypographyConstraint(requirementSnapshot.value, checkResult.value, manualReview.value),
+)
+const manualReviewHasImageTypography = computed(() =>
+  isManualReviewImageBlocked(manualReview.value, checkResult.value),
+)
+const hasRasterImages = computed(() => hasUnverifiedRasterImages(project.value?.sections))
 const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract', 'english_abstract', 'keywords', 'english_keywords']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
 const headingAffectedKeys = ref([])
@@ -2352,7 +2388,11 @@ async function confirmUpgrade() {
   upgradeBusy.value = true
   try {
     const result = await upgradeRequirements(projectId, { expected_snapshot_hash: upgradePreview.value.from_snapshot_hash, expected_resolution_hash: upgradePreview.value.to_resolution_hash, reason: t('writer.upgradeReasonDefault'), confirm: true })
-    project.value = result.project; upgradePreview.value = null; await runCheckNow()
+    project.value = result.project
+    if (Object.keys(result.project?.template_snapshot || {}).length) {
+      template.value = result.project.template_snapshot
+    }
+    upgradePreview.value = null; await runCheckNow()
   } catch (e) { error.value = e.message || t('writer.upgradeApplyFailed') }
   finally { upgradeBusy.value = false }
 }
@@ -2800,6 +2840,8 @@ onBeforeUnmount(() => {
 .export-check-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
 .manual-review-panel { display: grid; justify-items: start; gap: 12px; margin-bottom: 16px; padding: 16px; border: 1px solid var(--border, #d7dce4); border-radius: 8px; background: var(--surface, #fff); }
 .manual-review-panel p { margin: 0; line-height: 1.6; }
+.manual-review-panel ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.image-location-list { display: grid; gap: 6px; margin-top: 8px; }
 .writer { display: flex; gap: 24px; align-items: flex-start; }
 .sidebar {
   width: 280px; flex-shrink: 0; background: var(--card); border: 1px solid var(--border);
@@ -3129,7 +3171,7 @@ button.tiny.danger { color: var(--error); }
   padding: 28px clamp(24px, 5vw, 72px) 64px;
   background: var(--background);
 }
-.editor-pane > .error-banner, .editor-pane > .notice-banner, .editor-pane > .missing-panel { max-width: 840px; margin-left: auto; margin-right: auto; }
+.editor-pane > .error-banner, .editor-pane > .notice-banner, .editor-pane > .missing-panel, .editor-pane > .manual-review-panel { max-width: 840px; margin-left: auto; margin-right: auto; }
 .editor-head { max-width: 840px; margin: 0 auto 12px; flex-wrap: wrap; align-items: flex-start; }
 .editor-head .type-tag { flex-shrink: 0; white-space: nowrap; }
 .editor-head .hint { flex: 1 1 180px; min-width: 0; }

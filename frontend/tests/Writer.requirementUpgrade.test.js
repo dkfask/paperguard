@@ -32,6 +32,64 @@ it.each([
   const item = wrapper.find('.not-checked-item')
   expect(item.text()).toContain(message)
   expect(item.find('.assist-action').exists()).toBe(false)
+  const guide = item.find('[data-test="figure-typography-guide"]')
+  expect(guide.exists()).toBe(reason === 'image_typography_unverified')
+  if (reason === 'image_typography_unverified') {
+    expect(guide.attributes('data-guide-variant')).toBe('check')
+    expect(guide.classes()).toContain('is-strict')
+  }
+})
+
+it('treats soft image_typography_unverified rules as advisory in check, editor, and export preview', async () => {
+  api.fetchProject.mockResolvedValue({
+    id: 'p1', title: '论文', revision: 1, meta: {},
+    sections: [{
+      key: 'design', type: 'body', title: '系统设计',
+      paragraphs: [{ id: 'img-1', type: 'image', image: { url: '/media/uploads/shot.png', caption: '系统结构图' } }],
+    }],
+    requirement_snapshot: {
+      template: { version: '1' }, policy_sets: [],
+      resolved_items: [{
+        id: 'image-font', type: 'manual', enforce: 'soft',
+        params: { image_typography_constraint: 'caption_font_size_upper_bound' },
+        description: '图中文字字号',
+      }],
+    },
+    template_snapshot: {
+      id: 't1', name: '模板', styles: { figure_caption: { size_pt: 10.5 } }, meta_fields: [],
+      sections: [{ key: 'design', type: 'body', title: '系统设计' }],
+    },
+  })
+  api.fetchProjectCapabilities.mockResolvedValue({ formal_delivery_enabled: true })
+  api.fetchProjectExportJobs.mockResolvedValue([])
+  api.checkProject.mockResolvedValue({
+    summary: { total: 0, not_checked: 1 }, findings: [], waived: [],
+    not_checked: [{
+      id: 'image-font', type: 'manual', description: '图中文字字号', source: '学校规范',
+      reason: 'image_typography_unverified', enforce: 'soft',
+    }],
+  })
+  api.checkProjectTemplate.mockResolvedValue({ summary: {}, findings: [], context: { template_name: '模板' } })
+  wrapper = mount(Writer, { global: { stubs: { BaseModal: { template: '<div><slot /></div>' }, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } })
+  await flushPromises()
+  await wrapper.find('.writer-review-action').trigger('click')
+  await flushPromises()
+
+  const checkItem = wrapper.get('.not-checked-item')
+  expect(checkItem.text()).toContain('writer.imageTypographyAdvisory')
+  expect(checkItem.text()).not.toContain('writer.imageTypographyUnavailable')
+  const checkGuide = checkItem.get('[data-test="figure-typography-guide"]')
+  expect(checkGuide.attributes('data-guide-variant')).toBe('check')
+  expect(checkGuide.classes()).not.toContain('is-strict')
+  expect(checkGuide.find('.figure-guide-card.is-blocked').exists()).toBe(false)
+  expect(checkGuide.find('[data-test="figure-guide-actions"]').exists()).toBe(false)
+
+  await wrapper.findAll('.nav-row').find((row) => row.text().includes('系统设计')).trigger('click')
+  await flushPromises()
+  const inlineGuide = wrapper.get('.image-block [data-test="figure-typography-guide"]')
+  expect(inlineGuide.attributes('data-guide-variant')).toBe('inline')
+  expect(inlineGuide.classes()).not.toContain('is-strict')
+  expect(inlineGuide.find('[data-test="figure-guide-actions"]').exists()).toBe(false)
 })
 vi.mock('../src/auth', () => ({ auth: { user: { id: 'teacher', role: 'teacher', status: 'active' } }, isManager: () => true }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'p1' }, query: {} }), useRouter: () => ({ push: vi.fn() }), onBeforeRouteLeave: vi.fn() }))
