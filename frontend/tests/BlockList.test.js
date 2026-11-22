@@ -394,4 +394,29 @@ describe('BlockList image paste handling', () => {
     expect(wrapper.find('.caption-num').text()).toBe('表 3.3')
     wrapper.unmount()
   })
+
+  it('shows inline SmartArt typography guidance on raster image blocks without nagging preserved SmartArt', () => {
+    const paragraphs = [
+      { id: 'img-raster', type: 'image', image: { url: '/media/shot.png', caption: '运行截图' } },
+      { id: 'img-smartart', type: 'image', image: { caption: '架构图', smartart: { dm: '<d/>' } } },
+    ]
+    const wrapper = mount(BlockList, {
+      props: {
+        paragraphs,
+        projectId: 'p1',
+        chapter: 4,
+        figureCaptionSizePt: 10.5,
+        manuscriptImportEnabled: false,
+        imageTypographyRestricted: true,
+      },
+    })
+    const imageBlocks = wrapper.findAll('.image-block')
+    expect(imageBlocks).toHaveLength(2)
+    const rasterGuide = imageBlocks[0].find('[data-test="figure-typography-guide"]')
+    expect(rasterGuide.exists()).toBe(true)
+    expect(rasterGuide.attributes('data-guide-variant')).toBe('inline')
+    expect(rasterGuide.classes()).toContain('is-strict')
+    expect(imageBlocks[1].find('[data-test="figure-typography-guide"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
 })

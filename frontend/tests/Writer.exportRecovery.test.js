@@ -48,7 +48,45 @@ describe('Writer export recovery', () => {
     expect(modal.querySelector('.notice-banner').textContent).toContain('规范：参考文献排序尚未自动核验')
     expect(modal.querySelector('.notice-banner').textContent).toContain('封面「论文题目」未填写')
     expect(modal.querySelector('button.primary').disabled).toBe(true)
+    expect(modal.querySelector('[data-test="figure-typography-guide"]')).toBeNull()
     expect(api.createProjectExportJob).not.toHaveBeenCalled()
+  })
+
+  it('shows figure typography guidance in export preview when raster images meet an image font rule', async () => {
+    api.fetchProject.mockResolvedValue({
+      id: 'p1', title: '论文', revision: 3, meta: {},
+      sections: [{
+        key: 'design', type: 'body', title: '系统设计',
+        paragraphs: [{ id: 'img-1', type: 'image', image: { url: '/media/uploads/shot.png', caption: '系统结构图' } }],
+      }],
+      requirement_snapshot: {
+        template: { version: '1' },
+        policy_sets: [],
+        resolved_items: [{
+          id: 'image-font', type: 'manual', enforce: 'hard',
+          params: { image_typography_constraint: 'caption_font_size_upper_bound' },
+          description: '图中标注符号文字字号不大于图题的字号',
+        }],
+      },
+      template_snapshot: {
+        id: 't1', name: '模板', styles: { figure_caption: { size_pt: 10.5 } }, meta_fields: [],
+        sections: [{ key: 'design', type: 'body', title: '系统设计' }],
+      },
+    })
+    api.previewProjectExport.mockResolvedValue({
+      title: '论文', revision: 3, content_hash: 'a'.repeat(64),
+      can_export: true, missing: [],
+      counts: { sections: 1, paragraphs: 0, tables: 0, images: 1, equations: 0 }, sections_preview: [],
+    })
+    wrapper = mount(Writer, { global: { stubs: { BaseModal: true, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="writer.preview"]').trigger('click')
+    await flushPromises()
+    const modal = document.body.querySelector('.export-preview-modal')
+    expect(modal).not.toBeNull()
+    const guide = modal.querySelector('[data-test="figure-typography-guide"]')
+    expect(guide).not.toBeNull()
+    expect(guide.getAttribute('data-guide-variant')).toBe('blocked')
   })
 
   it('saves an edited legacy reference with its inline runs through Writer', async () => {

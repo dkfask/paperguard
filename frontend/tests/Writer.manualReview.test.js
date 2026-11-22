@@ -61,9 +61,34 @@ describe('Writer pending automatic output checks', () => {
     expect(panel.text()).not.toContain('旧文件')
     expect(panel.findAll('input')).toHaveLength(0)
     expect(panel.findAll('button').map(button => button.text())).toEqual(['writer.viewPendingChecks'])
+    const guide = panel.find('[data-test="figure-typography-guide"]')
+    expect(guide.exists()).toBe(true)
+    expect(guide.attributes('data-guide-variant')).toBe('blocked')
     expect(api.downloadProjectExportReviewCandidate).not.toHaveBeenCalled()
     expect(api.confirmProjectExportManualReview).not.toHaveBeenCalled()
     expect(api.downloadProjectExportJob).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('omits the figure typography guide when export blocking is unrelated to image fonts', async () => {
+    api.fetchProjectExportJobs.mockResolvedValue([
+      {
+        id: 'current',
+        project_revision: 3,
+        status: 'succeeded',
+        filename: 'paper.docx',
+        output_check_status: 'pass',
+        output_check_count: 10,
+        manual_review: {
+          status: 'required',
+          output_sha256: 'sha-current',
+          checklist: [{ id: 'office-review:1', description: '在目标版本 Word/WPS 打开成品，核对分页、目录。' }],
+        },
+      },
+    ])
+    const wrapper = open(); await flushPromises()
+    const panel = wrapper.get('[data-test="writer-manual-review"]')
+    expect(panel.text()).toContain('核对分页、目录')
+    expect(panel.find('[data-test="figure-typography-guide"]').exists()).toBe(false)
     wrapper.unmount()
   })
   it('does not offer download based on a legacy manual confirmation', async () => {

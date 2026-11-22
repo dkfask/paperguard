@@ -32,6 +32,11 @@ it.each([
   const item = wrapper.find('.not-checked-item')
   expect(item.text()).toContain(message)
   expect(item.find('.assist-action').exists()).toBe(false)
+  const guide = item.find('[data-test="figure-typography-guide"]')
+  expect(guide.exists()).toBe(reason === 'image_typography_unverified')
+  if (reason === 'image_typography_unverified') {
+    expect(guide.attributes('data-guide-variant')).toBe('check')
+  }
 })
 vi.mock('../src/auth', () => ({ auth: { user: { id: 'teacher', role: 'teacher', status: 'active' } }, isManager: () => true }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'p1' }, query: {} }), useRouter: () => ({ push: vi.fn() }), onBeforeRouteLeave: vi.fn() }))

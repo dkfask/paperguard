@@ -51,6 +51,13 @@
           <input v-model="par.image.caption" class="caption-input"
                  :placeholder="t('blockList.captionPlaceholder', { title: sectionTitle })" @input="emitChange" />
         </div>
+        <FigureTypographyGuide
+          v-if="!par.image?.smartart"
+          variant="inline"
+          :caption-size-pt="figureCaptionSizePt"
+          :manuscript-import-enabled="manuscriptImportEnabled"
+          :strict-rule-active="imageTypographyRestricted"
+        />
       </div>
 
       <!-- 表格块 -->
@@ -98,6 +105,7 @@ import { useI18n } from '../i18n'
 import { newParagraphId } from '../utils/sectionDocument'
 import { reconcileInlineRuns } from '../utils/inlineRuns'
 import { appendClipboardRun, parseClipboardContent, sliceParagraphRuns } from '../utils/clipboardContent'
+import FigureTypographyGuide from './writer/FigureTypographyGuide.vue'
 
 const { t } = useI18n()
 
@@ -110,6 +118,9 @@ const props = defineProps({
   chapter: { type: Number, default: 0 },   // 所属章号(题注自动编号用)
   figureOffset: { type: Number, default: 0 },
   tableOffset: { type: Number, default: 0 },
+  figureCaptionSizePt: { type: Number, default: null },
+  manuscriptImportEnabled: { type: Boolean, default: false },
+  imageTypographyRestricted: { type: Boolean, default: false },
   aiEnabled: { type: Boolean, default: false },
   aiBusy: { type: Object, default: null }, // { index, action } 当前 AI 处理中的块
 })
