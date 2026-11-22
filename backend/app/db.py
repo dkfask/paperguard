@@ -11,7 +11,7 @@ import json
 import os
 import sqlite3
 import uuid
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
@@ -83,6 +83,16 @@ class AiQuotaExceeded(RuntimeError):
         self.request_id = request_id
 
 
+def _configured_journal_mode() -> str | None:
+    """Return an explicitly configured SQLite journal mode (``delete`` or ``wal``)."""
+    raw = os.environ.get("PAPERGUARD_SQLITE_JOURNAL_MODE", "").strip().lower()
+    if not raw:
+        return None
+    if raw not in {"delete", "wal"}:
+        raise ValueError(f"Unsupported PAPERGUARD_SQLITE_JOURNAL_MODE: {raw!r}")
+    return raw
+
+
 class Store:
     """模板与项目的 SQLite 存储。"""
 
@@ -96,6 +106,8 @@ class Store:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout = 10000")
         conn.execute("PRAGMA foreign_keys = ON")
+        if _configured_journal_mode() == "wal":
+            conn.execute("PRAGMA synchronous = NORMAL")
         return conn
 
     def list_schema_migrations(self) -> list[dict[str, str]]:
@@ -107,7 +119,13 @@ class Store:
         return [{"version": row["version"], "applied_at": row["applied_at"]} for row in rows]
 
     def _init_schema(self) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
+            mode = _configured_journal_mode()
+            if mode is not None:
+                rows = conn.execute("PRAGMA journal_mode").fetchall()
+                current = str(rows[0][0]).lower() if rows else ""
+                if current != mode:
+                    conn.execute(f"PRAGMA journal_mode = {mode.upper()}").fetchall()
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS templates (

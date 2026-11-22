@@ -4076,3 +4076,90 @@ def test_run_archive_with_large_manifest_succeeds_in_default_rollback_journal_mo
     participant = store.get_workflow_record("participant", fixture["participant_id"])
     assert participant["state"] == "archived"
     assert participant["archive_id"] == archive["id"]
+
+
+def test_workflow_transactions_reuse_transaction_connection():
+    import ast
+    from pathlib import Path
+
+    source_path = Path(__file__).resolve().parents[1] / "app" / "api" / "workflow.py"
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    violations: list[str] = []
+    helper_calls_requiring_conn = {
+        "_verified_candidate_materials",
+        "material_requirement_state",
+        "_records_for_participant",
+    }
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.With):
+            continue
+        tx_var: str | None = None
+        for item in node.items:
+            call = item.context_expr
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "workflow_transaction"
+                and isinstance(item.optional_vars, ast.Name)
+            ):
+                tx_var = item.optional_vars.id
+                break
+        if tx_var is None:
+            continue
+
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Call):
+                continue
+            kw_conn = next((kw for kw in child.keywords if kw.arg == "conn"), None)
+            reuses_tx = (
+                kw_conn is not None
+                and isinstance(kw_conn.value, ast.Name)
+                and kw_conn.value.id == tx_var
+            )
+            if isinstance(child.func, ast.Attribute):
+                attr = child.func.attr
+                if attr == "workflow_transaction":
+                    continue
+                if isinstance(child.func.value, ast.Name) and child.func.value.id in {"store", "db"}:
+                    if not (attr.endswith("_conn") or reuses_tx):
+                        violations.append(f"L{child.lineno}: {ast.unparse(child)}")
+            elif isinstance(child.func, ast.Name) and child.func.id in helper_calls_requiring_conn:
+                if not reuses_tx:
+                    violations.append(f"L{child.lineno}: {ast.unparse(child)}")
+
+    assert violations == [], (
+        "workflow_transaction() blocks must reuse the active SQLite connection to avoid self-deadlocks:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_store_respects_configured_sqlite_journal_mode(tmp_path, monkeypatch):
+    from contextlib import closing
+
+    monkeypatch.delenv("PAPERGUARD_SQLITE_JOURNAL_MODE", raising=False)
+    default_store = Store(tmp_path / "default.db")
+    with closing(default_store._connect()) as conn:
+        assert str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() != "wal"
+
+    monkeypatch.setenv("PAPERGUARD_SQLITE_JOURNAL_MODE", "wal")
+    wal_store = Store(tmp_path / "wal.db")
+    with closing(wal_store._connect()) as conn:
+        assert str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal"
+        assert int(conn.execute("PRAGMA synchronous").fetchone()[0]) == 1
+
+    # Re-opening an already-WAL database skips redundant mode switches while open.
+    with closing(wal_store._connect()) as open_conn:
+        reopened_wal = Store(tmp_path / "wal.db")
+        assert str(open_conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal"
+        with closing(reopened_wal._connect()) as second_conn:
+            assert str(second_conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal"
+
+    monkeypatch.setenv("PAPERGUARD_SQLITE_JOURNAL_MODE", "delete")
+    delete_store = Store(tmp_path / "wal.db")
+    with closing(delete_store._connect()) as conn:
+        assert str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "delete"
+
+    monkeypatch.setenv("PAPERGUARD_SQLITE_JOURNAL_MODE", "memory")
+    with pytest.raises(ValueError, match="PAPERGUARD_SQLITE_JOURNAL_MODE"):
+        Store(tmp_path / "invalid.db")
