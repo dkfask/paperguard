@@ -67,16 +67,20 @@ export function isImageTypographyRule(item) {
   return EN_IMAGE_TYPOGRAPHY_SUBJECT_RE.test(description) && EN_IMAGE_TYPOGRAPHY_SIZE_RE.test(description)
 }
 
+export function isHardImageTypographyRule(item) {
+  return isImageTypographyRule(item) && item?.enforce === 'hard'
+}
+
 export function hasImageTypographyConstraint(requirementSnapshot, checkResult = null, manualReview = null) {
-  if ((checkResult?.not_checked || []).some(isImageTypographyRule)) return true
-  if ((manualReview?.checklist || []).some(isImageTypographyRule)) return true
-  return (requirementSnapshot?.resolved_items || []).some(isImageTypographyRule)
+  if ((checkResult?.not_checked || []).some(isHardImageTypographyRule)) return true
+  if (manualReview?.status === 'required' && (manualReview.checklist || []).some(isImageTypographyRule)) return true
+  return (requirementSnapshot?.resolved_items || []).some(isHardImageTypographyRule)
 }
 
 export function isManualReviewImageBlocked(manualReview, checkResult = null) {
   if (manualReview?.status !== 'required') return false
   if ((manualReview.checklist || []).some(isImageTypographyRule)) return true
-  return (checkResult?.not_checked || []).some((item) => item?.reason === IMAGE_TYPOGRAPHY_REASON)
+  return (checkResult?.not_checked || []).some((item) => item?.reason === IMAGE_TYPOGRAPHY_REASON && item?.enforce === 'hard')
 }
 
 export function isPreservedSmartArt(block) {

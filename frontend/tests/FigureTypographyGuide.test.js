@@ -6,6 +6,7 @@ import {
   formatCaptionFontSize,
   hasImageTypographyConstraint,
   hasUnverifiedRasterImages,
+  isHardImageTypographyRule,
   isImageTypographyRule,
   isManualReviewImageBlocked,
   resolveFigureCaptionSizePt,
@@ -68,15 +69,28 @@ describe('figureGuide utilities', () => {
     expect(formatCaptionFontSize(10.5, 'en')).toBe('10.5pt')
   })
 
-  it('detects image internal typography rules and export blocking accurately', () => {
+  it('detects hard vs soft image internal typography rules and export blocking accurately', () => {
     expect(isImageTypographyRule({ reason: 'image_typography_unverified' })).toBe(true)
     expect(isImageTypographyRule({ params: { image_typography_constraint: 'caption_font_size_upper_bound' } })).toBe(true)
     expect(isImageTypographyRule({ description: '图中标注符号文字字号不大于图题的字号' })).toBe(true)
     expect(isImageTypographyRule({ description: 'Figure internal label font size must not exceed caption size' })).toBe(true)
     expect(isImageTypographyRule({ description: '在目标版本 Word/WPS 打开成品，核对分页与目录。' })).toBe(false)
 
+    expect(isHardImageTypographyRule({ enforce: 'hard', reason: 'image_typography_unverified' })).toBe(true)
+    expect(isHardImageTypographyRule({ enforce: 'soft', reason: 'image_typography_unverified' })).toBe(false)
+    expect(isHardImageTypographyRule({ params: { image_typography_constraint: 'caption_font_size_upper_bound' } })).toBe(false)
+
     expect(hasImageTypographyConstraint(
-      { resolved_items: [{ params: { image_typography_constraint: 'caption_font_size_upper_bound' } }] },
+      { resolved_items: [{ enforce: 'hard', params: { image_typography_constraint: 'caption_font_size_upper_bound' } }] },
+    )).toBe(true)
+    expect(hasImageTypographyConstraint(
+      { resolved_items: [{ enforce: 'soft', params: { image_typography_constraint: 'caption_font_size_upper_bound' } }] },
+      { not_checked: [{ reason: 'image_typography_unverified', enforce: 'soft' }] },
+      { status: 'not_required', checklist: [{ id: 'image-font', description: '图中标注符号文字字号不大于图题的字号' }] },
+    )).toBe(false)
+    expect(hasImageTypographyConstraint(
+      { resolved_items: [] },
+      { not_checked: [{ reason: 'image_typography_unverified', enforce: 'hard' }] },
     )).toBe(true)
     expect(hasImageTypographyConstraint({ resolved_items: [] })).toBe(false)
 
@@ -84,10 +98,20 @@ describe('figureGuide utilities', () => {
       status: 'required',
       checklist: [{ id: 'image-font', description: '图中标注符号文字字号不大于图题的字号' }],
     })).toBe(true)
-    expect(isManualReviewImageBlocked({
-      status: 'required',
-      checklist: [{ id: 'office-review:1', description: '在目标版本 Word/WPS 打开成品，核对分页、目录。' }],
-    })).toBe(false)
+    expect(isManualReviewImageBlocked(
+      {
+        status: 'required',
+        checklist: [{ id: 'office-review:1', description: '在目标版本 Word/WPS 打开成品，核对分页、目录。' }],
+      },
+      { not_checked: [{ reason: 'image_typography_unverified', enforce: 'soft' }] },
+    )).toBe(false)
+    expect(isManualReviewImageBlocked(
+      {
+        status: 'required',
+        checklist: [{ id: 'office-review:1', description: '在目标版本 Word/WPS 打开成品，核对分页、目录。' }],
+      },
+      { not_checked: [{ reason: 'image_typography_unverified', enforce: 'hard' }] },
+    )).toBe(true)
     expect(isManualReviewImageBlocked({
       status: 'not_required',
       checklist: [{ id: 'image-font', description: '图中标注符号文字字号不大于图题的字号' }],
@@ -187,6 +211,17 @@ describe('FigureTypographyGuide component', () => {
     expect(gentleEn.text()).not.toMatch(/\bblock(?:ed|ing)?\b/i)
     expect(gentleEn.text()).not.toMatch(/\bremove\b/i)
     gentleEn.unmount()
+
+    useI18n().setLang('zh')
+    const softCheckZh = mount(FigureTypographyGuide, {
+      props: { variant: 'check', captionSizePt: 10.5, strictRuleActive: false, defaultOpen: true },
+    })
+    expect(softCheckZh.get('summary').text()).toContain('为什么普通位图暂无法自动核验图中字号')
+    expect(softCheckZh.get('summary').text()).not.toContain('阻断')
+    expect(softCheckZh.classes()).not.toContain('is-strict')
+    expect(softCheckZh.find('.figure-guide-card.is-blocked').exists()).toBe(false)
+    expect(softCheckZh.find('[data-test="figure-guide-actions"]').exists()).toBe(false)
+    softCheckZh.unmount()
   })
 
   it('renders strict inline summary copy, safe recommended sizes, and English blocked locale', () => {

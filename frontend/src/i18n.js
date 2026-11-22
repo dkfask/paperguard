@@ -875,10 +875,12 @@ Object.assign(translations.en, {
 })
 
 Object.assign(translations.zh, {
+  'writer.imageTypographyAdvisory': '下列图片为普通位图截图，系统无法自动读取图内标注字号。当前要求为建议项，不阻断导出；仍建议在插图源文件中确认图内标注字号不大于图题（如五号 10.5pt），并优先使用原生 Word SmartArt。',
   'figureGuide.expandLabel': '作图示例与指引',
   'figureGuide.summaryInline': '插图建议：图中标注字号建议不大于图题（如 {size}），优先准备原生 Word SmartArt 或规范矢量源文件，避免模糊截图。',
   'figureGuide.summaryInlineStrict': '注意：当前规范要求图内标注字号不大于图题（{size}）；直接上传/粘贴的普通 PNG/JPG 位图无法自动读取图内字号，将在导出交付时阻断下载。',
   'figureGuide.summaryCheck': '为什么普通位图会触发未核验并阻断导出？展开查看原生 SmartArt 规范作图示例与处理步骤。',
+  'figureGuide.summaryCheckAdvisory': '为什么普通位图暂无法自动核验图中字号？展开查看原生 SmartArt 规范作图示例与排版建议。',
   'figureGuide.summaryBlocked': '普通位图截图暂无法通过图内字号（≤ {size}）自动核验。展开查看原生 SmartArt 作图示例与当前处理指引。',
   'figureGuide.reasonAdvisory': '当前项目未启用图内字号硬性核验规则，普通插图仍可正常保存与导出。为保证排版清晰与跨模板兼容，建议优先使用可编辑的原生 Word SmartArt 或矢量源文件，并控制图内标注字号不大于图题（{size}）。',
   'figureGuide.reasonSummary': '普通 PNG/JPG 位图会将图中文字栅格化为像素，系统无法可靠提取图内标注字号以证明满足“图中标注符号和文字的字号不大于图题（{size}）”硬性要求，因此写作检查标记为待核验，导出返回 unverifiable 并阻断下载。',
@@ -902,10 +904,12 @@ Object.assign(translations.zh, {
 })
 
 Object.assign(translations.en, {
+  'writer.imageTypographyAdvisory': 'These images are raster screenshots without machine-readable label font sizes. This advisory check does not block export; we still recommend verifying in your source file that internal labels do not exceed the caption size (e.g., 10.5pt) or preferring native Word SmartArt.',
   'figureGuide.expandLabel': 'Diagram guide & examples',
   'figureGuide.summaryInline': 'Figure tip: keep in-figure labels at or below caption size (e.g., {size}), and prefer native Word SmartArt or editable vector sources over blurry screenshots.',
   'figureGuide.summaryInlineStrict': 'Notice: this standard requires in-figure labels ≤ caption size ({size}). Plain PNG/JPG bitmaps uploaded or pasted here cannot have label sizes verified and will block formal export download.',
   'figureGuide.summaryCheck': 'Why do plain bitmaps stay unverified and block export? Expand for native SmartArt examples and next steps.',
+  'figureGuide.summaryCheckAdvisory': 'Why can plain bitmaps not have label sizes auto-verified? Expand for native SmartArt examples and layout tips.',
   'figureGuide.summaryBlocked': 'Plain raster screenshots cannot pass automatic in-figure font size verification (≤ {size}). Expand for native SmartArt examples and handling steps.',
   'figureGuide.reasonAdvisory': 'This project does not enforce an in-figure typography gate, so regular images can still be saved and exported. For crisp layout and future template compatibility, prefer native Word SmartArt or editable vector sources with internal labels no larger than the caption ({size}).',
   'figureGuide.reasonSummary': 'Plain PNG/JPG bitmaps flatten text into pixels, so the checker cannot reliably read internal label font sizes to prove compliance with the hard rule (in-figure labels ≤ caption size {size}). Writing checks mark them unverified and export returns unverifiable while blocking download.',

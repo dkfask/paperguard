@@ -572,12 +572,12 @@
               <span>{{ item.description }}<span class="not-checked-source"> · {{ item.source }}</span></span>
             </div>
             <template v-if="item.reason === 'image_typography_unverified'">
-              <span>{{ t('writer.imageTypographyUnavailable') }}</span>
+              <span>{{ item.enforce === 'hard' ? t('writer.imageTypographyUnavailable') : t('writer.imageTypographyAdvisory') }}</span>
               <FigureTypographyGuide
                 variant="check"
                 :caption-size-pt="figureCaptionSizePt"
                 :manuscript-import-enabled="manuscriptImportEnabled"
-                :strict-rule-active="true"
+                :strict-rule-active="item.enforce === 'hard'"
               />
               <div v-if="manuscriptImageLocations.length" class="image-location-list">
                 <span>{{ t('writer.imageLocationsScope') }}</span>

@@ -96,7 +96,7 @@ const i18n = useI18n()
 const t = i18n.t
 const currentLocale = computed(() => i18n.lang?.value || 'zh')
 const isStrictContext = computed(() => (
-  props.strictRuleActive || props.variant === 'check' || props.variant === 'blocked'
+  props.strictRuleActive || props.variant === 'blocked'
 ))
 
 const captionSizeLabel = computed(() => formatCaptionFontSize(props.captionSizePt, currentLocale.value))
@@ -122,7 +122,9 @@ const summaryText = computed(() => {
     return t('figureGuide.summaryBlocked', { size: captionSizeLabel.value })
   }
   if (props.variant === 'check') {
-    return t('figureGuide.summaryCheck', { size: captionSizeLabel.value })
+    return isStrictContext.value
+      ? t('figureGuide.summaryCheck', { size: captionSizeLabel.value })
+      : t('figureGuide.summaryCheckAdvisory', { size: captionSizeLabel.value })
   }
   if (isStrictContext.value) {
     return t('figureGuide.summaryInlineStrict', { size: captionSizeLabel.value })

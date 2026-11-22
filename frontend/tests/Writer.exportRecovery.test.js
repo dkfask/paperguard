@@ -97,6 +97,41 @@ describe('Writer export recovery', () => {
     expect(guide.textContent).not.toContain('12pt')
   })
 
+  it('omits export-blocking figure guidance in export preview when the image rule is only soft-enforced', async () => {
+    api.fetchProject.mockResolvedValue({
+      id: 'p1', title: '论文', revision: 3, meta: {},
+      sections: [{
+        key: 'design', type: 'body', title: '系统设计',
+        paragraphs: [{ id: 'img-1', type: 'image', image: { url: '/media/uploads/shot.png', caption: '系统结构图' } }],
+      }],
+      requirement_snapshot: {
+        template: { version: '1' },
+        policy_sets: [],
+        resolved_items: [{
+          id: 'image-font', type: 'manual', enforce: 'soft',
+          params: { image_typography_constraint: 'caption_font_size_upper_bound' },
+          description: '图中标注符号文字字号不大于图题的字号',
+        }],
+      },
+      template_snapshot: {
+        id: 't1', name: '模板', styles: { figure_caption: { size_pt: 10.5 } }, meta_fields: [],
+        sections: [{ key: 'design', type: 'body', title: '系统设计' }],
+      },
+    })
+    api.previewProjectExport.mockResolvedValue({
+      title: '论文', revision: 3, content_hash: 'a'.repeat(64),
+      can_export: true, missing: [],
+      counts: { sections: 1, paragraphs: 0, tables: 0, images: 1, equations: 0 }, sections_preview: [],
+    })
+    wrapper = mount(Writer, { global: { stubs: { BaseModal: true, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } })
+    await flushPromises()
+    await wrapper.get('button[aria-label="writer.preview"]').trigger('click')
+    await flushPromises()
+    const modal = document.body.querySelector('.export-preview-modal')
+    expect(modal).not.toBeNull()
+    expect(modal.querySelector('[data-test="figure-typography-guide"]')).toBeNull()
+  })
+
   it('saves an edited legacy reference with its inline runs through Writer', async () => {
     const paragraph = { id: 'ref', type: 'paragraph', text: '作者. 学报[J]', inline_runs: [
       { text: '作者. ' }, { text: '学报', italic: true }, { text: '[J]' },
