@@ -250,6 +250,11 @@ _spawn_used = 0
 # **只在真正决定要 spawn 时才记**——工具不存在、预算耗尽都不算，
 # 因为那两种情况压根没起进程，重复它们也无所谓。
 _spawn_log: list[tuple[str, tuple[str, ...]]] = []
+# 自检期内对真实工具目录的结果缓存：self_test() 的 16 次 run_real() 只变异 /tmp 副本，
+# 被 DC-1 启动的真实仓库门禁不读取该副本；缓存子进程输出可消除反复全量 spawn 导致的 300s 超时，
+# 同时保持 _spawn_log 与 _spawn_used 的真实记录，不削弱 INC-117 / INC-122 断言。
+_tool_cache_dir: pathlib.Path | None = None
+_tool_cache: dict[tuple[str, tuple[str, ...]], tuple[int | None, str]] = {}
 
 
 def run_tool(tools_dir: pathlib.Path, name: str,
@@ -282,15 +287,25 @@ def run_tool(tools_dir: pathlib.Path, name: str,
     # 与 `ran` 的键类型严格一致——**同一个 `flags` 无论以什么形态传进来，
     # 在日志和缓存里都必然是同一个键**，两处不会再分叉。
     _spawn_log.append((name, tuple(flags)))
+    _spawn_used += 1
+    cache_enabled = (
+        _tool_cache_dir is not None
+        and tools_dir.resolve() == _tool_cache_dir
+    )
+    cache_key = (name, tuple(flags))
+    if cache_enabled and cache_key in _tool_cache:
+        return _tool_cache[cache_key]
     env = dict(os.environ)
     env[DEPTH_VAR] = str(int(os.environ.get(DEPTH_VAR, "0")) + 1)
-    _spawn_used += 1
     try:
         r = subprocess.run([sys.executable, str(p)] + flags,
                            capture_output=True, text=True, timeout=300, env=env)
     except (subprocess.TimeoutExpired, OSError) as exc:
         return None, str(exc)
-    return r.returncode, (r.stdout or "") + (r.stderr or "")
+    result = (r.returncode, (r.stdout or "") + (r.stderr or ""))
+    if cache_enabled:
+        _tool_cache[cache_key] = result
+    return result
 
 
 # 自检输出里的 `N/M` 计数行。必须锚在「自检」/「阳性对照」这类词上，
@@ -1490,6 +1505,8 @@ def self_test() -> int:
     #   （INC-121 的形态：夹具必须真的被走到）。
     #   指纹 = (设计文档副本内容, 简报副本内容, 简报路径名) 的哈希。
     _memo: dict[str, tuple[int, str]] = {}
+    _real_tools_dir = (root / "docs/tenancy/tools").resolve()
+    _tool_cache.clear()
 
     def run_real(capture: bool = False, brief_override=None, use_memo: bool = True):
         """在**本进程内**跑一次完整核对。
@@ -1543,8 +1560,11 @@ def self_test() -> int:
         if use_memo and _fp in _memo:
             _rc, _out = _memo[_fp]
             return (_rc, _out) if capture else _rc
+        global _tool_cache_dir
         saved_depth = os.environ.get(DEPTH_VAR, "0")
+        saved_cache_dir = _tool_cache_dir
         os.environ[DEPTH_VAR] = str(int(saved_depth) + 1)
+        _tool_cache_dir = _real_tools_dir
         import contextlib
         import io
         buf = io.StringIO()
@@ -1554,6 +1574,7 @@ def self_test() -> int:
         finally:
             sys.argv = argv
             os.environ[DEPTH_VAR] = saved_depth
+            _tool_cache_dir = saved_cache_dir
         # ★ INC-120：`capture=True` 时**连人读输出一起回传**。
         #   DC-12 的用例必须能证明「报红的是 DC-12、不是别人」——
         #   而 `findings` 只在打印时出现，不回传就等于无法归因。
@@ -1998,6 +2019,7 @@ def self_test() -> int:
                 "★ INC-122 反向对照：没有结果时必须照常实跑（非恒真）",
                 _miss_spawns, f"未给结果却没被 spawn：{_probe_name} ⇒ 上面几条是恒真断言"))
 
+    _tool_cache.clear()
     shutil.rmtree(tmp, ignore_errors=True)
     print()
     ok = 0
