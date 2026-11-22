@@ -557,7 +557,7 @@
                 <span>{{ t('writer.imageLocationsScope') }}</span>
                 <button v-for="location in manuscriptImageLocations" :key="`${location.sectionKey}-${location.position}-${location.blockId}`"
                         type="button" class="check-action-btn" data-test="image-location" @click="locateManuscriptImage(location)">
-                  {{ location.sectionTitle }} · {{ location.caption || t('writer.imageWithoutCaption') }} · {{ t('writer.imageBlockPosition', { count: location.position }) }}
+                  {{ location.figureLabel }} · {{ location.sectionTitle }} · {{ location.caption || t('writer.imageWithoutCaption') }} · {{ t('writer.imageBlockPosition', { count: location.position }) }}
                 </button>
               </div>
             </template>
@@ -806,7 +806,7 @@ import ReferencesEditor from '../components/writer/ReferencesEditor.vue'
 import { useI18n } from '../i18n'
 import { textBlocksToSectionText } from '../utils/paragraphSplitter.js'
 import { blocksToSectionDocument, legacyTextToSectionDocument, sectionDocumentText, sectionDocumentToBlocks } from '../utils/sectionDocument.js'
-import { countChapterFiguresBefore, countChapterTablesBefore } from '../utils/figureNumbering.js'
+import { countChapterFiguresBefore, countChapterTablesBefore, computeManuscriptImageLocations } from '../utils/figureNumbering.js'
 import { clearConfirmedReferenceIntents, formatReference, mergeReferenceLanguageFacts, mergeReferenceNumbers, mergeReferenceYearFacts } from '../utils/references.js'
 import { affectedHeadingDescendants, findHeadingHierarchyIssues, isWritingSectionComplete, mergeWritingChecks } from '../utils/writingCompleteness.js'
 
@@ -908,11 +908,9 @@ const sectionInputMode = ref('blocks')
 const sectionText = ref('')
 const sectionTextDraft = ref(null)
 const sectionDocument = ref({ type: 'doc', content: [{ type: 'paragraph' }] })
-const manuscriptImageLocations = computed(() => (project.value?.sections || []).flatMap(section =>
-  (section.paragraphs || []).flatMap((block, index) => block.type === 'image' && block.id
-    ? [{ sectionKey: section.key, sectionTitle: section.title || section.key, blockId: block.id,
-        caption: block.image?.caption || '', position: index + 1 }]
-    : [])))
+const manuscriptImageLocations = computed(() =>
+  computeManuscriptImageLocations(project.value?.sections, chapterMap.value),
+)
 const CONTENT_TYPES = ['body', 'references', 'acknowledgement', 'appendix', 'abstract', 'english_abstract', 'keywords', 'english_keywords']
 const HEADING_TYPES = ['heading1', 'heading2', 'heading3']
 const headingAffectedKeys = ref([])
@@ -1822,15 +1820,16 @@ async function select(node) {
   } catch (e) { error.value = e.message || t('writer.saveSectionFailed') }
 }
 
-async function locateManuscriptImage(location) {
+async function locateProjectBlock(sectionKey, blockId, blockType = '') {
   if (recoveryDraft.value) {
     error.value = t('writer.imageLocationPendingDraft')
     return
   }
   try {
     await flushPendingSaves()
-    const section = project.value?.sections?.find(item => item.key === location.sectionKey)
-    const matches = (section?.paragraphs || []).filter(block => block.id === location.blockId && block.type === 'image')
+    const section = project.value?.sections?.find(item => item.key === sectionKey)
+    const matches = (section?.paragraphs || []).filter(block =>
+      block.id === blockId && (!blockType || block.type === blockType))
     if (matches.length !== 1) {
       error.value = t('writer.imageLocationMissing')
       return
@@ -1840,7 +1839,7 @@ async function locateManuscriptImage(location) {
     contextOpen.value = false
     await nextTick()
     const elements = [...(writerShell.value?.querySelectorAll('[data-review-block-id]') || [])]
-    const targets = elements.filter(element => element.getAttribute('data-review-block-id') === location.blockId)
+    const targets = elements.filter(element => element.getAttribute('data-review-block-id') === blockId)
     if (targets.length !== 1) {
       error.value = t('writer.imageLocationMissing')
       return
@@ -1852,6 +1851,10 @@ async function locateManuscriptImage(location) {
   } catch (e) {
     error.value = e.message || t('writer.saveSectionFailed')
   }
+}
+
+async function locateManuscriptImage(location) {
+  return locateProjectBlock(location.sectionKey, location.blockId, 'image')
 }
 
 function focusOutline() {
@@ -2377,7 +2380,14 @@ async function openAssist(item) {
   finally { assistBusy.value = '' }
 }
 
-function jumpTo(f) { if (f.section_key) void select({ key: f.section_key }) }
+function jumpTo(f) {
+  const sectionKey = f.location?.section_key || f.section_key
+  if (f.location?.block_id && sectionKey) {
+    void locateProjectBlock(sectionKey, f.location.block_id)
+    return
+  }
+  if (sectionKey) void select({ key: sectionKey })
+}
 function sectionTitle(key) {
   const sec = project.value?.sections.find((s) => s.key === key)
   return sec ? sec.title || key : key

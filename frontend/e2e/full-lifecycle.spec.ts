@@ -660,6 +660,8 @@ test.describe('PaperGuard browser lifecycle', () => {
         await student.locator('[data-test="writer-view-pending-checks"]').click()
         const pendingImage = student.locator('[data-test="image-location"]').first()
         await expect(pendingImage).toBeVisible()
+        await expect(pendingImage).toContainText(/图\s*\d+\.\d+/)
+        await expect(student.locator('.not-checked-item').filter({ hasText: '图中标注' })).toContainText('普通位图截图')
         await pendingImage.click()
         await expect(student.locator('.review-target .image-block')).toBeVisible()
         await checkpoint('student-export-blocked-by-image-typography', student)

@@ -149,7 +149,37 @@ def _frozen_attachment_text(policy_id: str, document: dict[str, Any]) -> str | N
         return None
 
 
-def _may_contain_images(project: WritingProject, template: PaperTemplate | None) -> bool:
+def _verified_source_profile(template: PaperTemplate | None) -> dict | None:
+    """Verify and return a source-bound template's signed profile, or None."""
+    if template is None or not template.source_docx or not template.source_execution:
+        return None
+    from io import BytesIO
+    from zipfile import BadZipFile, ZipFile
+    from lxml import etree
+    from app.services.docx_output_check import source_template_bytes
+    from app.services.source_template_profile import commentless_source, digest, package_manifest, verify_profile
+    from app.services.source_template_safety import audit_source_package
+    from app.services.template_source import resolve_template_source
+
+    try:
+        source = source_template_bytes(resolve_template_source(template.source_docx))
+        profile = verify_profile(template, source)
+        audit_source_package(source)
+        prepared = commentless_source(source)
+        if digest(package_manifest(prepared)) != profile.get("prepared_source_manifest_sha256"):
+            return None
+        with ZipFile(BytesIO(prepared)) as archive:
+            if "word/document.xml" not in archive.namelist():
+                return None
+            etree.fromstring(archive.read("word/document.xml"))
+        return profile
+    except (OSError, ValueError, TypeError, KeyError, IndexError, RuntimeError,
+            BadZipFile, etree.XMLSyntaxError, etree.XPathError):
+        return None
+
+
+def _may_contain_images(project: WritingProject, template: PaperTemplate | None, *,
+                        verified_profile: dict | None = None) -> bool:
     # The image-typography rule applies to student-owned visual objects.
     # Fixed graphics retained from a source template (for example a cover
     # emblem or an instructional sample) are controlled by the template
@@ -169,35 +199,74 @@ def _may_contain_images(project: WritingProject, template: PaperTemplate | None)
         return False
     if not template.source_docx or not template.source_execution:
         return True
-
-    # A source-bound template still needs a valid signed profile before its
-    # fixed graphics can be excluded from the student-owned object scope.
     # Validation failure remains conservative and blocks delivery.
-    from io import BytesIO
-    from zipfile import BadZipFile, ZipFile
-    from lxml import etree
-    from app.services.docx_output_check import source_template_bytes
-    from app.services.source_template_profile import commentless_source, digest, package_manifest, verify_profile
-    from app.services.source_template_safety import audit_source_package
-    from app.services.template_source import resolve_template_source
+    return verified_profile is None
 
-    try:
-        source = source_template_bytes(resolve_template_source(template.source_docx))
-        profile = verify_profile(template, source)
-        audit_source_package(source)
-        prepared = commentless_source(source)
-        if digest(package_manifest(prepared)) != profile.get("prepared_source_manifest_sha256"):
-            return True
-        # Opening the package is part of the evidence check; source visuals
-        # are intentionally not treated as student content here.
-        with ZipFile(BytesIO(prepared)) as archive:
-            if "word/document.xml" not in archive.namelist():
-                return True
-            etree.fromstring(archive.read("word/document.xml"))
-        return False
-    except (OSError, ValueError, TypeError, KeyError, IndexError, RuntimeError,
-            BadZipFile, etree.XMLSyntaxError, etree.XPathError):
-        return True
+
+def _check_smartart_typography(
+    project: WritingProject,
+    profile: dict | None,
+    descriptor: dict[str, Any],
+) -> tuple[list[dict], bool]:
+    """Check embedded Word SmartArt label sizes against frozen caption rules."""
+    smartart_blocks: list[tuple[str, str, Any]] = []
+    chapter = 0
+    figure = 0
+    for section in project.sections:
+        if section.type == "heading1":
+            chapter += 1
+            figure = 0
+        for block in section.paragraphs:
+            if block.type.value == "image" and block.image is not None:
+                figure += 1
+                if getattr(block.image, "smartart", None):
+                    label = f"图 {chapter}.{figure}" if chapter > 0 else f"第 {figure} 图"
+                    smartart_blocks.append((section.key, label, block))
+    if not smartart_blocks:
+        return [], False
+    if not profile:
+        return [], True
+    caption_size = (profile.get("object_properties") or {}).get("figure_caption", {}).get("font.size") or {}
+    caption_limit = (
+        float(caption_size["value"])
+        if caption_size.get("unit") == "pt" and isinstance(caption_size.get("value"), (int, float))
+        and caption_size["value"] > 0
+        else 0.0
+    )
+    if caption_limit <= 0:
+        return [], True
+
+    from app.services.docx_smartart import label_size
+
+    findings: list[dict] = []
+    has_unverified = False
+    for section_key, fig_label, block in smartart_blocks:
+        try:
+            actual_size = label_size(block.image.smartart)
+        except ValueError:
+            has_unverified = True
+            continue
+        if actual_size > caption_limit * 100:
+            actual_pt = round(actual_size / 100, 2)
+            expected_pt = round(caption_limit, 2)
+            caption_text = re.sub(r"^图\s*\d+(?:[.\-]\d+)*\s*", "", str(block.image.caption or "")).strip()
+            target_label = f"{fig_label}（{caption_text}）" if caption_text else fig_label
+            finding = _finding(
+                descriptor,
+                f"{target_label}中标注文字字号（{actual_pt:g}pt）大于图题字号（{expected_pt:g}pt），"
+                f"违反“{descriptor['description']}”",
+                f"{actual_pt:g}pt",
+                f"<= {expected_pt:g}pt",
+                section_key,
+            )
+            finding["location"] = {
+                "paragraph_index": None,
+                "text_snippet": caption_text or fig_label,
+                "section_key": section_key,
+                "block_id": block.id,
+            }
+            findings.append(finding)
+    return findings, has_unverified
 
 
 def template_source_notes(snapshot: dict, template: PaperTemplate | None) -> list[dict]:
@@ -483,7 +552,8 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
 
     resolved_items = list(snapshot.get("resolved_items", []))
     resolved_descriptions = {(item.get("id"), item.get("description")) for item in resolved_items if item.get("id")}
-    may_contain_images = _may_contain_images(project, template)
+    verified_profile = _verified_source_profile(template)
+    may_contain_images = _may_contain_images(project, template, verified_profile=verified_profile)
     # Old snapshots could merge two rules and retain only one description.
     # Restore visibility of a lost format requirement from the
     # frozen sources; a checker for the other rule cannot establish it passed.
@@ -606,12 +676,16 @@ def check_requirements(project: WritingProject, snapshot: dict | None,
         }
         image_typography = is_image_internal_typography(item)
         if (item_type == "manual" and not checker
-                and (item.get("params") or {}).get("image_typography_constraint") == "caption_font_size_upper_bound"
-                and not may_contain_images):
-            # A supported SmartArt in a signed master is checked against its
-            # emitted caption by the DOCX inspector. Raster evidence and opaque
-            # imported tables must continue through the pending-check branch.
-            continue
+                and (item.get("params") or {}).get("image_typography_constraint") == "caption_font_size_upper_bound"):
+            smartart_findings, smartart_unverified = _check_smartart_typography(
+                project, verified_profile, descriptor,
+            )
+            findings.extend(smartart_findings)
+            if not may_contain_images and not smartart_unverified:
+                # Supported SmartArt blocks were evaluated automatically against
+                # the frozen caption font size (and re-verified at DOCX export);
+                # raster images and opaque tables continue to pending review.
+                continue
         classified_format = item_type != "auto" and item.get("id") in format_item_ids and not image_typography
         if classified_format and _verified_simple_body_font(item, snapshot, template):
             continue

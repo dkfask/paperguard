@@ -301,7 +301,7 @@ def _verified_candidate_materials(store: Store, candidate: dict, *, check_live: 
     if check_live and required:
         from app.api.process_records import material_requirement_state
         for item in body["requirements"]:
-            state = material_requirement_state(store, candidate["participant_id"], item["requirement"], candidate.get("materials"))
+            state = material_requirement_state(store, candidate["participant_id"], item["requirement"], candidate.get("materials"), conn=conn)
             if not state["passed"] or sorted(set(state["record_ids"])) != item["record_ids"]:
                 raise ValueError("submission material requirements changed")
     return records, files
@@ -842,7 +842,7 @@ def _gate(candidate: dict) -> list[dict]:
     return blocked
 
 
-def _stale_candidate_waiver_ids(store: Store, candidate: dict) -> list[str]:
+def _stale_candidate_waiver_ids(store: Store, candidate: dict, *, conn=None) -> list[str]:
     """审核通过前重新确认候选版本使用的豁免仍在有效期内。"""
     waiver_ids = {
         (finding.get("waiver") or {}).get("id")
@@ -851,7 +851,10 @@ def _stale_candidate_waiver_ids(store: Store, candidate: dict) -> list[str]:
     waiver_ids.discard(None)
     if not waiver_ids:
         return []
-    project = store.get_project(candidate.get("project_id", ""))
+    project = (
+        store.get_project_conn(conn, candidate.get("project_id", ""))
+        if conn is not None else store.get_project(candidate.get("project_id", ""))
+    )
     if project is None:
         return sorted(waiver_ids)
     from app.services.project_check import _waiver_is_active
@@ -1105,7 +1108,7 @@ def upsert_member(cohort_id: str, req: MemberUpsert, store: Store = Depends(get_
     effective_from = req.effective_from or _now()
     _parse_time(effective_from, "生效时间", required=True)
     with store.workflow_transaction() as conn:
-        cohort = _must(store, "cohort", cohort_id, "批次")
+        cohort = _must(store, "cohort", cohort_id, "批次", conn=conn)
         if cohort.get("status") == "closed":
             raise HTTPException(status_code=409, detail="批次已关闭，不能新增或变更指导关系")
         records = _supervisions(store, cohort_id, student_id, conn=conn)
@@ -1128,7 +1131,7 @@ def upsert_member(cohort_id: str, req: MemberUpsert, store: Store = Depends(get_
         _record(store, "supervision", relation, conn=conn)
         _record(store, "cohort", cohort, expected_revision=cohort.get("revision", 0), conn=conn)
         # 未完成审核的任务跟随当前有效指导关系，历史审核者不变。
-        for participant in store.list_workflow_records("participant", limit=None):
+        for participant in store.list_workflow_records_conn(conn, "participant", limit=None):
             if participant.get("cohort_id") == cohort_id and participant.get("student_id") == student_id \
                     and participant.get("state") not in {"approved", "archived"}:
                 previous_teacher_id = participant.get("teacher_id", "")
@@ -1899,7 +1902,7 @@ def reopen_participant(participant_id: str, req: ParticipantLifecycleRequest, st
         participant["revision_deadline_at"] = revision_deadline.isoformat(timespec="seconds") if revision_deadline else ""
         _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
         if previous_archive_id:
-            archive = store.get_workflow_record("archive", previous_archive_id)
+            archive = store.get_workflow_record_conn(conn, "archive", previous_archive_id)
             if archive:
                 archive["superseded_at"] = _now()
                 archive["superseded_by_reopen"] = True
@@ -2093,13 +2096,13 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
     if deadline and datetime.now(timezone.utc) > deadline:
         raise _conflict("DEADLINE_PASSED", "已超过服务器确认的有效截止时间")
     with store.workflow_transaction() as conn:
-        current_idempotency = store.get_workflow_idempotency(user["id"], "submission.confirm", req.idempotency_key)
+        current_idempotency = store.get_workflow_idempotency_conn(conn, user["id"], "submission.confirm", req.idempotency_key)
         if current_idempotency:
             if current_idempotency["request_hash"] != request_hash:
                 raise HTTPException(status_code=409, detail="幂等键已被其他提交请求使用")
             return current_idempotency["response"]
-        current_candidate = store.get_workflow_record("candidate", candidate["id"])
-        current_participant = store.get_workflow_record("participant", participant["id"])
+        current_candidate = store.get_workflow_record_conn(conn, "candidate", candidate["id"])
+        current_participant = store.get_workflow_record_conn(conn, "participant", participant["id"])
         if current_candidate.get("status") != "ready" or _gate(current_candidate) or current_participant.get("revision") != participant.get("revision"):
             raise _conflict("REVISION_CONFLICT", "候选版本或阶段任务已变化，请重新预检")
         current_cohort = _must(store, "cohort", current_participant["cohort_id"], "批次", conn=conn)
@@ -2107,7 +2110,7 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
             raise _conflict("COHORT_CLOSED", "批次已关闭，不能创建新的提交")
         current_submission_id = current_participant.get("current_submission_id", "")
         if current_submission_id:
-            current_submission = store.get_workflow_record("submission", current_submission_id)
+            current_submission = store.get_workflow_record_conn(conn, "submission", current_submission_id)
             if current_submission and current_submission.get("state") == "submitted":
                 raise _conflict("SUBMISSION_ALREADY_PENDING", "当前已有待审核提交", submission_id=current_submission.get("id"))
         if current_participant.get("state") not in {"in_progress", "needs_revision"}:
@@ -2123,7 +2126,7 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
         if open_comments:
             raise _conflict("COMMENT_RESPONSE_REQUIRED", "请先回应待处理的历史批注",
                             comment_ids=[item["id"] for item in open_comments])
-        current_project = store.get_project(current_participant.get("project_id", ""))
+        current_project = store.get_project_conn(conn, current_participant.get("project_id", ""))
         if current_project is None or current_project.revision != candidate.get("source_revision") or project_content_hash(current_project) != candidate.get("content_hash"):
             raise _conflict("CHECK_STALE", "论文正文或写作依据已变化，请重新预检")
         try:
@@ -2131,7 +2134,7 @@ def confirm_submission(req: SubmissionConfirm, store: Store = Depends(get_store)
         except Exception as exc:
             raise _conflict("MATERIALS_CHANGED", "必交材料已变化或不可用，请重新预检") from exc
         try:
-            version = _must(store, "project_version", current_candidate["project_version_id"], "论文版本")
+            version = _must(store, "project_version", current_candidate["project_version_id"], "论文版本", conn=conn)
             _verified_candidate_artifact(store, current_candidate, version)
         except Exception as exc:
             raise _conflict("SUBMISSION_ARTIFACT_INVALID", "提交成品缺失或检查结果已失效，请重新预检") from exc
@@ -2406,7 +2409,7 @@ def withdraw_submission(submission_id: str, store: Store = Depends(get_store), u
         participant["last_submission_id"] = submission_id or participant.get("last_submission_id", "")
         participant["current_submission_id"] = ""
         _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
-        cohort = _must(store, "cohort", participant["cohort_id"], "批次")
+        cohort = _must(store, "cohort", participant["cohort_id"], "批次", conn=conn)
         supervision = _current_supervision(store, participant["cohort_id"], participant["student_id"], conn=conn)
         _notify(store, conn, supervision.get("teacher_id", "") if supervision else "", "submission.withdrawn",
                 "submission", submission_id, "学生已撤回待审核的论文提交")
@@ -2458,17 +2461,17 @@ def decide_submission(submission_id: str, req: ReviewDecision, store: Store = De
                         + _prior_unresolved_comments(store, submission, conn=conn))
             open_blocking = [item["id"] for item in feedback
                              if item.get("severity") == "blocking" and item.get("status") != "resolved"]
-            candidate = store.get_workflow_record("candidate", submission.get("candidate_id", ""))
-            stale_waivers = _stale_candidate_waiver_ids(store, candidate) if candidate else []
+            candidate = store.get_workflow_record_conn(conn, "candidate", submission.get("candidate_id", ""))
+            stale_waivers = _stale_candidate_waiver_ids(store, candidate, conn=conn) if candidate else []
             if incomplete or open_blocking or not candidate or _gate(candidate) or stale_waivers:
                 raise HTTPException(status_code=409, detail={"message": "通过门禁未满足", "manual_checks": incomplete, "open_blocking_comments": open_blocking, "gates": candidate.get("gates", []) if candidate else [], "recheck_required": bool(stale_waivers), "stale_waiver_ids": stale_waivers})
             try:
-                version = _must(store, "project_version", submission["project_version_id"], "论文版本")
+                version = _must(store, "project_version", submission["project_version_id"], "论文版本", conn=conn)
                 _verified_candidate_artifact(store, candidate, version)
             except Exception as exc:
                 raise _conflict("SUBMISSION_ARTIFACT_INVALID", "提交成品缺失或检查结果已失效，无法通过审核") from exc
             try:
-                _verified_candidate_materials(store, candidate)
+                _verified_candidate_materials(store, candidate, conn=conn)
             except Exception as exc:
                 raise _conflict("SUBMISSION_MATERIALS_UNAVAILABLE", "提交材料不可用，无法通过审核") from exc
         review = {
@@ -2480,6 +2483,7 @@ def decide_submission(submission_id: str, req: ReviewDecision, store: Store = De
         _transition(submission, "submission", req.decision)
         submission["review_id"] = review["id"]
         _record(store, "submission", submission, expected_revision=submission.get("revision", 0), conn=conn)
+        cohort = _must(store, "cohort", participant["cohort_id"], "批次", conn=conn)
         if req.decision == "returned":
             _transition(participant, "participant", "needs_revision")
             participant["revision_deadline_at"] = revision_deadline
@@ -2487,13 +2491,11 @@ def decide_submission(submission_id: str, req: ReviewDecision, store: Store = De
             _transition(participant, "participant", "pending_archive" if cohort_config.get("is_final") else "approved")
             participant["revision_deadline_at"] = ""
             if cohort_config.get("is_final"):
-                cohort = _must(store, "cohort", participant["cohort_id"], "批次")
                 archive = _queue_archive(store, conn, submission, participant, user["id"], cohort["organization_id"])
                 participant["archive_id"] = archive["id"]
         _record(store, "participant", participant, expected_revision=participant.get("revision", 0), conn=conn)
         title = "论文需要修改" if req.decision == "returned" else "论文审核已通过"
         _notify(store, conn, participant["student_id"], f"submission.{req.decision}", "submission", submission_id, title)
-        cohort = _must(store, "cohort", participant["cohort_id"], "批次")
         _audit(store, conn, actor_id=user["id"], action=f"submission.{req.decision}", resource_type="submission", resource_id=submission_id, organization_id=cohort["organization_id"], reason=req.reason)
     return {"review": review, "submission": submission, "participant": participant,
             "archive": _archive_view(archive, store) if archive else None}
@@ -2544,7 +2546,7 @@ def create_comment(submission_id: str, req: CommentCreate, store: Store = Depend
             raise _conflict("COMMENT_NOT_PENDING", "只有待审核提交可以新增批注")
         _record(store, "comment", comment, conn=conn)
         _notify(store, conn, participant["student_id"], "comment.created", "submission", submission_id, "教师新增了论文批注")
-        cohort = _must(store, "cohort", participant["cohort_id"], "批次")
+        cohort = _must(store, "cohort", participant["cohort_id"], "批次", conn=conn)
         _audit(store, conn, actor_id=user["id"], action="comment.create", resource_type="submission", resource_id=submission_id, organization_id=cohort["organization_id"])
     return comment
 
@@ -2570,7 +2572,7 @@ def respond_comment(comment_id: str, req: CommentResponse, store: Store = Depend
         teacher_id = supervision.get("teacher_id", "") if supervision else ""
         _notify(store, conn, teacher_id, "comment.responded", "submission", submission["id"], "学生已回复论文批注",
                 dedupe_key=f"comment.responded:{teacher_id}:{response_id}")
-        cohort = _must(store, "cohort", participant["cohort_id"], "批次")
+        cohort = _must(store, "cohort", participant["cohort_id"], "批次", conn=conn)
         _audit(store, conn, actor_id=user["id"], action="comment.respond", resource_type="comment", resource_id=comment_id, organization_id=cohort["organization_id"])
     return comment
 
@@ -2601,7 +2603,7 @@ def update_comment_status(comment_id: str, req: CommentStatusRequest, store: Sto
         current_participant = _must(store, "participant", submission["participant_id"], "阶段任务", conn=conn)
         _ensure_current_teacher_for_write(store, user, current_participant, conn=conn)
         _record(store, "comment", comment, expected_revision=comment.get("revision", 0), conn=conn)
-        cohort = _must(store, "cohort", participant["cohort_id"], "批次")
+        cohort = _must(store, "cohort", participant["cohort_id"], "批次", conn=conn)
         _audit(store, conn, actor_id=user["id"], action=f"comment.{req.status}", resource_type="comment", resource_id=comment_id, organization_id=cohort["organization_id"])
     return comment
 
@@ -2617,7 +2619,7 @@ def _queue_archive(store: Store, conn, submission: dict, participant: dict,
     ).fetchone()
     if existing:
         return json.loads(existing["data"])
-    version = _must(store, "project_version", submission["project_version_id"], "论文版本")
+    version = _must(store, "project_version", submission["project_version_id"], "论文版本", conn=conn)
     frozen_project = WritingProject.model_validate(version["content_snapshot"])
     frozen_template = PaperTemplate.model_validate(frozen_project.template_snapshot or frozen_project.template_source_snapshot)
     source_path = resolve_template_source(frozen_template.source_docx) if frozen_template.source_docx else None
@@ -2650,7 +2652,7 @@ def create_archive(req: ArchiveCreate,
     if submission.get("state") != "approved" or not config.get("is_final"):
         raise HTTPException(status_code=409, detail="只有已通过的终稿可以归档")
     with store.workflow_transaction() as conn:
-        current = _must(store, "participant", participant["id"], "阶段任务")
+        current = _must(store, "participant", participant["id"], "阶段任务", conn=conn)
         if current.get("current_submission_id") != submission["id"] or current.get("state") not in {"pending_archive", "archived"}:
             raise HTTPException(status_code=409, detail="当前任务已变化，不能为历史提交创建归档")
         archive = _queue_archive(store, conn, submission, current, user["id"], cohort["organization_id"])
@@ -2953,8 +2955,8 @@ def _run_archive(store: Store, archive_id: str, actor_id: str = "", *, lease_tok
             archive["manifest"] = manifest
             archive["completed_at"] = _now()
             _record(store, "archive", archive, expected_revision=archive.get("revision", 0), conn=conn)
-            participant = _must(store, "participant", archive["participant_id"], "阶段任务")
-            cohort = _must(store, "cohort", participant["cohort_id"], "批次")
+            participant = _must(store, "participant", archive["participant_id"], "阶段任务", conn=conn)
+            cohort = _must(store, "cohort", participant["cohort_id"], "批次", conn=conn)
             requires_review = review_required(output_check)
             current = (participant.get("state") == "pending_archive"
                        and participant.get("current_submission_id") == submission["id"]

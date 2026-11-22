@@ -66,6 +66,7 @@ it('opens the blocked export checks and locates the manuscript image', async () 
   await flushPromises()
   await wrapper.get('[data-test="writer-view-pending-checks"]').trigger('click'); await flushPromises()
   const location = wrapper.get('[data-test="image-location"]')
+  expect(location.text()).toContain('第 1 图')
   expect(location.text()).toContain('系统设计')
   expect(location.text()).toContain('系统结构图')
   await wrapper.findAll('.nav-row').find(row => row.text().includes('绪论')).trigger('click')
@@ -151,4 +152,46 @@ it('shows the old and new values when a requirement changes in the upgrade previ
   expect(api.upgradeRequirements).toHaveBeenCalledWith('p1', expect.objectContaining({
     expected_snapshot_hash: 'old', expected_resolution_hash: 'approved-target', confirm: true,
   }))
+})
+
+it('jumps to and highlights the exact SmartArt block when clicking its finding', async () => {
+  api.fetchProject.mockResolvedValue({
+    id: 'p1', title: '论文', revision: 1, meta: {},
+    sections: [
+      { key: 'intro', type: 'heading1', title: '第 1 章 绪论', paragraphs: [] },
+      { key: 'design', type: 'heading1', title: '第 2 章 系统设计', paragraphs: [
+        { id: 'smartart-bad', type: 'image', image: { caption: '超限示意图', smartart: { dm: '<d/>', lo: '<l/>', qs: '<q/>', cs: '<c/>', dr: '<r/>' } } },
+      ] },
+    ],
+    requirement_snapshot: { template: { version: '1' }, policy_sets: [], resolved_items: [] },
+    template_snapshot: { id: 't1', name: '模板', styles: {}, meta_fields: [], sections: [
+      { key: 'intro', type: 'heading1', title: '第 1 章 绪论' },
+      { key: 'design', type: 'heading1', title: '第 2 章 系统设计' },
+    ] },
+  })
+  api.fetchProjectCapabilities.mockResolvedValue({ formal_delivery_enabled: true })
+  api.fetchProjectExportJobs.mockResolvedValue([])
+  api.checkProject.mockResolvedValue({
+    summary: { total: 1, not_checked: 0 },
+    findings: [{
+      rule_id: 'REQ-image-font',
+      requirement_item_id: 'image-font',
+      severity: 'error',
+      enforce: 'hard',
+      message: '图 2.1（超限示意图）中标注文字字号（22pt）大于图题字号（10.5pt），违反“图中标注符号文字字号不大于图题的字号”',
+      section_key: 'design',
+      location: { section_key: 'design', block_id: 'smartart-bad' },
+      source_type: 'requirement',
+    }],
+    waived: [],
+    not_checked: [],
+  })
+  api.checkProjectTemplate.mockResolvedValue({ summary: {}, findings: [], context: { template_name: '模板' } })
+  wrapper = mount(Writer, { global: { stubs: { BaseModal: { template: '<div><slot /></div>' }, RouterLink: true, BlockEditor: true, WritingSpecificationPreview: true } } })
+  await flushPromises()
+  await wrapper.find('.writer-review-action').trigger('click'); await flushPromises()
+  const item = wrapper.get('.check-item')
+  expect(item.text()).toContain('图 2.1')
+  await item.trigger('click'); await flushPromises()
+  expect(wrapper.find('[data-review-block-id="smartart-bad"].review-target').exists()).toBe(true)
 })
