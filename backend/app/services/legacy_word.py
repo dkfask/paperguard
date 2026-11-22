@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -21,6 +22,14 @@ class PreparedDocx:
 
 
 def _find_converter() -> str | None:
+    configured = os.environ.get("PAPERGUARD_SOFFICE_PATH", "").strip()
+    if configured:
+        candidate = Path(configured)
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+        resolved = shutil.which(configured)
+        if resolved:
+            return resolved
     return shutil.which("soffice") or shutil.which("libreoffice")
 
 

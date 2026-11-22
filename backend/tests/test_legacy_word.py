@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.legacy_word import (
     LegacyWordConversionError,
+    _find_converter,
     convert_doc_bytes,
     prepare_docx,
 )
@@ -36,12 +37,26 @@ def test_legacy_word_conversion_reports_missing_runtime(monkeypatch, tmp_path: P
         convert_doc_bytes(b"legacy-word", "report.doc", tmp_path)
 
 
+def test_find_converter_uses_configured_soffice_path(monkeypatch, tmp_path: Path) -> None:
+    fake_soffice = tmp_path / "soffice"
+    fake_soffice.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_soffice.chmod(0o755)
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    monkeypatch.setenv("PAPERGUARD_SOFFICE_PATH", str(fake_soffice))
+
+    assert _find_converter() == str(fake_soffice)
+
+    monkeypatch.setenv("PAPERGUARD_SOFFICE_PATH", str(tmp_path / "missing-soffice"))
+    assert _find_converter() is None
+
+
 @pytest.mark.skipif(
-    not shutil.which("soffice") and not shutil.which("libreoffice"),
+    not _find_converter(),
     reason="LibreOffice is required for legacy .doc conversion",
 )
 def test_legacy_word_conversion_produces_parser_ready_docx(tmp_path: Path) -> None:
-    converter = shutil.which("soffice") or shutil.which("libreoffice")
+    converter = _find_converter()
+    assert converter is not None
     source = tmp_path / "source.docx"
     source.write_bytes(FIXTURE.read_bytes())
     subprocess.run(
@@ -61,11 +76,12 @@ def test_legacy_word_conversion_produces_parser_ready_docx(tmp_path: Path) -> No
 
 
 @pytest.mark.skipif(
-    not shutil.which("soffice") and not shutil.which("libreoffice"),
+    not _find_converter(),
     reason="LibreOffice is required for legacy .doc conversion",
 )
 def test_template_parse_api_accepts_a_legacy_doc(tmp_path: Path) -> None:
-    converter = shutil.which("soffice") or shutil.which("libreoffice")
+    converter = _find_converter()
+    assert converter is not None
     source = tmp_path / "source.docx"
     source.write_bytes(FIXTURE.read_bytes())
     subprocess.run(
