@@ -21,8 +21,6 @@ export const CHINESE_FONT_SIZE_NAMES = Object.freeze({
 
 const ZH_IMAGE_TYPOGRAPHY_SUBJECT_RE = /(?:插图|图片|图像|图形|图)(?:中|内|里)/
 const ZH_IMAGE_TYPOGRAPHY_SIZE_RE = /字号|字体大小/
-const EN_IMAGE_TYPOGRAPHY_SUBJECT_RE = /\b(?:figure|image|diagram|illustration)\b/i
-const EN_IMAGE_TYPOGRAPHY_SIZE_RE = /\b(?:font\s*size|typography|label\s*size)\b/i
 
 function parsePositiveSizePt(raw) {
   if (typeof raw !== 'number' && typeof raw !== 'string') return null
@@ -61,10 +59,7 @@ export function isImageTypographyRule(item) {
   if (item.params?.image_typography_constraint === IMAGE_TYPOGRAPHY_CONSTRAINT) return true
   const description = String(item.description || '')
   if (!description) return false
-  if (ZH_IMAGE_TYPOGRAPHY_SUBJECT_RE.test(description) && ZH_IMAGE_TYPOGRAPHY_SIZE_RE.test(description)) {
-    return true
-  }
-  return EN_IMAGE_TYPOGRAPHY_SUBJECT_RE.test(description) && EN_IMAGE_TYPOGRAPHY_SIZE_RE.test(description)
+  return ZH_IMAGE_TYPOGRAPHY_SUBJECT_RE.test(description) && ZH_IMAGE_TYPOGRAPHY_SIZE_RE.test(description)
 }
 
 export function isHardImageTypographyRule(item) {

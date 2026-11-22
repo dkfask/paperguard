@@ -73,8 +73,17 @@ describe('figureGuide utilities', () => {
     expect(isImageTypographyRule({ reason: 'image_typography_unverified' })).toBe(true)
     expect(isImageTypographyRule({ params: { image_typography_constraint: 'caption_font_size_upper_bound' } })).toBe(true)
     expect(isImageTypographyRule({ description: '图中标注符号文字字号不大于图题的字号' })).toBe(true)
-    expect(isImageTypographyRule({ description: 'Figure internal label font size must not exceed caption size' })).toBe(true)
+    expect(isImageTypographyRule({ description: '图题字号必须为五号' })).toBe(false)
+    expect(isImageTypographyRule({ description: 'Figure caption font size must be 10.5pt' })).toBe(false)
+    expect(isImageTypographyRule({
+      enforce: 'hard',
+      params: { image_typography_constraint: 'caption_font_size_upper_bound' },
+      description: 'Figure internal label font size must not exceed caption size',
+    })).toBe(true)
     expect(isImageTypographyRule({ description: '在目标版本 Word/WPS 打开成品，核对分页与目录。' })).toBe(false)
+    expect(hasImageTypographyConstraint({
+      resolved_items: [{ enforce: 'hard', description: 'Figure caption font size must be 10.5pt' }],
+    })).toBe(false)
 
     expect(isHardImageTypographyRule({ enforce: 'hard', reason: 'image_typography_unverified' })).toBe(true)
     expect(isHardImageTypographyRule({ enforce: 'soft', reason: 'image_typography_unverified' })).toBe(false)
